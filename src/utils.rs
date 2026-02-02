@@ -14,6 +14,14 @@ pub fn find_package_root(path: &Path) -> Option<PathBuf> {
     None
 }
 
+pub fn is_relevant_file(path: &Path) -> bool {
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    match ext {
+        "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" => true,
+        _ => false,
+    }
+}
+
 pub fn mask_interpolations(text: &str) -> String {
     let mut masked = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
