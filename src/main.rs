@@ -1,7 +1,10 @@
+use std::sync::{Arc, RwLock};
+
+use apollo_compiler::{Schema, schema};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp_types::*};
-use tree_sitter::{InputEdit, Point, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{InputEdit, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 struct DocumentState {
     uri: Url,
@@ -31,11 +34,174 @@ const SEMANTIC_TOKEN_QUERY: &str = r#"
     (string) @string
 "#;
 
+// A query to find: gql` ... `
+const TS_GQL_QUERY: &str = r#"
+    (tagged_template_expression
+        tag: (identifier) @tag_name
+        template: (template_string) @gql_content
+        (#eq? @tag_name "gql")
+    )
+"#;
+
+fn mask_interpolations(text: &str) -> String {
+    let mut masked = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '$' && chars.peek() == Some(&'{') {
+            // We found a ${ ... }
+            masked.push(' '); // Replace '$'
+            masked.push(' '); // Replace '{'
+            chars.next(); // Consume '{'
+
+            let mut depth = 1;
+            while depth > 0 {
+                if let Some(inner_c) = chars.next() {
+                    if inner_c == '{' {
+                        depth += 1;
+                    }
+                    if inner_c == '}' {
+                        depth -= 1;
+                    }
+                    masked.push(' '); // Mask everything inside with whitespace
+                } else {
+                    break;
+                }
+            }
+        } else {
+            masked.push(c);
+        }
+    }
+    masked
+}
+
 impl DocumentState {
     fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
         let rope = Rope::from_str(text);
         let tree = parser.parse(text, None).unwrap();
         Self { uri, rope, tree }
+    }
+
+    // pub fn find_embedded_gql(&self) {
+    //     let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+    //     let query = tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap();
+    //     let mut cursor = tree_sitter::QueryCursor::new();
+    //
+    //     // Use the TypeScript tree
+    //     let mut matches = cursor.matches(
+    //         &query,
+    //         self.tree.root_node(),
+    //         self.rope.to_string().as_bytes(),
+    //     );
+    //
+    //     while let Some(m) = matches.next() {
+    //         // capture[1] is the @gql_content (the actual string)
+    //         let gql_node = m.captures[1].node;
+    //
+    //         // Extract the text inside the backticks
+    //         let start_byte = gql_node.start_byte() + 1; // +1 to skip the opening `
+    //         let end_byte = gql_node.end_byte() - 1; // -1 to skip the closing `
+    //
+    //         let gql_text = self.rope.byte_slice(start_byte..end_byte).to_string();
+    //
+    //         // NOW: Run your GraphQL logic on this substring!
+    //         self.parse_and_analyze_gql(&gql_text, start_byte);
+    //     }
+    // }
+
+    pub fn process_embedded_gql(&self) -> Vec<(Tree, usize)> {
+        let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+        let query = tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap();
+        let mut cursor = tree_sitter::QueryCursor::new();
+
+        let text_raw = self.rope.to_string();
+        let mut matches = cursor.matches(&query, self.tree.root_node(), text_raw.as_bytes());
+
+        let mut gql_blocks = vec![];
+        while let Some(m) = matches.next() {
+            let gql_node = m.captures[1].node;
+
+            // Extract the range (excluding backticks)
+            let start_byte = gql_node.start_byte() + 1;
+            let end_byte = gql_node.end_byte() - 1;
+            let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
+
+            // 1. Mask the JS interpolations so GraphQL parser doesn't crash
+            let masked_gql = mask_interpolations(&raw_gql);
+
+            // 2. Parse the masked string
+            let mut gql_parser = Parser::new();
+            gql_parser
+                .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                .unwrap();
+
+            if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
+                // 3. Analyze the GQL tree
+                // IMPORTANT: Pass the 'start_byte' so diagnostics know where
+                // they are in the actual .ts file!
+                // self.analyze_gql_content(gql_tree, start_byte);
+                gql_blocks.push((gql_tree, start_byte));
+            }
+        }
+        gql_blocks
+    }
+
+    fn translate_to_file_range(&self, gql_node: tree_sitter::Node, offset_byte: usize) -> Range {
+        // Offset the byte position
+        let absolute_start_byte = gql_node.start_byte() + offset_byte;
+        let absolute_end_byte = gql_node.end_byte() + offset_byte;
+
+        // Use Ropey to get Line/Col from the absolute byte offset
+        let start_char = self.rope.byte_to_char(absolute_start_byte);
+        let end_char = self.rope.byte_to_char(absolute_end_byte);
+
+        Range {
+            start: Position::new(
+                self.rope.char_to_line(start_char) as u32,
+                (start_char - self.rope.line_to_char(self.rope.char_to_line(start_char))) as u32,
+            ),
+            end: Position::new(
+                self.rope.char_to_line(end_char) as u32,
+                (end_char - self.rope.line_to_char(self.rope.char_to_line(end_char))) as u32,
+            ),
+        }
+    }
+
+    pub fn get_semantic_diagnostics(&self, schema: &Schema) -> Vec<Diagnostic> {
+        let mut all_diagnostics = Vec::new();
+
+        // 1. Find all gql`...` blocks (reusing our TS Tree-sitter query)
+        let blocks = self.process_embedded_gql();
+
+        for block in blocks {
+            self.collect_gql_errors(block.0.root_node(), block.1, &mut all_diagnostics);
+        }
+        all_diagnostics
+    }
+
+    fn collect_gql_errors(
+        &self,
+        node: tree_sitter::Node,
+        offset_byte: usize,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if node.is_error() || node.is_missing() {
+            // Translate the local GQL node position to the absolute file range
+            let range = self.translate_to_file_range(node, offset_byte);
+
+            diagnostics.push(Diagnostic {
+                range,
+                severity: Some(DiagnosticSeverity::ERROR),
+                message: format!("GraphQL Syntax Error: unexpected '{}'", node.kind()),
+                ..Default::default()
+            });
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            self.collect_gql_errors(child, offset_byte, diagnostics);
+        }
     }
 
     fn apply_change(
@@ -308,6 +474,55 @@ struct Backend {
     client: Client,
     // Use a Map to track multiple open files
     documents: DashMap<Url, DocumentState>,
+    schema: Arc<RwLock<Schema>>,
+}
+
+impl Backend {
+    pub fn new(client: Client, schema_path: &str) -> Self {
+        // Load the schema from a file on disk
+        let schema_text = std::fs::read_to_string(schema_path).unwrap_or_else(|_| "".to_string());
+
+        let schema =
+            Schema::parse(&schema_text, schema_path).expect("Failed to parse initial schema");
+
+        Self {
+            client,
+            documents: DashMap::new(),
+            schema: Arc::new(RwLock::new(schema)), // Wrap it here
+        }
+    }
+
+    async fn on_schema_file_changed(&self, new_text: &str) {
+        let new_schema = Schema::parse(new_text, "schema.graphql").unwrap();
+        let mut lock = self.schema.write().unwrap();
+        *lock = new_schema;
+
+        self.client
+            .log_message(MessageType::INFO, "Schema updated!")
+            .await;
+    }
+
+    async fn reload_schema(&self, path: &str) {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            match Schema::parse(&text, path) {
+                Ok(new_schema) => {
+                    // 3. Acquire the write lock and update the shared schema
+                    {
+                        let mut lock = self.schema.write().unwrap();
+                        *lock = new_schema;
+                    }
+                    self.client
+                        .log_message(MessageType::INFO, "Schema successfully reloaded!")
+                        .await;
+                }
+                Err(e) => {
+                    self.client
+                        .show_message(MessageType::ERROR, format!("Schema parse error: {}", e))
+                        .await;
+                }
+            }
+        }
+    }
 }
 
 const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
@@ -397,11 +612,15 @@ impl LanguageServer for Backend {
                 doc.apply_change(&change, &mut parser);
             }
 
-            // 4. (Optional) Immediately calculate and publish new diagnostics
-            // let diagnostics = self.get_diagnostics_for_doc(&doc);
-            // self.client
-            //     .publish_diagnostics(uri, diagnostics, None)
-            //     .await;
+            // Run validation
+            let diagnostics = {
+                let schema = self.schema.read().unwrap();
+                doc.get_semantic_diagnostics(&schema)
+            };
+
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
         }
     }
 
@@ -467,6 +686,36 @@ impl LanguageServer for Backend {
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
+
+    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
+        self.client
+            .log_message(MessageType::INFO, "Configuration changed!")
+            .await;
+
+        // 1. Request the specific settings from VS Code
+        // Use a helper struct to deserialize the JSON response
+        let config = self
+            .client
+            .configuration(vec![ConfigurationItem {
+                scope_uri: None,
+                section: Some("gqlLsp.schemaPath".to_string()),
+            }])
+            .await;
+
+        if let Ok(values) = config {
+            if let Some(path_value) = values.first().and_then(|v| v.as_str()) {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("New schema path: {}", path_value),
+                    )
+                    .await;
+
+                // 2. Reload the schema from the new path
+                self.reload_schema(path_value).await;
+            }
+        }
+    }
 }
 
 #[tokio::main]
@@ -474,10 +723,8 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend {
-        client,
-        documents: DashMap::new(),
-    });
+    let schema_path = "";
+    let (service, socket) = LspService::new(|client| Backend::new(client, schema_path));
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 
