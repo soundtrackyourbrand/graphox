@@ -1,24 +1,24 @@
 use apollo_compiler::Schema;
 use graphql_rust::utils::is_relevant_file;
-use graphql_rust::{DocumentLanguage, DocumentState};
-use ignore::WalkBuilder;
+use graphql_rust::{Config, DocumentLanguage, DocumentState};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::Url;
 
 pub async fn run_codegen(
+    config: Option<Config>,
     schema_path: &str,
     scan_path: &str,
     output_dir: Option<&str>,
     watch: bool,
 ) {
     if !watch {
-        execute_codegen(schema_path, scan_path, output_dir).await;
+        execute_codegen(config, schema_path, scan_path, output_dir).await;
         return;
     }
 
-    println!("Watching for changes in {}...", scan_path);
-    execute_codegen(schema_path, scan_path, output_dir).await;
+    println!("Watching for changes...");
+    execute_codegen(config.clone(), schema_path, scan_path, output_dir).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
@@ -38,33 +38,79 @@ pub async fn run_codegen(
         .watch(Path::new(scan_path), notify::RecursiveMode::Recursive)
         .expect("Failed to watch directory");
 
-    debouncer
-        .watcher()
-        .watch(Path::new(schema_path), notify::RecursiveMode::NonRecursive)
-        .expect("Failed to watch schema");
+    if let Some(cfg) = &config {
+        for project in &cfg.projects {
+            debouncer
+                .watcher()
+                .watch(Path::new(&project.schema), notify::RecursiveMode::NonRecursive)
+                .ok();
+        }
+    } else {
+        debouncer
+            .watcher()
+            .watch(Path::new(schema_path), notify::RecursiveMode::NonRecursive)
+            .expect("Failed to watch schema");
+    }
 
     while let Some(_) = rx.recv().await {
         println!("\nChange detected, re-running codegen...");
-        execute_codegen(schema_path, scan_path, output_dir).await;
+        execute_codegen(config.clone(), schema_path, scan_path, output_dir).await;
     }
 }
 
-async fn execute_codegen(schema_path: &str, scan_path: &str, output_dir: Option<&str>) {
-    let schema_text = std::fs::read_to_string(schema_path).expect("Failed to read schema");
-    let schema = Schema::parse(&schema_text, schema_path).expect("Failed to parse schema");
+async fn execute_codegen(
+    config: Option<Config>,
+    schema_path: &str,
+    scan_path: &str,
+    output_dir: Option<&str>,
+) {
+    if let Some(cfg) = config {
+        let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
+        for project in cfg.projects {
+            println!("Processing project with schema: {}", project.schema);
+            let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+            execute_project_codegen(&project.schema, &project.include, project_output_dir).await;
+        }
+    } else {
+        execute_project_codegen(schema_path, scan_path, output_dir).await;
+    }
+}
+
+async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_dir: Option<&str>) {
+    let schema_text = match std::fs::read_to_string(schema_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Failed to read schema {}: {}", schema_path, e);
+            return;
+        }
+    };
+    let schema = match Schema::parse(&schema_text, schema_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to parse schema {}: {}", schema_path, e);
+            return;
+        }
+    };
+
+    let (scan_root, paths) = if include_glob.contains('*') {
+        (None, graphql_rust::utils::get_project_files(include_glob))
+    } else {
+        let p = Path::new(include_glob);
+        if p.is_dir() {
+            (Some(std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())), graphql_rust::utils::get_project_files(include_glob))
+        } else {
+            let abs_file = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            let parent = abs_file.parent().map(|pa| pa.to_path_buf());
+            (parent, vec![abs_file])
+        }
+    };
 
     let mut docs = Vec::new();
-
-    for entry in WalkBuilder::new(scan_path)
-        .add_custom_ignore_filename(".graphqlignore")
-        .build()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-    {
-        let path = entry.path().to_owned();
+    for path in paths {
         if is_relevant_file(&path) {
             let content = std::fs::read_to_string(&path).unwrap_or_default();
-            let uri = Url::from_file_path(std::fs::canonicalize(&path).unwrap()).unwrap();
+            let abs_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            let uri = Url::from_file_path(&abs_path).unwrap();
             let language = DocumentLanguage::from_uri(&uri);
             let mut parser = tree_sitter::Parser::new();
             parser
@@ -72,7 +118,7 @@ async fn execute_codegen(schema_path: &str, scan_path: &str, output_dir: Option<
                 .unwrap();
             let doc = DocumentState::new(uri, &content, parser);
             if !doc.get_graphql_trees().is_empty() {
-                docs.push((path, doc));
+                docs.push((abs_path, doc));
             }
         }
     }
@@ -94,10 +140,18 @@ async fn execute_codegen(schema_path: &str, scan_path: &str, output_dir: Option<
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
             Ok(ts_code) => {
                 let out_path = if let Some(dir) = output_dir {
-                    let rel = path.strip_prefix(scan_path).unwrap_or(&path);
                     let mut p = PathBuf::from(dir);
+                    let rel = if let Some(root) = &scan_root {
+                        path.strip_prefix(root).unwrap_or(&path)
+                    } else {
+                        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                        let abs_cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
+                        path.strip_prefix(&abs_cwd).unwrap_or(&path)
+                    };
                     p.push(rel);
-                    p.set_extension("graphql.codegen.ts");
+                    let mut filename = p.file_name().unwrap().to_os_string();
+                    filename.push(".codegen.ts");
+                    p.set_file_name(filename);
                     p
                 } else {
                     let mut p = path.clone();

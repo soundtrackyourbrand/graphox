@@ -1,28 +1,61 @@
 use apollo_compiler::Schema;
-use graphql_rust::utils::is_relevant_file;
-use graphql_rust::{DocumentLanguage, DocumentState};
-use ignore::WalkBuilder;
+use graphql_rust::utils::{get_project_files, is_relevant_file};
+use graphql_rust::{Config, DocumentLanguage, DocumentState};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
-pub async fn run_check(schema_path: &str, scan_path: &str) {
-    let schema_text = std::fs::read_to_string(schema_path).expect("Failed to read schema");
-    let schema = Schema::parse(&schema_text, schema_path).expect("Failed to parse schema");
+pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &str) {
+    let mut success = true;
+    if let Some(cfg) = config {
+        for project in cfg.projects {
+            println!("Checking project with schema: {}", project.schema);
+            if !execute_project_check(&project.schema, &project.include).await {
+                success = false;
+            }
+        }
+    } else {
+        let include = if std::path::Path::new(scan_path).is_file() {
+            scan_path.to_string()
+        } else {
+            format!("{}/**/*", scan_path)
+        };
+        if !execute_project_check(schema_path, &include).await {
+            success = false;
+        }
+    }
+
+    if !success {
+        std::process::exit(1);
+    }
+}
+
+async fn execute_project_check(schema_path: &str, include_glob: &str) -> bool {
+    let schema_text = match std::fs::read_to_string(schema_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Failed to read schema {}: {}", schema_path, e);
+            return false;
+        }
+    };
+    let schema = match Schema::parse(&schema_text, schema_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to parse schema {}: {}", schema_path, e);
+            return false;
+        }
+    };
 
     let mut docs = Vec::new();
-    println!("Scanning files in {}...", scan_path);
+    let paths = get_project_files(include_glob);
 
-    for entry in WalkBuilder::new(scan_path)
-        .add_custom_ignore_filename(".graphqlignore")
-        .build()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-    {
-        let path = entry.path().to_owned();
+    for path in paths {
         if is_relevant_file(&path) {
             let content = std::fs::read_to_string(&path).unwrap_or_default();
-            let uri = Url::from_file_path(std::fs::canonicalize(&path).unwrap()).unwrap();
+            let uri = match std::fs::canonicalize(&path) {
+                Ok(p) => Url::from_file_path(p).unwrap(),
+                Err(_) => continue,
+            };
 
             let language = DocumentLanguage::from_uri(&uri);
             let mut ts_parser = tree_sitter::Parser::new();
@@ -66,7 +99,11 @@ pub async fn run_check(schema_path: &str, scan_path: &str) {
         let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments);
         if !diagnostics.is_empty() {
             found_any = true;
-            let display_path = path.strip_prefix(scan_path).unwrap_or(&path);
+            let display_path = if let Some(root) = &doc.package_root {
+                path.strip_prefix(root).unwrap_or(&path)
+            } else {
+                &path
+            };
             println!("\nFile: {}", display_path.display());
             for d in diagnostics {
                 let severity = match d.severity {
@@ -89,7 +126,8 @@ pub async fn run_check(schema_path: &str, scan_path: &str) {
 
     if !found_any {
         println!("No issues found.");
+        true
     } else {
-        std::process::exit(1);
+        false
     }
 }

@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use commands::check::run_check;
 use commands::codegen::run_codegen;
 use commands::lsp::run_lsp;
+use graphql_rust::Config;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -43,16 +44,21 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    let config = Config::load();
 
     match cli.command {
         Some(Commands::Lsp) | None => {
             run_lsp(&cli.schema).await;
         }
         Some(Commands::Check { path }) => {
-            run_check(&cli.schema, &path).await;
+            run_check(config, &cli.schema, &path).await;
         }
-        Some(Commands::Codegen { path, output, watch }) => {
-            run_codegen(&cli.schema, &path, output.as_deref(), watch).await;
+        Some(Commands::Codegen {
+            path,
+            output,
+            watch,
+        }) => {
+            run_codegen(config, &cli.schema, &path, output.as_deref(), watch).await;
         }
     }
 }
