@@ -4,12 +4,12 @@ use apollo_compiler::{Schema, schema};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp_types::*};
-use tree_sitter::{InputEdit, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{InputEdit, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 struct DocumentState {
     uri: Url,
     rope: Rope,
-    tree: Tree,
+    ts_tree: Tree,
 }
 
 const GQL_SYMBOL_QUERY: &str = r#"
@@ -79,46 +79,29 @@ impl DocumentState {
     fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
         let rope = Rope::from_str(text);
         let tree = parser.parse(text, None).unwrap();
-        Self { uri, rope, tree }
+        Self {
+            uri,
+            rope,
+            ts_tree: tree,
+        }
     }
-
-    // pub fn find_embedded_gql(&self) {
-    //     let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
-    //     let query = tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap();
-    //     let mut cursor = tree_sitter::QueryCursor::new();
-    //
-    //     // Use the TypeScript tree
-    //     let mut matches = cursor.matches(
-    //         &query,
-    //         self.tree.root_node(),
-    //         self.rope.to_string().as_bytes(),
-    //     );
-    //
-    //     while let Some(m) = matches.next() {
-    //         // capture[1] is the @gql_content (the actual string)
-    //         let gql_node = m.captures[1].node;
-    //
-    //         // Extract the text inside the backticks
-    //         let start_byte = gql_node.start_byte() + 1; // +1 to skip the opening `
-    //         let end_byte = gql_node.end_byte() - 1; // -1 to skip the closing `
-    //
-    //         let gql_text = self.rope.byte_slice(start_byte..end_byte).to_string();
-    //
-    //         // NOW: Run your GraphQL logic on this substring!
-    //         self.parse_and_analyze_gql(&gql_text, start_byte);
-    //     }
-    // }
 
     pub fn process_embedded_gql(&self) -> Vec<(Tree, usize)> {
         let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
         let query = tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap();
         let mut cursor = tree_sitter::QueryCursor::new();
 
-        let text_raw = self.rope.to_string();
-        let mut matches = cursor.matches(&query, self.tree.root_node(), text_raw.as_bytes());
+        let mut ts_matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+
+            // We return a set of chunks from the rope for that specific node range
+            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
+            self.rope.byte_slice(start..end).chunks()
+        });
 
         let mut gql_blocks = vec![];
-        while let Some(m) = matches.next() {
+        while let Some(m) = ts_matches.next() {
             let gql_node = m.captures[1].node;
 
             // Extract the range (excluding backticks)
@@ -246,10 +229,10 @@ impl DocumentState {
         };
 
         // 5. Update the Tree
-        self.tree.edit(&edit);
+        self.ts_tree.edit(&edit);
 
         // We feed the Rope chunks to Tree-sitter for maximum efficiency
-        self.tree = parser
+        self.ts_tree = parser
             .parse_with_options(
                 &mut |byte, _| {
                     if byte >= self.rope.len_bytes() {
@@ -258,7 +241,7 @@ impl DocumentState {
                     let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
                     &chunk[byte - chunk_byte..]
                 },
-                Some(&self.tree),
+                Some(&self.ts_tree),
                 None,
             )
             .unwrap();
@@ -269,7 +252,7 @@ impl DocumentState {
         let point = tree_sitter::Point::new(position.line as usize, position.character as usize);
 
         // 2. Find the smallest node at that coordinate
-        let root = self.tree.root_node();
+        let root = self.ts_tree.root_node();
         let trigger_node = root.descendant_for_point_range(point, point)?;
 
         // 3. If we clicked a name, let's find where that name is defined
@@ -305,8 +288,14 @@ impl DocumentState {
 
         let query = tree_sitter::Query::new(&lang, &query_str).ok()?;
         let mut cursor = tree_sitter::QueryCursor::new();
-        let text = self.rope.to_string();
-        let mut matches = cursor.matches(&query, self.tree.root_node(), text.as_bytes());
+        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+
+            // We return a set of chunks from the rope for that specific node range
+            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
+            self.rope.byte_slice(start..end).chunks()
+        });
 
         if let Some(m) = matches.next() {
             let node = m.captures[0].node;
@@ -324,8 +313,14 @@ impl DocumentState {
         let mut cursor = QueryCursor::new();
 
         // Execute query on the root node
-        let text = self.rope.to_string();
-        let mut matches = cursor.matches(&query, self.tree.root_node(), text.as_bytes());
+        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+
+            // We return a set of chunks from the rope for that specific node range
+            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
+            self.rope.byte_slice(start..end).chunks()
+        });
 
         let mut symbols = Vec::new();
 
@@ -359,7 +354,7 @@ impl DocumentState {
 
     pub fn get_hover_info(&self, position: Position) -> Option<Hover> {
         let point = Point::new(position.line as usize, position.character as usize);
-        let root = self.tree.root_node();
+        let root = self.ts_tree.root_node();
         let node = root.descendant_for_point_range(point, point)?;
 
         // Only trigger hover on "name" nodes
@@ -402,8 +397,14 @@ impl DocumentState {
 
         let query = tree_sitter::Query::new(&lang, &query_str).ok()?;
         let mut cursor = tree_sitter::QueryCursor::new();
-        let text = self.rope.to_string();
-        let mut matches = cursor.matches(&query, self.tree.root_node(), text.as_bytes());
+        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+
+            // We return a set of chunks from the rope for that specific node range
+            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
+            self.rope.byte_slice(start..end).chunks()
+        });
 
         while let Some(m) = matches.next() {
             // Check if we captured a description (@desc)
@@ -428,8 +429,14 @@ impl DocumentState {
         let query = Query::new(&lang, SEMANTIC_TOKEN_QUERY).unwrap();
         let mut cursor = QueryCursor::new();
 
-        let text = self.rope.to_string();
-        let mut matches = cursor.matches(&query, self.tree.root_node(), text.as_bytes());
+        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+
+            // We return a set of chunks from the rope for that specific node range
+            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
+            self.rope.byte_slice(start..end).chunks()
+        });
 
         let mut tokens = Vec::new();
 
