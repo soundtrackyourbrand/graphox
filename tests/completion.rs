@@ -7,7 +7,7 @@ use tower_lsp::jsonrpc::Request;
 
 #[tokio::test]
 async fn test_completion_fields() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
 
     // 0. Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -84,7 +84,7 @@ async fn test_completion_fields() {
 
 #[tokio::test]
 async fn test_completion_types_in_fragment() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
     // Initialize ... (omitted for brevity, shared setup would be nice but copy-paste is safer for now)
     let init_params = InitializeParams { ..Default::default() };
     let request = Request::build("initialize")
@@ -150,7 +150,7 @@ async fn test_completion_types_in_fragment() {
 
 #[tokio::test]
 async fn test_completion_fragment_spread() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
     
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -226,7 +226,7 @@ async fn test_completion_fragment_spread() {
 
 #[tokio::test]
 async fn test_completion_variables() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
     
     // Initialize
     let init_params = InitializeParams { ..Default::default() };

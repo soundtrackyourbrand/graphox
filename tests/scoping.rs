@@ -7,7 +7,7 @@ use std::path::Path;
 
 #[tokio::test]
 async fn test_lsp_fragment_scoping() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -124,7 +124,7 @@ async fn test_lsp_fragment_scoping() {
 #[tokio::test]
 async fn test_lsp_package_isolation() {
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
     });
 
     // Initialize

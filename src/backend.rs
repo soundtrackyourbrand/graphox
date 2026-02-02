@@ -1,27 +1,76 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
+use crate::Config;
 
 pub struct Backend {
     pub client: Client,
     pub documents: DashMap<Url, DocumentState>,
-    pub schema: Arc<RwLock<Schema>>,
+    pub config: Option<Config>,
+    pub schemas: DashMap<String, Arc<Schema>>,
+    pub empty_schema: Arc<Schema>,
+    pub default_schema_path: Option<String>,
 }
 
 impl Backend {
-    pub fn new(client: Client, schema_path: &str) -> Self {
-        let schema_text = std::fs::read_to_string(schema_path).unwrap_or_else(|_| "".to_string());
-        let schema =
-            Schema::parse(&schema_text, schema_path).expect("Failed to parse initial schema");
+    pub fn new(client: Client, config: Option<Config>, default_schema_path: &str) -> Self {
+        let schemas = DashMap::new();
+        let empty_schema = Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
+
+        if let Some(cfg) = &config {
+            // Load project schemas from config
+            for project in &cfg.projects {
+                if !schemas.contains_key(&project.schema) {
+                    if let Ok(text) = std::fs::read_to_string(&project.schema) {
+                        if let Ok(schema) = Schema::parse(&text, &project.schema) {
+                            schemas.insert(project.schema.clone(), Arc::new(schema));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Always try to load the CLI schema too, just in case it's used as fallback when no config is present
+        if let Ok(text) = std::fs::read_to_string(default_schema_path) {
+            if let Ok(schema) = Schema::parse(&text, default_schema_path) {
+                schemas.insert(default_schema_path.to_string(), Arc::new(schema));
+            }
+        }
 
         Self {
             client,
             documents: DashMap::new(),
-            schema: Arc::new(RwLock::new(schema)),
+            config,
+            schemas,
+            empty_schema,
+            default_schema_path: Some(default_schema_path.to_string()),
         }
+    }
+
+    fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
+        if let Some(config) = &self.config {
+            if let Ok(path) = uri.to_file_path() {
+                if let Some(schema_path) = config.get_schema_for_path(&path) {
+                    if let Some(schema) = self.schemas.get(&schema_path) {
+                        return schema.value().clone();
+                    }
+                }
+            }
+            // If we have a config but no match, user said "assume empty schema"
+            return self.empty_schema.clone();
+        }
+        
+        // No config present at all, fallback to default schema (preserves CLI/test behavior)
+        if let Some(default_path) = &self.default_schema_path {
+            if let Some(schema) = self.schemas.get(default_path) {
+                return schema.value().clone();
+            }
+        }
+        
+        self.empty_schema.clone()
     }
 
     fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<String> {
@@ -42,17 +91,38 @@ impl Backend {
         if let Ok(text) = std::fs::read_to_string(path) {
             match Schema::parse(&text, path) {
                 Ok(new_schema) => {
-                    {
-                        let mut lock = self.schema.write().unwrap();
-                        *lock = new_schema;
-                    }
+                    self.schemas.insert(path.to_string(), Arc::new(new_schema));
                     self.client
-                        .log_message(MessageType::INFO, "Schema successfully reloaded!")
+                        .log_message(MessageType::INFO, format!("Schema {} successfully reloaded!", path))
                         .await;
+                    
+                    // Re-validate all documents that use this schema
+                    for entry in self.documents.iter() {
+                        let uri = entry.key();
+                        let doc = entry.value();
+                        
+                        let doc_schema = self.get_schema_for_doc(uri);
+                        // This is a bit inefficient but correct: we check if the reloaded schema is the one for this doc
+                        // We can't easily check identity without comparing paths, so let's check if the doc's schema path matches
+                        
+                        if let Ok(doc_path) = uri.to_file_path() {
+                            let matches = if let Some(config) = &self.config {
+                                config.get_schema_for_path(&doc_path).map_or(false, |p| p == path)
+                            } else {
+                                self.default_schema_path.as_ref().map_or(false, |p| p == path)
+                            };
+
+                            if matches {
+                                let fragments = self.get_fragments_for_doc(doc);
+                                let diagnostics = doc.get_semantic_diagnostics(&doc_schema, &fragments);
+                                self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     self.client
-                        .show_message(MessageType::ERROR, format!("Schema parse error: {}", e))
+                        .show_message(MessageType::ERROR, format!("Schema {} parse error: {}", path, e))
                         .await;
                 }
             }
@@ -135,8 +205,7 @@ impl LanguageServer for Backend {
         let position = params.text_document_position_params.position;
 
         if let Some(doc) = self.documents.get(uri) {
-            let schema = self.schema.read().unwrap();
-
+            let schema = self.get_schema_for_doc(uri);
             if let Some(hover) = doc.get_hover_info(position, &schema) {
                 return Ok(Some(hover));
             }
@@ -174,8 +243,7 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
 
         if let Some(doc) = self.documents.get(uri) {
-            let schema = self.schema.read().unwrap();
-
+            let schema = self.get_schema_for_doc(uri);
             // Collect fragments from the same package
             let fragments = self.get_fragments_for_doc(&doc);
 
@@ -199,12 +267,9 @@ impl LanguageServer for Backend {
                 doc.apply_change(&change, &mut parser);
             }
 
-            let diagnostics = {
-                let schema = self.schema.read().unwrap();
-                let fragments = self.get_fragments_for_doc(&doc);
-                doc.get_semantic_diagnostics(&schema, &fragments)
-            };
-
+            let schema = self.get_schema_for_doc(&uri);
+            let fragments = self.get_fragments_for_doc(&doc);
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments);
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
@@ -260,7 +325,16 @@ impl LanguageServer for Backend {
             &params.text_document.text,
             parser,
         );
-        self.documents.insert(params.text_document.uri, doc);
+        let uri = params.text_document.uri;
+        self.documents.insert(uri.clone(), doc);
+
+        // Initial validation
+        if let Some(doc) = self.documents.get(&uri) {
+            let schema = self.get_schema_for_doc(&uri);
+            let fragments = self.get_fragments_for_doc(&doc);
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments);
+            self.client.publish_diagnostics(uri, diagnostics, None).await;
+        }
     }
 
     async fn document_symbol(
@@ -298,34 +372,13 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "Configuration changed!")
             .await;
-
-        let config = self
-            .client
-            .configuration(vec![ConfigurationItem {
-                scope_uri: None,
-                section: Some("gqlLsp.schemaPath".to_string()),
-            }])
-            .await;
-
-        if let Ok(values) = config
-            && let Some(path_value) = values.first().and_then(|v| v.as_str())
-        {
-            self.client
-                .log_message(
-                    MessageType::INFO,
-                    format!("New schema path: {}", path_value),
-                )
-                .await;
-
-            self.reload_schema(path_value).await;
-        }
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
             if change.uri.path().ends_with(".graphql") {
                 self.client
-                    .log_message(MessageType::INFO, "Schema file changed, reloading...")
+                    .log_message(MessageType::INFO, format!("Schema file {} changed, reloading...", change.uri.path()))
                     .await;
                 self.reload_schema(change.uri.path()).await;
             }

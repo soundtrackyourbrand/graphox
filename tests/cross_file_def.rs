@@ -6,7 +6,7 @@ use tower_service::Service;
 
 #[tokio::test]
 async fn test_goto_definition_cross_file() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
 
     // 0. Initialize
     let init_params = InitializeParams { ..Default::default() };

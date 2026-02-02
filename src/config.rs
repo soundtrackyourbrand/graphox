@@ -36,6 +36,26 @@ impl Config {
         let content = fs::read_to_string(config_path).ok()?;
         serde_yaml::from_str(&content).ok()
     }
+
+    pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
+        use glob::Pattern;
+        let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+        for project in &self.projects {
+            if let Ok(pattern) = Pattern::new(&project.include) {
+                if pattern.matches_path(&abs_path) {
+                    return Some(project.schema.clone());
+                }
+            }
+            // Fallback for non-glob paths
+            if let Ok(include_path) = fs::canonicalize(&project.include) {
+                if abs_path.starts_with(&include_path) {
+                    return Some(project.schema.clone());
+                }
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]

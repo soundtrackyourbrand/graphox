@@ -48,7 +48,7 @@ async fn main() {
 
     match cli.command {
         Some(Commands::Lsp) | None => {
-            run_lsp(&cli.schema).await;
+            run_lsp(config, &cli.schema).await;
         }
         Some(Commands::Check { path }) => {
             run_check(config, &cli.schema, &path).await;

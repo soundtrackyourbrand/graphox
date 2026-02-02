@@ -6,7 +6,7 @@ use tower_lsp::jsonrpc::Request;
 
 #[tokio::test]
 async fn test_hover_fragment_spread() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, "tests/fixtures/simple_schema.graphql"));
+    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -93,7 +93,7 @@ async fn test_hover_fragment_spread() {
 #[tokio::test]
 async fn test_hover_schema_type() {
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
     });
 
     // Initialize
@@ -166,7 +166,7 @@ async fn test_hover_schema_type() {
 #[tokio::test]
 async fn test_hover_graphql_description() {
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
     });
 
     // Initialize
@@ -243,7 +243,7 @@ async fn test_hover_graphql_description() {
 #[tokio::test]
 async fn test_hover_schema_field() {
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
     });
 
     // Initialize
