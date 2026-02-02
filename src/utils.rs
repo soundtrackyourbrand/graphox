@@ -32,15 +32,14 @@ pub fn mask_interpolations(text: &str) -> String {
     masked
 }
 
-pub fn token_type_to_legend_index(token_type: &str) -> u32 {
-    match token_type {
-        "variable" => 0,
-        "type" => 1,
-        "keyword" => 2,
-        "enum" => 3,
-        "string" => 4,
-        _ => 0,
-    }
+#[derive(Debug, Clone, Copy)]
+#[repr(u32)]
+pub enum SemanticTokenKind {
+    Variable = 0,
+    Type = 1,
+    Keyword = 2,
+    Enum = 3,
+    String = 4,
 }
 
 pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
