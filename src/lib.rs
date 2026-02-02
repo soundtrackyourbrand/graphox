@@ -83,7 +83,7 @@ const TS_GQL_QUERY: &str = r#"
 
 const GQL_DEFINITION_QUERY: &str = r#"
     (object_type_definition (name) @name)
-    (fragment_definition (name) @name)
+    (fragment_definition (fragment_name (name) @name))
     (enum_type_definition (name) @name)
 "#;
 
@@ -315,12 +315,10 @@ impl DocumentState {
         self.graphql_trees = self.reparse_graphql_trees();
     }
 
-    pub fn get_definition_location(&self, position: Position) -> Option<Location> {
-        // 1. Calculate byte offset
+    pub fn get_symbol_at_position(&self, position: Position) -> Option<String> {
         let char_idx = self.rope.line_to_char(position.line as usize) + position.character as usize;
         let byte_offset = self.rope.char_to_byte(char_idx);
 
-        // 2. Find the tree that contains this position
         for (tree, offset) in self.get_graphql_trees() {
             let offset = *offset;
             let root = tree.root_node();
@@ -331,22 +329,20 @@ impl DocumentState {
                 let trigger_node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
                 if trigger_node.kind() == "name" {
-                    let symbol_name = self
+                    return Some(self
                         .rope
                         .slice(
                             self.rope.byte_to_char(trigger_node.start_byte() + offset)
                                 ..self.rope.byte_to_char(trigger_node.end_byte() + offset),
                         )
-                        .to_string();
-
-                    return self.find_definition_in_tree(&symbol_name);
+                        .to_string());
                 }
             }
         }
-
         None
     }
-    fn find_definition_in_tree(&self, target_name: &str) -> Option<Location> {
+
+    pub fn find_definition_in_tree(&self, target_name: &str) -> Option<Location> {
         let query = GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_DEFINITION_QUERY).unwrap()
@@ -379,18 +375,8 @@ impl DocumentState {
                     .to_string();
 
                 if name == target_name {
-                    let node = name_node; // Or the parent? The query captures name as @name. 
-                    // Actually the previous query captured the parent as well?
-                    // Previous query:
-                    // (object_type_definition name: (name) @name)
-                    // The capture @name is on the 'name' node.
-                    // But we want the range of the Definition, or the name?
-                    // "return Some(Location { ... range: node_to_lsp_range(node) })"
-                    // where node was m.captures[0].node.
-                    // In the old query: captures[0] was @name.
-                    // So we are returning the location of the NAME node, not the whole definition.
-                    // That seems correct for "Go to Definition" (jumping to the name).
-
+                    let node = name_node; 
+                    
                     // Translate local node range to file range
                     let range = self.translate_to_file_range(node, offset);
                     return Some(Location {
@@ -835,10 +821,21 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(&uri)
-            && let Some(location) = doc.get_definition_location(position)
-        {
-            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        // 1. Find the symbol name at the cursor
+        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+            doc.get_symbol_at_position(position)
+        } else {
+            None
+        };
+
+        // 2. Search for definition in all documents
+        if let Some(name) = symbol_name {
+            for entry in self.documents.iter() {
+                let doc = entry.value();
+                if let Some(location) = doc.find_definition_in_tree(&name) {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                }
+            }
         }
 
         Ok(None)
