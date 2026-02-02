@@ -1,0 +1,2 @@
+fragment PublicFrag on User @public { id }
+fragment PrivateFrag on User { id }

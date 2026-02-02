@@ -1,4 +1,18 @@
+use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::SemanticTokenType;
+
+pub fn find_package_root(path: &Path) -> Option<PathBuf> {
+    let mut current = path.parent();
+
+    while let Some(dir) = current {
+        if dir.join("package.json").exists() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+
+    None
+}
 
 pub fn mask_interpolations(text: &str) -> String {
     let mut masked = String::with_capacity(text.len());

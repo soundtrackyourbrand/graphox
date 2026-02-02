@@ -16,7 +16,8 @@ pub const GQL_SYMBOL_QUERY: &str = r#"
         (name) @symbol.name) @symbol.container
 
     (fragment_definition 
-        (fragment_name (name) @symbol.name)) @symbol.container
+        (fragment_name (name) @symbol.name)
+        (directives)? @symbol.directives) @symbol.container
 
     (interface_type_definition 
         (name) @symbol.name) @symbol.container

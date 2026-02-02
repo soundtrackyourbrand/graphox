@@ -1,8 +1,9 @@
 use apollo_compiler::Schema;
 use clap::{Parser, Subcommand};
 use graphql_rust::{Backend, DocumentLanguage, DocumentState};
-use std::path::Path;
-use tower_lsp::lsp_types::Url;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tower_lsp::{LspService, Server};
 use walkdir::WalkDir;
 
@@ -75,29 +76,54 @@ async fn run_check(schema_path: &str, scan_path: &str) {
         }
     }
 
-    // Collect all fragments first
-    let mut all_fragments = Vec::new();
+    // Group fragments by package root, but also collect all public fragments
+    let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<String>> = HashMap::new();
+    let mut all_public_fragments: Vec<String> = Vec::new();
+
     for (_, doc) in &docs {
-        all_fragments.extend(doc.fragments().to_vec());
+        for frag in doc.fragments() {
+            if frag.is_public {
+                all_public_fragments.push(frag.name.clone());
+            }
+            fragments_per_package
+                .entry(doc.package_root.clone())
+                .or_default()
+                .push(frag.name.clone());
+        }
     }
 
     let mut found_any = false;
     for (path, doc) in &docs {
-        let diagnostics = doc.get_semantic_diagnostics(&schema, &all_fragments);
-        let deprecations: Vec<_> = diagnostics
-            .iter()
-            .filter(|d| d.message.contains("deprecated"))
-            .collect();
+        let mut package_fragments = fragments_per_package
+            .get(&doc.package_root)
+            .cloned()
+            .unwrap_or_default();
 
-        if !deprecations.is_empty() {
+        // Add public fragments from other packages
+        for pub_frag in &all_public_fragments {
+            if !package_fragments.contains(pub_frag) {
+                package_fragments.push(pub_frag.clone());
+            }
+        }
+
+        let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments);
+        if !diagnostics.is_empty() {
             found_any = true;
-            let display_path = path.strip_prefix(scan_path).unwrap_or(path);
+            let display_path = path.strip_prefix(scan_path).unwrap_or(&path);
             println!("\nFile: {}", display_path.display());
-            for d in deprecations {
+            for d in diagnostics {
+                let severity = match d.severity {
+                    Some(DiagnosticSeverity::ERROR) => "Error",
+                    Some(DiagnosticSeverity::WARNING) => "Warning",
+                    Some(DiagnosticSeverity::INFORMATION) => "Info",
+                    Some(DiagnosticSeverity::HINT) => "Hint",
+                    _ => "Diagnostic",
+                };
                 println!(
-                    "  [{}:{}] {}",
+                    "  [{}:{}] {}: {}",
                     d.range.start.line + 1,
                     d.range.start.character + 1,
+                    severity,
                     d.message
                 );
             }
@@ -105,7 +131,7 @@ async fn run_check(schema_path: &str, scan_path: &str) {
     }
 
     if !found_any {
-        println!("No deprecation warnings found.");
+        println!("No issues found.");
     } else {
         std::process::exit(1);
     }

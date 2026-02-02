@@ -24,6 +24,20 @@ impl Backend {
         }
     }
 
+    fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<String> {
+        let mut fragments = Vec::new();
+        for entry in self.documents.iter() {
+            let other_doc = entry.value();
+            let is_same_package = other_doc.package_root == doc.package_root;
+            for frag in other_doc.fragments() {
+                if is_same_package || frag.is_public {
+                    fragments.push(frag.name.clone());
+                }
+            }
+        }
+        fragments
+    }
+
     async fn reload_schema(&self, path: &str) {
         if let Ok(text) = std::fs::read_to_string(path) {
             match Schema::parse(&text, path) {
@@ -130,14 +144,23 @@ impl LanguageServer for Backend {
             // If no schema or description hover, check if it's a fragment spread
             if let Some(symbol_name) = doc.get_symbol_at_position(position) {
                 for entry in self.documents.iter() {
-                    if let Some(info) = entry.value().find_fragment_info(&symbol_name) {
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: format!("```graphql\n{}\n```", info),
-                            }),
-                            range: None, // We could calculate range here if needed
-                        }));
+                    let other_doc = entry.value();
+                    let is_same_package = other_doc.package_root == doc.package_root;
+                    let is_public_fragment = other_doc
+                        .fragments()
+                        .iter()
+                        .any(|f| f.name == symbol_name && f.is_public);
+
+                    if is_same_package || is_public_fragment {
+                        if let Some(info) = other_doc.find_fragment_info(&symbol_name) {
+                            return Ok(Some(Hover {
+                                contents: HoverContents::Markup(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value: format!("```graphql\n{}\n```", info),
+                                }),
+                                range: None,
+                            }));
+                        }
                     }
                 }
             }
@@ -153,11 +176,8 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(uri) {
             let schema = self.schema.read().unwrap();
 
-            // Collect all fragments from all documents
-            let mut fragments = Vec::new();
-            for entry in self.documents.iter() {
-                fragments.extend(entry.value().fragments().to_vec());
-            }
+            // Collect fragments from the same package
+            let fragments = self.get_fragments_for_doc(&doc);
 
             let items = doc.get_completion_items(position, &schema, fragments);
             return Ok(Some(CompletionResponse::Array(items)));
@@ -181,10 +201,7 @@ impl LanguageServer for Backend {
 
             let diagnostics = {
                 let schema = self.schema.read().unwrap();
-                let mut fragments = Vec::new();
-                for entry in self.documents.iter() {
-                    fragments.extend(entry.value().fragments().to_vec());
-                }
+                let fragments = self.get_fragments_for_doc(&doc);
                 doc.get_semantic_diagnostics(&schema, &fragments)
             };
 
@@ -208,12 +225,22 @@ impl LanguageServer for Backend {
             None
         };
 
-        // 2. Search for definition in all documents
+        // 2. Search for definition in documents within the same package or public fragments
         if let Some(name) = symbol_name {
-            for entry in self.documents.iter() {
-                let doc = entry.value();
-                if let Some(location) = doc.find_definition_in_tree(&name) {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            if let Some(doc) = self.documents.get(&uri) {
+                for entry in self.documents.iter() {
+                    let other_doc = entry.value();
+                    let is_same_package = other_doc.package_root == doc.package_root;
+                    let is_public_fragment = other_doc
+                        .fragments()
+                        .iter()
+                        .any(|f| f.name == name && f.is_public);
+
+                    if is_same_package || is_public_fragment {
+                        if let Some(location) = other_doc.find_definition_in_tree(&name) {
+                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                        }
+                    }
                 }
             }
         }

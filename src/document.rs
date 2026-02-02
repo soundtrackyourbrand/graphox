@@ -1,6 +1,7 @@
 use crate::queries::*;
-use crate::utils::mask_interpolations;
+use crate::utils::{find_package_root, mask_interpolations};
 use ropey::Rope;
+use std::path::PathBuf;
 use tower_lsp::lsp_types::*;
 use tree_sitter::{InputEdit, Node, Parser, Point, StreamingIterator, Tree};
 
@@ -41,13 +42,20 @@ pub struct GraphQLBlock {
     pub offset: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct FragmentDef {
+    pub name: String,
+    pub is_public: bool,
+}
+
 pub struct DocumentState {
     pub uri: Url,
     pub rope: Rope,
     pub tree: Tree,
     pub language: DocumentLanguage,
     pub graphql_trees: Vec<GraphQLBlock>,
-    pub fragments: Vec<String>,
+    pub fragments: Vec<FragmentDef>,
+    pub package_root: Option<PathBuf>,
 }
 
 impl DocumentState {
@@ -55,6 +63,12 @@ impl DocumentState {
         let language = DocumentLanguage::from_uri(&uri);
         let rope = Rope::from_str(text);
         let tree = parser.parse(text, None).unwrap();
+        let package_root = if let Ok(path) = uri.to_file_path() {
+            find_package_root(&path)
+        } else {
+            None
+        };
+
         let mut doc = Self {
             uri,
             rope,
@@ -62,6 +76,7 @@ impl DocumentState {
             language,
             graphql_trees: Vec::new(),
             fragments: Vec::new(),
+            package_root,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();
         doc.fragments = doc.extract_fragment_names();
@@ -169,8 +184,58 @@ impl DocumentState {
         None
     }
 
-    pub fn fragments(&self) -> &[String] {
+    pub fn fragments(&self) -> &[FragmentDef] {
         &self.fragments
+    }
+
+    fn extract_fragment_names(&self) -> Vec<FragmentDef> {
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut fragments = Vec::new();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut is_fragment = false;
+                let mut is_public = false;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        if cap.node.kind() == "fragment_definition" {
+                            is_fragment = true;
+                        }
+                    } else if cap_name == "symbol.directives" {
+                        let directives_text = self.get_node_text(cap.node, offset);
+                        if directives_text.contains("@public") {
+                            is_public = true;
+                        }
+                    }
+                }
+
+                if is_fragment {
+                    if let Some(n) = name {
+                        fragments.push(FragmentDef { name: n, is_public });
+                    }
+                }
+            }
+        }
+        fragments
     }
 
     pub fn find_fragment_info(&self, target_name: &str) -> Option<String> {
@@ -221,50 +286,6 @@ impl DocumentState {
             }
         }
         None
-    }
-
-    fn extract_fragment_names(&self) -> Vec<String> {
-        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-            let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
-        });
-
-        let mut cursor = tree_sitter::QueryCursor::new();
-        let mut names = Vec::new();
-
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
-                let start = node.start_byte();
-                let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
-            });
-
-            while let Some(m) = matches.next() {
-                let mut name = None;
-                let mut is_fragment = false;
-
-                for cap in m.captures {
-                    let cap_name = query.capture_names()[cap.index as usize];
-                    if cap_name == "symbol.name" {
-                        name = Some(self.get_node_text(cap.node, offset));
-                    } else if cap_name == "symbol.container" {
-                        if cap.node.kind() == "fragment_definition" {
-                            is_fragment = true;
-                        }
-                    }
-                }
-
-                if is_fragment {
-                    if let Some(n) = name {
-                        names.push(n);
-                    }
-                }
-            }
-        }
-        names
     }
 
     pub fn apply_change(
