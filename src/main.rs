@@ -36,6 +36,9 @@ enum Commands {
         /// Output directory (default: next to input files)
         #[arg(short, long)]
         output: Option<String>,
+        /// Watch for changes and re-run codegen
+        #[arg(short, long)]
+        watch: bool,
     },
 }
 
@@ -53,8 +56,8 @@ async fn main() {
         Some(Commands::Check { path }) => {
             run_check(&cli.schema, &path).await;
         }
-        Some(Commands::Codegen { path, output }) => {
-            run_codegen(&cli.schema, &path, output.as_deref()).await;
+        Some(Commands::Codegen { path, output, watch }) => {
+            run_codegen(&cli.schema, &path, output.as_deref(), watch).await;
         }
     }
 }
@@ -146,12 +149,50 @@ async fn run_check(schema_path: &str, scan_path: &str) {
     }
 }
 
-async fn run_codegen(schema_path: &str, scan_path: &str, output_dir: Option<&str>) {
+async fn run_codegen(schema_path: &str, scan_path: &str, output_dir: Option<&str>, watch: bool) {
+    if !watch {
+        execute_codegen(schema_path, scan_path, output_dir).await;
+        return;
+    }
+
+    println!("Watching for changes in {}...", scan_path);
+    execute_codegen(schema_path, scan_path, output_dir).await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+    let mut debouncer = notify_debouncer_mini::new_debouncer(
+        std::time::Duration::from_millis(200),
+        move |res: notify_debouncer_mini::DebounceEventResult| match res {
+            Ok(_) => {
+                let _ = tx.blocking_send(());
+            }
+            Err(e) => eprintln!("Watch error: {:?}", e),
+        },
+    )
+    .expect("Failed to create debouncer");
+
+    debouncer
+        .watcher()
+        .watch(Path::new(scan_path), notify::RecursiveMode::Recursive)
+        .expect("Failed to watch directory");
+    
+    // Also watch schema
+    debouncer
+        .watcher()
+        .watch(Path::new(schema_path), notify::RecursiveMode::NonRecursive)
+        .expect("Failed to watch schema");
+
+    while let Some(_) = rx.recv().await {
+        println!("\nChange detected, re-running codegen...");
+        execute_codegen(schema_path, scan_path, output_dir).await;
+    }
+}
+
+async fn execute_codegen(schema_path: &str, scan_path: &str, output_dir: Option<&str>) {
     let schema_text = std::fs::read_to_string(schema_path).expect("Failed to read schema");
     let schema = Schema::parse(&schema_text, schema_path).expect("Failed to parse schema");
 
     let mut docs = Vec::new();
-    println!("Scanning files in {}...", scan_path);
 
     for entry in WalkDir::new(scan_path)
         .into_iter()
@@ -191,7 +232,7 @@ async fn run_codegen(schema_path: &str, scan_path: &str, output_dir: Option<&str
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
             Ok(ts_code) => {
                 let out_path = if let Some(dir) = output_dir {
-                    let rel = path.strip_prefix(scan_path).unwrap_or(path);
+                    let rel = path.strip_prefix(scan_path).unwrap_or(&path);
                     let mut p = PathBuf::from(dir);
                     p.push(rel);
                     p.set_extension("graphql.codegen.ts");
