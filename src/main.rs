@@ -1,15 +1,48 @@
 use std::sync::{Arc, RwLock};
 
-use apollo_compiler::{Schema, schema};
+use apollo_compiler::Schema;
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp_types::*};
 use tree_sitter::{InputEdit, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentLanguage {
+    GraphQL,
+    TypeScript,
+}
+
+impl DocumentLanguage {
+    fn from_uri(uri: &Url) -> Self {
+        let path = uri.path();
+        if path.ends_with(".ts")
+            || path.ends_with(".tsx")
+            || path.ends_with(".cts")
+            || path.ends_with(".mts")
+            || path.ends_with(".js")
+            || path.ends_with(".jsx")
+            || path.ends_with(".cjs")
+            || path.ends_with(".mjs")
+        {
+            DocumentLanguage::TypeScript
+        } else {
+            DocumentLanguage::GraphQL
+        }
+    }
+
+    fn get_parser_language(&self) -> tree_sitter::Language {
+        match self {
+            DocumentLanguage::GraphQL => tree_sitter_graphql::LANGUAGE.into(),
+            DocumentLanguage::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        }
+    }
+}
+
 struct DocumentState {
     uri: Url,
     rope: Rope,
-    ts_tree: Tree,
+    tree: Tree,
+    language: DocumentLanguage,
 }
 
 const GQL_SYMBOL_QUERY: &str = r#"
@@ -77,21 +110,28 @@ fn mask_interpolations(text: &str) -> String {
 
 impl DocumentState {
     fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
+        let language = DocumentLanguage::from_uri(&uri);
         let rope = Rope::from_str(text);
         let tree = parser.parse(text, None).unwrap();
         Self {
             uri,
             rope,
-            ts_tree: tree,
+            tree,
+            language,
         }
     }
 
-    pub fn process_embedded_gql(&self) -> Vec<(Tree, usize)> {
+    pub fn get_graphql_trees(&self) -> Vec<(Tree, usize)> {
+        if self.language == DocumentLanguage::GraphQL {
+            return vec![(self.tree.clone(), 0)];
+        }
+
+        // TypeScript handling
         let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
         let query = tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap();
         let mut cursor = tree_sitter::QueryCursor::new();
 
-        let mut ts_matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
+        let mut ts_matches = cursor.matches(&query, self.tree.root_node(), |node: Node| {
             let start = node.start_byte();
             let end = node.end_byte();
 
@@ -150,11 +190,11 @@ impl DocumentState {
         }
     }
 
-    pub fn get_semantic_diagnostics(&self, schema: &Schema) -> Vec<Diagnostic> {
+    pub fn get_semantic_diagnostics(&self, _schema: &Schema) -> Vec<Diagnostic> {
         let mut all_diagnostics = Vec::new();
 
         // 1. Find all gql`...` blocks (reusing our TS Tree-sitter query)
-        let blocks = self.process_embedded_gql();
+        let blocks = self.get_graphql_trees();
 
         for block in blocks {
             self.collect_gql_errors(block.0.root_node(), block.1, &mut all_diagnostics);
@@ -229,10 +269,10 @@ impl DocumentState {
         };
 
         // 5. Update the Tree
-        self.ts_tree.edit(&edit);
+        self.tree.edit(&edit);
 
         // We feed the Rope chunks to Tree-sitter for maximum efficiency
-        self.ts_tree = parser
+        self.tree = parser
             .parse_with_options(
                 &mut |byte, _| {
                     if byte >= self.rope.len_bytes() {
@@ -241,32 +281,38 @@ impl DocumentState {
                     let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
                     &chunk[byte - chunk_byte..]
                 },
-                Some(&self.ts_tree),
+                Some(&self.tree),
                 None,
             )
             .unwrap();
     }
 
     pub fn get_definition_location(&self, position: Position) -> Option<Location> {
-        // 1. Convert LSP position to Tree-sitter Point
-        let point = tree_sitter::Point::new(position.line as usize, position.character as usize);
+        // 1. Calculate byte offset
+        let char_idx = self.rope.line_to_char(position.line as usize) + position.character as usize;
+        let byte_offset = self.rope.char_to_byte(char_idx);
 
-        // 2. Find the smallest node at that coordinate
-        let root = self.ts_tree.root_node();
-        let trigger_node = root.descendant_for_point_range(point, point)?;
+        // 2. Find the tree that contains this position
+        for (tree, offset) in self.get_graphql_trees() {
+            let root = tree.root_node();
+            let tree_len = root.end_byte();
 
-        // 3. If we clicked a name, let's find where that name is defined
-        if trigger_node.kind() == "name" {
-            let symbol_name = self
-                .rope
-                .slice(
-                    self.rope.byte_to_char(trigger_node.start_byte())
-                        ..self.rope.byte_to_char(trigger_node.end_byte()),
-                )
-                .to_string();
+            if byte_offset >= offset && byte_offset < offset + tree_len {
+                let local_byte = byte_offset - offset;
+                let trigger_node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
-            // 4. Search the tree for a definition with this name
-            return self.find_definition_in_tree(&symbol_name);
+                if trigger_node.kind() == "name" {
+                    let symbol_name = self
+                        .rope
+                        .slice(
+                            self.rope.byte_to_char(trigger_node.start_byte() + offset)
+                                ..self.rope.byte_to_char(trigger_node.end_byte() + offset),
+                        )
+                        .to_string();
+
+                    return self.find_definition_in_tree(&symbol_name);
+                }
+            }
         }
 
         None
@@ -288,22 +334,30 @@ impl DocumentState {
 
         let query = tree_sitter::Query::new(&lang, &query_str).ok()?;
         let mut cursor = tree_sitter::QueryCursor::new();
-        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
-            let start = node.start_byte();
-            let end = node.end_byte();
 
-            // We return a set of chunks from the rope for that specific node range
-            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
-            self.rope.byte_slice(start..end).chunks()
-        });
-
-        if let Some(m) = matches.next() {
-            let node = m.captures[0].node;
-            return Some(Location {
-                uri: self.uri.clone(), // In a real LSP, you'd search all files in the DashMap
-                range: node_to_lsp_range(node),
+        // Search in ALL trees
+        for (tree, offset) in self.get_graphql_trees() {
+            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                // Careful: rope needs absolute bytes, but node has local bytes (0-based)
+                // We must shift by offset
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
             });
+
+            if let Some(m) = matches.next() {
+                let node = m.captures[0].node;
+                // Translate local node range to file range
+                let range = self.translate_to_file_range(node, offset);
+                return Some(Location {
+                    uri: self.uri.clone(),
+                    range,
+                });
+            }
         }
+
         None
     }
 
@@ -311,71 +365,80 @@ impl DocumentState {
         let lang = tree_sitter_graphql::LANGUAGE.into();
         let query = Query::new(&lang, GQL_SYMBOL_QUERY).unwrap();
         let mut cursor = QueryCursor::new();
-
-        // Execute query on the root node
-        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
-            let start = node.start_byte();
-            let end = node.end_byte();
-
-            // We return a set of chunks from the rope for that specific node range
-            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
-            self.rope.byte_slice(start..end).chunks()
-        });
-
         let mut symbols = Vec::new();
 
-        while let Some(m) = matches.next() {
-            // In our query, @symbol.name is the first capture (index 0)
-            let name_node = m.captures[0].node;
-            let container_node = m.captures[1].node;
-
-            let name = self
-                .rope
-                .slice(
-                    self.rope.byte_to_char(name_node.start_byte())
-                        ..self.rope.byte_to_char(name_node.end_byte()),
-                )
-                .to_string();
-
-            #[allow(deprecated)]
-            symbols.push(DocumentSymbol {
-                name,
-                detail: Some(format!("GraphQL {}", container_node.kind())),
-                kind: SymbolKind::STRUCT, // Map GQL types to LSP kinds
-                tags: None,
-                deprecated: None,
-                range: node_to_lsp_range(container_node),
-                selection_range: node_to_lsp_range(name_node),
-                children: None,
+        for (tree, offset) in self.get_graphql_trees() {
+            // Execute query on the root node
+            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
             });
+
+            while let Some(m) = matches.next() {
+                // In our query, @symbol.name is the first capture (index 0)
+                let name_node = m.captures[0].node;
+                let container_node = m.captures[1].node;
+
+                let name = self
+                    .rope
+                    .slice(
+                        self.rope.byte_to_char(name_node.start_byte() + offset)
+                            ..self.rope.byte_to_char(name_node.end_byte() + offset),
+                    )
+                    .to_string();
+
+                #[allow(deprecated)]
+                symbols.push(DocumentSymbol {
+                    name,
+                    detail: Some(format!("GraphQL {}", container_node.kind())),
+                    kind: SymbolKind::STRUCT, // Map GQL types to LSP kinds
+                    tags: None,
+                    deprecated: None,
+                    range: self.translate_to_file_range(container_node, offset),
+                    selection_range: self.translate_to_file_range(name_node, offset),
+                    children: None,
+                });
+            }
         }
         symbols
     }
 
     pub fn get_hover_info(&self, position: Position) -> Option<Hover> {
-        let point = Point::new(position.line as usize, position.character as usize);
-        let root = self.ts_tree.root_node();
-        let node = root.descendant_for_point_range(point, point)?;
+        let char_idx = self.rope.line_to_char(position.line as usize) + position.character as usize;
+        let byte_offset = self.rope.char_to_byte(char_idx);
 
-        // Only trigger hover on "name" nodes
-        if node.kind() == "name" {
-            let symbol_name = self
-                .rope
-                .slice(
-                    self.rope.byte_to_char(node.start_byte())
-                        ..self.rope.byte_to_char(node.end_byte()),
-                )
-                .to_string();
+        for (tree, offset) in self.get_graphql_trees() {
+            let root = tree.root_node();
+            let tree_len = root.end_byte();
 
-            // Find the definition and its description
-            if let Some(description) = self.find_description(&symbol_name) {
-                return Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: format!("### {}\n---\n{}", symbol_name, description),
-                    }),
-                    range: Some(node_to_lsp_range(node)),
-                });
+            if byte_offset >= offset && byte_offset < offset + tree_len {
+                let local_byte = byte_offset - offset;
+                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+
+                // Only trigger hover on "name" nodes
+                if node.kind() == "name" {
+                    let symbol_name = self
+                        .rope
+                        .slice(
+                            self.rope.byte_to_char(node.start_byte() + offset)
+                                ..self.rope.byte_to_char(node.end_byte() + offset),
+                        )
+                        .to_string();
+
+                    // Find the definition and its description
+                    if let Some(description) = self.find_description(&symbol_name) {
+                        return Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: format!("### {}\n---\n{}", symbol_name, description),
+                            }),
+                            range: Some(self.translate_to_file_range(node, offset)),
+                        });
+                    }
+                }
             }
         }
         None
@@ -397,28 +460,30 @@ impl DocumentState {
 
         let query = tree_sitter::Query::new(&lang, &query_str).ok()?;
         let mut cursor = tree_sitter::QueryCursor::new();
-        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
-            let start = node.start_byte();
-            let end = node.end_byte();
 
-            // We return a set of chunks from the rope for that specific node range
-            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
-            self.rope.byte_slice(start..end).chunks()
-        });
+        for (tree, offset) in self.get_graphql_trees() {
+            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
 
-        while let Some(m) = matches.next() {
-            // Check if we captured a description (@desc)
-            if let Some(desc_node) = m.nodes_for_capture_index(0).next() {
-                return Some(
-                    self.rope
-                        .slice(
-                            self.rope.byte_to_char(desc_node.start_byte())
-                                ..self.rope.byte_to_char(desc_node.end_byte()),
-                        )
-                        .to_string()
-                        .trim_matches('"')
-                        .to_string(),
-                );
+            while let Some(m) = matches.next() {
+                // Check if we captured a description (@desc)
+                if let Some(desc_node) = m.nodes_for_capture_index(0).next() {
+                    return Some(
+                        self.rope
+                            .slice(
+                                self.rope.byte_to_char(desc_node.start_byte() + offset)
+                                    ..self.rope.byte_to_char(desc_node.end_byte() + offset),
+                            )
+                            .to_string()
+                            .trim_matches('"')
+                            .to_string(),
+                    );
+                }
             }
         }
         None
@@ -429,24 +494,32 @@ impl DocumentState {
         let query = Query::new(&lang, SEMANTIC_TOKEN_QUERY).unwrap();
         let mut cursor = QueryCursor::new();
 
-        let mut matches = cursor.matches(&query, self.ts_tree.root_node(), |node: Node| {
-            let start = node.start_byte();
-            let end = node.end_byte();
-
-            // We return a set of chunks from the rope for that specific node range
-            // Since 'matches' expects an iterator of bytes, we can use Rope's chunks
-            self.rope.byte_slice(start..end).chunks()
-        });
-
         let mut tokens = Vec::new();
 
-        while let Some(m) = matches.next() {
-            for cap in m.captures {
-                let token_type = &query.capture_names()[cap.index as usize];
-                tokens.push(node_to_semantic_token(
-                    cap.node,
-                    token_type_to_legend_index(token_type),
-                ));
+        for (tree, offset) in self.get_graphql_trees() {
+            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                for cap in m.captures {
+                    let token_type_name = &query.capture_names()[cap.index as usize];
+                    let token_type = token_type_to_legend_index(token_type_name);
+
+                    let range = self.translate_to_file_range(cap.node, offset);
+
+                    tokens.push(SemanticToken {
+                        delta_line: range.start.line,
+                        delta_start: range.start.character,
+                        length: range.end.character - range.start.character,
+                        token_type,
+                        token_modifiers_bitset: 0,
+                    });
+                }
             }
         }
 
@@ -462,18 +535,6 @@ fn token_type_to_legend_index(token_type: &str) -> u32 {
         "enum" => 3,
         "string" => 4,
         _ => 0,
-    }
-}
-
-fn node_to_semantic_token(node: tree_sitter::Node, token_type: u32) -> SemanticToken {
-    let start = node.start_position();
-    let end = node.end_position();
-    SemanticToken {
-        delta_line: (start.row as u32),
-        delta_start: (start.column as u32),
-        length: ((end.column - start.column) as u32),
-        token_type,
-        token_modifiers_bitset: 0,
     }
 }
 
@@ -611,7 +672,7 @@ impl LanguageServer for Backend {
             // 2. We need a parser to handle the incremental re-parsing
             let mut parser = tree_sitter::Parser::new();
             parser
-                .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                .set_language(&doc.language.get_parser_language())
                 .unwrap();
 
             // 3. Apply every change in the batch (VS Code often batches keystrokes)
@@ -650,9 +711,10 @@ impl LanguageServer for Backend {
 
     // Don't forget to handle the initial "Open" event!
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let language = DocumentLanguage::from_uri(&params.text_document.uri);
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
+            .set_language(&language.get_parser_language())
             .unwrap();
 
         let doc = DocumentState::new(
