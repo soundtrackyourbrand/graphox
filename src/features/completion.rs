@@ -11,8 +11,7 @@ impl DocumentState {
         schema: &Schema,
         fragments: Vec<String>,
     ) -> Vec<CompletionItem> {
-        let char_idx = self.rope.line_to_char(position.line as usize) + position.character as usize;
-        let byte_offset = self.rope.char_to_byte(char_idx);
+        let byte_offset = self.position_to_byte(position);
 
         for block in self.get_graphql_trees() {
             let offset = block.offset;

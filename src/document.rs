@@ -143,19 +143,36 @@ impl DocumentState {
         let absolute_start_byte = gql_node.start_byte() + offset_byte;
         let absolute_end_byte = gql_node.end_byte() + offset_byte;
 
-        let start_char = self.rope.byte_to_char(absolute_start_byte);
-        let end_char = self.rope.byte_to_char(absolute_end_byte);
-
         Range {
-            start: Position::new(
-                self.rope.char_to_line(start_char) as u32,
-                (start_char - self.rope.line_to_char(self.rope.char_to_line(start_char))) as u32,
-            ),
-            end: Position::new(
-                self.rope.char_to_line(end_char) as u32,
-                (end_char - self.rope.line_to_char(self.rope.char_to_line(end_char))) as u32,
-            ),
+            start: self.byte_to_position(absolute_start_byte),
+            end: self.byte_to_position(absolute_end_byte),
         }
+    }
+
+    fn byte_to_position(&self, byte_offset: usize) -> Position {
+        let line = self.rope.byte_to_line(byte_offset);
+        let line_start_byte = self.rope.line_to_byte(line);
+
+        let char_at_offset = self.rope.byte_to_char(byte_offset);
+        let char_at_line_start = self.rope.byte_to_char(line_start_byte);
+
+        let utf16_cu_at_offset = self.rope.char_to_utf16_cu(char_at_offset);
+        let utf16_cu_at_line_start = self.rope.char_to_utf16_cu(char_at_line_start);
+
+        Position::new(
+            line as u32,
+            (utf16_cu_at_offset - utf16_cu_at_line_start) as u32,
+        )
+    }
+
+    pub fn position_to_byte(&self, position: Position) -> usize {
+        let line_idx = position.line as usize;
+        let line_start_char = self.rope.line_to_char(line_idx);
+        let line_start_utf16_cu = self.rope.char_to_utf16_cu(line_start_char);
+
+        let target_utf16_cu = line_start_utf16_cu + position.character as usize;
+        let target_char = self.rope.utf16_cu_to_char(target_utf16_cu);
+        self.rope.char_to_byte(target_char)
     }
 
     pub fn get_node_text(&self, node: Node, offset: usize) -> String {
@@ -295,13 +312,11 @@ impl DocumentState {
     ) {
         let range = change.range.expect("Incremental updates require a range");
 
-        let start_char =
-            self.rope.line_to_char(range.start.line as usize) + range.start.character as usize;
-        let end_char =
-            self.rope.line_to_char(range.end.line as usize) + range.end.character as usize;
+        let start_byte = self.position_to_byte(range.start);
+        let old_end_byte = self.position_to_byte(range.end);
 
-        let start_byte = self.rope.char_to_byte(start_char);
-        let old_end_byte = self.rope.char_to_byte(end_char);
+        let start_char = self.rope.byte_to_char(start_byte);
+        let end_char = self.rope.byte_to_char(old_end_byte);
 
         self.rope.remove(start_char..end_char);
         self.rope.insert(start_char, &change.text);
@@ -309,7 +324,11 @@ impl DocumentState {
         let new_end_byte = start_byte + change.text.len();
         let new_end_char = start_char + change.text.chars().count();
         let new_end_line = self.rope.char_to_line(new_end_char);
-        let new_end_col = new_end_char - self.rope.line_to_char(new_end_line);
+
+        let line_start_char = self.rope.line_to_char(new_end_line);
+        let line_start_utf16 = self.rope.char_to_utf16_cu(line_start_char);
+        let current_utf16 = self.rope.char_to_utf16_cu(new_end_char);
+        let new_end_col_utf16 = current_utf16 - line_start_utf16;
 
         let edit = InputEdit {
             start_byte,
@@ -317,7 +336,7 @@ impl DocumentState {
             new_end_byte,
             start_position: Point::new(range.start.line as usize, range.start.character as usize),
             old_end_position: Point::new(range.end.line as usize, range.end.character as usize),
-            new_end_position: Point::new(new_end_line, new_end_col),
+            new_end_position: Point::new(new_end_line, new_end_col_utf16),
         };
 
         self.tree.edit(&edit);
