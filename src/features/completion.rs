@@ -82,11 +82,63 @@ impl DocumentState {
                         return Some(self.get_all_type_completions(schema));
                     } else if capture_name == "frag_spread" {
                         return Some(self.get_fragment_name_completions(fragments));
+                    } else if capture_name == "variable" || capture_name == "args" {
+                        return Some(self.get_operation_variables(root, offset, cursor_offset));
                     }
                 }
             }
         }
         None
+    }
+
+    fn get_operation_variables(
+        &self,
+        root: Node,
+        offset: usize,
+        cursor_offset: usize,
+    ) -> Vec<CompletionItem> {
+        // Find the operation definition containing the cursor
+        let mut target_op = None;
+
+        // We can't easily find it with simple walk if it's nested deep, but we can look for the node at byte
+        let local_byte = cursor_offset - offset;
+        let mut current = root.descendant_for_byte_range(local_byte, local_byte);
+
+        while let Some(node) = current {
+            if node.kind() == "operation_definition" {
+                target_op = Some(node);
+                break;
+            }
+            current = node.parent();
+        }
+
+        if let Some(op) = target_op {
+            let mut variables = Vec::new();
+            let mut walker = op.walk();
+            for child in op.children(&mut walker) {
+                if child.kind() == "variable_definitions" {
+                    let mut def_walker = child.walk();
+                    for def in child.children(&mut def_walker) {
+                        if def.kind() == "variable_definition" {
+                            let mut var_walker = def.walk();
+                            for var_child in def.children(&mut var_walker) {
+                                if var_child.kind() == "variable" {
+                                    let name = self.get_node_text(var_child, offset);
+                                    variables.push(CompletionItem {
+                                        label: name,
+                                        kind: Some(CompletionItemKind::VARIABLE),
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return variables;
+        }
+
+        Vec::new()
     }
 
     fn complete_operation(
@@ -159,26 +211,6 @@ impl DocumentState {
                                 schema,
                                 fragments,
                             );
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn get_fragment_type_condition(&self, node: Node, offset: usize) -> Option<String> {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "type_condition" {
-                let mut tc_cursor = child.walk();
-                for tc_child in child.children(&mut tc_cursor) {
-                    if tc_child.kind() == "named_type" {
-                        let mut nt_cursor = tc_child.walk();
-                        for nt_child in tc_child.children(&mut nt_cursor) {
-                            if nt_child.kind() == "name" {
-                                return Some(self.get_node_text(nt_child, offset));
-                            }
                         }
                     }
                 }
@@ -290,11 +322,24 @@ impl DocumentState {
 
             if let Some(field_def) = field_def {
                 let mut sub_sel_set = None;
+                let mut arguments_node = None;
                 let mut f_cursor = field_node.walk();
                 for f_child in field_node.children(&mut f_cursor) {
                     if f_child.kind() == "selection_set" {
                         sub_sel_set = Some(f_child);
-                        break;
+                    } else if f_child.kind() == "arguments" {
+                        arguments_node = Some(f_child);
+                    }
+                }
+
+                if let Some(args) = arguments_node {
+                    let args_range = (args.start_byte() + offset)..(args.end_byte() + offset);
+                    if cursor_offset >= args_range.start && cursor_offset <= args_range.end {
+                        return Some(self.get_operation_variables(
+                            field_node,
+                            offset,
+                            cursor_offset,
+                        ));
                     }
                 }
 

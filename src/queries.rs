@@ -54,4 +54,6 @@ pub const GQL_VALIDATION_QUERY: &str = r#"
     (type_condition) @type_cond
     (fragment_spread) @frag_spread
     (inline_fragment) @inline_frag
+    (variable) @variable
+    (arguments) @args
 "#;
