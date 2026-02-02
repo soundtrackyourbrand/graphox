@@ -1,0 +1,251 @@
+use crate::queries::*;
+use crate::utils::mask_interpolations;
+use ropey::Rope;
+use tower_lsp::lsp_types::*;
+use tree_sitter::{InputEdit, Node, Parser, Point, StreamingIterator, Tree};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentLanguage {
+    GraphQL,
+    TypeScript,
+}
+
+impl DocumentLanguage {
+    pub fn from_uri(uri: &Url) -> Self {
+        let path = uri.path();
+        if path.ends_with(".ts")
+            || path.ends_with(".tsx")
+            || path.ends_with(".cts")
+            || path.ends_with(".mts")
+            || path.ends_with(".js")
+            || path.ends_with(".jsx")
+            || path.ends_with(".cjs")
+            || path.ends_with(".mjs")
+        {
+            DocumentLanguage::TypeScript
+        } else {
+            DocumentLanguage::GraphQL
+        }
+    }
+
+    pub fn get_parser_language(&self) -> tree_sitter::Language {
+        match self {
+            DocumentLanguage::GraphQL => tree_sitter_graphql::LANGUAGE.into(),
+            DocumentLanguage::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        }
+    }
+}
+
+pub struct GraphQLBlock {
+    pub tree: Tree,
+    pub offset: usize,
+}
+
+pub struct DocumentState {
+    pub uri: Url,
+    pub rope: Rope,
+    pub tree: Tree,
+    pub language: DocumentLanguage,
+    pub graphql_trees: Vec<GraphQLBlock>,
+    pub fragments: Vec<String>,
+}
+
+impl DocumentState {
+    pub fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
+        let language = DocumentLanguage::from_uri(&uri);
+        let rope = Rope::from_str(text);
+        let tree = parser.parse(text, None).unwrap();
+        let mut doc = Self {
+            uri,
+            rope,
+            tree,
+            language,
+            graphql_trees: Vec::new(),
+            fragments: Vec::new(),
+        };
+        doc.graphql_trees = doc.reparse_graphql_trees();
+        doc.fragments = doc.extract_fragment_names();
+        doc
+    }
+
+    pub fn reparse_graphql_trees(&self) -> Vec<GraphQLBlock> {
+        if self.language == DocumentLanguage::GraphQL {
+            return vec![GraphQLBlock {
+                tree: self.tree.clone(),
+                offset: 0,
+            }];
+        }
+
+        // TypeScript handling
+        let query = TS_QUERY_CACHE.get_or_init(|| {
+            let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+            tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap()
+        });
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+
+        let mut ts_matches = cursor.matches(query, self.tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+
+            self.rope.byte_slice(start..end).chunks()
+        });
+
+        let mut gql_blocks = vec![];
+        while let Some(m) = ts_matches.next() {
+            let gql_node = m.captures[1].node;
+
+            let start_byte = gql_node.start_byte() + 1;
+            let end_byte = gql_node.end_byte() - 1;
+            let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
+
+            let masked_gql = mask_interpolations(&raw_gql);
+
+            let mut gql_parser = Parser::new();
+            gql_parser
+                .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                .unwrap();
+
+            if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
+                gql_blocks.push(GraphQLBlock {
+                    tree: gql_tree,
+                    offset: start_byte,
+                });
+            }
+        }
+        gql_blocks
+    }
+
+    pub fn get_graphql_trees(&self) -> &[GraphQLBlock] {
+        &self.graphql_trees
+    }
+
+    pub fn translate_to_file_range(
+        &self,
+        gql_node: tree_sitter::Node,
+        offset_byte: usize,
+    ) -> Range {
+        let absolute_start_byte = gql_node.start_byte() + offset_byte;
+        let absolute_end_byte = gql_node.end_byte() + offset_byte;
+
+        let start_char = self.rope.byte_to_char(absolute_start_byte);
+        let end_char = self.rope.byte_to_char(absolute_end_byte);
+
+        Range {
+            start: Position::new(
+                self.rope.char_to_line(start_char) as u32,
+                (start_char - self.rope.line_to_char(self.rope.char_to_line(start_char))) as u32,
+            ),
+            end: Position::new(
+                self.rope.char_to_line(end_char) as u32,
+                (end_char - self.rope.line_to_char(self.rope.char_to_line(end_char))) as u32,
+            ),
+        }
+    }
+
+    pub fn get_node_text(&self, node: Node, offset: usize) -> String {
+        let start = node.start_byte() + offset;
+        let end = node.end_byte() + offset;
+        self.rope.byte_slice(start..end).to_string()
+    }
+
+    pub fn fragments(&self) -> &[String] {
+        &self.fragments
+    }
+
+    fn extract_fragment_names(&self) -> Vec<String> {
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut names = Vec::new();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut is_fragment = false;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        if cap.node.kind() == "fragment_definition" {
+                            is_fragment = true;
+                        }
+                    }
+                }
+
+                if is_fragment {
+                    if let Some(n) = name {
+                        names.push(n);
+                    }
+                }
+            }
+        }
+        names
+    }
+
+    pub fn apply_change(
+        &mut self,
+        change: &TextDocumentContentChangeEvent,
+        parser: &mut tree_sitter::Parser,
+    ) {
+        let range = change.range.expect("Incremental updates require a range");
+
+        let start_char =
+            self.rope.line_to_char(range.start.line as usize) + range.start.character as usize;
+        let end_char =
+            self.rope.line_to_char(range.end.line as usize) + range.end.character as usize;
+
+        let start_byte = self.rope.char_to_byte(start_char);
+        let old_end_byte = self.rope.char_to_byte(end_char);
+
+        self.rope.remove(start_char..end_char);
+        self.rope.insert(start_char, &change.text);
+
+        let new_end_byte = start_byte + change.text.len();
+        let new_end_char = start_char + change.text.chars().count();
+        let new_end_line = self.rope.char_to_line(new_end_char);
+        let new_end_col = new_end_char - self.rope.line_to_char(new_end_line);
+
+        let edit = InputEdit {
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            start_position: Point::new(range.start.line as usize, range.start.character as usize),
+            old_end_position: Point::new(range.end.line as usize, range.end.character as usize),
+            new_end_position: Point::new(new_end_line, new_end_col),
+        };
+
+        self.tree.edit(&edit);
+
+        self.tree = parser
+            .parse_with_options(
+                &mut |byte, _| {
+                    if byte >= self.rope.len_bytes() {
+                        return "";
+                    }
+                    let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
+                    &chunk[byte - chunk_byte..]
+                },
+                Some(&self.tree),
+                None,
+            )
+            .unwrap();
+
+        self.graphql_trees = self.reparse_graphql_trees();
+        self.fragments = self.extract_fragment_names();
+    }
+}

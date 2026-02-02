@@ -1,7 +1,7 @@
-use tower_lsp::lsp_types::*;
-use graphql_rust::DocumentState;
 use apollo_compiler::Schema;
+use graphql_rust::DocumentState;
 use std::sync::OnceLock;
+use tower_lsp::lsp_types::*;
 
 // Shared schema for tests
 static SCHEMA: OnceLock<Schema> = OnceLock::new();
@@ -17,7 +17,9 @@ fn get_schema() -> &'static Schema {
 fn create_doc(uri_str: &str, text: &str) -> DocumentState {
     let uri = Url::parse(uri_str).unwrap();
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&tree_sitter_graphql::LANGUAGE.into()).unwrap();
+    parser
+        .set_language(&tree_sitter_graphql::LANGUAGE.into())
+        .unwrap();
     DocumentState::new(uri, text, parser)
 }
 
@@ -34,9 +36,13 @@ fn test_validation_valid_query() {
         }
     "#;
     let doc = create_doc("file:///valid.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema);
-    
-    assert!(diagnostics.is_empty(), "Expected no diagnostics, got: {:?}", diagnostics);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics, got: {:?}",
+        diagnostics
+    );
 }
 
 #[test]
@@ -51,8 +57,8 @@ fn test_validation_missing_field() {
         }
     "#;
     let doc = create_doc("file:///missing.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema);
-    
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
     let error = diagnostics.iter().find(|d| d.message.contains("not found"));
     assert!(error.is_some(), "Expected 'not found' error");
     assert_eq!(error.unwrap().severity, Some(DiagnosticSeverity::ERROR));
@@ -72,13 +78,19 @@ fn test_validation_deprecated_field() {
         }
     "#;
     let doc = create_doc("file:///deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema);
-    
-    let warning = diagnostics.iter().find(|d| d.message.contains("deprecated"));
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
+    let warning = diagnostics
+        .iter()
+        .find(|d| d.message.contains("deprecated"));
     assert!(warning.is_some(), "Expected 'deprecated' warning");
     assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
     assert!(warning.unwrap().message.contains("oldField"));
-    assert!(warning.unwrap().message.contains("Use username instead"), "Message should contain reason: {}", warning.unwrap().message);
+    assert!(
+        warning.unwrap().message.contains("Use username instead"),
+        "Message should contain reason: {}",
+        warning.unwrap().message
+    );
 }
 
 #[test]
@@ -96,9 +108,11 @@ fn test_validation_nested_missing_field() {
         }
     "#;
     let doc = create_doc("file:///nested.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema);
-    
-    let error = diagnostics.iter().find(|d| d.message.contains("missingInAuthor"));
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
+    let error = diagnostics
+        .iter()
+        .find(|d| d.message.contains("missingInAuthor"));
     assert!(error.is_some(), "Expected nested missing field error");
     assert!(error.unwrap().message.contains("User")); // Author is User
 }
@@ -113,9 +127,71 @@ fn test_validation_fragment() {
         }
     "#;
     let doc = create_doc("file:///fragment.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema);
-    
-    let error = diagnostics.iter().find(|d| d.message.contains("missingInFragment"));
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
+    let error = diagnostics
+        .iter()
+        .find(|d| d.message.contains("missingInFragment"));
     assert!(error.is_some(), "Expected error in fragment");
     assert!(error.unwrap().message.contains("User"));
+}
+
+#[test]
+fn test_validation_inline_fragment() {
+    let schema = get_schema();
+    let text = r#"
+        query {
+            users {
+                ... on User {
+                    id
+                    nonExistentOnUser
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///inline.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
+    let error = diagnostics
+        .iter()
+        .find(|d| d.message.contains("nonExistentOnUser"));
+    assert!(error.is_some(), "Expected error in inline fragment");
+}
+
+#[test]
+fn test_validation_unknown_fragment_spread() {
+    let schema = get_schema();
+    let text = r#"
+        query {
+            users {
+                ...UnknownFrag
+            }
+        }
+    "#;
+    let doc = create_doc("file:///spread.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+
+    let error = diagnostics
+        .iter()
+        .find(|d| d.message.contains("Unknown fragment: UnknownFrag"));
+    assert!(error.is_some(), "Expected unknown fragment error");
+}
+
+#[test]
+fn test_validation_known_fragment_spread() {
+    let schema = get_schema();
+    let text = r#"
+        query {
+            users {
+                ...KnownFrag
+            }
+        }
+    "#;
+    let doc = create_doc("file:///known_spread.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &["KnownFrag".to_string()]);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no error for known fragment spread"
+    );
 }
