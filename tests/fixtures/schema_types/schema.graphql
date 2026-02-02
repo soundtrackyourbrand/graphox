@@ -1,11 +1,24 @@
+"""
+User roles in the system
+"""
 enum Role {
   ADMIN
   USER
 }
 
+"""
+Input for creating a user
+"""
 input CreateUserInput {
+  """
+  The username of the new user
+  """
   username: String!
   role: Role
+  """
+  The old way to set role
+  """
+  oldRole: String @deprecated(reason: "Use role instead")
 }
 
 type Query {

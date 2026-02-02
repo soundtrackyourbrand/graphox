@@ -206,6 +206,15 @@ fn generate_selection_set(
                 };
 
                 if let Some(fd) = field_def {
+                    let deprecation = fd.directives.get("deprecated").map(|d| {
+                        d.argument_by_name("reason", ctx.schema)
+                            .ok()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("No reason provided")
+                    });
+                    let doc_comment =
+                        format_jsdoc(fd.description.as_deref(), deprecation, indent + 1);
+
                     let ts_type = if field.selection_set.selections.is_empty() {
                         gql_type_to_ts(&fd.ty, ctx.schema)
                     } else {
@@ -224,7 +233,8 @@ fn generate_selection_set(
                         );
                         wrap_in_list_and_nullability(&base_type, &fd.ty)
                     };
-                    local_fields.push_str(&format!("\n{}{}: {};", pad, name, ts_type));
+                    local_fields
+                        .push_str(&format!("\n{}{}{}: {};", doc_comment, pad, name, ts_type));
                 } else if field.name.as_str() == "__typename" {
                     local_fields.push_str(&format!(
                         "\n{}{}: \"{}\";",
@@ -311,6 +321,7 @@ pub fn generate_schema_types(schema: &Schema) -> String {
             continue;
         }
         if let apollo_compiler::schema::ExtendedType::Enum(enm) = ty {
+            output.push_str(&format_jsdoc(enm.description.as_deref(), None, 0));
             let mut values: Vec<_> = enm.values.keys().collect();
             values.sort();
             let union_values = values
@@ -328,8 +339,16 @@ pub fn generate_schema_types(schema: &Schema) -> String {
             continue;
         }
         if let apollo_compiler::schema::ExtendedType::InputObject(input) = ty {
+            output.push_str(&format_jsdoc(input.description.as_deref(), None, 0));
             output.push_str(&format!("export interface {} {{\n", name));
             for field in input.fields.values() {
+                let deprecation = field.directives.get("deprecated").map(|d| {
+                    d.argument_by_name("reason", schema)
+                        .ok()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("No reason provided")
+                });
+                output.push_str(&format_jsdoc(field.description.as_deref(), deprecation, 1));
                 let ts_type = gql_type_to_ts_with_names(&field.ty, schema);
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
@@ -340,10 +359,11 @@ pub fn generate_schema_types(schema: &Schema) -> String {
 
     // 3. Custom Scalars (Fallback to any if not handled in gql_type_to_ts)
     for (name, ty) in &schema.types {
-        if let apollo_compiler::schema::ExtendedType::Scalar(_) = ty {
+        if let apollo_compiler::schema::ExtendedType::Scalar(scalar) = ty {
             match name.as_str() {
                 "String" | "ID" | "Int" | "Float" | "Boolean" => continue,
                 _ => {
+                    output.push_str(&format_jsdoc(scalar.description.as_deref(), None, 0));
                     output.push_str(&format!("export type {} = any;\n\n", name));
                 }
             }
@@ -351,6 +371,39 @@ pub fn generate_schema_types(schema: &Schema) -> String {
     }
 
     output
+}
+
+fn format_jsdoc(
+    description: Option<&str>,
+    deprecation_reason: Option<&str>,
+    indent_level: usize,
+) -> String {
+    let has_desc = description.map_or(false, |d| !d.trim().is_empty());
+    let is_deprecated = deprecation_reason.is_some();
+
+    if !has_desc && !is_deprecated {
+        return String::new();
+    }
+
+    let indent = "  ".repeat(indent_level);
+    let mut jsdoc = String::new();
+    jsdoc.push_str(&format!("{}/**\n", indent));
+
+    if let Some(desc) = description {
+        for line in desc.lines() {
+            jsdoc.push_str(&format!("{} * {}\n", indent, line.trim()));
+        }
+    }
+
+    if let Some(reason) = deprecation_reason {
+        if has_desc {
+            jsdoc.push_str(&format!("{} *\n", indent));
+        }
+        jsdoc.push_str(&format!("{} * @deprecated {}\n", indent, reason));
+    }
+
+    jsdoc.push_str(&format!("{} */\n", indent));
+    jsdoc
 }
 
 fn generate_ts_type(ty: &apollo_compiler::ast::Type, base: &str) -> String {
