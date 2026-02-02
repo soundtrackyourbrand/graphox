@@ -2,15 +2,10 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-export type GetNodePolymorphicVariables = {
-  id: string;
-};
-
-export type GetNodePolymorphic = {
+export interface GetNodePolymorphicQuery {
   __typename: "Query";
-  node: ({
-    __typename: "Node";
-  } & ({
+  node: { __typename: "Node" }
+    | {
       __typename: "User";
       id: string;
       username: string;
@@ -18,5 +13,10 @@ export type GetNodePolymorphic = {
       __typename: "Post";
       id: string;
       title: string;
-    })) | null;
-};
+    } | null;
+}
+
+export interface GetNodePolymorphicQueryVariables {
+  id: string;
+}
+

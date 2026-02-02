@@ -100,9 +100,9 @@ async fn execute_project_check(schema_path: &str, include_glob: &str) -> bool {
         if !diagnostics.is_empty() {
             found_any = true;
             let display_path = if let Some(root) = &doc.package_root {
-                path.strip_prefix(root).unwrap_or(&path)
+                path.strip_prefix(root).unwrap_or(path)
             } else {
-                &path
+                path
             };
             println!("\nFile: {}", display_path.display());
             for d in diagnostics {

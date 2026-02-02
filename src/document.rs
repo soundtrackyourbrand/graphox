@@ -156,6 +156,7 @@ impl DocumentState {
         let char_at_offset = self.rope.byte_to_char(byte_offset);
         let char_at_line_start = self.rope.byte_to_char(line_start_byte);
 
+        // Ropey methods are char_to_utf16_cu
         let utf16_cu_at_offset = self.rope.char_to_utf16_cu(char_at_offset);
         let utf16_cu_at_line_start = self.rope.char_to_utf16_cu(char_at_line_start);
 
@@ -245,10 +246,8 @@ impl DocumentState {
                     }
                 }
 
-                if is_fragment {
-                    if let Some(n) = name {
-                        fragments.push(FragmentDef { name: n, is_public });
-                    }
+                if is_fragment && let Some(n) = name {
+                    fragments.push(FragmentDef { name: n, is_public });
                 }
             }
         }
@@ -290,15 +289,13 @@ impl DocumentState {
                     }
                 }
 
-                if is_fragment {
-                    if let Some(n) = name {
-                        if n == target_name {
-                            if let Some(cont) = container_node {
-                                // Extract the selection set or the whole fragment
-                                return Some(self.get_node_text(cont, offset));
-                            }
-                        }
-                    }
+                if is_fragment
+                    && let Some(n) = name
+                    && n == target_name
+                    && let Some(cont) = container_node
+                {
+                    // Extract the selection set or the whole fragment
+                    return Some(self.get_node_text(cont, offset));
                 }
             }
         }

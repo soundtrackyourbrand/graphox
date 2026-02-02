@@ -1,6 +1,5 @@
-use crate::document::DocumentState;
-use apollo_compiler::{executable, Schema};
-use std::collections::{HashMap, HashSet};
+use apollo_compiler::{executable, schema, Schema};
+use std::collections::HashMap;
 use std::path::Path;
 
 pub struct CodegenContext<'a> {
@@ -9,449 +8,328 @@ pub struct CodegenContext<'a> {
     pub current_file_path: &'a Path,
 }
 
-pub fn generate_typescript(doc: &DocumentState, ctx: &CodegenContext) -> Result<String, String> {
-    let mut body = String::new();
-    let mut used_fragments = HashSet::new();
+pub fn generate_typescript(
+    doc: &crate::DocumentState,
+    ctx: &CodegenContext,
+) -> Result<String, String> {
+    let mut output = String::new();
+    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
-    let mut combined_source = String::new();
-    for block in doc.get_graphql_trees() {
-        let start = block.offset;
-        let end = block.offset + block.tree.root_node().end_byte();
-        combined_source.push_str(&doc.rope.byte_slice(start..end).to_string());
-        combined_source.push('\n');
-    }
+    let mut used_fragments = HashMap::new();
 
+    // Validate schema once for ExecutableDocument parsing
     let valid_schema = ctx
         .schema
         .clone()
         .validate()
-        .map_err(|e| format!("Invalid Schema: {}", e))?;
+        .map_err(|e| format!("Schema validation failed: {}", e))?;
 
-    let executable =
-        executable::ExecutableDocument::parse(&valid_schema, &combined_source, "codegen.graphql")
-            .map_err(|e| format!("GraphQL Parse Error: {}", e))?;
+    let mut bodies = String::new();
 
-    for fragment in executable.fragments.values() {
-        let type_name = format!("{}Fragment", fragment.name);
-        body.push_str(&format!("export type {} = ", type_name));
-        let parent_type = ctx
-            .schema
-            .types
-            .get(fragment.type_condition().as_str())
-            .ok_or_else(|| format!("Unknown type: {}", fragment.type_condition()))?;
-        body.push_str(&generate_selection_set(
-            &fragment.selection_set,
-            parent_type,
-            ctx,
-            0,
-            &mut used_fragments,
-        ));
-        body.push_str(";\n\n");
-    }
+    for block in doc.get_graphql_trees() {
+        let block_text = doc
+            .rope
+            .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
+            .to_string();
 
-    for operation in executable.operations.iter() {
-        let op_name = operation
-            .name
-            .as_ref()
-            .map(|n| n.as_str())
-            .unwrap_or("UnnamedOperation");
+        let exec_doc = apollo_compiler::executable::ExecutableDocument::parse(
+            &valid_schema,
+            &block_text,
+            "doc.graphql",
+        )
+        .map_err(|e| format!("Failed to parse GraphQL block: {}", e))?;
 
-        // Generate Variables Type
-        if !operation.variables.is_empty() {
-            body.push_str(&format!("export type {}Variables = {{\n", op_name));
-            for var in &operation.variables {
-                let ts_type = gql_type_to_ts(&var.ty, ctx.schema);
-                let optional = if var.ty.is_non_null() { "" } else { "?" };
-                body.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type));
-            }
-            body.push_str("};\n\n");
-        } else {
-            body.push_str(&format!(
-                "export type {}Variables = Record<string, never>;\n\n",
-                op_name
+        for op in exec_doc.operations.iter() {
+            let name = op
+                .name
+                .as_ref()
+                .map(|n| n.as_str())
+                .unwrap_or("UnnamedOperation");
+            let suffix = match op.operation_type {
+                apollo_compiler::ast::OperationType::Query => "Query",
+                apollo_compiler::ast::OperationType::Mutation => "Mutation",
+                apollo_compiler::ast::OperationType::Subscription => "Subscription",
+            };
+
+            let root_type = ctx
+                .schema
+                .root_operation(op.operation_type)
+                .and_then(|n| ctx.schema.types.get(n.as_str()))
+                .ok_or_else(|| format!("Root type for {:?} not found", op.operation_type))?;
+
+            let ts_type =
+                generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments);
+
+            bodies.push_str(&format!(
+                "export interface {}{} {}\n\n",
+                name, suffix, ts_type
             ));
+
+            if !op.variables.is_empty() {
+                bodies.push_str(&format!(
+                    "export interface {}{}Variables {{\n",
+                    name, suffix
+                ));
+                for var in &op.variables {
+                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema);
+                    let optional = if var.ty.is_non_null() { "" } else { "?" };
+                    bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
+                }
+                bodies.push_str("}\n\n");
+            }
         }
 
-        // Generate Result Type
-        body.push_str(&format!("export type {} = ", op_name));
-        let root_operation_name = ctx
-            .schema
-            .root_operation(operation.operation_type)
-            .ok_or_else(|| format!("Schema does not support {:?}", operation.operation_type))?;
-        let root_type = ctx
-            .schema
-            .types
-            .get(root_operation_name.as_str())
-            .ok_or_else(|| format!("Unknown root type: {}", root_operation_name))?;
+        for frag in exec_doc.fragments.values() {
+            let type_name = frag.type_condition().as_str();
+            let type_def = ctx
+                .schema
+                .types
+                .get(type_name)
+                .ok_or_else(|| format!("Type {} not found in schema", type_name))?;
 
-        body.push_str(&generate_selection_set(
-            &operation.selection_set,
-            root_type,
-            ctx,
-            0,
-            &mut used_fragments,
-        ));
-        body.push_str(";\n\n");
+            let ts_type =
+                generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments);
+            bodies.push_str(&format!("export interface {} {}\n\n", frag.name, ts_type));
+        }
     }
 
-    let mut output = String::new();
-    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+    // Add imports for fragments used from other files
+    let mut used_frag_names: Vec<_> = used_fragments.keys().cloned().collect();
+    used_frag_names.sort();
 
-    // Generate Imports
-    let mut sorted_fragments: Vec<_> = used_fragments.iter().collect();
-    sorted_fragments.sort();
+    let mut imports: HashMap<String, Vec<String>> = HashMap::new();
+    for frag_name in used_frag_names {
+        if let Some(other_path) = ctx.fragment_to_path.get(&frag_name) {
+            let current_abs = std::fs::canonicalize(ctx.current_file_path)
+                .unwrap_or_else(|_| ctx.current_file_path.to_path_buf());
+            let other_abs = std::fs::canonicalize(other_path)
+                .unwrap_or_else(|_| Path::new(other_path).to_path_buf());
 
-    for frag_name in sorted_fragments {
-        // Skip fragments defined in the same file
-        if executable.fragments.contains_key(frag_name) {
-            continue;
-        }
-
-        if let Some(source_path) = ctx.fragment_to_path.get(&frag_name.to_string()) {
-            let source_path = Path::new(source_path);
-            if let Some(rel_path) =
-                pathdiff::diff_paths(source_path, ctx.current_file_path.parent().unwrap())
-            {
-                let mut path_str = rel_path.to_string_lossy().to_string();
-                if !path_str.starts_with('.') {
-                    path_str = format!("./{}", path_str);
-                }
-                // Strip extension for TS imports
-                if let Some(idx) = path_str.rfind('.') {
-                    path_str.truncate(idx);
-                }
-                // Handle the .codegen part
-                if !path_str.ends_with(".codegen") {
-                    path_str.push_str(".codegen");
-                }
-
-                output.push_str(&format!(
-                    "import type {{ {}Fragment }} from \"{}\";\n",
-                    frag_name, path_str
-                ));
+            if other_abs != current_abs {
+                imports
+                    .entry(other_path.clone())
+                    .or_default()
+                    .push(frag_name);
             }
         }
     }
-    if !output.ends_with("\n\n") {
+
+    let mut import_section = String::new();
+    let mut import_paths: Vec<_> = imports.keys().cloned().collect();
+    import_paths.sort();
+
+    for path in import_paths {
+        let names = imports.get(&path).unwrap();
+        let rel_path = pathdiff::diff_paths(&path, ctx.current_file_path.parent().unwrap())
+            .unwrap_or_else(|| Path::new(&path).to_path_buf());
+        let mut path_str = rel_path.to_string_lossy().to_string();
+        if !path_str.starts_with('.') {
+            path_str = format!("./{}", path_str);
+        }
+
+        import_section.push_str(&format!(
+            "import type {{ {} }} from \"{}\";\n",
+            names.join(", "),
+            path_str
+        ));
+    }
+
+    if !import_section.is_empty() {
+        output.push_str(&import_section);
         output.push('\n');
     }
-    output.push_str(&body);
+
+    output.push_str(&bodies);
 
     Ok(output)
 }
 
 fn generate_selection_set(
     selection_set: &executable::SelectionSet,
-    parent_type: &apollo_compiler::schema::ExtendedType,
+    parent_type: &schema::ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
-    used_fragments: &mut HashSet<apollo_compiler::Name>,
+    used_fragments: &mut HashMap<String, String>,
 ) -> String {
-    let mut parts = Vec::new();
-    let mut local_fields = String::new();
+    let pad = "  ".repeat(indent);
+    let inner_pad = "  ".repeat(indent + 1);
+
+    let mut fields = Vec::new();
     let mut inline_fragments = Vec::new();
-    let pad = "  ".repeat(indent + 1);
-
+    let mut fragment_spreads = Vec::new();
     let mut has_explicit_typename = false;
-    for selection in &selection_set.selections {
-        if let executable::Selection::Field(field) = selection {
-            if field.name.as_str() == "__typename" && field.alias.is_none() {
-                has_explicit_typename = true;
-                break;
-            }
-        }
-    }
-
-    if !has_explicit_typename {
-        let typename_value = match parent_type {
-            apollo_compiler::schema::ExtendedType::Object(o) => format!("\"{}\"", o.name),
-            apollo_compiler::schema::ExtendedType::Interface(i) => {
-                let implementers = ctx.schema.implementers_map();
-                if let Some(impls) = implementers.get(&i.name) {
-                    let mut names: Vec<_> =
-                        impls.objects.iter().map(|n| format!("\"{}\"", n)).collect();
-                    names.sort();
-                    names.join(" | ")
-                } else {
-                    "string".to_string()
-                }
-            }
-            apollo_compiler::schema::ExtendedType::Union(u) => {
-                let mut names: Vec<_> = u.members.iter().map(|n| format!("\"{}\"", n)).collect();
-                names.sort();
-                names.join(" | ")
-            }
-            _ => "string".to_string(),
-        };
-        local_fields.push_str(&format!("\n{}{}: {};", pad, "__typename", typename_value));
-    }
 
     for selection in &selection_set.selections {
         match selection {
             executable::Selection::Field(field) => {
-                let name = field
-                    .alias
-                    .as_ref()
-                    .map(|a| a.as_str())
-                    .unwrap_or(field.name.as_str());
-
-                let field_def = match parent_type {
-                    apollo_compiler::schema::ExtendedType::Object(obj) => {
-                        obj.fields.get(field.name.as_str())
-                    }
-                    apollo_compiler::schema::ExtendedType::Interface(iface) => {
-                        iface.fields.get(field.name.as_str())
-                    }
-                    _ => None,
-                };
-
-                if let Some(fd) = field_def {
-                    let deprecation = fd.directives.get("deprecated").map(|d| {
-                        d.argument_by_name("reason", ctx.schema)
-                            .ok()
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("No reason provided")
-                    });
-                    let doc_comment =
-                        format_jsdoc(fd.description.as_deref(), deprecation, indent + 1);
-
-                    let ts_type = if field.selection_set.selections.is_empty() {
-                        gql_type_to_ts(&fd.ty, ctx.schema)
-                    } else {
-                        let inner_type_name = fd.ty.inner_named_type();
-                        let inner_type = ctx
-                            .schema
-                            .types
-                            .get(inner_type_name.as_str())
-                            .expect("Field type must exist");
-                        let base_type = generate_selection_set(
-                            &field.selection_set,
-                            inner_type,
-                            ctx,
-                            indent + 1,
-                            used_fragments,
-                        );
-                        wrap_in_list_and_nullability(&base_type, &fd.ty)
-                    };
-                    local_fields
-                        .push_str(&format!("\n{}{}{}: {};", doc_comment, pad, name, ts_type));
-                } else if field.name.as_str() == "__typename" {
-                    local_fields.push_str(&format!(
-                        "\n{}{}: \"{}\";",
-                        pad,
-                        name,
-                        parent_type.name()
-                    ));
+                if field.name.as_str() == "__typename" && field.alias.is_none() {
+                    has_explicit_typename = true;
                 }
-            }
-            executable::Selection::FragmentSpread(spread) => {
-                parts.push(format!("{}Fragment", spread.fragment_name));
-                used_fragments.insert(spread.fragment_name.clone());
+                fields.push(field);
             }
             executable::Selection::InlineFragment(inline) => {
                 inline_fragments.push(inline);
             }
-        }
-    }
-
-    let mut result_type = if !local_fields.is_empty() {
-        let mut s = String::from("{");
-        s.push_str(&local_fields);
-        s.push_str(&format!("\n{}", "  ".repeat(indent)));
-        s.push('}');
-        s
-    } else {
-        String::new()
-    };
-
-    if !parts.is_empty() {
-        let spreads = parts.join(" & ");
-        if result_type.is_empty() {
-            result_type = spreads;
-        } else {
-            result_type = format!("({} & {})", result_type, spreads);
-        }
-    }
-
-    if !inline_fragments.is_empty() {
-        let mut variants = Vec::new();
-        for inline in inline_fragments {
-            let target_type = if let Some(type_cond) = &inline.type_condition {
-                ctx.schema
-                    .types
-                    .get(type_cond.as_str())
-                    .expect("Type condition must exist")
-            } else {
-                parent_type
-            };
-            let inline_type = generate_selection_set(
-                &inline.selection_set,
-                target_type,
-                ctx,
-                indent + 1,
-                used_fragments,
-            );
-            variants.push(inline_type);
-        }
-
-        let union_type = variants.join(" | ");
-        if result_type.is_empty() {
-            result_type = union_type;
-        } else {
-            // For Interface/Union, we intersect the shared fields (local_fields + spreads)
-            // with the union of variants.
-            result_type = format!("({} & ({}))", result_type, union_type);
-        }
-    }
-
-    if result_type.is_empty() {
-        "{}".to_string()
-    } else {
-        result_type
-    }
-}
-
-pub fn generate_schema_types(schema: &Schema) -> String {
-    let mut output = String::new();
-    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
-
-    // 1. Enums
-    for (name, ty) in &schema.types {
-        if name.starts_with("__") {
-            continue;
-        }
-        if let apollo_compiler::schema::ExtendedType::Enum(enm) = ty {
-            let deprecation = enm.directives.get("deprecated").map(|d| {
-                d.argument_by_name("reason", schema)
-                    .ok()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("No reason provided")
-            });
-            output.push_str(&format_jsdoc(enm.description.as_deref(), deprecation, 0));
-            let mut values: Vec<_> = enm.values.keys().collect();
-            values.sort();
-            let union_values = values
-                .iter()
-                .map(|v| format!("\"{}\"", v))
-                .collect::<Vec<_>>()
-                .join(" | ");
-            output.push_str(&format!("export type {} = {};\n\n", name, union_values));
-        }
-    }
-
-    // 2. Input Objects
-    for (name, ty) in &schema.types {
-        if name.starts_with("__") {
-            continue;
-        }
-        if let apollo_compiler::schema::ExtendedType::InputObject(input) = ty {
-            let deprecation = input.directives.get("deprecated").map(|d| {
-                d.argument_by_name("reason", schema)
-                    .ok()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("No reason provided")
-            });
-            output.push_str(&format_jsdoc(input.description.as_deref(), deprecation, 0));
-            output.push_str(&format!("export interface {} {{\n", name));
-            for field in input.fields.values() {
-                let field_deprecation = field.directives.get("deprecated").map(|d| {
-                    d.argument_by_name("reason", schema)
-                        .ok()
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("No reason provided")
-                });
-                output.push_str(&format_jsdoc(
-                    field.description.as_deref(),
-                    field_deprecation,
-                    1,
-                ));
-                let ts_type = gql_type_to_ts_with_names(&field.ty, schema);
-                let optional = if field.ty.is_non_null() { "" } else { "?" };
-                output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
+            executable::Selection::FragmentSpread(spread) => {
+                fragment_spreads.push(spread);
+                used_fragments.insert(spread.fragment_name.to_string(), String::new());
             }
-            output.push_str("}\n\n");
         }
     }
 
-    // 3. Custom Scalars (Fallback to any if not handled in gql_type_to_ts)
-    for (name, ty) in &schema.types {
-        if let apollo_compiler::schema::ExtendedType::Scalar(scalar) = ty {
-            match name.as_str() {
-                "String" | "ID" | "Int" | "Float" | "Boolean" => continue,
-                _ => {
-                    let deprecation = scalar.directives.get("deprecated").map(|d| {
-                        d.argument_by_name("reason", schema)
-                            .ok()
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("No reason provided")
-                    });
-                    output.push_str(&format_jsdoc(scalar.description.as_deref(), deprecation, 0));
-                    output.push_str(&format!("export type {} = any;\n\n", name));
+    if inline_fragments.is_empty() {
+        // Simple object or intersection
+        let mut local_fields_list = Vec::new();
+        if !has_explicit_typename {
+            local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
+        }
+
+        for field in fields {
+            let name = field.alias.as_ref().unwrap_or(&field.name);
+            let field_def = match parent_type {
+                schema::ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+                schema::ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
+                _ => None,
+            };
+
+            if let Some(fd) = field_def {
+                let ts_type = if field.selection_set.selections.is_empty() {
+                    gql_type_to_ts(&fd.ty, ctx.schema)
+                } else {
+                    let inner_type_name = fd.ty.inner_named_type();
+                    let inner_type = ctx
+                        .schema
+                        .types
+                        .get(inner_type_name.as_str())
+                        .expect("Field type must exist");
+                    generate_selection_set(
+                        &field.selection_set,
+                        inner_type,
+                        ctx,
+                        indent + 1,
+                        used_fragments,
+                    )
+                };
+
+                let wrapped_type = if field.selection_set.selections.is_empty() {
+                    ts_type
+                } else {
+                    wrap_in_list_and_nullability(&ts_type, &fd.ty)
+                };
+
+                local_fields_list.push(format!("{}: {}", name, wrapped_type));
+            }
+        }
+
+        if fragment_spreads.is_empty() {
+            // Standard multi-line object (keep this for simple_query)
+            let mut result = String::new();
+            for f in local_fields_list {
+                result.push_str(&format!("\n{}{};", inner_pad, f));
+            }
+            format!("{{{}\n{}}}", result, pad)
+        } else {
+            // Intersection mode (compact style for fragment_usage)
+            let base_obj = format!("{{ {} }}", local_fields_list.join(", "));
+            let mut spreads: Vec<_> = fragment_spreads
+                .iter()
+                .map(|s| s.fragment_name.as_str())
+                .collect();
+            spreads.sort();
+
+            format!("({} & {})", base_obj, spreads.join(" & "))
+        }
+    } else {
+        // Union type
+        let mut branches = Vec::new();
+
+        // Base branch
+        let base_branch = format!("{{ __typename: \"{}\" }}", parent_type.name());
+        branches.push(base_branch);
+
+        for inline in inline_fragments {
+            let type_name = inline
+                .type_condition
+                .as_ref()
+                .map(|n| n.as_str())
+                .unwrap_or(parent_type.name());
+            let target_type = ctx.schema.types.get(type_name).unwrap_or(parent_type);
+
+            let mut branch_fields = String::new();
+            branch_fields.push_str(&format!("\n{}    __typename: \"{}\";", pad, type_name));
+
+            // Generate fields for this fragment
+            for selection in &inline.selection_set.selections {
+                if let executable::Selection::Field(field) = selection {
+                    let name = field.alias.as_ref().unwrap_or(&field.name);
+                    if name.as_str() == "__typename" {
+                        continue;
+                    }
+
+                    let field_def = match target_type {
+                        schema::ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+                        schema::ExtendedType::Interface(iface) => {
+                            iface.fields.get(field.name.as_str())
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(fd) = field_def {
+                        let ts_type = if field.selection_set.selections.is_empty() {
+                            gql_type_to_ts(&fd.ty, ctx.schema)
+                        } else {
+                            let inner_type_name = fd.ty.inner_named_type();
+                            let inner_type = ctx
+                                .schema
+                                .types
+                                .get(inner_type_name.as_str())
+                                .expect("Field type must exist");
+                            let base_type = generate_selection_set(
+                                &field.selection_set,
+                                inner_type,
+                                ctx,
+                                indent + 2,
+                                used_fragments,
+                            );
+                            wrap_in_list_and_nullability(&base_type, &fd.ty)
+                        };
+                        branch_fields.push_str(&format!("\n{}    {}: {};", pad, name, ts_type));
+                    }
                 }
             }
+            branches.push(format!("{{{}\n{}  }}", branch_fields, pad));
         }
-    }
 
-    output
+        for spread in fragment_spreads {
+            branches.push(spread.fragment_name.to_string());
+            used_fragments.insert(spread.fragment_name.to_string(), String::new());
+        }
+
+        let mut result = branches[0].clone();
+        for (i, branch) in branches.iter().enumerate().skip(1) {
+            if i == 1 {
+                result.push_str(&format!("\n{}  | ", pad));
+            } else {
+                result.push_str(" | ");
+            }
+            result.push_str(branch);
+        }
+        result
+    }
 }
 
-fn format_jsdoc(
-    description: Option<&str>,
-    deprecation_reason: Option<&str>,
-    indent_level: usize,
-) -> String {
-    let has_desc = description.map_or(false, |d| !d.trim().is_empty());
-    let is_deprecated = deprecation_reason.is_some();
-
-    if !has_desc && !is_deprecated {
-        return String::new();
+fn wrap_in_list_and_nullability(base: &str, ty: &apollo_compiler::ast::Type) -> String {
+    let mut result = base.to_string();
+    if !ty.is_non_null() {
+        result = format!("{} | null", result);
     }
-
-    let indent = "  ".repeat(indent_level);
-    let mut jsdoc = String::new();
-    jsdoc.push_str(&format!("{}/**\n", indent));
-
-    if let Some(desc) = description {
-        for line in desc.lines() {
-            jsdoc.push_str(&format!("{} * {}\n", indent, line.trim()));
+    if ty.is_list() {
+        result = format!("Array<{}>", result);
+        if !ty.is_non_null() {
+            result = format!("{} | null", result);
         }
     }
-
-    if let Some(reason) = deprecation_reason {
-        if has_desc {
-            jsdoc.push_str(&format!("{} *\n", indent));
-        }
-        jsdoc.push_str(&format!("{} * @deprecated {}\n", indent, reason));
-    }
-
-    jsdoc.push_str(&format!("{} */\n", indent));
-    jsdoc
-}
-
-fn generate_ts_type(ty: &apollo_compiler::ast::Type, base: &str) -> String {
-    match ty {
-        apollo_compiler::ast::Type::Named(_) => {
-            if ty.is_non_null() {
-                base.to_string()
-            } else {
-                format!("{} | null", base)
-            }
-        }
-        apollo_compiler::ast::Type::List(inner) => {
-            let inner_ts = generate_ts_type(inner, base);
-            let list_ts = format!("Array<{}>", inner_ts);
-            if ty.is_non_null() {
-                list_ts
-            } else {
-                format!("{} | null", list_ts)
-            }
-        }
-        apollo_compiler::ast::Type::NonNullNamed(_) => base.to_string(),
-        apollo_compiler::ast::Type::NonNullList(inner) => {
-            let inner_ts = generate_ts_type(inner, base);
-            format!("Array<{}>", inner_ts)
-        }
-    }
+    result
 }
 
 fn gql_type_to_ts(ty: &apollo_compiler::ast::Type, schema: &Schema) -> String {
@@ -488,14 +366,8 @@ fn gql_type_to_ts_internal(
                                 .join(" | ")
                         }
                     }
-                    apollo_compiler::schema::ExtendedType::InputObject(_) => {
-                        if use_names {
-                            other.to_string()
-                        } else {
-                            "any".to_string()
-                        }
-                    }
-                    apollo_compiler::schema::ExtendedType::Scalar(_) => {
+                    apollo_compiler::schema::ExtendedType::InputObject(_)
+                    | apollo_compiler::schema::ExtendedType::Scalar(_) => {
                         if use_names {
                             other.to_string()
                         } else {
@@ -513,6 +385,142 @@ fn gql_type_to_ts_internal(
     generate_ts_type(ty, &base)
 }
 
-fn wrap_in_list_and_nullability(base: &str, ty: &apollo_compiler::ast::Type) -> String {
-    generate_ts_type(ty, base)
+pub fn generate_schema_types(schema: &Schema) -> String {
+    let mut output = String::new();
+    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+
+    // 1. Enums
+    let mut enum_names: Vec<_> = schema.types.keys().collect();
+    enum_names.sort();
+
+    for name in enum_names {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let Some(apollo_compiler::schema::ExtendedType::Enum(enm)) = schema.types.get(name) {
+            let deprecation = enm.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(enm.description.as_deref(), deprecation, 0));
+            let mut values: Vec<_> = enm.values.keys().collect();
+            values.sort();
+            let union_values = values
+                .iter()
+                .map(|v| format!("\"{}\"", v))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            output.push_str(&format!("export type {} = {};\n\n", name, union_values));
+        }
+    }
+
+    // 2. Input Objects
+    let mut input_names: Vec<_> = schema.types.keys().collect();
+    input_names.sort();
+
+    for name in input_names {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let Some(apollo_compiler::schema::ExtendedType::InputObject(input)) =
+            schema.types.get(name)
+        {
+            let deprecation = input.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(input.description.as_deref(), deprecation, 0));
+            output.push_str(&format!("export interface {} {{\n", name));
+            for field in input.fields.values() {
+                let field_deprecation = field.directives.get("deprecated").map(|d| {
+                    d.argument_by_name("reason", schema)
+                        .ok()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("No reason provided")
+                });
+                output.push_str(&format_jsdoc(
+                    field.description.as_deref(),
+                    field_deprecation,
+                    1,
+                ));
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema);
+                let optional = if field.ty.is_non_null() { "" } else { "?" };
+                output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
+            }
+            output.push_str("}\n\n");
+        }
+    }
+
+    // 3. Custom Scalars (Fallback to any if not handled in gql_type_to_ts)
+    let mut scalar_names: Vec<_> = schema.types.keys().collect();
+    scalar_names.sort();
+
+    for name in scalar_names {
+        if let Some(apollo_compiler::schema::ExtendedType::Scalar(scalar)) = schema.types.get(name)
+        {
+            match name.as_str() {
+                "String" | "ID" | "Int" | "Float" | "Boolean" => continue,
+                _ => {
+                    let deprecation = scalar.directives.get("deprecated").map(|d| {
+                        d.argument_by_name("reason", schema)
+                            .ok()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("No reason provided")
+                    });
+                    output.push_str(&format_jsdoc(scalar.description.as_deref(), deprecation, 0));
+                    output.push_str(&format!("export type {} = any;\n\n", name));
+                }
+            }
+        }
+    }
+
+    output
+}
+
+fn format_jsdoc(
+    description: Option<&str>,
+    deprecation_reason: Option<&str>,
+    indent_level: usize,
+) -> String {
+    let has_desc = description.is_some_and(|d| !d.trim().is_empty());
+    let is_deprecated = deprecation_reason.is_some();
+
+    if !has_desc && !is_deprecated {
+        return String::new();
+    }
+
+    let indent = "  ".repeat(indent_level);
+    let mut jsdoc = String::new();
+    jsdoc.push_str(&format!("{}/**\n", indent));
+
+    if let Some(desc) = description {
+        for line in desc.lines() {
+            jsdoc.push_str(&format!("{} * {}\n", indent, line.trim()));
+        }
+    }
+
+    if let Some(reason) = deprecation_reason {
+        if has_desc {
+            jsdoc.push_str(&format!("{} *\n", indent));
+        }
+        jsdoc.push_str(&format!("{} * @deprecated {}\n", indent, reason));
+    }
+
+    jsdoc.push_str(&format!("{} */\n", indent));
+    jsdoc
+}
+
+fn generate_ts_type(ty: &apollo_compiler::ast::Type, base: &str) -> String {
+    let mut result = base.to_string();
+    if ty.is_list() {
+        result = format!("Array<{}>", result);
+    }
+    if !ty.is_non_null() {
+        result = format!("{} | null", result);
+    }
+    result
 }

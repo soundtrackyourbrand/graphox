@@ -32,17 +32,17 @@ impl DocumentState {
                     for nt_child in tc_child.children(&mut nt_cursor) {
                         if nt_child.kind() == "name" {
                             let type_name = self.get_node_text(nt_child, offset);
-                            if let Some(type_def) = schema.types.get(type_name.as_str()) {
-                                if let Some(sel_set) = selection_set_node {
-                                    self.validate_selection_set(
-                                        sel_set,
-                                        offset,
-                                        type_def,
-                                        schema,
-                                        all_fragments,
-                                        diagnostics,
-                                    );
-                                }
+                            if let Some(type_def) = schema.types.get(type_name.as_str())
+                                && let Some(sel_set) = selection_set_node
+                            {
+                                self.validate_selection_set(
+                                    sel_set,
+                                    offset,
+                                    type_def,
+                                    schema,
+                                    all_fragments,
+                                    diagnostics,
+                                );
                             }
                         }
                     }
@@ -92,17 +92,17 @@ impl DocumentState {
             Some(parent_type)
         };
 
-        if let Some(t_type) = target_type {
-            if let Some(sel_set) = selection_set_node {
-                self.validate_selection_set(
-                    sel_set,
-                    offset,
-                    t_type,
-                    schema,
-                    all_fragments,
-                    diagnostics,
-                );
-            }
+        if let Some(t_type) = target_type
+            && let Some(sel_set) = selection_set_node
+        {
+            self.validate_selection_set(
+                sel_set,
+                offset,
+                t_type,
+                schema,
+                all_fragments,
+                diagnostics,
+            );
         }
     }
 

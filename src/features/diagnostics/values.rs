@@ -21,18 +21,16 @@ impl DocumentState {
                 for arg_child in child.children(&mut arg_cursor) {
                     if arg_child.kind() == "name" {
                         name_node = Some(arg_child);
-                    } else if arg_child.kind().ends_with("_value") || arg_child.kind() == "value" {
+                    } else if arg_child.kind().ends_with("_value")
+                        || arg_child.kind() == "value"
+                    {
                         value_node = Some(arg_child);
                     }
                 }
 
                 if let Some(name_node) = name_node {
                     let arg_name = self.get_node_text(name_node, offset);
-                    if let Some(arg_def) = field_def
-                        .arguments
-                        .iter()
-                        .find(|a| a.name.as_str() == arg_name)
-                    {
+                    if let Some(arg_def) = field_def.arguments.iter().find(|a| a.name.as_str() == arg_name) {
                         if let Some(directive) = arg_def.directives.get("deprecated") {
                             let reason = directive
                                 .argument_by_name("reason", schema)
@@ -43,10 +41,7 @@ impl DocumentState {
                             diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(name_node, offset),
                                 severity: Some(DiagnosticSeverity::WARNING),
-                                message: format!(
-                                    "Argument '{}' is deprecated: {}",
-                                    arg_name, reason
-                                ),
+                                message: format!("Argument '{}' is deprecated: {}", arg_name, reason),
                                 ..Default::default()
                             });
                         }
@@ -54,13 +49,7 @@ impl DocumentState {
                         if let Some(v_node) = value_node {
                             let arg_type_name = arg_def.ty.inner_named_type();
                             if let Some(arg_type_def) = schema.types.get(arg_type_name.as_str()) {
-                                self.validate_value(
-                                    v_node,
-                                    offset,
-                                    arg_type_def,
-                                    schema,
-                                    diagnostics,
-                                );
+                                self.validate_value(v_node, offset, arg_type_def, schema, diagnostics);
                             }
                         }
                     }
@@ -104,8 +93,7 @@ impl DocumentState {
                             if let Some(name_node) = name_node {
                                 let field_name = self.get_node_text(name_node, offset);
                                 if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
-                                    if let Some(directive) = field_def.directives.get("deprecated")
-                                    {
+                                    if let Some(directive) = field_def.directives.get("deprecated") {
                                         let reason = directive
                                             .argument_by_name("reason", schema)
                                             .ok()
@@ -154,24 +142,24 @@ impl DocumentState {
             "enum_value" => {
                 if let schema::ExtendedType::Enum(enum_def) = expected_type {
                     let value_name = self.get_node_text(node, offset);
-                    if let Some(value_def) = enum_def.values.get(value_name.as_str()) {
-                        if let Some(directive) = value_def.directives.get("deprecated") {
-                            let reason = directive
-                                .argument_by_name("reason", schema)
-                                .ok()
-                                .and_then(|arg| arg.as_str())
-                                .unwrap_or("No reason provided");
+                    if let Some(value_def) = enum_def.values.get(value_name.as_str())
+                        && let Some(directive) = value_def.directives.get("deprecated")
+                    {
+                        let reason = directive
+                            .argument_by_name("reason", schema)
+                            .ok()
+                            .and_then(|arg| arg.as_str())
+                            .unwrap_or("No reason provided");
 
-                            diagnostics.push(Diagnostic {
-                                range: self.translate_to_file_range(node, offset),
-                                severity: Some(DiagnosticSeverity::WARNING),
-                                message: format!(
-                                    "Enum value '{}' is deprecated: {}",
-                                    value_name, reason
-                                ),
-                                ..Default::default()
-                            });
-                        }
+                        diagnostics.push(Diagnostic {
+                            range: self.translate_to_file_range(node, offset),
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            message: format!(
+                                "Enum value '{}' is deprecated: {}",
+                                value_name, reason
+                            ),
+                            ..Default::default()
+                        });
                     }
                 }
             }

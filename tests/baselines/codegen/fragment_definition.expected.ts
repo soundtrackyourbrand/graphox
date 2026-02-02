@@ -2,13 +2,14 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-export type UserFieldsFragment = {
+export interface UserFields {
   __typename: "User";
   id: string;
   username: string;
-};
+}
 
-export type InternalFieldsFragment = {
+export interface InternalFields {
   __typename: "User";
   email: string | null;
-};
+}
+

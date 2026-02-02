@@ -30,22 +30,20 @@ impl DocumentState {
             _ => None,
         };
 
-        if let Some(op) = op_type {
-            let root_def = schema.root_operation(op);
-            if let Some(root_def_name) = root_def {
-                if let Some(root_type) = schema.types.get(root_def_name.as_str()) {
-                    for child in node.children(&mut cursor) {
-                        if child.kind() == "selection_set" {
-                            self.validate_selection_set(
-                                child,
-                                offset,
-                                root_type,
-                                schema,
-                                all_fragments,
-                                diagnostics,
-                            );
-                        }
-                    }
+        if let Some(op) = op_type
+            && let Some(root_def_name) = schema.root_operation(op)
+            && let Some(root_type) = schema.types.get(root_def_name.as_str())
+        {
+            for child in node.children(&mut cursor) {
+                if child.kind() == "selection_set" {
+                    self.validate_selection_set(
+                        child,
+                        offset,
+                        root_type,
+                        schema,
+                        all_fragments,
+                        diagnostics,
+                    );
                 }
             }
         }

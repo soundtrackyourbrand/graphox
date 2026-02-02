@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
-use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
+use std::sync::Arc;
+use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use crate::Config;
@@ -23,21 +23,20 @@ impl Backend {
         if let Some(cfg) = &config {
             // Load project schemas from config
             for project in &cfg.projects {
-                if !schemas.contains_key(&project.schema) {
-                    if let Ok(text) = std::fs::read_to_string(&project.schema) {
-                        if let Ok(schema) = Schema::parse(&text, &project.schema) {
-                            schemas.insert(project.schema.clone(), Arc::new(schema));
-                        }
-                    }
+                if !schemas.contains_key(&project.schema)
+                    && let Ok(text) = std::fs::read_to_string(&project.schema)
+                    && let Ok(schema) = Schema::parse(&text, &project.schema)
+                {
+                    schemas.insert(project.schema.clone(), Arc::new(schema));
                 }
             }
         }
 
         // Always try to load the CLI schema too, just in case it's used as fallback when no config is present
-        if let Ok(text) = std::fs::read_to_string(default_schema_path) {
-            if let Ok(schema) = Schema::parse(&text, default_schema_path) {
-                schemas.insert(default_schema_path.to_string(), Arc::new(schema));
-            }
+        if let Ok(text) = std::fs::read_to_string(default_schema_path)
+            && let Ok(schema) = Schema::parse(&text, default_schema_path)
+        {
+            schemas.insert(default_schema_path.to_string(), Arc::new(schema));
         }
 
         Self {
@@ -52,24 +51,23 @@ impl Backend {
 
     fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
         if let Some(config) = &self.config {
-            if let Ok(path) = uri.to_file_path() {
-                if let Some(schema_path) = config.get_schema_for_path(&path) {
-                    if let Some(schema) = self.schemas.get(&schema_path) {
-                        return schema.value().clone();
-                    }
-                }
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_path) = config.get_schema_for_path(&path)
+                && let Some(schema) = self.schemas.get(&schema_path)
+            {
+                return schema.value().clone();
             }
             // If we have a config but no match, user said "assume empty schema"
             return self.empty_schema.clone();
         }
-        
+
         // No config present at all, fallback to default schema (preserves CLI/test behavior)
-        if let Some(default_path) = &self.default_schema_path {
-            if let Some(schema) = self.schemas.get(default_path) {
-                return schema.value().clone();
-            }
+        if let Some(default_path) = &self.default_schema_path
+            && let Some(schema) = self.schemas.get(default_path)
+        {
+            return schema.value().clone();
         }
-        
+
         self.empty_schema.clone()
     }
 
@@ -95,21 +93,21 @@ impl Backend {
                     self.client
                         .log_message(MessageType::INFO, format!("Schema {} successfully reloaded!", path))
                         .await;
-                    
+
                     // Re-validate all documents that use this schema
                     for entry in self.documents.iter() {
                         let uri = entry.key();
                         let doc = entry.value();
-                        
+
                         let doc_schema = self.get_schema_for_doc(uri);
                         // This is a bit inefficient but correct: we check if the reloaded schema is the one for this doc
                         // We can't easily check identity without comparing paths, so let's check if the doc's schema path matches
-                        
+
                         if let Ok(doc_path) = uri.to_file_path() {
                             let matches = if let Some(config) = &self.config {
-                                config.get_schema_for_path(&doc_path).map_or(false, |p| p == path)
+                                config.get_schema_for_path(&doc_path).is_some_and(|p| p == path)
                             } else {
-                                self.default_schema_path.as_ref().map_or(false, |p| p == path)
+                                self.default_schema_path.as_ref().is_some_and(|p| p == path)
                             };
 
                             if matches {
@@ -220,16 +218,16 @@ impl LanguageServer for Backend {
                         .iter()
                         .any(|f| f.name == symbol_name && f.is_public);
 
-                    if is_same_package || is_public_fragment {
-                        if let Some(info) = other_doc.find_fragment_info(&symbol_name) {
-                            return Ok(Some(Hover {
-                                contents: HoverContents::Markup(MarkupContent {
-                                    kind: MarkupKind::Markdown,
-                                    value: format!("```graphql\n{}\n```", info),
-                                }),
-                                range: None,
-                            }));
-                        }
+                    if (is_same_package || is_public_fragment)
+                        && let Some(info) = other_doc.find_fragment_info(&symbol_name)
+                    {
+                        return Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: format!("```graphql\n{}\n```", info),
+                            }),
+                            range: None,
+                        }));
                     }
                 }
             }
@@ -291,21 +289,21 @@ impl LanguageServer for Backend {
         };
 
         // 2. Search for definition in documents within the same package or public fragments
-        if let Some(name) = symbol_name {
-            if let Some(doc) = self.documents.get(&uri) {
-                for entry in self.documents.iter() {
-                    let other_doc = entry.value();
-                    let is_same_package = other_doc.package_root == doc.package_root;
-                    let is_public_fragment = other_doc
-                        .fragments()
-                        .iter()
-                        .any(|f| f.name == name && f.is_public);
+        if let Some(name) = symbol_name
+            && let Some(doc) = self.documents.get(&uri)
+        {
+            for entry in self.documents.iter() {
+                let other_doc = entry.value();
+                let is_same_package = other_doc.package_root == doc.package_root;
+                let is_public_fragment = other_doc
+                    .fragments()
+                    .iter()
+                    .any(|f| f.name == name && f.is_public);
 
-                    if is_same_package || is_public_fragment {
-                        if let Some(location) = other_doc.find_definition_in_tree(&name) {
-                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                        }
-                    }
+                if (is_same_package || is_public_fragment)
+                    && let Some(location) = other_doc.find_definition_in_tree(&name)
+                {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
                 }
             }
         }

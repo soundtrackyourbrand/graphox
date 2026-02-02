@@ -1,25 +1,25 @@
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::SemanticTokenType;
 
-pub fn find_package_root(path: &Path) -> Option<PathBuf> {
-    let mut current = path.parent();
+pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
+    SemanticTokenType::VARIABLE,
+    SemanticTokenType::TYPE,
+    SemanticTokenType::STRING,
+];
 
-    while let Some(dir) = current {
-        if dir.join("package.json").exists() {
-            return Some(dir.to_path_buf());
-        }
-        current = dir.parent();
-    }
-
-    None
+#[repr(u32)]
+pub enum SemanticTokenKind {
+    Variable = 0,
+    Type = 1,
+    String = 2,
 }
 
 pub fn is_relevant_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    match ext {
-        "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" => true,
-        _ => false,
-    }
+    matches!(
+        ext,
+        "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
+    )
 }
 
 pub fn get_project_files(include_glob: &str) -> Vec<PathBuf> {
@@ -59,7 +59,7 @@ pub fn get_project_files(include_glob: &str) -> Vec<PathBuf> {
             .build();
 
         for entry in walk.filter_map(|e| e.ok()) {
-            if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
                 let path = entry.path().to_owned();
                 if pattern.is_empty() {
                     files.push(path);
@@ -81,52 +81,56 @@ pub fn get_project_files(include_glob: &str) -> Vec<PathBuf> {
     files
 }
 
+pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
+    let mut current = if start_path.is_dir() {
+        start_path.to_path_buf()
+    } else {
+        start_path.parent()?.to_path_buf()
+    };
+
+    loop {
+        if current.join("package.json").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+/// Simple interpolation masker for template strings.
+/// Replaces ${...} with spaces of the same length to preserve offsets.
 pub fn mask_interpolations(text: &str) -> String {
-    let mut masked = String::with_capacity(text.len());
+    let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
 
     while let Some(c) = chars.next() {
         if c == '$' && chars.peek() == Some(&'{') {
-            // We found a ${ ... }
-            masked.push(' '); // Replace '$'
-            masked.push(' '); // Replace '{'
-            chars.next(); // Consume '{'
-
+            result.push_str("  ");
+            chars.next(); // consume '{'
             let mut depth = 1;
             while depth > 0 {
                 if let Some(inner_c) = chars.next() {
-                    if inner_c == '{' {
-                        depth += 1;
+                    match inner_c {
+                        '{' => {
+                            depth += 1;
+                            result.push(' ');
+                        }
+                        '}' => {
+                            depth -= 1;
+                            result.push(' ');
+                        }
+                        '\n' => result.push('\n'),
+                        _ => result.push(' '),
                     }
-                    if inner_c == '}' {
-                        depth -= 1;
-                    }
-                    masked.push(' '); // Mask everything inside with whitespace
                 } else {
                     break;
                 }
             }
         } else {
-            masked.push(c);
+            result.push(c);
         }
     }
-    masked
+    result
 }
-
-#[derive(Debug, Clone, Copy)]
-#[repr(u32)]
-pub enum SemanticTokenKind {
-    Variable = 0,
-    Type = 1,
-    Keyword = 2,
-    Enum = 3,
-    String = 4,
-}
-
-pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
-    SemanticTokenType::VARIABLE,
-    SemanticTokenType::TYPE,
-    SemanticTokenType::KEYWORD,
-    SemanticTokenType::ENUM,
-    SemanticTokenType::STRING,
-];

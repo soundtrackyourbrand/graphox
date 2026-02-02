@@ -67,24 +67,17 @@ impl DocumentState {
                 token_type: SemanticTokenKind::String as u32,
             });
             captured = true;
-        } else if kind == "name" {
-            // We only want 'name' nodes that aren't part of a named_type
-            // (since we handled named_type above and it usually contains a name)
-            if let Some(parent) = node.parent() {
-                if parent.kind() != "named_type" {
-                    tokens.push(RawToken {
-                        range: self.translate_to_file_range(node, offset),
-                        token_type: SemanticTokenKind::Variable as u32,
-                    });
-                    captured = true;
-                }
-            }
+        } else if kind == "name"
+            && let Some(parent) = node.parent()
+            && parent.kind() != "named_type"
+        {
+            tokens.push(RawToken {
+                range: self.translate_to_file_range(node, offset),
+                token_type: SemanticTokenKind::Variable as u32,
+            });
+            captured = true;
         }
 
-        // If we captured this node as a specific type, we might still want to look at children
-        // depending on the grammar, but for these simple types, we usually don't need to recurse
-        // if we've already "colored" the whole node.
-        // However, name nodes are often leaves, so recursion is fine.
         if !captured || kind == "named_type" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {

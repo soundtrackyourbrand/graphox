@@ -1,3 +1,4 @@
+use glob::Pattern;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -45,20 +46,19 @@ impl Config {
     }
 
     pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
-        use glob::Pattern;
         let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
         for project in &self.projects {
-            if let Ok(pattern) = Pattern::new(&project.include) {
-                if pattern.matches_path(&abs_path) {
-                    return Some(project.schema.clone());
-                }
+            if let Ok(pattern) = Pattern::new(&project.include)
+                && pattern.matches_path(&abs_path)
+            {
+                return Some(project.schema.clone());
             }
             // Fallback for non-glob paths
-            if let Ok(include_path) = fs::canonicalize(&project.include) {
-                if abs_path.starts_with(&include_path) {
-                    return Some(project.schema.clone());
-                }
+            if let Ok(include_path) = fs::canonicalize(&project.include)
+                && abs_path.starts_with(&include_path)
+            {
+                return Some(project.schema.clone());
             }
         }
         None

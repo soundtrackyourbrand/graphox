@@ -26,8 +26,7 @@ impl DocumentState {
                         )
                         .to_string();
 
-                    if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema)
-                    {
+                    if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema) {
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,
@@ -47,8 +46,7 @@ impl DocumentState {
                         });
                     }
 
-                    if let Some(field_info) = self.get_field_info(root, offset, byte_offset, schema)
-                    {
+                    if let Some(field_info) = self.get_field_info(root, offset, byte_offset, schema) {
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,
@@ -90,20 +88,24 @@ impl DocumentState {
 
                 if cursor_offset >= range.start && cursor_offset <= range.end {
                     let capture_name = query.capture_names()[cap.index as usize];
-                    if capture_name == "operation" {
-                        return self.find_field_in_operation(
-                            cap.node,
-                            offset,
-                            cursor_offset,
-                            schema,
-                        );
-                    } else if capture_name == "fragment" {
-                        return self.find_field_in_fragment(
-                            cap.node,
-                            offset,
-                            cursor_offset,
-                            schema,
-                        );
+                    match capture_name {
+                        "operation" => {
+                            return self.find_field_in_operation(
+                                cap.node,
+                                offset,
+                                cursor_offset,
+                                schema,
+                            )
+                        }
+                        "fragment" => {
+                            return self.find_field_in_fragment(
+                                cap.node,
+                                offset,
+                                cursor_offset,
+                                schema,
+                            )
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -134,19 +136,11 @@ impl DocumentState {
             _ => None,
         };
 
-        if let Some(op) = op_type {
-            let root_def = schema.root_operation(op);
-            if let Some(root_def_name) = root_def {
-                if let Some(root_type) = schema.types.get(root_def_name.as_str()) {
-                    return self.find_field_recursive(
-                        node,
-                        offset,
-                        cursor_offset,
-                        root_type,
-                        schema,
-                    );
-                }
-            }
+        if let Some(op) = op_type
+            && let Some(root_def_name) = schema.root_operation(op)
+            && let Some(root_type) = schema.types.get(root_def_name.as_str())
+        {
+            return self.find_field_recursive(node, offset, cursor_offset, root_type, schema);
         }
         None
     }
@@ -162,18 +156,17 @@ impl DocumentState {
         for child in node.children(&mut cursor) {
             if child.kind() == "selection_set" {
                 let range = (child.start_byte() + offset)..(child.end_byte() + offset);
-                if cursor_offset >= range.start && cursor_offset <= range.end {
-                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
-                        if let Some(type_def) = schema.types.get(type_name.as_str()) {
-                            return self.find_field_recursive(
-                                child,
-                                offset,
-                                cursor_offset,
-                                type_def,
-                                schema,
-                            );
-                        }
-                    }
+                if cursor_offset >= range.start && cursor_offset <= range.end
+                    && let Some(type_name) = self.get_fragment_type_condition(node, offset)
+                    && let Some(type_def) = schema.types.get(type_name.as_str())
+                {
+                    return self.find_field_recursive(
+                        child,
+                        offset,
+                        cursor_offset,
+                        type_def,
+                        schema,
+                    );
                 }
             }
         }
@@ -199,10 +192,7 @@ impl DocumentState {
                     break;
                 }
             }
-            if found.is_none() {
-                return None;
-            }
-            found.unwrap()
+            found?
         };
 
         let mut cursor = target_node.walk();
@@ -213,24 +203,23 @@ impl DocumentState {
                 if kind == "selection" {
                     let mut inner = child.walk();
                     for inner_child in child.children(&mut inner) {
-                        if inner_child.kind() == "field" {
-                            if let Some(info) = self.find_field_info(
+                        if inner_child.kind() == "field"
+                            && let Some(info) = self.find_field_info(
                                 inner_child,
                                 offset,
                                 cursor_offset,
                                 parent_type,
                                 schema,
-                            ) {
-                                return Some(info);
-                            }
+                            )
+                        {
+                            return Some(info);
                         }
                     }
-                } else if kind == "field" {
-                    if let Some(info) =
+                } else if kind == "field"
+                    && let Some(info) =
                         self.find_field_info(child, offset, cursor_offset, parent_type, schema)
-                    {
-                        return Some(info);
-                    }
+                {
+                    return Some(info);
                 }
             }
         }
@@ -250,10 +239,10 @@ impl DocumentState {
 
         let mut cursor = field_node.walk();
         for child in field_node.children(&mut cursor) {
-            if child.kind() == "name" {
-                name_node = Some(child);
-            } else if child.kind() == "selection_set" {
-                selection_set_node = Some(child);
+            match child.kind() {
+                "name" => name_node = Some(child),
+                "selection_set" => selection_set_node = Some(child),
+                _ => {}
             }
         }
 
@@ -273,7 +262,7 @@ impl DocumentState {
                         format!("### field {}.{}\n---\n", parent_type.name(), field_name);
                     info.push_str(&format!("Type: `{}`\n", field_def.ty));
                     if let Some(desc) = &field_def.description {
-                        info.push_str("\n");
+                        info.push('\n');
                         info.push_str(desc);
                     }
                     return Some(info);

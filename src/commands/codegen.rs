@@ -60,7 +60,7 @@ pub async fn run_codegen(
             .expect("Failed to watch schema");
     }
 
-    while let Some(_) = rx.recv().await {
+    while rx.recv().await.is_some() {
         println!("\nChange detected, re-running codegen...");
         execute_codegen(config.clone(), schema_path, scan_path, output_dir).await;
     }
@@ -175,7 +175,7 @@ async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_d
         let ctx = graphql_rust::features::codegen::CodegenContext {
             schema: &schema,
             fragment_to_path: &fragment_to_path,
-            current_file_path: &path,
+            current_file_path: path,
         };
 
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
@@ -183,11 +183,11 @@ async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_d
                 let out_path = if let Some(dir) = output_dir {
                     let mut p = PathBuf::from(dir);
                     let rel = if let Some(root) = &scan_root {
-                        path.strip_prefix(root).unwrap_or(&path)
+                        path.strip_prefix(root).unwrap_or(path)
                     } else {
                         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                        let abs_cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
-                        path.strip_prefix(&abs_cwd).unwrap_or(&path)
+                        let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
+                        path.strip_prefix(&abs_cwd).unwrap_or(path)
                     };
                     p.push(rel);
                     let mut filename = p.file_name().unwrap().to_os_string();

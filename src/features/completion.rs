@@ -18,12 +18,10 @@ impl DocumentState {
             let root = block.tree.root_node();
             let tree_len = root.end_byte();
 
-            if byte_offset >= offset && byte_offset <= offset + tree_len {
-                if let Some(items) =
-                    self.find_completions_in_tree(root, offset, byte_offset, schema, &fragments)
-                {
-                    return items;
-                }
+            if byte_offset >= offset && byte_offset <= offset + tree_len
+                && let Some(items) = self.find_completions_in_tree(root, offset, byte_offset, schema, &fragments)
+            {
+                return items;
             }
         }
         Vec::new()
@@ -57,32 +55,33 @@ impl DocumentState {
 
                 if cursor_offset >= range.start && cursor_offset <= range.end {
                     let capture_name = query.capture_names()[cap.index as usize];
-                    if capture_name == "operation" {
-                        if let Some(items) = self.complete_operation(
-                            cap.node,
-                            offset,
-                            cursor_offset,
-                            schema,
-                            fragments,
-                        ) {
-                            return Some(items);
+                    match capture_name {
+                        "operation" => {
+                            if let Some(items) = self.complete_operation(
+                                cap.node,
+                                offset,
+                                cursor_offset,
+                                schema,
+                                fragments,
+                            ) {
+                                return Some(items);
+                            }
                         }
-                    } else if capture_name == "fragment" {
-                        if let Some(items) = self.complete_fragment(
-                            cap.node,
-                            offset,
-                            cursor_offset,
-                            schema,
-                            fragments,
-                        ) {
-                            return Some(items);
+                        "fragment" => {
+                            if let Some(items) = self.complete_fragment(
+                                cap.node,
+                                offset,
+                                cursor_offset,
+                                schema,
+                                fragments,
+                            ) {
+                                return Some(items);
+                            }
                         }
-                    } else if capture_name == "type_cond" {
-                        return Some(self.get_all_type_completions(schema));
-                    } else if capture_name == "frag_spread" {
-                        return Some(self.get_fragment_name_completions(fragments));
-                    } else if capture_name == "variable" || capture_name == "args" {
-                        return Some(self.get_operation_variables(root, offset, cursor_offset));
+                        "type_cond" => return Some(self.get_all_type_completions(schema)),
+                        "frag_spread" => return Some(self.get_fragment_name_completions(fragments)),
+                        "variable" | "args" => return Some(self.get_operation_variables(root, offset, cursor_offset)),
+                        _ => {}
                     }
                 }
             }
@@ -96,12 +95,9 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
     ) -> Vec<CompletionItem> {
-        // Find the operation definition containing the cursor
-        let mut target_op = None;
-
-        // We can't easily find it with simple walk if it's nested deep, but we can look for the node at byte
         let local_byte = cursor_offset - offset;
         let mut current = root.descendant_for_byte_range(local_byte, local_byte);
+        let mut target_op = None;
 
         while let Some(node) = current {
             if node.kind() == "operation_definition" {
@@ -164,20 +160,18 @@ impl DocumentState {
             _ => None,
         };
 
-        if let Some(op) = op_type {
-            let root_def = schema.root_operation(op);
-            if let Some(root_def_name) = root_def {
-                if let Some(root_type) = schema.types.get(root_def_name.as_str()) {
-                    return self.complete_selection_set_recursive(
-                        node,
-                        offset,
-                        cursor_offset,
-                        root_type,
-                        schema,
-                        fragments,
-                    );
-                }
-            }
+        if let Some(op) = op_type
+            && let Some(root_def_name) = schema.root_operation(op)
+            && let Some(root_type) = schema.types.get(root_def_name.as_str())
+        {
+            return self.complete_selection_set_recursive(
+                node,
+                offset,
+                cursor_offset,
+                root_type,
+                schema,
+                fragments,
+            );
         }
         None
     }
@@ -199,19 +193,18 @@ impl DocumentState {
                 }
             } else if child.kind() == "selection_set" {
                 let range = (child.start_byte() + offset)..(child.end_byte() + offset);
-                if cursor_offset >= range.start && cursor_offset <= range.end {
-                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
-                        if let Some(type_def) = schema.types.get(type_name.as_str()) {
-                            return self.complete_selection_set_recursive(
-                                child,
-                                offset,
-                                cursor_offset,
-                                type_def,
-                                schema,
-                                fragments,
-                            );
-                        }
-                    }
+                if cursor_offset >= range.start && cursor_offset <= range.end
+                    && let Some(type_name) = self.get_fragment_type_condition(node, offset)
+                    && let Some(type_def) = schema.types.get(type_name.as_str())
+                {
+                    return self.complete_selection_set_recursive(
+                        child,
+                        offset,
+                        cursor_offset,
+                        type_def,
+                        schema,
+                        fragments,
+                    );
                 }
             }
         }
@@ -238,10 +231,7 @@ impl DocumentState {
                     break;
                 }
             }
-            if found.is_none() {
-                return None;
-            }
-            found.unwrap()
+            found?
         };
 
         let range = (target_node.start_byte() + offset)..(target_node.end_byte() + offset);

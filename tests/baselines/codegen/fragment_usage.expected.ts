@@ -2,14 +2,10 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-import type { UserFieldsFragment } from "./fragment_definition.codegen";
+import type { UserFields } from "./fragment_definition.graphql";
 
-export type GetUsersWithFragmentVariables = Record<string, never>;
-
-export type GetUsersWithFragment = {
+export interface GetUsersWithFragmentQuery {
   __typename: "Query";
-  users: Array<({
-    __typename: "User";
-    email: string | null;
-  } & UserFieldsFragment) | null> | null;
-};
+  users: Array<({ __typename: "User", email: string | null } & UserFields) | null> | null;
+}
+
