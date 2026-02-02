@@ -1,0 +1,136 @@
+use crate::document::DocumentState;
+use apollo_compiler::Schema;
+use tower_lsp::lsp_types::*;
+use tree_sitter::Node;
+
+impl DocumentState {
+    pub(super) fn validate_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        schema: &Schema,
+        all_fragments: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let mut cursor = node.walk();
+        let mut type_condition_node = None;
+        let mut selection_set_node = None;
+
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_condition" {
+                type_condition_node = Some(child);
+            } else if child.kind() == "selection_set" {
+                selection_set_node = Some(child);
+            }
+        }
+
+        if let Some(type_cond) = type_condition_node {
+            let mut tc_cursor = type_cond.walk();
+            for tc_child in type_cond.children(&mut tc_cursor) {
+                if tc_child.kind() == "named_type" {
+                    let mut nt_cursor = tc_child.walk();
+                    for nt_child in tc_child.children(&mut nt_cursor) {
+                        if nt_child.kind() == "name" {
+                            let type_name = self.get_node_text(nt_child, offset);
+                            if let Some(type_def) = schema.types.get(type_name.as_str()) {
+                                if let Some(sel_set) = selection_set_node {
+                                    self.validate_selection_set(
+                                        sel_set,
+                                        offset,
+                                        type_def,
+                                        schema,
+                                        all_fragments,
+                                        diagnostics,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn validate_inline_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        parent_type: &apollo_compiler::schema::ExtendedType,
+        schema: &Schema,
+        all_fragments: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let mut cursor = node.walk();
+        let mut type_condition_node = None;
+        let mut selection_set_node = None;
+
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_condition" {
+                type_condition_node = Some(child);
+            } else if child.kind() == "selection_set" {
+                selection_set_node = Some(child);
+            }
+        }
+
+        let target_type = if let Some(type_cond) = type_condition_node {
+            let mut tc_cursor = type_cond.walk();
+            let mut found_type = None;
+            for tc_child in type_cond.children(&mut tc_cursor) {
+                if tc_child.kind() == "named_type" {
+                    let mut nt_cursor = tc_child.walk();
+                    for nt_child in tc_child.children(&mut nt_cursor) {
+                        if nt_child.kind() == "name" {
+                            let type_name = self.get_node_text(nt_child, offset);
+                            found_type = schema.types.get(type_name.as_str());
+                            break;
+                        }
+                    }
+                }
+            }
+            found_type
+        } else {
+            Some(parent_type)
+        };
+
+        if let Some(t_type) = target_type {
+            if let Some(sel_set) = selection_set_node {
+                self.validate_selection_set(
+                    sel_set,
+                    offset,
+                    t_type,
+                    schema,
+                    all_fragments,
+                    diagnostics,
+                );
+            }
+        }
+    }
+
+    pub(super) fn validate_fragment_spread(
+        &self,
+        node: Node,
+        offset: usize,
+        all_fragments: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "fragment_name" {
+                let mut name_cursor = child.walk();
+                for name_child in child.children(&mut name_cursor) {
+                    if name_child.kind() == "name" {
+                        let name = self.get_node_text(name_child, offset);
+                        if !all_fragments.contains(&name) {
+                            diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(name_child, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!("Unknown fragment: {}", name),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
