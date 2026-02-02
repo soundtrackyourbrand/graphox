@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, OnceLock};
 
 use apollo_compiler::Schema;
 use dashmap::DashMap;
@@ -45,6 +45,12 @@ struct DocumentState {
     language: DocumentLanguage,
 }
 
+static TS_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+static GQL_SYMBOL_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+static GQL_SEMANTIC_TOKEN_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+static GQL_DEFINITION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+static GQL_DESCRIPTION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+
 const GQL_SYMBOL_QUERY: &str = r#"
     (object_type_definition 
         name: (name) @symbol.name) @symbol.container
@@ -75,6 +81,18 @@ const TS_GQL_QUERY: &str = r#"
         (#eq? @tag_name "gql")
     )
 "#;
+
+const GQL_DEFINITION_QUERY: &str = r#"
+    (object_type_definition name: (name) @name)
+    (fragment_definition name: (name) @name)
+    (enum_type_definition name: (name) @name)
+"#;
+
+const GQL_DESCRIPTION_QUERY: &str = r#"
+    (object_type_definition description: (string)? @desc name: (name) @name)
+    (enum_type_definition description: (string)? @desc name: (name) @name)
+"#;
+
 
 fn mask_interpolations(text: &str) -> String {
     let mut masked = String::with_capacity(text.len());
@@ -127,11 +145,14 @@ impl DocumentState {
         }
 
         // TypeScript handling
-        let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
-        let query = tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap();
+        let query = TS_QUERY_CACHE.get_or_init(|| {
+            let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+            tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap()
+        });
+
         let mut cursor = tree_sitter::QueryCursor::new();
 
-        let mut ts_matches = cursor.matches(&query, self.tree.root_node(), |node: Node| {
+        let mut ts_matches = cursor.matches(query, self.tree.root_node(), |node: Node| {
             let start = node.start_byte();
             let end = node.end_byte();
 
@@ -318,63 +339,72 @@ impl DocumentState {
         None
     }
     fn find_definition_in_tree(&self, target_name: &str) -> Option<Location> {
-        let lang = tree_sitter_graphql::LANGUAGE.into();
-        // This query looks for any top-level definition with a matching name
-        let query_str = format!(
-            r#"(
-                [
-                    (object_type_definition name: (name) @name)
-                    (fragment_definition name: (name) @name)
-                    (enum_type_definition name: (name) @name)
-                ]
-                (#eq? @name "{}")
-            )"#,
-            target_name
-        );
-
-        let query = tree_sitter::Query::new(&lang, &query_str).ok()?;
+        let query = GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_DEFINITION_QUERY).unwrap()
+        });
+        
         let mut cursor = tree_sitter::QueryCursor::new();
-
+        
         // Search in ALL trees
         for (tree, offset) in self.get_graphql_trees() {
-            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+             let mut matches = cursor.matches(query, tree.root_node(), |node: Node| {
                 let start = node.start_byte();
                 let end = node.end_byte();
                 // Careful: rope needs absolute bytes, but node has local bytes (0-based)
                 // We must shift by offset
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
+                self.rope.byte_slice((start + offset)..(end + offset)).chunks()
             });
 
-            if let Some(m) = matches.next() {
-                let node = m.captures[0].node;
-                // Translate local node range to file range
-                let range = self.translate_to_file_range(node, offset);
-                return Some(Location {
-                    uri: self.uri.clone(),
-                    range,
-                });
+            while let Some(m) = matches.next() {
+                // We need to check if the captured name matches our target_name
+                let name_node = m.captures[0].node;
+                let name = self.rope.slice(
+                    self.rope.byte_to_char(name_node.start_byte() + offset)
+                    ..self.rope.byte_to_char(name_node.end_byte() + offset)
+                ).to_string();
+
+                if name == target_name {
+                    let node = name_node; // Or the parent? The query captures name as @name. 
+                    // Actually the previous query captured the parent as well?
+                    // Previous query: 
+                    // (object_type_definition name: (name) @name)
+                    // The capture @name is on the 'name' node.
+                    // But we want the range of the Definition, or the name?
+                    // "return Some(Location { ... range: node_to_lsp_range(node) })"
+                    // where node was m.captures[0].node.
+                    // In the old query: captures[0] was @name.
+                    // So we are returning the location of the NAME node, not the whole definition.
+                    // That seems correct for "Go to Definition" (jumping to the name).
+                    
+                    // Translate local node range to file range
+                    let range = self.translate_to_file_range(node, offset);
+                    return Some(Location {
+                        uri: self.uri.clone(),
+                        range,
+                    });
+                }
             }
         }
-
+        
         None
     }
 
     pub fn get_symbols(&self) -> Vec<DocumentSymbol> {
-        let lang = tree_sitter_graphql::LANGUAGE.into();
-        let query = Query::new(&lang, GQL_SYMBOL_QUERY).unwrap();
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+        
         let mut cursor = QueryCursor::new();
         let mut symbols = Vec::new();
 
         for (tree, offset) in self.get_graphql_trees() {
             // Execute query on the root node
-            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+            let mut matches = cursor.matches(query, tree.root_node(), |node: Node| {
                 let start = node.start_byte();
                 let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
+                self.rope.byte_slice((start + offset)..(end + offset)).chunks()
             });
 
             while let Some(m) = matches.next() {
@@ -445,44 +475,66 @@ impl DocumentState {
     }
 
     fn find_description(&self, target_name: &str) -> Option<String> {
-        let lang = tree_sitter_graphql::LANGUAGE.into();
-        // GraphQL allows descriptions as strings before definitions
-        let query_str = format!(
-            r#"(
-                [
-                    (object_type_definition description: (string)? @desc name: (name) @name)
-                    (enum_type_definition description: (string)? @desc name: (name) @name)
-                ]
-                (#eq? @name "{}")
-            )"#,
-            target_name
-        );
+        let query = GQL_DESCRIPTION_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_DESCRIPTION_QUERY).unwrap()
+        });
 
-        let query = tree_sitter::Query::new(&lang, &query_str).ok()?;
         let mut cursor = tree_sitter::QueryCursor::new();
 
         for (tree, offset) in self.get_graphql_trees() {
-            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+            let mut matches = cursor.matches(query, tree.root_node(), |node: Node| {
                 let start = node.start_byte();
                 let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
+                self.rope.byte_slice((start + offset)..(end + offset)).chunks()
             });
 
             while let Some(m) = matches.next() {
-                // Check if we captured a description (@desc)
-                if let Some(desc_node) = m.nodes_for_capture_index(0).next() {
-                    return Some(
-                        self.rope
-                            .slice(
-                                self.rope.byte_to_char(desc_node.start_byte() + offset)
-                                    ..self.rope.byte_to_char(desc_node.end_byte() + offset),
-                            )
-                            .to_string()
-                            .trim_matches('"')
-                            .to_string(),
-                    );
+                // Check if the captured name matches our target_name
+                // Capture indices:
+                // 0: @desc
+                // 1: @name
+                // Based on query:
+                // (object_type_definition description: (string)? @desc name: (name) @name)
+                // If description is missing, @desc might not be captured?
+                // Wait, tree-sitter captures are by index in the query or by name.
+                // We can use capture_names().
+                
+                let mut desc_node = None;
+                let mut name_node = None;
+                
+                for capture in m.captures {
+                     let capture_name = query.capture_names()[capture.index as usize];
+                     if capture_name == "desc" {
+                         desc_node = Some(capture.node);
+                     } else if capture_name == "name" {
+                         name_node = Some(capture.node);
+                     }
+                }
+                
+                if let Some(n_node) = name_node {
+                     let name = self.rope.slice(
+                        self.rope.byte_to_char(n_node.start_byte() + offset)
+                        ..self.rope.byte_to_char(n_node.end_byte() + offset)
+                     ).to_string();
+                     
+                     if name == target_name {
+                         if let Some(d_node) = desc_node {
+                             return Some(
+                                self.rope
+                                    .slice(
+                                        self.rope.byte_to_char(d_node.start_byte() + offset)
+                                            ..self.rope.byte_to_char(d_node.end_byte() + offset),
+                                    )
+                                    .to_string()
+                                    .trim_matches('"')
+                                    .to_string(),
+                            );
+                         } else {
+                             // Found the type but it has no description
+                             return None; 
+                         }
+                     }
                 }
             }
         }
@@ -490,28 +542,29 @@ impl DocumentState {
     }
 
     pub fn get_semantic_tokens(&self) -> Vec<SemanticToken> {
-        let lang = tree_sitter_graphql::LANGUAGE.into();
-        let query = Query::new(&lang, SEMANTIC_TOKEN_QUERY).unwrap();
+        let query = GQL_SEMANTIC_TOKEN_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, SEMANTIC_TOKEN_QUERY).unwrap()
+        });
+        
         let mut cursor = QueryCursor::new();
 
         let mut tokens = Vec::new();
 
         for (tree, offset) in self.get_graphql_trees() {
-            let mut matches = cursor.matches(&query, tree.root_node(), |node: Node| {
+            let mut matches = cursor.matches(query, tree.root_node(), |node: Node| {
                 let start = node.start_byte();
                 let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
+                self.rope.byte_slice((start + offset)..(end + offset)).chunks()
             });
 
             while let Some(m) = matches.next() {
                 for cap in m.captures {
                     let token_type_name = &query.capture_names()[cap.index as usize];
                     let token_type = token_type_to_legend_index(token_type_name);
-
+                    
                     let range = self.translate_to_file_range(cap.node, offset);
-
+                    
                     tokens.push(SemanticToken {
                         delta_line: range.start.line,
                         delta_start: range.start.character,
