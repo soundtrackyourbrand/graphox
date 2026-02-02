@@ -96,6 +96,7 @@ const GQL_DESCRIPTION_QUERY: &str = r#"
 const GQL_VALIDATION_QUERY: &str = r#"
     (operation_definition) @operation
     (fragment_definition) @fragment
+    (type_condition) @type_cond
 "#;
 
 fn mask_interpolations(text: &str) -> String {
@@ -220,6 +221,379 @@ impl DocumentState {
                 (end_char - self.rope.line_to_char(self.rope.char_to_line(end_char))) as u32,
             ),
         }
+    }
+
+    pub fn get_completion_items(&self, position: Position, schema: &Schema) -> Vec<CompletionItem> {
+        let char_idx = self.rope.line_to_char(position.line as usize) + position.character as usize;
+        let byte_offset = self.rope.char_to_byte(char_idx);
+
+        for (tree, offset) in self.get_graphql_trees() {
+            let offset = *offset;
+            let root = tree.root_node();
+            let tree_len = root.end_byte();
+
+            if byte_offset >= offset && byte_offset <= offset + tree_len {
+                // Find context by traversing
+                if let Some(items) =
+                    self.find_completions_in_tree(root, offset, byte_offset, schema)
+                {
+                    return items;
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    fn find_completions_in_tree(
+        &self,
+        root: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<Vec<CompletionItem>> {
+        let query = GQL_VALIDATION_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_VALIDATION_QUERY).unwrap()
+        });
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(query, root, |n: Node| {
+            let start = n.start_byte();
+            let end = n.end_byte();
+            self.rope
+                .byte_slice((start + offset)..(end + offset))
+                .chunks()
+        });
+
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                let range = (cap.node.start_byte() + offset)..(cap.node.end_byte() + offset);
+
+                println!(
+                    "DEBUG: checking query match {} range {:?} vs cursor {}",
+                    cap.node.kind(),
+                    range,
+                    cursor_offset
+                );
+
+                if cursor_offset >= range.start && cursor_offset <= range.end {
+                    let capture_name = query.capture_names()[cap.index as usize];
+                    if capture_name == "operation" {
+                        if let Some(items) =
+                            self.complete_operation(cap.node, offset, cursor_offset, schema)
+                        {
+                            return Some(items);
+                        }
+                    } else if capture_name == "fragment" {
+                        if let Some(items) =
+                            self.complete_fragment(cap.node, offset, cursor_offset, schema)
+                        {
+                            return Some(items);
+                        }
+                    } else if capture_name == "type_cond" {
+                        return Some(self.get_all_type_completions(schema));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn complete_operation(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<Vec<CompletionItem>> {
+        println!("DEBUG: complete_operation");
+        let mut operation_type_string = String::from("query");
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "operation_type" {
+                operation_type_string = self.get_node_text(child, offset);
+                break;
+            }
+        }
+
+        let op_type = match operation_type_string.as_str() {
+            "query" => Some(apollo_compiler::ast::OperationType::Query),
+            "mutation" => Some(apollo_compiler::ast::OperationType::Mutation),
+            "subscription" => Some(apollo_compiler::ast::OperationType::Subscription),
+            _ => None,
+        };
+
+        if let Some(op) = op_type {
+            let root_def = schema.root_operation(op);
+            if let Some(root_def_name) = root_def {
+                if let Some(root_type) = schema.types.get(root_def_name.as_str()) {
+                    return self.complete_selection_set_recursive(
+                        node,
+                        offset,
+                        cursor_offset,
+                        root_type,
+                        schema,
+                    );
+                }
+            }
+        }
+        None
+    }
+
+    fn complete_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<Vec<CompletionItem>> {
+        println!("DEBUG: complete_fragment");
+        // Check if cursor is in type condition
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_condition" {
+                let range = (child.start_byte() + offset)..(child.end_byte() + offset);
+                if cursor_offset >= range.start && cursor_offset <= range.end {
+                    // Return all types
+                    return Some(self.get_all_type_completions(schema));
+                }
+            } else if child.kind() == "selection_set" {
+                let range = (child.start_byte() + offset)..(child.end_byte() + offset);
+                if cursor_offset >= range.start && cursor_offset <= range.end {
+                    // We need the type of the fragment
+                    // Find type condition again?
+                    // Or traverse first to find type name.
+                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
+                        if let Some(type_def) = schema.types.get(type_name.as_str()) {
+                            return self.complete_selection_set_recursive(
+                                child,
+                                offset,
+                                cursor_offset,
+                                type_def,
+                                schema,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn get_fragment_type_condition(&self, node: Node, offset: usize) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_condition" {
+                let mut tc_cursor = child.walk();
+                for tc_child in child.children(&mut tc_cursor) {
+                    if tc_child.kind() == "named_type" {
+                        let mut nt_cursor = tc_child.walk();
+                        for nt_child in tc_child.children(&mut nt_cursor) {
+                            if nt_child.kind() == "name" {
+                                return Some(self.get_node_text(nt_child, offset));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn complete_selection_set_recursive(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Option<Vec<CompletionItem>> {
+        println!(
+            "DEBUG: complete_selection_set_recursive on type {:?} cursor {}",
+            parent_type.name(),
+            cursor_offset
+        );
+        let target_node = if node.kind() == "selection_set" {
+            node
+        } else {
+            let mut found = None;
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "selection_set" {
+                    found = Some(child);
+                    break;
+                }
+            }
+            if found.is_none() {
+                println!("DEBUG: selection_set not found in node {}", node.kind());
+                return None;
+            }
+            found.unwrap()
+        };
+
+        let range = (target_node.start_byte() + offset)..(target_node.end_byte() + offset);
+        println!("DEBUG: target_node range {:?}", range);
+        if cursor_offset < range.start || cursor_offset > range.end {
+            return None;
+        }
+
+        let mut cursor = target_node.walk();
+        for child in target_node.children(&mut cursor) {
+            let child_range = (child.start_byte() + offset)..(child.end_byte() + offset);
+            println!(
+                "DEBUG: checking child {} range {:?}",
+                child.kind(),
+                child_range
+            );
+            if cursor_offset >= child_range.start && cursor_offset <= child_range.end {
+                let kind = child.kind();
+                if kind == "field" || kind == "selection" {
+                    // Handle selection wrapper
+                    // Need to unwrap selection if present
+                    let field_node = if kind == "selection" {
+                        // find field child
+                        let mut inner = child.walk();
+                        if let Some(f) = child.children(&mut inner).find(|c| c.kind() == "field") {
+                            f
+                        } else {
+                            continue; // No field inside selection (e.g. inline fragment?)
+                        }
+                    } else {
+                        child
+                    };
+
+                    // Find name of field
+                    let mut field_name_node = None;
+                    let mut cursor_inner = field_node.walk();
+                    for child in field_node.children(&mut cursor_inner) {
+                        if child.kind() == "name" {
+                            field_name_node = Some(child);
+                            break;
+                        }
+                    }
+
+                    if let Some(field_name_node) = field_name_node {
+                        let field_name = self.get_node_text(field_name_node, offset);
+                        println!("DEBUG: processing field '{}'", field_name);
+
+                        // Look up field definition
+                        let field_def = match parent_type {
+                            schema::ExtendedType::Object(obj) => {
+                                obj.fields.get(field_name.as_str())
+                            }
+                            schema::ExtendedType::Interface(iface) => {
+                                iface.fields.get(field_name.as_str())
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(field_def) = field_def {
+                            println!("DEBUG: field def found");
+                            // Recurse into sub-selection if cursor is deep
+                            let mut sub_sel_set = None;
+                            let mut f_cursor = field_node.walk();
+                            for f_child in field_node.children(&mut f_cursor) {
+                                if f_child.kind() == "selection_set" {
+                                    sub_sel_set = Some(f_child);
+                                    break;
+                                }
+                            }
+
+                            if let Some(sss) = sub_sel_set {
+                                let sss_range =
+                                    (sss.start_byte() + offset)..(sss.end_byte() + offset);
+                                println!(
+                                    "DEBUG: checking sub-selection range {:?} vs cursor {}",
+                                    sss_range, cursor_offset
+                                );
+                                if cursor_offset >= sss_range.start
+                                    && cursor_offset <= sss_range.end
+                                {
+                                    // Recurse
+                                    let field_type_name = field_def.ty.inner_named_type();
+                                    if let Some(field_type_def) =
+                                        schema.types.get(field_type_name.as_str())
+                                    {
+                                        return self.complete_selection_set_recursive(
+                                            sss,
+                                            offset,
+                                            cursor_offset,
+                                            field_type_def,
+                                            schema,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we are here, we are in the selection set, but NOT deep inside a child's selection set.
+        // (Or we are on a child name).
+        // So return fields of `parent_type`.
+        println!(
+            "DEBUG: returning completions for type {:?}",
+            parent_type.name()
+        );
+        Some(self.get_field_completions(parent_type))
+    }
+
+    fn get_field_completions(&self, parent_type: &schema::ExtendedType) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+        match parent_type {
+            schema::ExtendedType::Object(obj) => {
+                for (name, def) in &obj.fields {
+                    items.push(CompletionItem {
+                        label: name.to_string(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(def.ty.to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+            schema::ExtendedType::Interface(iface) => {
+                for (name, def) in &iface.fields {
+                    items.push(CompletionItem {
+                        label: name.to_string(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(def.ty.to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+            // Union: __typename
+            _ => {}
+        }
+        items.push(CompletionItem {
+            label: "__typename".to_string(),
+            kind: Some(CompletionItemKind::FIELD),
+            detail: Some("String!".to_string()),
+            ..Default::default()
+        });
+        items
+    }
+
+    fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+        for (name, def) in &schema.types {
+            let kind = match def {
+                schema::ExtendedType::Object(_) | schema::ExtendedType::Interface(_) => {
+                    Some(CompletionItemKind::CLASS)
+                }
+                schema::ExtendedType::Enum(_) => Some(CompletionItemKind::ENUM),
+                schema::ExtendedType::Union(_) => Some(CompletionItemKind::INTERFACE),
+                schema::ExtendedType::Scalar(_) => Some(CompletionItemKind::STRUCT),
+                schema::ExtendedType::InputObject(_) => Some(CompletionItemKind::STRUCT),
+            };
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind,
+                ..Default::default()
+            });
+        }
+        items
     }
 
     fn get_node_text(&self, node: Node, offset: usize) -> String {
@@ -1042,12 +1416,17 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let completions = vec![
-            CompletionItem::new_simple("Hello".to_string(), "The greeting of kings".to_string()),
-            CompletionItem::new_simple("World".to_string(), "The place we live".to_string()),
-        ];
-        Ok(Some(CompletionResponse::Array(completions)))
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        if let Some(doc) = self.documents.get(uri) {
+            let schema = self.schema.read().unwrap();
+            let items = doc.get_completion_items(position, &schema);
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+
+        Ok(None)
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
