@@ -1,10 +1,10 @@
 use apollo_compiler::Schema;
 use graphql_rust::utils::is_relevant_file;
 use graphql_rust::{DocumentLanguage, DocumentState};
+use ignore::WalkBuilder;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
-use walkdir::WalkDir;
 
 pub async fn run_check(schema_path: &str, scan_path: &str) {
     let schema_text = std::fs::read_to_string(schema_path).expect("Failed to read schema");
@@ -13,10 +13,11 @@ pub async fn run_check(schema_path: &str, scan_path: &str) {
     let mut docs = Vec::new();
     println!("Scanning files in {}...", scan_path);
 
-    for entry in WalkDir::new(scan_path)
-        .into_iter()
+    for entry in WalkBuilder::new(scan_path)
+        .add_custom_ignore_filename(".graphqlignore")
+        .build()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
     {
         let path = entry.path().to_owned();
         if is_relevant_file(&path) {

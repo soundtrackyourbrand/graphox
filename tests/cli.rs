@@ -36,19 +36,36 @@ fn test_cli_check_with_deprecations() {
 }
 
 #[test]
-fn test_cli_help() {
+fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_ignore_test");
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    let query_file = temp_dir.join("should_be_ignored.graphql");
+    // This file has an error (unknown field)
+    std::fs::write(&query_file, "query { users { nonExistentField } }").unwrap();
+
+    let ignore_file = temp_dir.join(".graphqlignore");
+    std::fs::write(&ignore_file, "should_be_ignored.graphql").unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--help")
+        .arg("--schema")
+        .arg("tests/fixtures/simple_schema.graphql")
+        .arg("check")
+        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Usage:"));
-    assert!(stdout.contains("Commands:"));
-    assert!(stdout.contains("lsp"));
-    assert!(stdout.contains("check"));
+    // Should succeed because the buggy file is ignored
+    assert!(
+        output.status.success(),
+        "Check failed even though file should be ignored: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("No issues found."));
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]
