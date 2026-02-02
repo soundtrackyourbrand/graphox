@@ -195,3 +195,70 @@ fn test_validation_known_fragment_spread() {
         "Expected no error for known fragment spread"
     );
 }
+
+#[test]
+fn test_validation_input_field_deprecation() {
+    let schema_content = r#"
+        input CreateUserInput {
+          username: String!
+          oldField: String @deprecated(reason: "Use newField")
+          newField: String
+        }
+        type Query {
+          test(input: CreateUserInput): String
+        }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+
+    let text = r#"
+        query Test {
+            test(input: { oldField: "value" })
+        }
+    "#;
+    let doc = create_doc("file:///input_deprecated.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+
+    let warning = diagnostics
+        .iter()
+        .find(|d| d.message.contains("Input field 'oldField' is deprecated"));
+    assert!(
+        warning.is_some(),
+        "Expected 'deprecated' warning for input field"
+    );
+    assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
+    assert!(warning.unwrap().message.contains("Use newField"));
+}
+
+#[test]
+fn test_validation_input_type_deprecation() {
+    let schema_content = r#"
+        input OldInput @deprecated(reason: "Use NewInput") {
+          id: ID!
+        }
+        input NewInput {
+          id: ID!
+        }
+        type Query {
+          test(old: OldInput, new: NewInput): String
+        }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+
+    let text = r#"
+        query Test($old: OldInput) {
+            test(old: $old, new: { id: "1" })
+        }
+    "#;
+    let doc = create_doc("file:///input_type_deprecated.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+
+    let warning = diagnostics
+        .iter()
+        .find(|d| d.message.contains("Type 'OldInput' is deprecated"));
+    assert!(
+        warning.is_some(),
+        "Expected 'deprecated' warning for input type"
+    );
+    assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
+    assert!(warning.unwrap().message.contains("Use NewInput"));
+}

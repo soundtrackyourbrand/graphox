@@ -6,7 +6,8 @@ pub static GQL_SYMBOL_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_SEMANTIC_TOKEN_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_DEFINITION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_DESCRIPTION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
-pub static GQL_VALIDATION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+pub static GQL_COMPLETION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+pub static GQL_DIAGNOSTICS_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 
 pub const GQL_SYMBOL_QUERY: &str = r#"
     (object_type_definition 
@@ -49,12 +50,16 @@ pub const GQL_DESCRIPTION_QUERY: &str = r#"
     (enum_type_definition (description (string_value))? @desc (name) @name)
 "#;
 
-pub const GQL_VALIDATION_QUERY: &str = r#"
+pub const GQL_DIAGNOSTICS_QUERY: &str = r#"
+    (operation_definition) @operation
+    (fragment_definition) @fragment
+"#;
+
+pub const GQL_COMPLETION_QUERY: &str = r#"
     (operation_definition) @operation
     (fragment_definition) @fragment
     (type_condition) @type_cond
     (fragment_spread) @frag_spread
-    (inline_fragment) @inline_frag
     (variable) @variable
     (arguments) @args
 "#;

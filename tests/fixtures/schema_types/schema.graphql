@@ -21,6 +21,13 @@ input CreateUserInput {
   oldRole: String @deprecated(reason: "Use role instead")
 }
 
+"""
+Deprecated input type
+"""
+input OldInput @deprecated(reason: "Use CreateUserInput instead") {
+  id: ID!
+}
+
 type Query {
   user(id: ID!): String
 }

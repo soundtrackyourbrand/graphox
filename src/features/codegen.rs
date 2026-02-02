@@ -321,7 +321,13 @@ pub fn generate_schema_types(schema: &Schema) -> String {
             continue;
         }
         if let apollo_compiler::schema::ExtendedType::Enum(enm) = ty {
-            output.push_str(&format_jsdoc(enm.description.as_deref(), None, 0));
+            let deprecation = enm.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(enm.description.as_deref(), deprecation, 0));
             let mut values: Vec<_> = enm.values.keys().collect();
             values.sort();
             let union_values = values
@@ -339,16 +345,26 @@ pub fn generate_schema_types(schema: &Schema) -> String {
             continue;
         }
         if let apollo_compiler::schema::ExtendedType::InputObject(input) = ty {
-            output.push_str(&format_jsdoc(input.description.as_deref(), None, 0));
+            let deprecation = input.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(input.description.as_deref(), deprecation, 0));
             output.push_str(&format!("export interface {} {{\n", name));
             for field in input.fields.values() {
-                let deprecation = field.directives.get("deprecated").map(|d| {
+                let field_deprecation = field.directives.get("deprecated").map(|d| {
                     d.argument_by_name("reason", schema)
                         .ok()
                         .and_then(|v| v.as_str())
                         .unwrap_or("No reason provided")
                 });
-                output.push_str(&format_jsdoc(field.description.as_deref(), deprecation, 1));
+                output.push_str(&format_jsdoc(
+                    field.description.as_deref(),
+                    field_deprecation,
+                    1,
+                ));
                 let ts_type = gql_type_to_ts_with_names(&field.ty, schema);
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
@@ -363,7 +379,13 @@ pub fn generate_schema_types(schema: &Schema) -> String {
             match name.as_str() {
                 "String" | "ID" | "Int" | "Float" | "Boolean" => continue,
                 _ => {
-                    output.push_str(&format_jsdoc(scalar.description.as_deref(), None, 0));
+                    let deprecation = scalar.directives.get("deprecated").map(|d| {
+                        d.argument_by_name("reason", schema)
+                            .ok()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("No reason provided")
+                    });
+                    output.push_str(&format_jsdoc(scalar.description.as_deref(), deprecation, 0));
                     output.push_str(&format!("export type {} = any;\n\n", name));
                 }
             }

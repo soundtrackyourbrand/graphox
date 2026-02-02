@@ -23,3 +23,12 @@ export interface CreateUserInput {
    */
   oldRole?: string | null;
 }
+
+/**
+ * Deprecated input type
+ *
+ * @deprecated Use CreateUserInput instead
+ */
+export interface OldInput {
+  id: string;
+}

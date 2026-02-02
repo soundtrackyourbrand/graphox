@@ -71,9 +71,9 @@ impl DocumentState {
         cursor_offset: usize,
         schema: &Schema,
     ) -> Option<String> {
-        let query = GQL_VALIDATION_QUERY_CACHE.get_or_init(|| {
+        let query = GQL_DIAGNOSTICS_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_VALIDATION_QUERY).unwrap()
+            tree_sitter::Query::new(&lang, GQL_DIAGNOSTICS_QUERY).unwrap()
         });
 
         let mut cursor = tree_sitter::QueryCursor::new();

@@ -38,9 +38,9 @@ impl DocumentState {
         schema: &Schema,
         fragments: &[String],
     ) -> Option<Vec<CompletionItem>> {
-        let query = GQL_VALIDATION_QUERY_CACHE.get_or_init(|| {
+        let query = GQL_COMPLETION_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_VALIDATION_QUERY).unwrap()
+            tree_sitter::Query::new(&lang, GQL_COMPLETION_QUERY).unwrap()
         });
 
         let mut cursor = QueryCursor::new();

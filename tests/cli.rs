@@ -223,6 +223,64 @@ projects:
 }
 
 #[test]
+fn test_cli_check_input_deprecations() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_input_deprecations_test");
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema with Deprecated Input and Deprecated Input Field
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        r#"
+input OldInput @deprecated(reason: "Use NewInput") {
+  field: String
+}
+
+input NewInput {
+  oldField: String @deprecated(reason: "Use newField")
+  newField: String
+}
+
+type Query {
+  test(old: OldInput, new: NewInput): String
+}
+"#,
+    )
+    .unwrap();
+
+    // Create a query file using deprecated things
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(
+        &query_file,
+        r#"
+query Test($old: OldInput) {
+  test(old: $old, new: { oldField: "value" })
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("--schema")
+        .arg(schema_file.to_str().unwrap())
+        .arg("check")
+        .arg(query_file.to_str().unwrap())
+        .output()
+        .expect("Failed to execute process");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    println!("Check Output:\n{}", stdout);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout.contains("Type 'OldInput' is deprecated: Use NewInput"));
+    assert!(stdout.contains("Input field 'oldField' is deprecated: Use newField"));
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_schema_types_test");
