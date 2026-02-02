@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, OnceLock};
 
-use apollo_compiler::Schema;
+use apollo_compiler::{Schema, schema};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp_types::*};
@@ -436,29 +436,38 @@ impl DocumentState {
         symbols
     }
 
-    pub fn get_hover_info(&self, position: Position) -> Option<Hover> {
-        let char_idx = self.rope.line_to_char(position.line as usize) + position.character as usize;
+    pub fn get_hover_info(&self, position: Position, schema: &Schema) -> Option<Hover> {
+        let char_idx =
+            self.rope.line_to_char(position.line as usize) + position.character as usize;
         let byte_offset = self.rope.char_to_byte(char_idx);
 
         for (tree, offset) in self.get_graphql_trees() {
-            let root = tree.root_node();
-            let tree_len = root.end_byte();
+             let root = tree.root_node();
+             let tree_len = root.end_byte();
+             
+             if byte_offset >= offset && byte_offset < offset + tree_len {
+                 let local_byte = byte_offset - offset;
+                 let node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
-            if byte_offset >= offset && byte_offset < offset + tree_len {
-                let local_byte = byte_offset - offset;
-                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+                 // Only trigger hover on "name" nodes
+                 if node.kind() == "name" {
+                    let symbol_name = self.rope.slice(
+                        self.rope.byte_to_char(node.start_byte() + offset)
+                        ..self.rope.byte_to_char(node.end_byte() + offset)
+                    ).to_string();
 
-                // Only trigger hover on "name" nodes
-                if node.kind() == "name" {
-                    let symbol_name = self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(node.start_byte() + offset)
-                                ..self.rope.byte_to_char(node.end_byte() + offset),
-                        )
-                        .to_string();
+                    // 1. Try to get info from Schema
+                    if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema) {
+                        return Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: schema_info,
+                            }),
+                            range: Some(self.translate_to_file_range(node, offset)),
+                        });
+                    }
 
-                    // Find the definition and its description
+                    // 2. Fallback: Find the definition and its description in local file
                     if let Some(description) = self.find_description(&symbol_name) {
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
@@ -469,9 +478,64 @@ impl DocumentState {
                         });
                     }
                 }
-            }
+             }
         }
         None
+    }
+
+    fn get_type_info_from_schema(&self, name: &str, schema: &Schema) -> Option<String> {
+        // apollo-compiler uses Name which is a wrapper around string
+        let ty = schema.types.get(name)?;
+        
+        let mut output = String::new();
+        
+        // Header
+        match ty {
+            schema::ExtendedType::Scalar(_) => output.push_str(&format!("### scalar {}\n", name)),
+            schema::ExtendedType::Object(_) => output.push_str(&format!("### type {}\n", name)),
+            schema::ExtendedType::Interface(_) => output.push_str(&format!("### interface {}\n", name)),
+            schema::ExtendedType::Union(_) => output.push_str(&format!("### union {}\n", name)),
+            schema::ExtendedType::Enum(_) => output.push_str(&format!("### enum {}\n", name)),
+            schema::ExtendedType::InputObject(_) => output.push_str(&format!("### input {}\n", name)),
+        }
+        
+        output.push_str("---\n");
+        
+        if let Some(desc) = ty.description() {
+            output.push_str(desc);
+            output.push_str("\n\n");
+        }
+        
+        // Add Fields or Enum Values
+        match ty {
+            schema::ExtendedType::Object(obj) => {
+                output.push_str("#### Fields\n");
+                for (field_name, field_def) in &obj.fields {
+                    output.push_str(&format!("- **{}**: `{}`\n", field_name, field_def.ty));
+                }
+            }
+             schema::ExtendedType::Interface(iface) => {
+                output.push_str("#### Fields\n");
+                for (field_name, field_def) in &iface.fields {
+                    output.push_str(&format!("- **{}**: `{}`\n", field_name, field_def.ty));
+                }
+            }
+             schema::ExtendedType::InputObject(input) => {
+                output.push_str("#### Fields\n");
+                for (field_name, field_def) in &input.fields {
+                    output.push_str(&format!("- **{}**: `{}`\n", field_name, field_def.ty));
+                }
+            }
+            schema::ExtendedType::Enum(enm) => {
+                output.push_str("#### Values\n");
+                for (val_name, _) in &enm.values {
+                    output.push_str(&format!("- `{}`\n", val_name));
+                }
+            }
+            _ => {}
+        }
+
+        Some(output)
     }
 
     fn find_description(&self, target_name: &str) -> Option<String> {
@@ -703,7 +767,8 @@ impl LanguageServer for Backend {
         let position = params.text_document_position_params.position;
 
         if let Some(doc) = self.documents.get(uri) {
-            return Ok(doc.get_hover_info(position));
+            let schema = self.schema.read().unwrap();
+            return Ok(doc.get_hover_info(position, &schema));
         }
 
         Ok(None)
