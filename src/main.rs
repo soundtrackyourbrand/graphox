@@ -23,6 +23,14 @@ const GQL_SYMBOL_QUERY: &str = r#"
         name: (name) @symbol.name) @symbol.container
 "#;
 
+const SEMANTIC_TOKEN_QUERY: &str = r#"
+    (name) @variable
+    (type_name) @type
+    (scalar_type) @keyword
+    (enum_value) @enum
+    (string) @string
+"#;
+
 impl DocumentState {
     fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
         let rope = Rope::from_str(text);
@@ -90,7 +98,7 @@ impl DocumentState {
             .unwrap();
     }
 
-    pub fn get_definition_location(&self, position: Position, uri: &Url) -> Option<Location> {
+    pub fn get_definition_location(&self, position: Position) -> Option<Location> {
         // 1. Convert LSP position to Tree-sitter Point
         let point = tree_sitter::Point::new(position.line as usize, position.character as usize);
 
@@ -109,12 +117,12 @@ impl DocumentState {
                 .to_string();
 
             // 4. Search the tree for a definition with this name
-            return self.find_definition_in_tree(&symbol_name, uri);
+            return self.find_definition_in_tree(&symbol_name);
         }
 
         None
     }
-    fn find_definition_in_tree(&self, target_name: &str, uri: &Url) -> Option<Location> {
+    fn find_definition_in_tree(&self, target_name: &str) -> Option<Location> {
         let lang = tree_sitter_graphql::LANGUAGE.into();
         // This query looks for any top-level definition with a matching name
         let query_str = format!(
@@ -137,7 +145,7 @@ impl DocumentState {
         if let Some(m) = matches.next() {
             let node = m.captures[0].node;
             return Some(Location {
-                uri: uri.clone(), // In a real LSP, you'd search all files in the DashMap
+                uri: self.uri.clone(), // In a real LSP, you'd search all files in the DashMap
                 range: node_to_lsp_range(node),
             });
         }
@@ -248,6 +256,52 @@ impl DocumentState {
         }
         None
     }
+
+    pub fn get_semantic_tokens(&self) -> Vec<SemanticToken> {
+        let lang = tree_sitter_graphql::LANGUAGE.into();
+        let query = Query::new(&lang, SEMANTIC_TOKEN_QUERY).unwrap();
+        let mut cursor = QueryCursor::new();
+
+        let text = self.rope.to_string();
+        let mut matches = cursor.matches(&query, self.tree.root_node(), text.as_bytes());
+
+        let mut tokens = Vec::new();
+
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                let token_type = &query.capture_names()[cap.index as usize];
+                tokens.push(node_to_semantic_token(
+                    cap.node,
+                    token_type_to_legend_index(token_type),
+                ));
+            }
+        }
+
+        tokens
+    }
+}
+
+fn token_type_to_legend_index(token_type: &str) -> u32 {
+    match token_type {
+        "variable" => 0,
+        "type" => 1,
+        "keyword" => 2,
+        "enum" => 3,
+        "string" => 4,
+        _ => 0,
+    }
+}
+
+fn node_to_semantic_token(node: tree_sitter::Node, token_type: u32) -> SemanticToken {
+    let start = node.start_position();
+    let end = node.end_position();
+    SemanticToken {
+        delta_line: (start.row as u32),
+        delta_start: (start.column as u32),
+        length: ((end.column - start.column) as u32),
+        token_type,
+        token_modifiers_bitset: 0,
+    }
 }
 
 struct Backend {
@@ -255,6 +309,14 @@ struct Backend {
     // Use a Map to track multiple open files
     documents: DashMap<Url, DocumentState>,
 }
+
+const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
+    SemanticTokenType::VARIABLE,
+    SemanticTokenType::TYPE,
+    SemanticTokenType::KEYWORD,
+    SemanticTokenType::ENUM,
+    SemanticTokenType::STRING,
+];
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -268,6 +330,21 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions {
+                                work_done_progress: None,
+                            },
+                            legend: SemanticTokensLegend {
+                                token_types: SEMANTIC_TOKEN_LEGEND.to_vec(),
+                                token_modifiers: vec![],
+                            },
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string()]),
@@ -337,7 +414,7 @@ impl LanguageServer for Backend {
 
         // Look up the document in our DashMap
         if let Some(doc) = self.documents.get(&uri)
-            && let Some(location) = doc.get_definition_location(position, &uri)
+            && let Some(location) = doc.get_definition_location(position)
         {
             return Ok(Some(GotoDefinitionResponse::Scalar(location)));
         }
@@ -367,6 +444,21 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&params.text_document.uri) {
             let symbols = doc.get_symbols();
             return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
+        }
+
+        Ok(None)
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        if let Some(doc) = self.documents.get(&params.text_document.uri) {
+            let tokens = doc.get_semantic_tokens();
+            return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+                result_id: None,
+                data: tokens,
+            })));
         }
 
         Ok(None)
