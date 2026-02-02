@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 #[test]
@@ -98,4 +99,72 @@ fn test_cli_public_fragments() {
         !stdout.contains("Unknown fragment: PublicFrag"),
         "PublicFrag should be visible across packages"
     );
+}
+
+#[test]
+fn test_cli_codegen_baselines() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let fixture_dir = Path::new("tests/fixtures/codegen");
+    let baseline_dir = Path::new("tests/baselines/codegen");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_baselines_test");
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // We run codegen on the whole fixture directory, outputting to a temp directory
+    let output = Command::new(bin_path)
+        .arg("--schema")
+        .arg("tests/fixtures/simple_schema.graphql")
+        .arg("codegen")
+        .arg(fixture_dir.to_str().unwrap())
+        .arg("--output")
+        .arg(temp_dir.to_str().unwrap())
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // For each .graphql file in fixtures, check if there is an .expected.ts file in baselines and compare
+    for entry in std::fs::read_dir(fixture_dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("graphql") {
+            let file_stem = path.file_stem().unwrap().to_str().unwrap();
+
+            // Generated file is in the temp directory
+            let mut codegen_path = temp_dir.clone();
+            codegen_path.push(path.strip_prefix(fixture_dir).unwrap());
+            codegen_path.set_extension("graphql.codegen.ts");
+
+            // Expected file is in the baseline directory
+            let expected_path = baseline_dir.join(format!("{}.expected.ts", file_stem));
+
+            assert!(
+                codegen_path.exists(),
+                "Codegen file {:?} was not created",
+                codegen_path
+            );
+            assert!(
+                expected_path.exists(),
+                "Expected file {:?} does not exist",
+                expected_path
+            );
+
+            let actual = std::fs::read_to_string(&codegen_path).unwrap();
+            let expected = std::fs::read_to_string(&expected_path).unwrap();
+
+            if actual.trim() != expected.trim() {
+                println!("--- ACTUAL ---");
+                println!("{}", actual);
+                println!("--- EXPECTED ---");
+                println!("{}", expected);
+                panic!("Codegen mismatch for {:?}", path);
+            }
+        }
+    }
+
+    // Cleanup temp directory
+    std::fs::remove_dir_all(temp_dir).ok();
 }

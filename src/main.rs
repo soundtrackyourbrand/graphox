@@ -28,6 +28,15 @@ enum Commands {
         #[arg(default_value = ".")]
         path: String,
     },
+    /// Generate TypeScript types for operations and fragments
+    Codegen {
+        /// Directory to scan
+        #[arg(default_value = ".")]
+        path: String,
+        /// Output directory (default: next to input files)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -44,6 +53,9 @@ async fn main() {
         Some(Commands::Check { path }) => {
             run_check(&cli.schema, &path).await;
         }
+        Some(Commands::Codegen { path, output }) => {
+            run_codegen(&cli.schema, &path, output.as_deref()).await;
+        }
     }
 }
 
@@ -52,7 +64,6 @@ async fn run_check(schema_path: &str, scan_path: &str) {
     let schema = Schema::parse(&schema_text, schema_path).expect("Failed to parse schema");
 
     let mut docs = Vec::new();
-
     println!("Scanning files in {}...", scan_path);
 
     for entry in WalkDir::new(scan_path)
@@ -76,7 +87,6 @@ async fn run_check(schema_path: &str, scan_path: &str) {
         }
     }
 
-    // Group fragments by package root, but also collect all public fragments
     let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<String>> = HashMap::new();
     let mut all_public_fragments: Vec<String> = Vec::new();
 
@@ -99,7 +109,6 @@ async fn run_check(schema_path: &str, scan_path: &str) {
             .cloned()
             .unwrap_or_default();
 
-        // Add public fragments from other packages
         for pub_frag in &all_public_fragments {
             if !package_fragments.contains(pub_frag) {
                 package_fragments.push(pub_frag.clone());
@@ -134,6 +143,77 @@ async fn run_check(schema_path: &str, scan_path: &str) {
         println!("No issues found.");
     } else {
         std::process::exit(1);
+    }
+}
+
+async fn run_codegen(schema_path: &str, scan_path: &str, output_dir: Option<&str>) {
+    let schema_text = std::fs::read_to_string(schema_path).expect("Failed to read schema");
+    let schema = Schema::parse(&schema_text, schema_path).expect("Failed to parse schema");
+
+    let mut docs = Vec::new();
+    println!("Scanning files in {}...", scan_path);
+
+    for entry in WalkDir::new(scan_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path().to_owned();
+        if is_relevant_file(&path) {
+            let content = std::fs::read_to_string(&path).unwrap_or_default();
+            let uri = Url::from_file_path(std::fs::canonicalize(&path).unwrap()).unwrap();
+            let language = DocumentLanguage::from_uri(&uri);
+            let mut parser = tree_sitter::Parser::new();
+            parser
+                .set_language(&language.get_parser_language())
+                .unwrap();
+            let doc = DocumentState::new(uri, &content, parser);
+            if !doc.get_graphql_trees().is_empty() {
+                docs.push((path, doc));
+            }
+        }
+    }
+
+    let mut fragment_to_path = HashMap::new();
+    for (path, doc) in &docs {
+        for frag in doc.fragments() {
+            fragment_to_path.insert(frag.name.clone(), path.to_string_lossy().to_string());
+        }
+    }
+
+    for (path, doc) in &docs {
+        let ctx = graphql_rust::features::codegen::CodegenContext {
+            schema: &schema,
+            fragment_to_path: &fragment_to_path,
+            current_file_path: &path,
+        };
+
+        match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
+            Ok(ts_code) => {
+                let out_path = if let Some(dir) = output_dir {
+                    let rel = path.strip_prefix(scan_path).unwrap_or(path);
+                    let mut p = PathBuf::from(dir);
+                    p.push(rel);
+                    p.set_extension("graphql.codegen.ts");
+                    p
+                } else {
+                    let mut p = path.clone();
+                    let mut filename = p.file_name().unwrap().to_os_string();
+                    filename.push(".codegen.ts");
+                    p.set_file_name(filename);
+                    p
+                };
+
+                if let Some(parent) = out_path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                std::fs::write(&out_path, ts_code).expect("Failed to write codegen file");
+                println!("Generated: {}", out_path.display());
+            }
+            Err(e) => {
+                eprintln!("Error generating types for {}: {}", path.display(), e);
+            }
+        }
     }
 }
 

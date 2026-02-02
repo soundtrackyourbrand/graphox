@@ -1,0 +1,6 @@
+query GetUsersWithFragment {
+  users {
+    ...UserFields
+    email
+  }
+}

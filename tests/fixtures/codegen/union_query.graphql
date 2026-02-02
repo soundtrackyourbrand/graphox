@@ -1,0 +1,13 @@
+query GetNodePolymorphic($id: ID!) {
+  node(id: $id) {
+    __typename
+    ... on User {
+      id
+      username
+    }
+    ... on Post {
+      id
+      title
+    }
+  }
+}
