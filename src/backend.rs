@@ -122,7 +122,25 @@ impl LanguageServer for Backend {
 
         if let Some(doc) = self.documents.get(uri) {
             let schema = self.schema.read().unwrap();
-            return Ok(doc.get_hover_info(position, &schema));
+
+            if let Some(hover) = doc.get_hover_info(position, &schema) {
+                return Ok(Some(hover));
+            }
+
+            // If no schema or description hover, check if it's a fragment spread
+            if let Some(symbol_name) = doc.get_symbol_at_position(position) {
+                for entry in self.documents.iter() {
+                    if let Some(info) = entry.value().find_fragment_info(&symbol_name) {
+                        return Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: format!("```graphql\n{}\n```", info),
+                            }),
+                            range: None, // We could calculate range here if needed
+                        }));
+                    }
+                }
+            }
         }
 
         Ok(None)

@@ -149,8 +149,78 @@ impl DocumentState {
         self.rope.byte_slice(start..end).to_string()
     }
 
+    pub fn get_fragment_type_condition(&self, node: Node, offset: usize) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_condition" {
+                let mut tc_cursor = child.walk();
+                for tc_child in child.children(&mut tc_cursor) {
+                    if tc_child.kind() == "named_type" {
+                        let mut nt_cursor = tc_child.walk();
+                        for nt_child in tc_child.children(&mut nt_cursor) {
+                            if nt_child.kind() == "name" {
+                                return Some(self.get_node_text(nt_child, offset));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn fragments(&self) -> &[String] {
         &self.fragments
+    }
+
+    pub fn find_fragment_info(&self, target_name: &str) -> Option<String> {
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut is_fragment = false;
+                let mut container_node = None;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
+                        if cap.node.kind() == "fragment_definition" {
+                            is_fragment = true;
+                        }
+                    }
+                }
+
+                if is_fragment {
+                    if let Some(n) = name {
+                        if n == target_name {
+                            if let Some(cont) = container_node {
+                                // Extract the selection set or the whole fragment
+                                return Some(self.get_node_text(cont, offset));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn extract_fragment_names(&self) -> Vec<String> {
