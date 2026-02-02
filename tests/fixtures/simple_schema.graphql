@@ -13,6 +13,7 @@ type User implements Node {
   username: String!
   email: String
   posts: [Post]
+  oldField: String @deprecated(reason: "Use username instead")
 }
 
 type Post implements Node {

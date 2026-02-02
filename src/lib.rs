@@ -51,6 +51,7 @@ static GQL_SYMBOL_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 static GQL_SEMANTIC_TOKEN_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 static GQL_DEFINITION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 static GQL_DESCRIPTION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+static GQL_VALIDATION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 
 const GQL_SYMBOL_QUERY: &str = r#"
     (object_type_definition 
@@ -90,6 +91,11 @@ const GQL_DEFINITION_QUERY: &str = r#"
 const GQL_DESCRIPTION_QUERY: &str = r#"
     (object_type_definition (description (string_value))? @desc (name) @name)
     (enum_type_definition (description (string_value))? @desc (name) @name)
+"#;
+
+const GQL_VALIDATION_QUERY: &str = r#"
+    (operation_definition) @operation
+    (fragment_definition) @fragment
 "#;
 
 fn mask_interpolations(text: &str) -> String {
@@ -216,16 +222,269 @@ impl DocumentState {
         }
     }
 
-    pub fn get_semantic_diagnostics(&self, _schema: &Schema) -> Vec<Diagnostic> {
-        let mut all_diagnostics = Vec::new();
+    fn get_node_text(&self, node: Node, offset: usize) -> String {
+        let start = node.start_byte() + offset;
+        let end = node.end_byte() + offset;
+        self.rope.byte_slice(start..end).to_string()
+    }
 
-        // 1. Find all gql`...` blocks (reusing our TS Tree-sitter query)
+    pub fn get_semantic_diagnostics(&self, schema: &Schema) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
         let blocks = self.get_graphql_trees();
 
-        for block in blocks {
-            self.collect_gql_errors(block.0.root_node(), block.1, &mut all_diagnostics);
+        for (tree, offset) in blocks {
+            let offset = *offset;
+            // 1. Syntax errors
+            self.collect_gql_errors(tree.root_node(), offset, &mut diagnostics);
+
+            // 2. Schema validation
+            self.validate_tree(tree.root_node(), offset, schema, &mut diagnostics);
         }
-        all_diagnostics
+        diagnostics
+    }
+
+    fn validate_tree(
+        &self,
+        node: Node,
+        offset: usize,
+        schema: &Schema,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let query = GQL_VALIDATION_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_VALIDATION_QUERY).unwrap()
+        });
+
+        let mut cursor = QueryCursor::new();
+        // Since we are validating a specific tree, we can run query on its root node
+        // BUT matches expects text provider.
+        let mut matches = cursor.matches(query, node, |n: Node| {
+            let start = n.start_byte();
+            let end = n.end_byte();
+            self.rope
+                .byte_slice((start + offset)..(end + offset))
+                .chunks()
+        });
+
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                let capture_name = query.capture_names()[cap.index as usize];
+                if capture_name == "operation" {
+                    self.validate_operation(cap.node, offset, schema, diagnostics);
+                } else if capture_name == "fragment" {
+                    self.validate_fragment(cap.node, offset, schema, diagnostics);
+                }
+            }
+        }
+    }
+
+    fn validate_operation(
+        &self,
+        node: Node,
+        offset: usize,
+        schema: &Schema,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let mut operation_type_string = String::from("query");
+        let mut cursor = node.walk();
+
+        for child in node.children(&mut cursor) {
+            if child.kind() == "operation_type" {
+                operation_type_string = self.get_node_text(child, offset);
+                break;
+            }
+        }
+
+        let op_type = match operation_type_string.as_str() {
+            "query" => Some(apollo_compiler::ast::OperationType::Query),
+            "mutation" => Some(apollo_compiler::ast::OperationType::Mutation),
+            "subscription" => Some(apollo_compiler::ast::OperationType::Subscription),
+            _ => None,
+        };
+
+        if let Some(op) = op_type {
+            let root_def = schema.root_operation(op);
+            if let Some(root_def_name) = root_def {
+                if let Some(root_type) = schema.types.get(root_def_name.as_str()) {
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "selection_set" {
+                            self.validate_selection_set(
+                                child,
+                                offset,
+                                root_type,
+                                schema,
+                                diagnostics,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        schema: &Schema,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // fragment Name on Type { ... }
+        // type_condition -> named_type -> name
+        let mut cursor = node.walk();
+        let mut type_condition_node = None;
+        let mut selection_set_node = None;
+
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_condition" {
+                type_condition_node = Some(child);
+            } else if child.kind() == "selection_set" {
+                selection_set_node = Some(child);
+            }
+        }
+
+        if let Some(type_cond) = type_condition_node {
+            // type_condition has child named_type which has child name
+            let mut tc_cursor = type_cond.walk();
+            for tc_child in type_cond.children(&mut tc_cursor) {
+                if tc_child.kind() == "named_type" {
+                    let mut nt_cursor = tc_child.walk();
+                    for nt_child in tc_child.children(&mut nt_cursor) {
+                        if nt_child.kind() == "name" {
+                            let type_name = self.get_node_text(nt_child, offset);
+                            if let Some(type_def) = schema.types.get(type_name.as_str()) {
+                                if let Some(sel_set) = selection_set_node {
+                                    self.validate_selection_set(
+                                        sel_set,
+                                        offset,
+                                        type_def,
+                                        schema,
+                                        diagnostics,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_selection_set(
+        &self,
+        selection_set: Node,
+        offset: usize,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let mut cursor = selection_set.walk();
+        for child in selection_set.children(&mut cursor) {
+            let kind = child.kind();
+
+            if kind == "selection" {
+                let mut inner_cursor = child.walk();
+                for inner in child.children(&mut inner_cursor) {
+                    let k = inner.kind();
+                    if k == "field" {
+                        self.validate_field(inner, offset, parent_type, schema, diagnostics);
+                    } else if k == "inline_fragment" {
+                        // TODO
+                    } else if k == "fragment_spread" {
+                        // TODO
+                    }
+                }
+            } else if kind == "field" {
+                self.validate_field(child, offset, parent_type, schema, diagnostics);
+            }
+        }
+    }
+
+    fn validate_field(
+        &self,
+        field_node: Node,
+        offset: usize,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let mut name_node = None;
+        let mut selection_set_node = None;
+
+        let mut cursor = field_node.walk();
+        for child in field_node.children(&mut cursor) {
+            if child.kind() == "name" {
+                name_node = Some(child);
+            } else if child.kind() == "selection_set" {
+                selection_set_node = Some(child);
+            }
+        }
+
+        if let Some(name_node) = name_node {
+            let field_name = self.get_node_text(name_node, offset);
+
+            if field_name == "__typename" {
+                return;
+            }
+
+            let field_def = match parent_type {
+                schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                _ => None,
+            };
+
+            if let Some(field_def) = field_def {
+                // Check deprecation by directive
+
+                if let Some(directive) = field_def.directives.get("deprecated") {
+                    let reason = directive
+                        .argument_by_name("reason", schema)
+                        .ok()
+                        .and_then(|arg| arg.as_str())
+                        .unwrap_or("No reason provided");
+
+                    diagnostics.push(Diagnostic {
+                        range: self.translate_to_file_range(name_node, offset),
+
+                        severity: Some(DiagnosticSeverity::WARNING),
+
+                        message: format!("Field '{}' is deprecated: {}", field_name, reason),
+
+                        ..Default::default()
+                    });
+                }
+
+                if let Some(sel_set) = selection_set_node {
+                    let field_type_name = field_def.ty.inner_named_type();
+                    if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
+                        self.validate_selection_set(
+                            sel_set,
+                            offset,
+                            field_type_def,
+                            schema,
+                            diagnostics,
+                        );
+                    }
+                }
+            } else {
+                let type_name = match parent_type {
+                    schema::ExtendedType::Object(o) => o.name.as_str(),
+                    schema::ExtendedType::Interface(i) => i.name.as_str(),
+                    schema::ExtendedType::Union(u) => u.name.as_str(),
+                    schema::ExtendedType::Enum(e) => e.name.as_str(),
+                    schema::ExtendedType::InputObject(i) => i.name.as_str(),
+                    schema::ExtendedType::Scalar(s) => s.name.as_str(),
+                };
+
+                diagnostics.push(Diagnostic {
+                    range: self.translate_to_file_range(name_node, offset),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("Field '{}' not found on type '{}'", field_name, type_name),
+                    ..Default::default()
+                });
+            }
+        }
     }
 
     fn collect_gql_errors(
@@ -311,7 +570,7 @@ impl DocumentState {
                 None,
             )
             .unwrap();
-            
+
         self.graphql_trees = self.reparse_graphql_trees();
     }
 
@@ -329,13 +588,14 @@ impl DocumentState {
                 let trigger_node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
                 if trigger_node.kind() == "name" {
-                    return Some(self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(trigger_node.start_byte() + offset)
-                                ..self.rope.byte_to_char(trigger_node.end_byte() + offset),
-                        )
-                        .to_string());
+                    return Some(
+                        self.rope
+                            .slice(
+                                self.rope.byte_to_char(trigger_node.start_byte() + offset)
+                                    ..self.rope.byte_to_char(trigger_node.end_byte() + offset),
+                            )
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -375,8 +635,8 @@ impl DocumentState {
                     .to_string();
 
                 if name == target_name {
-                    let node = name_node; 
-                    
+                    let node = name_node;
+
                     // Translate local node range to file range
                     let range = self.translate_to_file_range(node, offset);
                     return Some(Location {

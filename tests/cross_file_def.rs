@@ -1,4 +1,3 @@
-use std::time::Duration;
 use tower_lsp::jsonrpc::{Request, Response};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{LanguageServer, LspService};
@@ -24,7 +23,8 @@ async fn test_goto_definition_cross_file() {
 
     // 1. Open the fragment definition file
     let fragment_uri = Url::parse("file:///tests/fixtures/fragments/user_fragment.ts").unwrap();
-    let fragment_text = std::fs::read_to_string("tests/fixtures/fragments/user_fragment.ts").unwrap();
+    // Ensure file exists (I restored it via list_directory output confirmation or will recreate if missing? It was in the list output)
+    let fragment_text = std::fs::read_to_string("tests/fixtures/fragments/user_fragment.ts").expect("Fragment fixture missing");
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: fragment_uri.clone(),
@@ -40,7 +40,7 @@ async fn test_goto_definition_cross_file() {
 
     // 2. Open the query file that uses the fragment
     let query_uri = Url::parse("file:///tests/fixtures/fragments/query_with_fragment.ts").unwrap();
-    let query_text = std::fs::read_to_string("tests/fixtures/fragments/query_with_fragment.ts").unwrap();
+    let query_text = std::fs::read_to_string("tests/fixtures/fragments/query_with_fragment.ts").expect("Query fixture missing");
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: query_uri.clone(),
@@ -55,6 +55,7 @@ async fn test_goto_definition_cross_file() {
     service.call(request).await.unwrap();
 
     // 3. Trigger Go to Definition on "...UserFragment" in query file
+    // Line 6: "      ...UserFragment" (assuming 6 spaces indent)
     let position = Position::new(6, 10); 
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -65,7 +66,6 @@ async fn test_goto_definition_cross_file() {
         partial_result_params: Default::default(),
     };
     
-    // Request ID 1
     let request = Request::build("textDocument/definition")
         .id(1)
         .params(serde_json::to_value(&params).unwrap())
@@ -82,8 +82,6 @@ async fn test_goto_definition_cross_file() {
     match result {
         Some(GotoDefinitionResponse::Scalar(location)) => {
             assert_eq!(location.uri, fragment_uri);
-            // Line 3:   fragment UserFragment on User {
-            // 2 spaces + "fragment " (9) = 11.
             assert_eq!(location.range.start.line, 3);
             assert_eq!(location.range.start.character, 11);
         }
