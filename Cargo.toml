@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 apollo-compiler = "1.31"
+clap = { version = "4.5", features = ["derive"] }
 dashmap = "6"
 ropey = "1.6"
 serde_json = "1.0.149"
@@ -13,6 +14,7 @@ tower-lsp = { version = "0.20.0" }
 tree-sitter = "0.26"
 tree-sitter-graphql = "0.1"
 tree-sitter-typescript = "0.23.2"
+walkdir = "2.5"
 
 [dev-dependencies]
 tower-service = "0.3.3"
