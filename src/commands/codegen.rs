@@ -72,26 +72,36 @@ async fn execute_codegen(
     scan_path: &str,
     output_dir: Option<&str>,
 ) {
-    if let Some(cfg) = config {
+    if let Some(cfg) = &config {
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
         for project in &cfg.projects {
             println!("Processing project with schema: {}", project.schema);
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
-            execute_project_codegen(&project.schema, &project.include, project_output_dir).await;
+            execute_project_codegen(
+                &project.schema,
+                &project.include,
+                project_output_dir,
+                &cfg.scalars,
+            )
+            .await;
         }
 
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
                 println!("Generating types for schema: {}", st.schema);
-                execute_schema_codegen(&st.schema, &st.output).await;
+                execute_schema_codegen(&st.schema, &st.output, &cfg.scalars).await;
             }
         }
     } else {
-        execute_project_codegen(schema_path, scan_path, output_dir).await;
+        execute_project_codegen(schema_path, scan_path, output_dir, &None).await;
     }
 }
 
-async fn execute_schema_codegen(schema_path: &str, output_path: &str) {
+async fn execute_schema_codegen(
+    schema_path: &str,
+    output_path: &str,
+    scalars: &Option<HashMap<String, String>>,
+) {
     let schema_text = match std::fs::read_to_string(schema_path) {
         Ok(t) => t,
         Err(e) => {
@@ -107,7 +117,7 @@ async fn execute_schema_codegen(schema_path: &str, output_path: &str) {
         }
     };
 
-    let ts_code = graphql_rust::features::codegen::generate_schema_types(&schema);
+    let ts_code = graphql_rust::features::codegen::generate_schema_types(&schema, scalars);
     let out_path = Path::new(output_path);
 
     if let Some(parent) = out_path.parent() {
@@ -117,7 +127,12 @@ async fn execute_schema_codegen(schema_path: &str, output_path: &str) {
     println!("Generated schema types: {}", out_path.display());
 }
 
-async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_dir: Option<&str>) {
+async fn execute_project_codegen(
+    schema_path: &str,
+    include_glob: &str,
+    output_dir: Option<&str>,
+    scalars: &Option<HashMap<String, String>>,
+) {
     let schema_text = match std::fs::read_to_string(schema_path) {
         Ok(t) => t,
         Err(e) => {
@@ -134,11 +149,17 @@ async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_d
     };
 
     let (scan_root, paths) = if include_glob.contains('*') {
-        (None, graphql_rust::utils::get_project_files(include_glob))
+        (
+            None,
+            graphql_rust::utils::get_project_files(include_glob),
+        )
     } else {
         let p = Path::new(include_glob);
         if p.is_dir() {
-            (Some(std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())), graphql_rust::utils::get_project_files(include_glob))
+            (
+                Some(std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())),
+                graphql_rust::utils::get_project_files(include_glob),
+            )
         } else {
             let abs_file = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
             let parent = abs_file.parent().map(|pa| pa.to_path_buf());
@@ -176,6 +197,7 @@ async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_d
             schema: &schema,
             fragment_to_path: &fragment_to_path,
             current_file_path: path,
+            scalars,
         };
 
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
@@ -186,7 +208,8 @@ async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_d
                         path.strip_prefix(root).unwrap_or(path)
                     } else {
                         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                        let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
+                        let abs_cwd =
+                            std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
                         path.strip_prefix(&abs_cwd).unwrap_or(path)
                     };
                     p.push(rel);

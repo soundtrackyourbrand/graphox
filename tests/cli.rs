@@ -340,6 +340,93 @@ schema_types:
 }
 
 #[test]
+fn test_cli_custom_scalars() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_scalars_test");
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema with custom scalar
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        r#"
+scalar DateTime
+
+type Query {
+  now: DateTime!
+}
+"#,
+    )
+    .unwrap();
+
+    // Create a query file
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(
+        &query_file,
+        r#"
+query GetNow {
+  now
+}
+"#,
+    )
+    .unwrap();
+
+    // Create YAML config with scalar mapping
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+schema_types:
+  - schema: "schema.graphql"
+    output: "schema_types.ts"
+scalars:
+  DateTime: "Date"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed with custom scalars: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let gen_file = temp_dir.join("query.graphql.codegen.ts");
+    assert!(gen_file.exists(), "Codegen file was not created");
+
+    let content = std::fs::read_to_string(gen_file).unwrap();
+    assert!(
+        content.contains("now: Date;"),
+        "Custom scalar DateTime was not mapped to Date in operation types. Content:\n{}",
+        content
+    );
+
+    let schema_types_file = temp_dir.join("schema_types.ts");
+    assert!(
+        schema_types_file.exists(),
+        "Schema types file was not created"
+    );
+    let schema_content = std::fs::read_to_string(schema_types_file).unwrap();
+    assert!(
+        schema_content.contains("export type DateTime = Date;"),
+        "Custom scalar DateTime was not mapped to Date in schema types. Content:\n{}",
+        schema_content
+    );
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 fn test_cli_codegen_baselines() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new("tests/fixtures/codegen");

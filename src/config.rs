@@ -8,6 +8,7 @@ pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
+    pub scalars: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

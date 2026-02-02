@@ -6,6 +6,7 @@ pub struct CodegenContext<'a> {
     pub schema: &'a Schema,
     pub fragment_to_path: &'a HashMap<String, String>,
     pub current_file_path: &'a Path,
+    pub scalars: &'a Option<HashMap<String, String>>,
 }
 
 pub fn generate_typescript(
@@ -71,7 +72,7 @@ pub fn generate_typescript(
                     name, suffix
                 ));
                 for var in &op.variables {
-                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema);
+                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars);
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
                     bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
                 }
@@ -125,6 +126,10 @@ pub fn generate_typescript(
         let mut path_str = rel_path.to_string_lossy().to_string();
         if !path_str.starts_with('.') {
             path_str = format!("./{}", path_str);
+        }
+        // Remove .ts extension if present
+        if let Some(stripped) = path_str.strip_suffix(".ts") {
+            path_str = stripped.to_string();
         }
 
         import_section.push_str(&format!(
@@ -194,7 +199,7 @@ fn generate_selection_set(
 
             if let Some(fd) = field_def {
                 let ts_type = if field.selection_set.selections.is_empty() {
-                    gql_type_to_ts(&fd.ty, ctx.schema)
+                    gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars)
                 } else {
                     let inner_type_name = fd.ty.inner_named_type();
                     let inner_type = ctx
@@ -276,7 +281,7 @@ fn generate_selection_set(
 
                     if let Some(fd) = field_def {
                         let ts_type = if field.selection_set.selections.is_empty() {
-                            gql_type_to_ts(&fd.ty, ctx.schema)
+                            gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars)
                         } else {
                             let inner_type_name = fd.ty.inner_named_type();
                             let inner_type = ctx
@@ -332,18 +337,27 @@ fn wrap_in_list_and_nullability(base: &str, ty: &apollo_compiler::ast::Type) -> 
     result
 }
 
-fn gql_type_to_ts(ty: &apollo_compiler::ast::Type, schema: &Schema) -> String {
-    gql_type_to_ts_internal(ty, schema, false)
+fn gql_type_to_ts(
+    ty: &apollo_compiler::ast::Type,
+    schema: &Schema,
+    scalars: &Option<HashMap<String, String>>,
+) -> String {
+    gql_type_to_ts_internal(ty, schema, false, scalars)
 }
 
-fn gql_type_to_ts_with_names(ty: &apollo_compiler::ast::Type, schema: &Schema) -> String {
-    gql_type_to_ts_internal(ty, schema, true)
+fn gql_type_to_ts_with_names(
+    ty: &apollo_compiler::ast::Type,
+    schema: &Schema,
+    scalars: &Option<HashMap<String, String>>,
+) -> String {
+    gql_type_to_ts_internal(ty, schema, true, scalars)
 }
 
 fn gql_type_to_ts_internal(
     ty: &apollo_compiler::ast::Type,
     schema: &Schema,
     use_names: bool,
+    scalars: &Option<HashMap<String, String>>,
 ) -> String {
     let inner_name = ty.inner_named_type();
     let base = match inner_name.as_str() {
@@ -351,7 +365,11 @@ fn gql_type_to_ts_internal(
         "Int" | "Float" => "number".to_string(),
         "Boolean" => "boolean".to_string(),
         other => {
-            if let Some(t) = schema.types.get(other) {
+            if let Some(config_scalars) = scalars
+                && let Some(mapped) = config_scalars.get(other)
+            {
+                mapped.to_string()
+            } else if let Some(t) = schema.types.get(other) {
                 match t {
                     apollo_compiler::schema::ExtendedType::Enum(enm) => {
                         if use_names {
@@ -385,7 +403,10 @@ fn gql_type_to_ts_internal(
     generate_ts_type(ty, &base)
 }
 
-pub fn generate_schema_types(schema: &Schema) -> String {
+pub fn generate_schema_types(
+    schema: &Schema,
+    scalars: &Option<HashMap<String, String>>,
+) -> String {
     let mut output = String::new();
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
@@ -447,7 +468,7 @@ pub fn generate_schema_types(schema: &Schema) -> String {
                     field_deprecation,
                     1,
                 ));
-                let ts_type = gql_type_to_ts_with_names(&field.ty, schema);
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars);
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
             }
@@ -472,7 +493,16 @@ pub fn generate_schema_types(schema: &Schema) -> String {
                             .unwrap_or("No reason provided")
                     });
                     output.push_str(&format_jsdoc(scalar.description.as_deref(), deprecation, 0));
-                    output.push_str(&format!("export type {} = any;\n\n", name));
+                    
+                    let ts_type = if let Some(config_scalars) = scalars 
+                        && let Some(mapped) = config_scalars.get(name.as_str())
+                    {
+                        mapped.to_string()
+                    } else {
+                        "any".to_string()
+                    };
+                    
+                    output.push_str(&format!("export type {} = {};\n\n", name, ts_type));
                 }
             }
         }
