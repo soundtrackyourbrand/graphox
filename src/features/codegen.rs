@@ -301,6 +301,58 @@ fn generate_selection_set(
     }
 }
 
+pub fn generate_schema_types(schema: &Schema) -> String {
+    let mut output = String::new();
+    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+
+    // 1. Enums
+    for (name, ty) in &schema.types {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let apollo_compiler::schema::ExtendedType::Enum(enm) = ty {
+            let mut values: Vec<_> = enm.values.keys().collect();
+            values.sort();
+            let union_values = values
+                .iter()
+                .map(|v| format!("\"{}\"", v))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            output.push_str(&format!("export type {} = {};\n\n", name, union_values));
+        }
+    }
+
+    // 2. Input Objects
+    for (name, ty) in &schema.types {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let apollo_compiler::schema::ExtendedType::InputObject(input) = ty {
+            output.push_str(&format!("export interface {} {{\n", name));
+            for field in input.fields.values() {
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema);
+                let optional = if field.ty.is_non_null() { "" } else { "?" };
+                output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
+            }
+            output.push_str("}\n\n");
+        }
+    }
+
+    // 3. Custom Scalars (Fallback to any if not handled in gql_type_to_ts)
+    for (name, ty) in &schema.types {
+        if let apollo_compiler::schema::ExtendedType::Scalar(_) = ty {
+            match name.as_str() {
+                "String" | "ID" | "Int" | "Float" | "Boolean" => continue,
+                _ => {
+                    output.push_str(&format!("export type {} = any;\n\n", name));
+                }
+            }
+        }
+    }
+
+    output
+}
+
 fn generate_ts_type(ty: &apollo_compiler::ast::Type, base: &str) -> String {
     match ty {
         apollo_compiler::ast::Type::Named(_) => {
@@ -328,6 +380,18 @@ fn generate_ts_type(ty: &apollo_compiler::ast::Type, base: &str) -> String {
 }
 
 fn gql_type_to_ts(ty: &apollo_compiler::ast::Type, schema: &Schema) -> String {
+    gql_type_to_ts_internal(ty, schema, false)
+}
+
+fn gql_type_to_ts_with_names(ty: &apollo_compiler::ast::Type, schema: &Schema) -> String {
+    gql_type_to_ts_internal(ty, schema, true)
+}
+
+fn gql_type_to_ts_internal(
+    ty: &apollo_compiler::ast::Type,
+    schema: &Schema,
+    use_names: bool,
+) -> String {
     let inner_name = ty.inner_named_type();
     let base = match inner_name.as_str() {
         "String" | "ID" => "string".to_string(),
@@ -337,13 +401,31 @@ fn gql_type_to_ts(ty: &apollo_compiler::ast::Type, schema: &Schema) -> String {
             if let Some(t) = schema.types.get(other) {
                 match t {
                     apollo_compiler::schema::ExtendedType::Enum(enm) => {
-                        let mut values: Vec<_> = enm.values.keys().collect();
-                        values.sort();
-                        values
-                            .iter()
-                            .map(|v| format!("\"{}\"", v))
-                            .collect::<Vec<_>>()
-                            .join(" | ")
+                        if use_names {
+                            other.to_string()
+                        } else {
+                            let mut values: Vec<_> = enm.values.keys().collect();
+                            values.sort();
+                            values
+                                .iter()
+                                .map(|v| format!("\"{}\"", v))
+                                .collect::<Vec<_>>()
+                                .join(" | ")
+                        }
+                    }
+                    apollo_compiler::schema::ExtendedType::InputObject(_) => {
+                        if use_names {
+                            other.to_string()
+                        } else {
+                            "any".to_string()
+                        }
+                    }
+                    apollo_compiler::schema::ExtendedType::Scalar(_) => {
+                        if use_names {
+                            other.to_string()
+                        } else {
+                            "any".to_string()
+                        }
                     }
                     _ => "any".to_string(),
                 }

@@ -6,6 +6,7 @@ use std::path::Path;
 pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
+    pub schema_types: Option<Vec<SchemaTypeConfig>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -13,6 +14,12 @@ pub struct ProjectConfig {
     pub schema: String,
     pub include: String,
     pub output_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SchemaTypeConfig {
+    pub schema: String,
+    pub output: String,
 }
 
 impl Config {

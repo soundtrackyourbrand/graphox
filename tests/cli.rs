@@ -223,6 +223,65 @@ projects:
 }
 
 #[test]
+fn test_cli_schema_types() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_schema_types_test");
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    let schema_fixture = "tests/fixtures/schema_types/schema.graphql";
+    let baseline_file = "tests/baselines/schema_types/schema_types.expected.ts";
+    let gen_output_path = temp_dir.join("schema_types.ts");
+
+    // Create YAML config
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        format!(
+            r#"
+projects: []
+schema_types:
+  - schema: "{}"
+    output: "{}"
+"#,
+            std::fs::canonicalize(schema_fixture).unwrap().display(),
+            gen_output_path.display()
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed for schema types: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        gen_output_path.exists(),
+        "Schema types file was not created"
+    );
+
+    let actual = std::fs::read_to_string(gen_output_path).unwrap();
+    let expected = std::fs::read_to_string(baseline_file).unwrap();
+
+    if actual.trim() != expected.trim() {
+        println!("--- ACTUAL ---");
+        println!("{}", actual);
+        println!("--- EXPECTED ---");
+        println!("{}", expected);
+        panic!("Schema types mismatch");
+    }
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 fn test_cli_codegen_baselines() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new("tests/fixtures/codegen");

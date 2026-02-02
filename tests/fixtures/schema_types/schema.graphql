@@ -1,0 +1,13 @@
+enum Role {
+  ADMIN
+  USER
+}
+
+input CreateUserInput {
+  username: String!
+  role: Role
+}
+
+type Query {
+  user(id: ID!): String
+}

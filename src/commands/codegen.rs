@@ -45,6 +45,14 @@ pub async fn run_codegen(
                 .watch(Path::new(&project.schema), notify::RecursiveMode::NonRecursive)
                 .ok();
         }
+        if let Some(schema_types) = &cfg.schema_types {
+            for st in schema_types {
+                debouncer
+                    .watcher()
+                    .watch(Path::new(&st.schema), notify::RecursiveMode::NonRecursive)
+                    .ok();
+            }
+        }
     } else {
         debouncer
             .watcher()
@@ -66,14 +74,47 @@ async fn execute_codegen(
 ) {
     if let Some(cfg) = config {
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
-        for project in cfg.projects {
+        for project in &cfg.projects {
             println!("Processing project with schema: {}", project.schema);
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
             execute_project_codegen(&project.schema, &project.include, project_output_dir).await;
         }
+
+        if let Some(schema_types) = &cfg.schema_types {
+            for st in schema_types {
+                println!("Generating types for schema: {}", st.schema);
+                execute_schema_codegen(&st.schema, &st.output).await;
+            }
+        }
     } else {
         execute_project_codegen(schema_path, scan_path, output_dir).await;
     }
+}
+
+async fn execute_schema_codegen(schema_path: &str, output_path: &str) {
+    let schema_text = match std::fs::read_to_string(schema_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Failed to read schema {}: {}", schema_path, e);
+            return;
+        }
+    };
+    let schema = match apollo_compiler::Schema::parse(&schema_text, schema_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to parse schema {}: {}", schema_path, e);
+            return;
+        }
+    };
+
+    let ts_code = graphql_rust::features::codegen::generate_schema_types(&schema);
+    let out_path = Path::new(output_path);
+
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(out_path, ts_code).expect("Failed to write schema types file");
+    println!("Generated schema types: {}", out_path.display());
 }
 
 async fn execute_project_codegen(schema_path: &str, include_glob: &str, output_dir: Option<&str>) {
