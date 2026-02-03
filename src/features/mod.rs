@@ -1,3 +1,4 @@
+pub mod apollo_ast;
 pub mod codegen;
 pub mod completion;
 pub mod definition;

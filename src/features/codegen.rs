@@ -6,6 +6,7 @@ pub struct CodegenContext<'a> {
     pub schema: &'a Schema,
     pub fragment_to_path: &'a HashMap<String, String>,
     pub fragment_to_import: &'a HashMap<String, String>,
+    pub all_fragments: &'a HashMap<String, apollo_compiler::Node<apollo_compiler::executable::Fragment>>,
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
@@ -91,9 +92,11 @@ pub fn generate_typescript(
                 "{ [key: string]: never; }".to_string()
             };
 
+            let ast_json = crate::features::apollo_ast::serialize_operation(op, ctx.all_fragments);
+
             bodies.push_str(&format!(
-                "export type {}Document = DocumentNode<{}{}, {}>;\n\n",
-                name, name, suffix, vars_type
+                "export const {}Document = {} as unknown as DocumentNode<{}{}, {}>;\n\n",
+                name, ast_json, name, suffix, vars_type
             ));
         }
 
@@ -480,10 +483,12 @@ pub fn generate_schema_types(
     let mut output = String::new();
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
+    let empty_fragments = HashMap::new();
     let dummy_ctx = CodegenContext {
         schema,
         fragment_to_path: &HashMap::new(),
         fragment_to_import: &HashMap::new(),
+        all_fragments: &empty_fragments,
         current_file_path: Path::new(""),
         scalars,
         schema_import: &None,

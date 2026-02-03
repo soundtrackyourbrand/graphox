@@ -48,12 +48,15 @@ fn test_codegen_document_node() {
     // Check for import
     assert!(content.contains("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";"), "Missing DocumentNode import");
 
-    // Check for Document type export
+    // Check for Document constant export
     assert!(
-        content.contains(
-            "export type GetUserDocument = DocumentNode<GetUserQuery, GetUserQueryVariables>;"
-        ),
-        "Missing GetUserDocument type export"
+        content.contains("export const GetUserDocument = {\"definitions\":["),
+        "Missing GetUserDocument constant export"
+    );
+    assert!(
+        content.contains("} as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;"),
+        "Missing correct type cast for DocumentNode. Content:\n{}",
+        content
     );
 
     // Check for variables interface
@@ -109,12 +112,14 @@ fn test_codegen_document_node_no_vars() {
     let gen_file = temp_dir.join("query.codegen.ts");
     let content = std::fs::read_to_string(gen_file).unwrap();
 
-    // Check for Document type export with Record<string, never> or similar
+    // Check for Document constant export with Record<string, never> or similar
     assert!(
-        content.contains(
-            "export type GetMeDocument = DocumentNode<GetMeQuery, { [key: string]: never; }>;"
-        ),
-        "Missing GetMeDocument type export or wrong variables type"
+        content.contains("export const GetMeDocument = {\"definitions\":["),
+        "Missing GetMeDocument constant export"
+    );
+    assert!(
+        content.contains("} as unknown as DocumentNode<GetMeQuery, { [key: string]: never; }>;"),
+        "Missing correct type cast for DocumentNode (no vars)"
     );
 
     // Cleanup

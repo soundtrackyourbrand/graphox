@@ -119,11 +119,11 @@ async fn execute_codegen(
             })
             .collect();
 
-        for results in scan_results {
+        for results in &scan_results {
             for (name, path, alias) in results {
-                fragment_to_path.insert(name.clone(), path);
+                fragment_to_path.insert(name.clone(), path.clone());
                 if let Some(a) = alias {
-                    fragment_to_import.insert(name, a);
+                    fragment_to_import.insert(name.clone(), a.clone());
                 }
             }
         }
@@ -141,6 +141,67 @@ async fn execute_codegen(
                     .and_then(|st| st.import.clone())
             });
 
+            // Re-parse all fragments for THIS project's schema to get executable::Fragment objects
+            let mut combined_text = String::new();
+            for file in project.schema.files() {
+                if let Ok(t) = std::fs::read_to_string(cfg.base_dir.join(file)) {
+                    combined_text.push_str(&t);
+                    combined_text.push('\n');
+                }
+            }
+            let schema = match Schema::parse(&combined_text, &project.schema.as_key()) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Failed to parse schema {}: {}", project.schema.as_key(), e);
+                    continue;
+                }
+            };
+            let valid_schema = match schema.validate() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Schema validation failed for {}: {}", project.schema.as_key(), e);
+                    continue;
+                }
+            };
+
+            let mut all_fragments = HashMap::new();
+            let all_graphql_files: Vec<_> = scan_results
+                .iter()
+                .flatten()
+                .map(|(_, path, _)| path.clone())
+                .collect();
+
+            let fragment_results: Vec<_> = all_graphql_files
+                .par_iter()
+                .map(|path_str| {
+                    let content = std::fs::read_to_string(path_str).unwrap_or_default();
+                    let abs_path = std::fs::canonicalize(path_str).unwrap_or_else(|_| std::path::PathBuf::from(path_str));
+                    let uri = Url::from_file_path(&abs_path).unwrap();
+                    let language = DocumentLanguage::from_uri(&uri);
+                    let mut parser = tree_sitter::Parser::new();
+                    parser.set_language(&language.get_parser_language()).unwrap();
+                    let doc = DocumentState::new(uri, &content, parser);
+                    
+                    let mut frags = Vec::new();
+                    for block in doc.get_graphql_trees() {
+                        let block_text = doc.get_node_text(block.tree.root_node(), block.offset);
+                        let masked = graphql_rust::utils::mask_interpolations(&block_text);
+                        if let Ok(exec_doc) = apollo_compiler::executable::ExecutableDocument::parse(&valid_schema, &masked, "doc.graphql") {
+                            for (name, frag) in exec_doc.fragments {
+                                frags.push((name.to_string(), frag.clone()));
+                            }
+                        }
+                    }
+                    frags
+                })
+                .collect();
+
+            for frags in fragment_results {
+                for (name, frag) in frags {
+                    all_fragments.insert(name, frag);
+                }
+            }
+
             execute_project_codegen(
                 &cfg.base_dir,
                 &project.schema,
@@ -150,6 +211,7 @@ async fn execute_codegen(
                 &schema_import,
                 &fragment_to_path,
                 &fragment_to_import,
+                &all_fragments,
             )
             .await;
         }
@@ -189,6 +251,33 @@ async fn execute_codegen(
             }
         }
 
+        let mut all_fragments_for_fallback = HashMap::new();
+        let schema_text = std::fs::read_to_string(schema_path).unwrap_or_default();
+        if let Ok(schema) = Schema::parse(&schema_text, schema_path) {
+            if let Ok(valid_schema) = schema.validate() {
+                for path in &paths {
+                    if is_relevant_file(path) {
+                        let content = std::fs::read_to_string(path).unwrap_or_default();
+                        let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+                        let uri = Url::from_file_path(&abs_path).unwrap();
+                        let language = DocumentLanguage::from_uri(&uri);
+                        let mut parser = tree_sitter::Parser::new();
+                        parser.set_language(&language.get_parser_language()).unwrap();
+                        let doc = DocumentState::new(uri, &content, parser);
+                        for block in doc.get_graphql_trees() {
+                            let block_text = doc.get_node_text(block.tree.root_node(), block.offset);
+                            let masked = graphql_rust::utils::mask_interpolations(&block_text);
+                            if let Ok(exec_doc) = apollo_compiler::executable::ExecutableDocument::parse(&valid_schema, &masked, "doc.graphql") {
+                                for (name, frag) in exec_doc.fragments {
+                                    all_fragments_for_fallback.insert(name.to_string(), frag.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         execute_project_codegen(
             Path::new("."),
             &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
@@ -198,6 +287,7 @@ async fn execute_codegen(
             &None,
             &fragment_to_path,
             &HashMap::new(),
+            &all_fragments_for_fallback,
         ).await;
     }
 }
@@ -248,6 +338,7 @@ async fn execute_project_codegen(
     schema_import: &Option<String>,
     fragment_to_path: &HashMap<String, String>,
     fragment_to_import: &HashMap<String, String>,
+    all_fragments: &HashMap<String, apollo_compiler::Node<apollo_compiler::executable::Fragment>>,
 ) {
     let mut combined_text = String::new();
     for file in source.files() {
@@ -312,6 +403,7 @@ async fn execute_project_codegen(
             schema: &schema,
             fragment_to_path,
             fragment_to_import,
+            all_fragments,
             current_file_path: path,
             scalars,
             schema_import,

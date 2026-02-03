@@ -14,7 +14,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
     println!("Starting Benchmark...");
     let total_start = Instant::now();
 
-    // 1. Initial Scan & Fragment Collection (Parallel)
+    // 1. Initial Scan & Fragment Metadata Collection (Parallel)
     let discovery_start = Instant::now();
     let scan_root = if let Some(cfg) = &config {
         let mut all_paths = Vec::new();
@@ -76,20 +76,20 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
         })
         .collect();
 
-    for res in scan_results.into_iter().flatten() {
+    for res in scan_results.iter().flatten() {
         let (has_gql, frags, skipped, path) = res;
         
         if verbose {
-            if skipped {
+            if *skipped {
                 println!("File skipped by fast check: {}", path);
-            } else if !has_gql {
+            } else if !*has_gql {
                 println!("File parsed but no GraphQL blocks found: {}", path);
             } else if frags.is_empty() {
                 println!("File matched but yielded no fragments (only operations?): {}", path);
             }
         }
 
-        if has_gql {
+        if *has_gql {
             total_graphql_files += 1;
         }
         
@@ -97,9 +97,9 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
             if verbose {
                 println!("Fragment Found: {} in {}", name, path);
             }
-            fragment_to_path.insert(name.clone(), path);
+            fragment_to_path.insert(name.clone(), path.clone());
             if let Some(a) = alias {
-                fragment_to_import.insert(name, a);
+                fragment_to_import.insert(name.clone(), a.clone());
             }
         }
     }
@@ -110,6 +110,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
     let mut total_operations = 0;
     let mut total_fragments_processed = 0;
     let mut schema_parse_time = Duration::ZERO;
+    let mut fragment_resolve_time = Duration::ZERO;
     let mut ts_gen_time = Duration::ZERO;
 
     if let Some(cfg) = &config {
@@ -124,8 +125,63 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                     combined_text.push('\n');
                 }
             }
-            let schema = Schema::parse(&combined_text, &project.schema.as_key()).unwrap();
+            let schema = match Schema::parse(&combined_text, &project.schema.as_key()) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Failed to parse schema {}: {}", project.schema.as_key(), e);
+                    continue;
+                }
+            };
+            let valid_schema = match schema.clone().validate() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Schema validation failed for {}: {}", project.schema.as_key(), e);
+                    continue;
+                }
+            };
             schema_parse_time += s_start.elapsed();
+
+            // Parallel Transitive Fragment Resolving
+            let fr_start = Instant::now();
+            let mut all_fragments = HashMap::new();
+            let all_graphql_files: Vec<_> = scan_results
+                .iter()
+                .flatten()
+                .filter(|(has_gql, _, _, _)| *has_gql)
+                .map(|(_, _, _, path)| path.clone())
+                .collect();
+
+            let fragment_results: Vec<_> = all_graphql_files
+                .par_iter()
+                .map(|path_str| {
+                    let content = std::fs::read_to_string(path_str).unwrap_or_default();
+                    let abs_path = std::fs::canonicalize(path_str).unwrap_or_else(|_| std::path::PathBuf::from(path_str));
+                    let uri = Url::from_file_path(&abs_path).unwrap();
+                    let language = DocumentLanguage::from_uri(&uri);
+                    let mut parser = tree_sitter::Parser::new();
+                    parser.set_language(&language.get_parser_language()).unwrap();
+                    let doc = DocumentState::new(uri, &content, parser);
+                    
+                    let mut frags = Vec::new();
+                    for block in doc.get_graphql_trees() {
+                        let block_text = doc.get_node_text(block.tree.root_node(), block.offset);
+                        let masked = graphql_rust::utils::mask_interpolations(&block_text);
+                        if let Ok(exec_doc) = apollo_compiler::executable::ExecutableDocument::parse(&valid_schema, &masked, "doc.graphql") {
+                            for (name, frag) in exec_doc.fragments {
+                                frags.push((name.to_string(), frag.clone()));
+                            }
+                        }
+                    }
+                    frags
+                })
+                .collect();
+
+            for frags in fragment_results {
+                for (name, frag) in frags {
+                    all_fragments.insert(name, frag);
+                }
+            }
+            fragment_resolve_time += fr_start.elapsed();
 
             let paths = graphql_rust::utils::get_project_files(&abs_include);
             for path in paths {
@@ -139,7 +195,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                     parser.set_language(&language.get_parser_language()).unwrap();
                     let doc = DocumentState::new(uri, &content, parser);
                     
-                    if !doc.graphql_trees.is_empty() {
+                    if !doc.get_graphql_trees().is_empty() {
                         let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
                             sts.iter()
                                 .find(|st| st.schema.as_key() == project.schema.as_key())
@@ -150,6 +206,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                             schema: &schema,
                             fragment_to_path: &fragment_to_path,
                             fragment_to_import: &fragment_to_import,
+                            all_fragments: &all_fragments,
                             current_file_path: &abs_path,
                             scalars: &cfg.scalars,
                             schema_import: &schema_import,
@@ -170,7 +227,56 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
         let s_start = Instant::now();
         let schema_text = std::fs::read_to_string(_schema_path).unwrap_or_default();
         if let Ok(schema) = Schema::parse(&schema_text, _schema_path) {
+            let valid_schema = match schema.clone().validate() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Schema validation failed for fallback schema: {}", e);
+                    return;
+                }
+            };
             schema_parse_time += s_start.elapsed();
+
+            let fr_start = Instant::now();
+            let mut all_fragments = HashMap::new();
+            let all_graphql_files: Vec<_> = scan_results
+                .iter()
+                .flatten()
+                .filter(|(has_gql, _, _, _)| *has_gql)
+                .map(|(_, _, _, path)| path.clone())
+                .collect();
+
+            let fragment_results: Vec<_> = all_graphql_files
+                .par_iter()
+                .map(|path_str| {
+                    let content = std::fs::read_to_string(path_str).unwrap_or_default();
+                    let abs_path = std::fs::canonicalize(path_str).unwrap_or_else(|_| std::path::PathBuf::from(path_str));
+                    let uri = Url::from_file_path(&abs_path).unwrap();
+                    let language = DocumentLanguage::from_uri(&uri);
+                    let mut parser = tree_sitter::Parser::new();
+                    parser.set_language(&language.get_parser_language()).unwrap();
+                    let doc = DocumentState::new(uri, &content, parser);
+                    
+                    let mut frags = Vec::new();
+                    for block in doc.get_graphql_trees() {
+                        let block_text = doc.get_node_text(block.tree.root_node(), block.offset);
+                        let masked = graphql_rust::utils::mask_interpolations(&block_text);
+                        if let Ok(exec_doc) = apollo_compiler::executable::ExecutableDocument::parse(&valid_schema, &masked, "doc.graphql") {
+                            for (name, frag) in exec_doc.fragments {
+                                frags.push((name.to_string(), frag.clone()));
+                            }
+                        }
+                    }
+                    frags
+                })
+                .collect();
+
+            for frags in fragment_results {
+                for (name, frag) in frags {
+                    all_fragments.insert(name, frag);
+                }
+            }
+            fragment_resolve_time += fr_start.elapsed();
+
             let paths = graphql_rust::utils::get_project_files(scan_path);
             for path in paths {
                 if is_relevant_file(&path) {
@@ -183,11 +289,12 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                     parser.set_language(&language.get_parser_language()).unwrap();
                     let doc = DocumentState::new(uri, &content, parser);
                     
-                    if !doc.graphql_trees.is_empty() {
+                    if !doc.get_graphql_trees().is_empty() {
                         let ctx = graphql_rust::features::codegen::CodegenContext {
                             schema: &schema,
                             fragment_to_path: &fragment_to_path,
                             fragment_to_import: &HashMap::new(),
+                            all_fragments: &all_fragments,
                             current_file_path: &abs_path,
                             scalars: &None,
                             schema_import: &None,
@@ -204,8 +311,8 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
             }
         }
     }
-    let processing_duration = processing_start.elapsed();
     let total_duration = total_start.elapsed();
+    let processing_duration = processing_start.elapsed();
 
     println!("\n--- Benchmark Results ---");
     println!("Total Files Scanned:      {}", total_files_scanned);
@@ -218,6 +325,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
     println!("  File Discovery:         {:>10?}", file_discovery_time);
     println!("  Parallel Scan & Parse:  {:>10?}", parallel_scan_time);
     println!("  Schema Parsing:         {:>10?}", schema_parse_time);
+    println!("  Fragment Resolution:    {:>10?}", fragment_resolve_time);
     println!("  TS Generation (serial): {:>10?}", ts_gen_time);
     println!("  Total Processing:       {:>10?}", processing_duration);
     println!("--------------------------");
