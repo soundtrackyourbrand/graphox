@@ -244,7 +244,7 @@ impl DocumentState {
         &self.fragments
     }
 
-    fn extract_fragment_names(&self) -> Vec<FragmentDef> {
+    pub fn extract_fragment_names(&self) -> Vec<FragmentDef> {
         let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()

@@ -46,7 +46,7 @@ fn test_codegen_document_node() {
     let content = std::fs::read_to_string(gen_file).unwrap();
 
     // Check for import
-    assert!(content.contains("import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-node/core';"), "Missing DocumentNode import");
+    assert!(content.contains("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";"), "Missing DocumentNode import");
 
     // Check for Document type export
     assert!(

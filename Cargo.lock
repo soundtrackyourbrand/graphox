@@ -538,6 +538,7 @@ dependencies = [
  "clap",
  "dashmap 6.1.0",
  "glob",
+ "globset",
  "ignore",
  "notify",
  "notify-debouncer-mini",

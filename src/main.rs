@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use commands::check::run_check;
 use commands::codegen::run_codegen;
 use commands::lsp::run_lsp;
+use commands::benchmark::run_benchmark;
 use graphql_rust::Config;
 
 #[derive(Parser)]
@@ -39,6 +40,12 @@ enum Commands {
         #[arg(short, long)]
         watch: bool,
     },
+    /// Benchmark codegen performance
+    Benchmark {
+        /// Directory to scan
+        #[arg(default_value = ".")]
+        path: String,
+    },
 }
 
 #[tokio::main]
@@ -59,6 +66,9 @@ async fn main() {
             watch,
         }) => {
             run_codegen(config, &cli.schema, &path, output.as_deref(), watch).await;
+        }
+        Some(Commands::Benchmark { path }) => {
+            run_benchmark(config, &cli.schema, &path).await;
         }
     }
 }

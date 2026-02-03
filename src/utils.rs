@@ -23,57 +23,98 @@ pub fn is_relevant_file(path: &Path) -> bool {
 }
 
 pub fn get_project_files(include_glob: &str) -> Vec<PathBuf> {
-    use glob::glob;
+    use globset::{Glob, GlobSetBuilder};
     use ignore::WalkBuilder;
 
-    let include_path = Path::new(include_glob);
-    let (root, pattern) = if include_glob.contains('*') {
-        let mut fixed_part = PathBuf::new();
-        let mut pattern_part = String::new();
-        let mut found_wildcard = false;
-        for component in include_path.components() {
-            let s = component.as_os_str().to_str().unwrap_or("");
-            if !found_wildcard && !s.contains('*') {
-                fixed_part.push(s);
-            } else {
-                found_wildcard = true;
-                if !pattern_part.is_empty() {
-                    pattern_part.push(std::path::MAIN_SEPARATOR);
+    let is_glob = include_glob.contains('*')
+        || include_glob.contains('?')
+        || include_glob.contains('[')
+        || include_glob.contains('{');
+
+    // If it's not a glob, it might be a file or a directory
+    if !is_glob {
+        let p = PathBuf::from(include_glob);
+        if p.is_file() {
+            return vec![p];
+        }
+        if p.is_dir() {
+            let mut files = Vec::new();
+            let walk = WalkBuilder::new(&p)
+                .add_custom_ignore_filename(".graphqlignore")
+                .hidden(false)
+                .build();
+            for entry in walk.filter_map(|e| e.ok()) {
+                if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                    let path = entry.path();
+                    if is_relevant_file(path) {
+                        files.push(path.to_owned());
+                    }
                 }
-                pattern_part.push_str(s);
             }
+            return files;
         }
-        if fixed_part.as_os_str().is_empty() {
-            (PathBuf::from("."), include_glob.to_string())
-        } else {
-            (fixed_part, pattern_part)
-        }
-    } else {
-        (include_path.to_path_buf(), String::new())
+    }
+
+    let glob = match Glob::new(include_glob) {
+        Ok(g) => g,
+        Err(_) => return Vec::new(),
     };
 
-    let mut files = Vec::new();
-    if root.exists() {
-        let walk = WalkBuilder::new(&root)
-            .add_custom_ignore_filename(".graphqlignore")
-            .build();
+    let mut builder = GlobSetBuilder::new();
+    builder.add(glob);
+    let glob_set = builder.build().unwrap();
 
-        for entry in walk.filter_map(|e| e.ok()) {
-            if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                let path = entry.path().to_owned();
-                if pattern.is_empty() {
-                    files.push(path);
-                } else {
-                    let matches = glob(include_glob)
-                        .map(|entries| {
-                            entries.filter_map(|e| e.ok()).any(|p| {
-                                std::fs::canonicalize(&p).ok() == std::fs::canonicalize(&path).ok()
-                            })
-                        })
-                        .unwrap_or(false);
-                    if matches {
-                        files.push(path);
-                    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Determine a search root to avoid walking the whole drive if possible
+    let include_path = Path::new(include_glob);
+    let mut root = PathBuf::new();
+    for component in include_path.components() {
+        let s = component.as_os_str().to_str().unwrap_or("");
+        if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
+            break;
+        }
+        root.push(component);
+    }
+
+    if root.as_os_str().is_empty() {
+        root = PathBuf::from(".");
+    } else if !root.is_dir() {
+        if let Some(parent) = root.parent() {
+            root = parent.to_path_buf();
+        } else {
+            root = PathBuf::from(".");
+        }
+    }
+
+    let mut files = Vec::new();
+    let walk = WalkBuilder::new(&root)
+        .add_custom_ignore_filename(".graphqlignore")
+        .hidden(false)
+        .build();
+
+    for entry in walk.filter_map(|e| e.ok()) {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
+            let path = entry.path();
+
+            // Try matching as provided
+            if glob_set.is_match(path) {
+                files.push(path.to_owned());
+                continue;
+            }
+
+            // Try matching relative to CWD
+            if let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd) {
+                if glob_set.is_match(&rel_to_cwd) {
+                    files.push(path.to_owned());
+                    continue;
+                }
+            }
+
+            // Try matching just the file name if the glob is just a pattern
+            if let Some(file_name) = path.file_name() {
+                if glob_set.is_match(file_name) {
+                    files.push(path.to_owned());
                 }
             }
         }
