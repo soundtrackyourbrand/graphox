@@ -37,6 +37,10 @@ impl DocumentLanguage {
             DocumentLanguage::TSX => tree_sitter_typescript::LANGUAGE_TSX.into(),
         }
     }
+
+    pub fn is_host_language(&self) -> bool {
+        matches!(self, DocumentLanguage::TypeScript | DocumentLanguage::TSX)
+    }
 }
 
 pub struct GraphQLBlock {
@@ -94,7 +98,7 @@ impl DocumentState {
         }
 
         // TypeScript/TSX handling - Fast check first
-        if !self.contains_ignore_case("GQL") && !self.contains_ignore_case("GRAPHQL") {
+        if !self.has_graphql_candidates() {
             return vec![];
         }
 
@@ -227,6 +231,13 @@ impl DocumentState {
         let target_utf16_cu = line_start_utf16_cu + position.character as usize;
         let target_char = self.rope.utf16_cu_to_char(target_utf16_cu);
         self.rope.char_to_byte(target_char)
+    }
+
+    pub fn has_graphql_candidates(&self) -> bool {
+        if self.language == DocumentLanguage::GraphQL {
+            return true;
+        }
+        self.contains_ignore_case("GQL") || self.contains_ignore_case("GRAPHQL")
     }
 
     fn contains_ignore_case(&self, needle: &str) -> bool {

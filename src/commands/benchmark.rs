@@ -59,13 +59,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
             let mut fragments = Vec::new();
             let trees = doc.get_graphql_trees();
             
-            let skipped_by_fast_check = if language == DocumentLanguage::TypeScript || language == DocumentLanguage::TSX {
-                // Keep in sync with src/document.rs
-                let upper = content.to_uppercase();
-                !upper.contains("GQL") && !upper.contains("GRAPHQL")
-            } else {
-                false
-            };
+            let skipped_by_fast_check = doc.language.is_host_language() && !doc.has_graphql_candidates();
 
             if !trees.is_empty() {
                 for frag in doc.fragments() {
