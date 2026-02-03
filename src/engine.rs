@@ -3,8 +3,8 @@ use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file, mask_interpolations};
 use apollo_compiler::executable;
 use apollo_compiler::Schema;
+use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::Url;
 
@@ -64,7 +64,7 @@ impl Engine {
 
     /// Step 1b: Discovery for simple mode (no config)
     pub fn scan_path(scan_path: &str) -> HashMap<String, String> {
-        let mut fragment_map = HashMap::new();
+        let mut fragment_map = HashMap::default();
         let paths = get_project_files(scan_path);
 
         let results: Vec<Vec<_>> = paths
@@ -94,7 +94,7 @@ impl Engine {
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         all_graphql_paths: &[PathBuf],
     ) -> HashMap<String, apollo_compiler::Node<executable::Fragment>> {
-        let mut all_fragments = HashMap::new();
+        let mut all_fragments = HashMap::default();
 
         let fragment_results: Vec<Vec<_>> = all_graphql_paths
             .par_iter()

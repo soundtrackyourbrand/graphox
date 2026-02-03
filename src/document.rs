@@ -126,7 +126,7 @@ impl DocumentState {
         });
 
         let mut gql_blocks = vec![];
-        let mut seen_nodes = std::collections::HashSet::new();
+        let mut seen_nodes = fnv::FnvHashSet::default();
 
         let mut gql_parser = Parser::new();
         gql_parser

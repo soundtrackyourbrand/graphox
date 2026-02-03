@@ -1,6 +1,6 @@
 use graphql_rust::config::Config;
 use graphql_rust::engine::{Engine, FragmentMetadata};
-use std::collections::HashMap;
+use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::path::{Path, PathBuf};
 
 pub async fn run_codegen(
@@ -83,12 +83,12 @@ async fn execute_codegen(
         for project in &cfg.projects {
             let project_abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
             let project_files = graphql_rust::utils::get_project_files(&project_abs_include);
-            let project_files_set: std::collections::HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            let project_files_set: HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
 
             println!("Processing project with schema: {}", project.schema.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
-            let project_schema_files: std::collections::HashSet<_> = project.schema.files().into_iter().collect();
+            let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
             
             let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
                 // Find all matching schema type configs (where the project's schema is a superset of the types' schema)
@@ -123,8 +123,8 @@ async fn execute_codegen(
             let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
 
             // Per-project fragment maps to ensure local preference and @public check
-            let mut fragment_to_path: HashMap<String, String> = HashMap::new();
-            let mut fragment_to_import: HashMap<String, String> = HashMap::new();
+            let mut fragment_to_path: HashMap<String, String> = HashMap::default();
+            let mut fragment_to_import: HashMap<String, String> = HashMap::default();
 
             for meta in &global_metadata {
                 let is_local = project_files_set.contains(&meta.path);
@@ -182,7 +182,7 @@ async fn execute_codegen(
                     &None,
                     &None,
                     &fragment_map,
-                    &HashMap::new(),
+                    &HashMap::default(),
                     &all_fragments,
                     &vec![], // No metadata in simple mode
                 ).await;

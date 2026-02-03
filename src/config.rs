@@ -8,7 +8,7 @@ pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
-    pub scalars: Option<std::collections::HashMap<String, String>>,
+    pub scalars: Option<fnv::FnvHashMap<String, String>>,
     pub ignore_deprecations: Option<Vec<String>>,
     #[serde(skip)]
     pub base_dir: std::path::PathBuf,

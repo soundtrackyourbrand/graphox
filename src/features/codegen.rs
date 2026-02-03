@@ -1,5 +1,5 @@
 use apollo_compiler::{executable, schema, Schema};
-use std::collections::HashMap;
+use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::path::Path;
 
 pub struct CodegenContext<'a> {
@@ -19,7 +19,7 @@ pub fn generate_typescript(
     let mut output = String::new();
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
-    let mut used_fragments = HashMap::new();
+    let mut used_fragments = HashMap::default();
 
     // Validate schema once for ExecutableDocument parsing
     let valid_schema = ctx
@@ -30,7 +30,7 @@ pub fn generate_typescript(
 
     let mut bodies = String::new();
     let mut has_operations = false;
-    let mut used_schema_types = std::collections::HashSet::new();
+    let mut used_schema_types = HashSet::default();
 
     for block in doc.get_graphql_trees() {
         let block_text = doc
@@ -118,7 +118,7 @@ pub fn generate_typescript(
     let mut used_frag_names: Vec<_> = used_fragments.keys().cloned().collect();
     used_frag_names.sort();
 
-    let mut imports: HashMap<String, Vec<String>> = HashMap::new();
+    let mut imports: HashMap<String, Vec<String>> = HashMap::default();
     for frag_name in used_frag_names {
         if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name) {
             imports
@@ -215,7 +215,7 @@ fn generate_selection_set(
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
-    used_schema_types: &mut std::collections::HashSet<String>,
+    used_schema_types: &mut HashSet<String>,
 ) -> String {
     let pad = "  ".repeat(indent);
     let inner_pad = "  ".repeat(indent + 1);
@@ -405,7 +405,7 @@ fn gql_type_to_ts(
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
-    used_schema_types: &mut std::collections::HashSet<String>,
+    used_schema_types: &mut HashSet<String>,
 ) -> String {
     gql_type_to_ts_internal(ty, schema, false, scalars, ctx, used_schema_types)
 }
@@ -415,7 +415,7 @@ fn gql_type_to_ts_with_names(
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
-    used_schema_types: &mut std::collections::HashSet<String>,
+    used_schema_types: &mut HashSet<String>,
 ) -> String {
     gql_type_to_ts_internal(ty, schema, true, scalars, ctx, used_schema_types)
 }
@@ -426,7 +426,7 @@ fn gql_type_to_ts_internal(
     use_names: bool,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
-    used_schema_types: &mut std::collections::HashSet<String>,
+    used_schema_types: &mut HashSet<String>,
 ) -> String {
     let inner_name = ty.inner_named_type();
     let base = match inner_name.as_str() {
@@ -485,17 +485,17 @@ pub fn generate_schema_types(
     let mut output = String::new();
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
-    let empty_fragments = HashMap::new();
+    let empty_fragments = HashMap::default();
     let dummy_ctx = CodegenContext {
         schema,
-        fragment_to_path: &HashMap::new(),
-        fragment_to_import: &HashMap::new(),
+        fragment_to_path: &HashMap::default(),
+        fragment_to_import: &HashMap::default(),
         all_fragments: &empty_fragments,
         current_file_path: Path::new(""),
         scalars,
         schema_import: &None,
     };
-    let mut used_schema_types = std::collections::HashSet::new();
+    let mut used_schema_types = HashSet::default();
 
     // 1. Enums
     let mut enum_names: Vec<_> = schema.types.keys().collect();

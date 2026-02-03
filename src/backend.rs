@@ -222,7 +222,7 @@ impl LanguageServer for Backend {
 
         let mut watchers = Vec::new();
         if let Some(cfg) = &self.config {
-            let mut schema_files = std::collections::HashSet::new();
+            let mut schema_files = fnv::FnvHashSet::default();
             for project in &cfg.projects {
                 for file in project.schema.files() {
                     schema_files.insert(file);

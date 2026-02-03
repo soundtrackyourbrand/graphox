@@ -1,10 +1,11 @@
 use apollo_compiler::ast;
 use apollo_compiler::executable::{self, Selection};
+use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use serde_json::{json, Value};
 
 pub fn serialize_operation(
     operation: &executable::Operation,
-    fragments: &std::collections::HashMap<String, apollo_compiler::Node<executable::Fragment>>,
+    fragments: &HashMap<String, apollo_compiler::Node<executable::Fragment>>,
 ) -> Value {
     let mut definitions = Vec::new();
 
@@ -12,7 +13,7 @@ pub fn serialize_operation(
     definitions.push(convert_operation(operation));
 
     // 2. Add all transitive fragments
-    let mut used_fragments = std::collections::HashSet::new();
+    let mut used_fragments = HashSet::default();
     collect_fragments(&operation.selection_set, fragments, &mut used_fragments);
 
     let mut sorted_fragments: Vec<_> = used_fragments.into_iter().collect();
@@ -32,8 +33,8 @@ pub fn serialize_operation(
 
 fn collect_fragments(
     selection_set: &executable::SelectionSet,
-    all_fragments: &std::collections::HashMap<String, apollo_compiler::Node<executable::Fragment>>,
-    used: &mut std::collections::HashSet<String>,
+    all_fragments: &HashMap<String, apollo_compiler::Node<executable::Fragment>>,
+    used: &mut HashSet<String>,
 ) {
     for selection in &selection_set.selections {
         match selection {

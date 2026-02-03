@@ -2,7 +2,6 @@ use crate::document::DocumentState;
 use apollo_compiler::{schema, Schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
-use std::collections::HashMap;
 
 impl DocumentState {
     pub fn get_completion_items(

@@ -1,6 +1,6 @@
 use graphql_rust::Config;
 use graphql_rust::engine::Engine;
-use std::collections::HashMap;
+use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 
@@ -21,7 +21,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
     };
     let file_discovery_time = discovery_start.elapsed();
 
-    let mut fragment_to_path_global: HashMap<String, String> = HashMap::new();
+    let mut fragment_to_path_global: HashMap<String, String> = HashMap::default();
     for meta in &global_metadata {
         fragment_to_path_global.insert(meta.name.clone(), meta.path.clone());
     }
@@ -55,11 +55,11 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
 
             let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
             let project_files = graphql_rust::utils::get_project_files(&abs_include);
-            let project_files_set: std::collections::HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            let project_files_set: HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
 
             // Project-specific maps
-            let mut project_fragment_to_path = HashMap::new();
-            let mut project_fragment_to_import = HashMap::new();
+            let mut project_fragment_to_path = HashMap::default();
+            let mut project_fragment_to_import = HashMap::default();
 
             for meta in &global_metadata {
                 let is_local = project_files_set.contains(&meta.path);

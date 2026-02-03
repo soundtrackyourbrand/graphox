@@ -1,7 +1,7 @@
 use apollo_compiler::Schema;
 use graphql_rust::utils::{get_project_files, is_relevant_file};
 use graphql_rust::{Config, DocumentLanguage, DocumentState};
-use std::collections::HashMap;
+use fnv::FnvHashMap as HashMap;
 use std::path::PathBuf;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
@@ -85,7 +85,7 @@ async fn execute_project_check(
         }
     }
 
-    let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<String>> = HashMap::new();
+    let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<String>> = HashMap::default();
     let mut all_public_fragments: Vec<String> = Vec::new();
 
     for (_, doc) in &docs {
