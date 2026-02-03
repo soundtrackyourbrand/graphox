@@ -1,7 +1,7 @@
 use apollo_compiler::Schema;
+use fnv::FnvHashMap as HashMap;
 use graphql_rust::utils::{get_project_files, is_relevant_file};
 use graphql_rust::{Config, DocumentLanguage, DocumentState};
-use fnv::FnvHashMap as HashMap;
 use std::path::PathBuf;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
@@ -81,7 +81,7 @@ async fn execute_project_check(
             }
         }
     }
-    let schema = match Schema::parse(&combined_text, &source.as_key()) {
+    let schema = match Schema::parse(&combined_text, source.as_key()) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to parse schema {}: {}", source.as_key(), e);

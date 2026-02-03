@@ -1,5 +1,6 @@
+use super::ValidationContext;
 use crate::document::DocumentState;
-use apollo_compiler::{schema, Schema};
+use apollo_compiler::schema::ExtendedType;
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
@@ -8,11 +9,8 @@ impl DocumentState {
         &self,
         selection_set: Node,
         offset: usize,
-        parent_type: &schema::ExtendedType,
-        schema: &Schema,
-        all_fragments: &[String],
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
+        parent_type: &ExtendedType,
+        ctx: &mut ValidationContext,
     ) {
         let mut cursor = selection_set.walk();
         for child in selection_set.children(&mut cursor) {
@@ -23,51 +21,19 @@ impl DocumentState {
                 for inner in child.children(&mut inner_cursor) {
                     let k = inner.kind();
                     if k == "field" {
-                        self.validate_field(
-                            inner,
-                            offset,
-                            parent_type,
-                            schema,
-                            all_fragments,
-                            diagnostics,
-                            config,
-                        );
+                        self.validate_field(inner, offset, parent_type, ctx);
                     } else if k == "inline_fragment" {
-                        self.validate_inline_fragment(
-                            inner,
-                            offset,
-                            parent_type,
-                            schema,
-                            all_fragments,
-                            diagnostics,
-                            config,
-                        );
+                        self.validate_inline_fragment(inner, offset, parent_type, ctx);
                     } else if k == "fragment_spread" {
-                        self.validate_fragment_spread(inner, offset, all_fragments, diagnostics);
+                        self.validate_fragment_spread(inner, offset, ctx);
                     }
                 }
             } else if kind == "field" {
-                self.validate_field(
-                    child,
-                    offset,
-                    parent_type,
-                    schema,
-                    all_fragments,
-                    diagnostics,
-                    config,
-                );
+                self.validate_field(child, offset, parent_type, ctx);
             } else if kind == "fragment_spread" {
-                self.validate_fragment_spread(child, offset, all_fragments, diagnostics);
+                self.validate_fragment_spread(child, offset, ctx);
             } else if kind == "inline_fragment" {
-                self.validate_inline_fragment(
-                    child,
-                    offset,
-                    parent_type,
-                    schema,
-                    all_fragments,
-                    diagnostics,
-                    config,
-                );
+                self.validate_inline_fragment(child, offset, parent_type, ctx);
             }
         }
     }
@@ -76,11 +42,8 @@ impl DocumentState {
         &self,
         field_node: Node,
         offset: usize,
-        parent_type: &schema::ExtendedType,
-        schema: &Schema,
-        all_fragments: &[String],
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
+        parent_type: &ExtendedType,
+        ctx: &mut ValidationContext,
     ) {
         let mut name_node = None;
         let mut selection_set_node = None;
@@ -105,21 +68,21 @@ impl DocumentState {
             }
 
             let field_def = match parent_type {
-                schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-                schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
                 _ => None,
             };
 
             if let Some(field_def) = field_def {
                 if let Some(directive) = field_def.directives.get("deprecated") {
                     let reason = directive
-                        .argument_by_name("reason", schema)
+                        .argument_by_name("reason", ctx.schema)
                         .ok()
                         .and_then(|arg| arg.as_str())
                         .unwrap_or("No reason provided");
 
-                    if !self.is_deprecation_ignored(reason, config) {
-                        diagnostics.push(Diagnostic {
+                    if !self.is_deprecation_ignored(reason, ctx.config) {
+                        ctx.diagnostics.push(Diagnostic {
                             range: self.translate_to_file_range(name_node, offset),
                             severity: Some(DiagnosticSeverity::WARNING),
                             message: format!("Field '{}' is deprecated: {}", field_name, reason),
@@ -129,34 +92,19 @@ impl DocumentState {
                 }
 
                 if let Some(args_node) = arguments_node {
-                    self.validate_arguments(
-                        args_node,
-                        offset,
-                        field_def,
-                        schema,
-                        diagnostics,
-                        config,
-                    );
+                    self.validate_arguments(args_node, offset, field_def, ctx);
                 }
 
                 if let Some(sel_set) = selection_set_node {
                     let field_type_name = field_def.ty.inner_named_type();
-                    if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
-                        self.validate_selection_set(
-                            sel_set,
-                            offset,
-                            field_type_def,
-                            schema,
-                            all_fragments,
-                            diagnostics,
-                            config,
-                        );
+                    if let Some(field_type_def) = ctx.schema.types.get(field_type_name.as_str()) {
+                        self.validate_selection_set(sel_set, offset, field_type_def, ctx);
                     }
                 }
             } else {
                 let type_name = parent_type.name();
 
-                diagnostics.push(Diagnostic {
+                ctx.diagnostics.push(Diagnostic {
                     range: self.translate_to_file_range(name_node, offset),
                     severity: Some(DiagnosticSeverity::ERROR),
                     message: format!("Field '{}' not found on type '{}'", field_name, type_name),

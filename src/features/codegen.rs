@@ -1,4 +1,7 @@
-use apollo_compiler::{executable, schema, Schema};
+use apollo_compiler::ast::{OperationType, Type};
+use apollo_compiler::executable::{self, Selection, SelectionSet};
+use apollo_compiler::schema::ExtendedType;
+use apollo_compiler::{Node, Schema};
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::path::Path;
 
@@ -6,7 +9,7 @@ pub struct CodegenContext<'a> {
     pub schema: &'a Schema,
     pub fragment_to_path: &'a HashMap<String, String>,
     pub fragment_to_import: &'a HashMap<String, String>,
-    pub all_fragments: &'a HashMap<String, apollo_compiler::Node<apollo_compiler::executable::Fragment>>,
+    pub all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
@@ -38,12 +41,8 @@ pub fn generate_typescript(
             .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
             .to_string();
 
-        let exec_doc = apollo_compiler::executable::ExecutableDocument::parse(
-            &valid_schema,
-            &block_text,
-            "doc.graphql",
-        )
-        .map_err(|e| format!("Failed to parse GraphQL block: {}", e))?;
+        let exec_doc = executable::ExecutableDocument::parse(&valid_schema, &block_text, "doc.graphql")
+            .map_err(|e| format!("Failed to parse GraphQL block: {}", e))?;
 
         if !exec_doc.operations.is_empty() {
             has_operations = true;
@@ -56,9 +55,9 @@ pub fn generate_typescript(
                 .map(|n| n.as_str())
                 .unwrap_or("UnnamedOperation");
             let suffix = match op.operation_type {
-                apollo_compiler::ast::OperationType::Query => "Query",
-                apollo_compiler::ast::OperationType::Mutation => "Mutation",
-                apollo_compiler::ast::OperationType::Subscription => "Subscription",
+                OperationType::Query => "Query",
+                OperationType::Mutation => "Mutation",
+                OperationType::Subscription => "Subscription",
             };
 
             let root_type = ctx
@@ -67,22 +66,23 @@ pub fn generate_typescript(
                 .and_then(|n| ctx.schema.types.get(n.as_str()))
                 .ok_or_else(|| format!("Root type for {:?} not found", op.operation_type))?;
 
-            let ts_type =
-                generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments, &mut used_schema_types);
+            let ts_type = generate_selection_set(
+                &op.selection_set,
+                root_type,
+                ctx,
+                0,
+                &mut used_fragments,
+                &mut used_schema_types,
+            );
 
-            bodies.push_str(&format!(
-                "export interface {}{} {}\n\n",
-                name, suffix, ts_type
-            ));
+            bodies.push_str(&format!("export interface {}{} {}\n\n", name, suffix, ts_type));
 
             let vars_type = if !op.variables.is_empty() {
                 let v_name = format!("{}{}Variables", name, suffix);
-                bodies.push_str(&format!(
-                    "export interface {} {{\n",
-                    v_name
-                ));
+                bodies.push_str(&format!("export interface {} {{\n", v_name));
                 for var in &op.variables {
-                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx, &mut used_schema_types);
+                    let ts_type_str =
+                        gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx, &mut used_schema_types);
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
                     bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
                 }
@@ -108,8 +108,14 @@ pub fn generate_typescript(
                 .get(type_name)
                 .ok_or_else(|| format!("Type {} not found in schema", type_name))?;
 
-            let ts_type =
-                generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments, &mut used_schema_types);
+            let ts_type = generate_selection_set(
+                &frag.selection_set,
+                type_def,
+                ctx,
+                0,
+                &mut used_fragments,
+                &mut used_schema_types,
+            );
             bodies.push_str(&format!("export interface {} {}\n\n", frag.name, ts_type));
         }
     }
@@ -144,16 +150,16 @@ pub fn generate_typescript(
 
     let mut import_section = String::new();
 
-    if let Some(schema_import_path) = ctx.schema_import {
-        if !used_schema_types.is_empty() {
-            let mut types: Vec<_> = used_schema_types.into_iter().collect();
-            types.sort();
-            import_section.push_str(&format!(
-                "import type {{ {} }} from \"{}\";\n",
-                types.join(", "),
-                schema_import_path
-            ));
-        }
+    if let Some(schema_import_path) = ctx.schema_import
+        && !used_schema_types.is_empty()
+    {
+        let mut types: Vec<_> = used_schema_types.into_iter().collect();
+        types.sort();
+        import_section.push_str(&format!(
+            "import type {{ {} }} from \"{}\";\n",
+            types.join(", "),
+            schema_import_path
+        ));
     }
 
     let mut import_paths: Vec<_> = imports.keys().cloned().collect();
@@ -161,7 +167,7 @@ pub fn generate_typescript(
 
     for path in import_paths {
         let names = imports.get(&path).unwrap();
-        
+
         let final_import_path = if ctx.fragment_to_import.values().any(|v| v == &path) {
             // It's an alias
             path
@@ -210,8 +216,8 @@ pub fn generate_typescript(
 }
 
 fn generate_selection_set(
-    selection_set: &executable::SelectionSet,
-    parent_type: &schema::ExtendedType,
+    selection_set: &SelectionSet,
+    parent_type: &ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
@@ -227,16 +233,16 @@ fn generate_selection_set(
 
     for selection in &selection_set.selections {
         match selection {
-            executable::Selection::Field(field) => {
+            Selection::Field(field) => {
                 if field.name.as_str() == "__typename" && field.alias.is_none() {
                     has_explicit_typename = true;
                 }
                 fields.push(field);
             }
-            executable::Selection::InlineFragment(inline) => {
+            Selection::InlineFragment(inline) => {
                 inline_fragments.push(inline);
             }
-            executable::Selection::FragmentSpread(spread) => {
+            Selection::FragmentSpread(spread) => {
                 fragment_spreads.push(spread);
                 used_fragments.insert(spread.fragment_name.to_string(), String::new());
             }
@@ -253,8 +259,8 @@ fn generate_selection_set(
         for field in fields {
             let name = field.alias.as_ref().unwrap_or(&field.name);
             let field_def = match parent_type {
-                schema::ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
-                schema::ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
+                ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+                ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
                 _ => None,
             };
 
@@ -319,7 +325,7 @@ fn generate_selection_set(
                 .type_condition
                 .as_ref()
                 .map(|n| n.as_str())
-                .unwrap_or(parent_type.name());
+                .unwrap_or_else(|| parent_type.name());
             let target_type = ctx.schema.types.get(type_name).unwrap_or(parent_type);
 
             let mut branch_fields = String::new();
@@ -327,17 +333,15 @@ fn generate_selection_set(
 
             // Generate fields for this fragment
             for selection in &inline.selection_set.selections {
-                if let executable::Selection::Field(field) = selection {
+                if let Selection::Field(field) = selection {
                     let name = field.alias.as_ref().unwrap_or(&field.name);
                     if name.as_str() == "__typename" {
                         continue;
                     }
 
                     let field_def = match target_type {
-                        schema::ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
-                        schema::ExtendedType::Interface(iface) => {
-                            iface.fields.get(field.name.as_str())
-                        }
+                        ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+                        ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
                         _ => None,
                     };
 
@@ -386,7 +390,7 @@ fn generate_selection_set(
     }
 }
 
-fn wrap_in_list_and_nullability(base: &str, ty: &apollo_compiler::ast::Type) -> String {
+fn wrap_in_list_and_nullability(base: &str, ty: &Type) -> String {
     let mut result = base.to_string();
     if !ty.is_non_null() {
         result = format!("{} | null", result);
@@ -401,7 +405,7 @@ fn wrap_in_list_and_nullability(base: &str, ty: &apollo_compiler::ast::Type) -> 
 }
 
 fn gql_type_to_ts(
-    ty: &apollo_compiler::ast::Type,
+    ty: &Type,
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
@@ -411,7 +415,7 @@ fn gql_type_to_ts(
 }
 
 fn gql_type_to_ts_with_names(
-    ty: &apollo_compiler::ast::Type,
+    ty: &Type,
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
@@ -421,7 +425,7 @@ fn gql_type_to_ts_with_names(
 }
 
 fn gql_type_to_ts_internal(
-    ty: &apollo_compiler::ast::Type,
+    ty: &Type,
     schema: &Schema,
     use_names: bool,
     scalars: &Option<HashMap<String, String>>,
@@ -440,7 +444,7 @@ fn gql_type_to_ts_internal(
                 mapped.to_string()
             } else if let Some(t) = schema.types.get(other) {
                 match t {
-                    apollo_compiler::schema::ExtendedType::Enum(enm) => {
+                    ExtendedType::Enum(enm) => {
                         if ctx.schema_import.is_some() {
                             used_schema_types.insert(other.to_string());
                             other.to_string()
@@ -456,8 +460,7 @@ fn gql_type_to_ts_internal(
                                 .join(" | ")
                         }
                     }
-                    apollo_compiler::schema::ExtendedType::InputObject(_)
-                    | apollo_compiler::schema::ExtendedType::Scalar(_) => {
+                    ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
                         if ctx.schema_import.is_some() {
                             used_schema_types.insert(other.to_string());
                             other.to_string()
@@ -505,7 +508,7 @@ pub fn generate_schema_types(
         if name.starts_with("__") {
             continue;
         }
-        if let Some(apollo_compiler::schema::ExtendedType::Enum(enm)) = schema.types.get(name) {
+        if let Some(ExtendedType::Enum(enm)) = schema.types.get(name) {
             let deprecation = enm.directives.get("deprecated").map(|d| {
                 d.argument_by_name("reason", schema)
                     .ok()
@@ -532,9 +535,7 @@ pub fn generate_schema_types(
         if name.starts_with("__") {
             continue;
         }
-        if let Some(apollo_compiler::schema::ExtendedType::InputObject(input)) =
-            schema.types.get(name)
-        {
+        if let Some(ExtendedType::InputObject(input)) = schema.types.get(name) {
             let deprecation = input.directives.get("deprecated").map(|d| {
                 d.argument_by_name("reason", schema)
                     .ok()
@@ -555,7 +556,13 @@ pub fn generate_schema_types(
                     field_deprecation,
                     1,
                 ));
-                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx, &mut used_schema_types);
+                let ts_type = gql_type_to_ts_with_names(
+                    &field.ty,
+                    schema,
+                    scalars,
+                    &dummy_ctx,
+                    &mut used_schema_types,
+                );
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
             }
@@ -568,8 +575,7 @@ pub fn generate_schema_types(
     scalar_names.sort();
 
     for name in scalar_names {
-        if let Some(apollo_compiler::schema::ExtendedType::Scalar(scalar)) = schema.types.get(name)
-        {
+        if let Some(ExtendedType::Scalar(scalar)) = schema.types.get(name) {
             match name.as_str() {
                 "String" | "ID" | "Int" | "Float" | "Boolean" => continue,
                 _ => {
@@ -580,15 +586,15 @@ pub fn generate_schema_types(
                             .unwrap_or("No reason provided")
                     });
                     output.push_str(&format_jsdoc(scalar.description.as_deref(), deprecation, 0));
-                    
-                    let ts_type = if let Some(config_scalars) = scalars 
+
+                    let ts_type = if let Some(config_scalars) = scalars
                         && let Some(mapped) = config_scalars.get(name.as_str())
                     {
                         mapped.to_string()
                     } else {
                         "any".to_string()
                     };
-                    
+
                     output.push_str(&format!("export type {} = {};\n\n", name, ts_type));
                 }
             }
@@ -631,7 +637,7 @@ fn format_jsdoc(
     jsdoc
 }
 
-fn generate_ts_type(ty: &apollo_compiler::ast::Type, base: &str) -> String {
+fn generate_ts_type(ty: &Type, base: &str) -> String {
     let mut result = base.to_string();
     if ty.is_list() {
         result = format!("Array<{}>", result);

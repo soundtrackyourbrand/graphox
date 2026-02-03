@@ -34,7 +34,7 @@ impl DocumentState {
         schema: &Schema,
         fragments: &[String],
     ) -> Option<Vec<CompletionItem>> {
-        let local_byte = if cursor_offset >= offset { cursor_offset - offset } else { 0 };
+        let local_byte = cursor_offset.saturating_sub(offset);
         
         let mut node = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
 
@@ -98,7 +98,7 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
     ) -> Vec<CompletionItem> {
-        let local_byte = if cursor_offset > offset { cursor_offset - offset } else { 0 };
+        let local_byte = cursor_offset.saturating_sub(offset);
         let mut current = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
         let mut target_op = None;
 

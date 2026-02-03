@@ -1,8 +1,7 @@
 use crate::config::{Config, SchemaSource};
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file, mask_interpolations};
-use apollo_compiler::executable;
-use apollo_compiler::Schema;
+use apollo_compiler::{executable, Schema};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -49,16 +48,16 @@ impl Engine {
                 let paths = get_project_files(abs_includes, abs_excludes);
                 let mut results = Vec::new();
                 for path in paths {
-                    if is_relevant_file(&path) {
-                        if let Some(doc) = Self::parse_doc(&path) {
-                            for frag in doc.fragments() {
-                                results.push(FragmentMetadata {
-                                    name: frag.name.clone(),
-                                    path: path.to_string_lossy().to_string(),
-                                    import_alias: import_alias.clone(),
-                                    is_public: frag.is_public,
-                                });
-                            }
+                    if is_relevant_file(&path)
+                        && let Some(doc) = Self::parse_doc(&path)
+                    {
+                        for frag in doc.fragments() {
+                            results.push(FragmentMetadata {
+                                name: frag.name.clone(),
+                                path: path.to_string_lossy().to_string(),
+                                import_alias: import_alias.clone(),
+                                is_public: frag.is_public,
+                            });
                         }
                     }
                 }
@@ -154,12 +153,16 @@ impl Engine {
     pub fn load_schema(base_dir: &Path, source: &SchemaSource) -> Result<Schema, String> {
         let mut combined_text = String::new();
         for file in source.files() {
-            let text = std::fs::read_to_string(base_dir.join(&file))
-                .map_err(|e| format!("Failed to read schema file {}: {}", file, e))?;
-            combined_text.push_str(&text);
-            combined_text.push('\n');
+            let path = base_dir.join(file);
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    combined_text.push_str(&text);
+                    combined_text.push('\n');
+                }
+                Err(e) => return Err(format!("Failed to read schema file {}: {}", path.display(), e)),
+            }
         }
-        Schema::parse(&combined_text, &source.as_key())
+        Schema::parse(&combined_text, source.as_key())
             .map_err(|e| format!("Failed to parse schema {}: {}", source.as_key(), e))
     }
 }

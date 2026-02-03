@@ -1,5 +1,6 @@
+use super::ValidationContext;
 use crate::document::DocumentState;
-use apollo_compiler::{schema, Schema};
+use apollo_compiler::schema::{ExtendedType, FieldDefinition};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
@@ -8,10 +9,8 @@ impl DocumentState {
         &self,
         node: Node,
         offset: usize,
-        field_def: &schema::FieldDefinition,
-        schema: &Schema,
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
+        field_def: &FieldDefinition,
+        ctx: &mut ValidationContext,
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -22,28 +21,33 @@ impl DocumentState {
                 for arg_child in child.children(&mut arg_cursor) {
                     if arg_child.kind() == "name" {
                         name_node = Some(arg_child);
-                    } else if arg_child.kind().ends_with("_value")
-                        || arg_child.kind() == "value"
-                    {
+                    } else if arg_child.kind().ends_with("_value") || arg_child.kind() == "value" {
                         value_node = Some(arg_child);
                     }
                 }
 
                 if let Some(name_node) = name_node {
                     let arg_name = self.get_node_text(name_node, offset);
-                    if let Some(arg_def) = field_def.arguments.iter().find(|a| a.name.as_str() == arg_name) {
+                    if let Some(arg_def) = field_def
+                        .arguments
+                        .iter()
+                        .find(|a| a.name.as_str() == arg_name)
+                    {
                         if let Some(directive) = arg_def.directives.get("deprecated") {
                             let reason = directive
-                                .argument_by_name("reason", schema)
+                                .argument_by_name("reason", ctx.schema)
                                 .ok()
                                 .and_then(|arg| arg.as_str())
                                 .unwrap_or("No reason provided");
 
-                            if !self.is_deprecation_ignored(reason, config) {
-                                diagnostics.push(Diagnostic {
+                            if !self.is_deprecation_ignored(reason, ctx.config) {
+                                ctx.diagnostics.push(Diagnostic {
                                     range: self.translate_to_file_range(name_node, offset),
                                     severity: Some(DiagnosticSeverity::WARNING),
-                                    message: format!("Argument '{}' is deprecated: {}", arg_name, reason),
+                                    message: format!(
+                                        "Argument '{}' is deprecated: {}",
+                                        arg_name, reason
+                                    ),
                                     ..Default::default()
                                 });
                             }
@@ -51,8 +55,8 @@ impl DocumentState {
 
                         if let Some(v_node) = value_node {
                             let arg_type_name = arg_def.ty.inner_named_type();
-                            if let Some(arg_type_def) = schema.types.get(arg_type_name.as_str()) {
-                                self.validate_value(v_node, offset, arg_type_def, schema, diagnostics, config);
+                            if let Some(arg_type_def) = ctx.schema.types.get(arg_type_name.as_str()) {
+                                self.validate_value(v_node, offset, arg_type_def, ctx);
                             }
                         }
                     }
@@ -65,19 +69,17 @@ impl DocumentState {
         &self,
         node: Node,
         offset: usize,
-        expected_type: &schema::ExtendedType,
-        schema: &Schema,
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
+        expected_type: &ExtendedType,
+        ctx: &mut ValidationContext,
     ) {
         match node.kind() {
             "value" => {
                 if let Some(child) = node.child(0) {
-                    self.validate_value(child, offset, expected_type, schema, diagnostics, config);
+                    self.validate_value(child, offset, expected_type, ctx);
                 }
             }
             "object_value" => {
-                if let schema::ExtendedType::InputObject(input_obj) = expected_type {
+                if let ExtendedType::InputObject(input_obj) = expected_type {
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         if child.kind() == "object_field" {
@@ -99,13 +101,13 @@ impl DocumentState {
                                 if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
                                     if let Some(directive) = field_def.directives.get("deprecated") {
                                         let reason = directive
-                                            .argument_by_name("reason", schema)
+                                            .argument_by_name("reason", ctx.schema)
                                             .ok()
                                             .and_then(|arg| arg.as_str())
                                             .unwrap_or("No reason provided");
 
-                                        if !self.is_deprecation_ignored(reason, config) {
-                                            diagnostics.push(Diagnostic {
+                                        if !self.is_deprecation_ignored(reason, ctx.config) {
+                                            ctx.diagnostics.push(Diagnostic {
                                                 range: self.translate_to_file_range(name_node, offset),
                                                 severity: Some(DiagnosticSeverity::WARNING),
                                                 message: format!(
@@ -120,16 +122,9 @@ impl DocumentState {
                                     if let Some(v_node) = value_node {
                                         let field_type_name = field_def.ty.inner_named_type();
                                         if let Some(field_type_def) =
-                                            schema.types.get(field_type_name.as_str())
+                                            ctx.schema.types.get(field_type_name.as_str())
                                         {
-                                            self.validate_value(
-                                                v_node,
-                                                offset,
-                                                field_type_def,
-                                                schema,
-                                                diagnostics,
-                                                config,
-                                            );
+                                            self.validate_value(v_node, offset, field_type_def, ctx);
                                         }
                                     }
                                 }
@@ -142,24 +137,24 @@ impl DocumentState {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind().ends_with("_value") || child.kind() == "value" {
-                        self.validate_value(child, offset, expected_type, schema, diagnostics, config);
+                        self.validate_value(child, offset, expected_type, ctx);
                     }
                 }
             }
             "enum_value" => {
-                if let schema::ExtendedType::Enum(enum_def) = expected_type {
+                if let ExtendedType::Enum(enum_def) = expected_type {
                     let value_name = self.get_node_text(node, offset);
                     if let Some(value_def) = enum_def.values.get(value_name.as_str())
                         && let Some(directive) = value_def.directives.get("deprecated")
                     {
                         let reason = directive
-                            .argument_by_name("reason", schema)
+                            .argument_by_name("reason", ctx.schema)
                             .ok()
                             .and_then(|arg| arg.as_str())
                             .unwrap_or("No reason provided");
 
-                        if !self.is_deprecation_ignored(reason, config) {
-                            diagnostics.push(Diagnostic {
+                        if !self.is_deprecation_ignored(reason, ctx.config) {
+                            ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(node, offset),
                                 severity: Some(DiagnosticSeverity::WARNING),
                                 message: format!(

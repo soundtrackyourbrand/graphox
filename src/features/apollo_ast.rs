@@ -1,11 +1,12 @@
-use apollo_compiler::ast;
+use apollo_compiler::ast::{self, OperationType, Type, Value as GqlValue};
 use apollo_compiler::executable::{self, Selection};
+use apollo_compiler::Node;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use serde_json::{json, Value};
 
 pub fn serialize_operation(
     operation: &executable::Operation,
-    fragments: &HashMap<String, apollo_compiler::Node<executable::Fragment>>,
+    fragments: &HashMap<String, Node<executable::Fragment>>,
 ) -> Value {
     let mut definitions = Vec::new();
 
@@ -33,7 +34,7 @@ pub fn serialize_operation(
 
 fn collect_fragments(
     selection_set: &executable::SelectionSet,
-    all_fragments: &HashMap<String, apollo_compiler::Node<executable::Fragment>>,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
     used: &mut HashSet<String>,
 ) {
     for selection in &selection_set.selections {
@@ -45,10 +46,10 @@ fn collect_fragments(
                 collect_fragments(&inline.selection_set, all_fragments, used);
             }
             Selection::FragmentSpread(spread) => {
-                if used.insert(spread.fragment_name.to_string()) {
-                    if let Some(frag) = all_fragments.get(spread.fragment_name.as_str()) {
-                        collect_fragments(&frag.selection_set, all_fragments, used);
-                    }
+                if used.insert(spread.fragment_name.to_string())
+                    && let Some(frag) = all_fragments.get(spread.fragment_name.as_str())
+                {
+                    collect_fragments(&frag.selection_set, all_fragments, used);
                 }
             }
         }
@@ -59,9 +60,9 @@ fn convert_operation(op: &executable::Operation) -> Value {
     json!({
         "kind": "OperationDefinition",
         "operation": match op.operation_type {
-            ast::OperationType::Query => "query",
-            ast::OperationType::Mutation => "mutation",
-            ast::OperationType::Subscription => "subscription",
+            OperationType::Query => "query",
+            OperationType::Mutation => "mutation",
+            OperationType::Subscription => "subscription",
         },
         "name": op.name.as_ref().map(|n| convert_name(n.as_str())),
         "variableDefinitions": op.variables.iter().map(|v| convert_variable_def(v)).collect::<Vec<_>>(),
@@ -137,24 +138,24 @@ fn convert_variable_def(vd: &ast::VariableDefinition) -> Value {
     })
 }
 
-fn convert_type(ty: &ast::Type) -> Value {
+fn convert_type(ty: &Type) -> Value {
     match ty {
-        ast::Type::Named(n) => json!({
+        Type::Named(n) => json!({
             "kind": "NamedType",
             "name": convert_name(n.as_str()),
         }),
-        ast::Type::List(l) => json!({
+        Type::List(l) => json!({
             "kind": "ListType",
             "type": convert_type(l),
         }),
-        ast::Type::NonNullNamed(n) => json!({
+        Type::NonNullNamed(n) => json!({
             "kind": "NonNullType",
             "type": {
                 "kind": "NamedType",
                 "name": convert_name(n.as_str()),
             }
         }),
-        ast::Type::NonNullList(l) => json!({
+        Type::NonNullList(l) => json!({
             "kind": "NonNullType",
             "type": {
                 "kind": "ListType",
@@ -180,21 +181,21 @@ fn convert_argument(arg: &ast::Argument) -> Value {
     })
 }
 
-fn convert_value(v: &ast::Value) -> Value {
+fn convert_value(v: &GqlValue) -> Value {
     match v {
-        ast::Value::Variable(name) => {
+        GqlValue::Variable(name) => {
             json!({ "kind": "Variable", "name": convert_name(name.as_str()) })
         }
-        ast::Value::Int(i) => json!({ "kind": "IntValue", "value": i.to_string() }),
-        ast::Value::Float(f) => json!({ "kind": "FloatValue", "value": f.to_string() }),
-        ast::Value::String(s) => json!({ "kind": "StringValue", "value": s, "block": false }),
-        ast::Value::Boolean(b) => json!({ "kind": "BooleanValue", "value": b }),
-        ast::Value::Null => json!({ "kind": "NullValue" }),
-        ast::Value::Enum(e) => json!({ "kind": "EnumValue", "value": e.as_str() }),
-        ast::Value::List(l) => {
+        GqlValue::Int(i) => json!({ "kind": "IntValue", "value": i.to_string() }),
+        GqlValue::Float(f) => json!({ "kind": "FloatValue", "value": f.to_string() }),
+        GqlValue::String(s) => json!({ "kind": "StringValue", "value": s, "block": false }),
+        GqlValue::Boolean(b) => json!({ "kind": "BooleanValue", "value": b }),
+        GqlValue::Null => json!({ "kind": "NullValue" }),
+        GqlValue::Enum(e) => json!({ "kind": "EnumValue", "value": e.as_str() }),
+        GqlValue::List(l) => {
             json!({ "kind": "ListValue", "values": l.iter().map(|v| convert_value(v)).collect::<Vec<_>>() })
         }
-        ast::Value::Object(o) => json!({
+        GqlValue::Object(o) => json!({
             "kind": "ObjectValue",
             "fields": o.iter().map(|(n, val)| json!({
                 "kind": "ObjectField",

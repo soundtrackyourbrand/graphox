@@ -1,8 +1,8 @@
-use graphql_rust::Config;
-use graphql_rust::engine::Engine;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
-use std::time::{Duration, Instant};
+use graphql_rust::engine::Engine;
+use graphql_rust::Config;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_path: &str, verbose: bool) {
     if config.is_none() {
@@ -122,7 +122,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
     println!("Total Fragments Found:    {}", fragment_to_path_global.len());
     println!("Total Operations processed: {}", total_operations);
     println!("Total Fragments processed:  {}", total_fragments_processed);
-    println!("");
+    println!();
     println!("Phase Timings:");
     println!("  File Discovery & Metadata: {:>10?}", file_discovery_time);
     println!("  Schema Parsing:            {:>10?}", schema_parse_time);

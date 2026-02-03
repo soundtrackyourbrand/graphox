@@ -1,6 +1,7 @@
 use crate::document::DocumentState;
 use crate::queries::*;
 use crate::utils::mask_interpolations;
+use crate::Config;
 use apollo_compiler::Schema;
 use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, QueryCursor, StreamingIterator};
@@ -10,12 +11,19 @@ mod operations;
 mod selection_set;
 mod values;
 
+pub(super) struct ValidationContext<'a> {
+    pub schema: &'a Schema,
+    pub all_fragments: &'a [String],
+    pub diagnostics: &'a mut Vec<Diagnostic>,
+    pub config: Option<&'a Config>,
+}
+
 impl DocumentState {
     pub fn get_semantic_diagnostics(
         &self,
         schema: &Schema,
         all_fragments: &[String],
-        config: Option<&crate::Config>,
+        config: Option<&Config>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -31,7 +39,11 @@ impl DocumentState {
             let masked = mask_interpolations(&block_text);
 
             if let Ok(valid_schema) = schema.clone().validate() {
-                let doc_res = apollo_compiler::executable::ExecutableDocument::parse(&valid_schema, &masked, "doc.graphql");
+                let doc_res = apollo_compiler::executable::ExecutableDocument::parse(
+                    &valid_schema,
+                    &masked,
+                    "doc.graphql",
+                );
                 if let Err(with_errors) = doc_res {
                     // DiagnosticList usually has a Display implementation that lists all errors
                     diagnostics.push(Diagnostic {
@@ -44,27 +56,19 @@ impl DocumentState {
             }
 
             // 3. Our manual schema validation (handles fragments across files)
-            self.validate_tree(
-                block.tree.root_node(),
-                offset,
+            let mut ctx = ValidationContext {
                 schema,
                 all_fragments,
-                &mut diagnostics,
+                diagnostics: &mut diagnostics,
                 config,
-            );
+            };
+
+            self.validate_tree(block.tree.root_node(), offset, &mut ctx);
         }
         diagnostics
     }
 
-    fn validate_tree(
-        &self,
-        node: Node,
-        offset: usize,
-        schema: &Schema,
-        all_fragments: &[String],
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
-    ) {
+    fn validate_tree(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
         let query = GQL_DIAGNOSTICS_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_DIAGNOSTICS_QUERY).unwrap()
@@ -83,23 +87,23 @@ impl DocumentState {
             for cap in m.captures {
                 let capture_name = query.capture_names()[cap.index as usize];
                 if capture_name == "operation" {
-                    self.validate_operation(cap.node, offset, schema, all_fragments, diagnostics, config);
+                    self.validate_operation(cap.node, offset, ctx);
                 } else if capture_name == "fragment" {
-                    self.validate_fragment(cap.node, offset, schema, all_fragments, diagnostics, config);
+                    self.validate_fragment(cap.node, offset, ctx);
                 }
             }
         }
     }
 
-    pub(super) fn is_deprecation_ignored(&self, reason: &str, config: Option<&crate::Config>) -> bool {
-        if let Some(cfg) = config {
-            if let Some(patterns) = &cfg.ignore_deprecations {
-                for p in patterns {
-                    if let Ok(re) = regex::Regex::new(p) {
-                        if re.is_match(reason) {
-                            return true;
-                        }
-                    }
+    pub(super) fn is_deprecation_ignored(&self, reason: &str, config: Option<&Config>) -> bool {
+        if let Some(cfg) = config
+            && let Some(patterns) = &cfg.ignore_deprecations
+        {
+            for p in patterns {
+                if let Ok(re) = regex::Regex::new(p)
+                    && re.is_match(reason)
+                {
+                    return true;
                 }
             }
         }

@@ -31,7 +31,11 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
     let mut direct_files = Vec::new();
 
     for p in include_patterns {
-        let p_clean = if p.starts_with("./") { &p[2..] } else { p };
+        let p_clean = if let Some(stripped) = p.strip_prefix("./") {
+            stripped
+        } else {
+            p
+        };
         let is_glob = p_clean.contains('*')
             || p_clean.contains('?')
             || p_clean.contains('[')
@@ -59,10 +63,10 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
         if let Ok(g) = Glob::new(p) {
             include_builder.add(g);
         }
-        if p_clean != p {
-            if let Ok(g) = Glob::new(p_clean) {
-                include_builder.add(g);
-            }
+        if p_clean != p
+            && let Ok(g) = Glob::new(p_clean)
+        {
+            include_builder.add(g);
         }
 
         let include_path = Path::new(p_clean);
@@ -83,14 +87,18 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
 
     let mut exclude_builder = GlobSetBuilder::new();
     for p in exclude_patterns {
-        let p_clean = if p.starts_with("./") { &p[2..] } else { p };
+        let p_clean = if let Some(stripped) = p.strip_prefix("./") {
+            stripped
+        } else {
+            p
+        };
         if let Ok(g) = Glob::new(p_clean) {
             exclude_builder.add(g);
         }
-        if p != p_clean {
-            if let Ok(g) = Glob::new(p) {
-                exclude_builder.add(g);
-            }
+        if p != p_clean
+            && let Ok(g) = Glob::new(p)
+        {
+            exclude_builder.add(g);
         }
     }
 
@@ -134,30 +142,27 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
                 if is_relevant_file(path) {
                     let mut matched = include_set.is_match(path);
 
-                    if !matched {
-                        if let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd) {
-                            if include_set.is_match(&rel_to_cwd) {
-                                matched = true;
-                            }
-                        }
+                    if !matched
+                        && let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd)
+                        && include_set.is_match(&rel_to_cwd)
+                    {
+                        matched = true;
                     }
 
-                    if !matched {
-                        if let Some(file_name) = path.file_name() {
-                            if include_set.is_match(file_name) {
-                                matched = true;
-                            }
-                        }
+                    if !matched
+                        && let Some(file_name) = path.file_name()
+                        && include_set.is_match(file_name)
+                    {
+                        matched = true;
                     }
 
                     if matched {
                         let mut excluded = exclude_set.is_match(path);
-                        if !excluded {
-                            if let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd) {
-                                if exclude_set.is_match(&rel_to_cwd) {
-                                    excluded = true;
-                                }
-                            }
+                        if !excluded
+                            && let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd)
+                            && exclude_set.is_match(&rel_to_cwd)
+                        {
+                            excluded = true;
                         }
                         if !excluded {
                             files.push(path.to_owned());

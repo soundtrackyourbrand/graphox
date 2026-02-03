@@ -1,18 +1,11 @@
+use super::ValidationContext;
 use crate::document::DocumentState;
-use apollo_compiler::Schema;
+use apollo_compiler::schema::ExtendedType;
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 impl DocumentState {
-    pub(super) fn validate_fragment(
-        &self,
-        node: Node,
-        offset: usize,
-        schema: &Schema,
-        all_fragments: &[String],
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
-    ) {
+    pub(super) fn validate_fragment(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
         let mut cursor = node.walk();
         let mut type_condition_node = None;
         let mut selection_set_node = None;
@@ -33,18 +26,10 @@ impl DocumentState {
                     for nt_child in tc_child.children(&mut nt_cursor) {
                         if nt_child.kind() == "name" {
                             let type_name = self.get_node_text(nt_child, offset);
-                            if let Some(type_def) = schema.types.get(type_name.as_str())
+                            if let Some(type_def) = ctx.schema.types.get(type_name.as_str())
                                 && let Some(sel_set) = selection_set_node
                             {
-                                self.validate_selection_set(
-                                    sel_set,
-                                    offset,
-                                    type_def,
-                                    schema,
-                                    all_fragments,
-                                    diagnostics,
-                                    config,
-                                );
+                                self.validate_selection_set(sel_set, offset, type_def, ctx);
                             }
                         }
                     }
@@ -57,11 +42,8 @@ impl DocumentState {
         &self,
         node: Node,
         offset: usize,
-        parent_type: &apollo_compiler::schema::ExtendedType,
-        schema: &Schema,
-        all_fragments: &[String],
-        diagnostics: &mut Vec<Diagnostic>,
-        config: Option<&crate::Config>,
+        parent_type: &ExtendedType,
+        ctx: &mut ValidationContext,
     ) {
         let mut cursor = node.walk();
         let mut type_condition_node = None;
@@ -84,7 +66,7 @@ impl DocumentState {
                     for nt_child in tc_child.children(&mut nt_cursor) {
                         if nt_child.kind() == "name" {
                             let type_name = self.get_node_text(nt_child, offset);
-                            found_type = schema.types.get(type_name.as_str());
+                            found_type = ctx.schema.types.get(type_name.as_str());
                             break;
                         }
                     }
@@ -98,15 +80,7 @@ impl DocumentState {
         if let Some(t_type) = target_type
             && let Some(sel_set) = selection_set_node
         {
-            self.validate_selection_set(
-                sel_set,
-                offset,
-                t_type,
-                schema,
-                all_fragments,
-                diagnostics,
-                config,
-            );
+            self.validate_selection_set(sel_set, offset, t_type, ctx);
         }
     }
 
@@ -114,8 +88,7 @@ impl DocumentState {
         &self,
         node: Node,
         offset: usize,
-        all_fragments: &[String],
-        diagnostics: &mut Vec<Diagnostic>,
+        ctx: &mut ValidationContext,
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -124,8 +97,8 @@ impl DocumentState {
                 for name_child in child.children(&mut name_cursor) {
                     if name_child.kind() == "name" {
                         let name = self.get_node_text(name_child, offset);
-                        if !all_fragments.contains(&name) {
-                            diagnostics.push(Diagnostic {
+                        if !ctx.all_fragments.contains(&name) {
+                            ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(name_child, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!("Unknown fragment: {}", name),

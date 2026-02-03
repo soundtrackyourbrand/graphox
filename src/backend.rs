@@ -1,7 +1,9 @@
 use apollo_compiler::Schema;
 use dashmap::DashMap;
+use fnv::FnvHashSet;
 use std::sync::Arc;
 use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
+use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use crate::Config;
@@ -24,10 +26,10 @@ impl Backend {
             // Load project schemas from config
             for project in &cfg.projects {
                 let key = project.schema.as_key();
-                if !schemas.contains_key(&key) {
-                    if let Some(schema) = Self::load_schema_source(&cfg.base_dir, &project.schema) {
-                        schemas.insert(key, schema);
-                    }
+                if !schemas.contains_key(&key)
+                    && let Some(schema) = Self::load_schema_source(&cfg.base_dir, &project.schema)
+                {
+                    schemas.insert(key, schema);
                 }
             }
         }
@@ -49,7 +51,7 @@ impl Backend {
         }
     }
 
-    fn load_schema_source(base_dir: &std::path::Path, source: &crate::config::SchemaSource) -> Option<Arc<Schema>> {
+    fn load_schema_source(base_dir: &std::path::Path, source: &SchemaSource) -> Option<Arc<Schema>> {
         let mut combined_text = String::new();
         for file in source.files() {
             let path = base_dir.join(file);
@@ -61,7 +63,7 @@ impl Backend {
                 Err(_) => return None,
             }
         }
-        Schema::parse(&combined_text, &source.as_key()).ok().map(Arc::new)
+        Schema::parse(&combined_text, source.as_key()).ok().map(Arc::new)
     }
 
     fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
@@ -122,7 +124,7 @@ impl Backend {
         }
 
         if sources_to_reload.is_empty() && self.default_schema_path.as_ref().is_some_and(|p| p == changed_path) {
-            sources_to_reload.push(crate::config::SchemaSource::Single(changed_path.to_string()));
+            sources_to_reload.push(SchemaSource::Single(changed_path.to_string()));
         }
 
         for source in sources_to_reload {
@@ -222,7 +224,7 @@ impl LanguageServer for Backend {
 
         let mut watchers = Vec::new();
         if let Some(cfg) = &self.config {
-            let mut schema_files = fnv::FnvHashSet::default();
+            let mut schema_files = FnvHashSet::default();
             for project in &cfg.projects {
                 for file in project.schema.files() {
                     schema_files.insert(file);

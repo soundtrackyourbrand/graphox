@@ -1,17 +1,18 @@
+use fnv::FnvHashMap;
 use globset::{Glob, GlobSetBuilder};
 use serde::Deserialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
-    pub scalars: Option<fnv::FnvHashMap<String, String>>,
+    pub scalars: Option<FnvHashMap<String, String>>,
     pub ignore_deprecations: Option<Vec<String>>,
     #[serde(skip)]
-    pub base_dir: std::path::PathBuf,
+    pub base_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -128,10 +129,10 @@ impl Config {
                         builder.add(glob);
                     }
                 }
-                if let Ok(set) = builder.build() {
-                    if set.is_match(rel_path) {
-                        matched = true;
-                    }
+                if let Ok(set) = builder.build()
+                    && set.is_match(rel_path)
+                {
+                    matched = true;
                 }
             }
 
@@ -150,19 +151,19 @@ impl Config {
 
             if matched {
                 // Check excludes
-                if let Some(exclude) = &project.exclude {
-                    if let Some(rel_path) = relative_path {
-                        let mut builder = GlobSetBuilder::new();
-                        for pattern in exclude.patterns() {
-                            if let Ok(glob) = Glob::new(&pattern) {
-                                builder.add(glob);
-                            }
+                if let Some(exclude) = &project.exclude
+                    && let Some(rel_path) = relative_path
+                {
+                    let mut builder = GlobSetBuilder::new();
+                    for pattern in exclude.patterns() {
+                        if let Ok(glob) = Glob::new(&pattern) {
+                            builder.add(glob);
                         }
-                        if let Ok(set) = builder.build() {
-                            if set.is_match(rel_path) {
-                                matched = false;
-                            }
-                        }
+                    }
+                    if let Ok(set) = builder.build()
+                        && set.is_match(rel_path)
+                    {
+                        matched = false;
                     }
                 }
             }
