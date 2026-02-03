@@ -1,0 +1,4 @@
+generate_ast_for_fragments: true
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"

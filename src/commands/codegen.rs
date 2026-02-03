@@ -16,6 +16,7 @@ struct CodegenParams<'a> {
     fragment_to_import: &'a HashMap<String, String>,
     all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
     global_metadata: &'a [FragmentMetadata],
+    generate_ast_for_fragments: bool,
 }
 
 pub async fn run_codegen(
@@ -201,6 +202,7 @@ async fn execute_codegen(
                     fragment_to_import: &fragment_to_import,
                     all_fragments: &all_fragments,
                     global_metadata: &global_metadata,
+                    generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                 },
                 clean,
             )
@@ -277,6 +279,7 @@ async fn execute_codegen(
                         fragment_to_import: &HashMap::default(),
                         all_fragments: &all_fragments,
                         global_metadata: &[],
+                        generate_ast_for_fragments: false,
                     },
                     clean,
                 )
@@ -299,19 +302,21 @@ async fn execute_codegen(
                         format!("{}/**/*", scan_path)
                     };
                     if !execute_project_codegen(
-                        CodegenParams {
-                            base_dir: Path::new("."),
-                            source: &SchemaSource::Single(schema_path.to_string()),
-                            include_patterns: &[include_glob],
-                            exclude_patterns: &[],
-                            output_dir,
-                            scalars: &None,
-                            schema_import: &None,
-                            fragment_to_path: &fragment_map,
-                            fragment_to_import: &HashMap::default(),
-                            all_fragments: &HashMap::default(),
-                            global_metadata: &[],
-                        },
+                    CodegenParams {
+                        base_dir: Path::new("."),
+                        source: &SchemaSource::Single(schema_path.to_string()),
+                        include_patterns: &[include_glob],
+                        exclude_patterns: &[],
+                        output_dir,
+                        scalars: &None,
+                        schema_import: &None,
+                        fragment_to_path: &fragment_map,
+                        fragment_to_import: &HashMap::default(),
+                        all_fragments: &HashMap::default(),
+                        global_metadata: &[],
+                        generate_ast_for_fragments: false,
+                    },
+
                         clean,
                     )
                     .await
@@ -377,15 +382,17 @@ async fn execute_project_codegen(params: CodegenParams<'_>, clean: bool) -> bool
         }
 
         for (path, doc) in &docs {
-            let ctx = graphql_rust::features::codegen::CodegenContext {
-                schema: &schema,
-                fragment_to_path: params.fragment_to_path,
-                fragment_to_import: params.fragment_to_import,
-                all_fragments: params.all_fragments,
-                current_file_path: path,
-                scalars: params.scalars,
-                schema_import: params.schema_import,
-            };
+        let ctx = graphql_rust::features::codegen::CodegenContext {
+            schema: &schema,
+            fragment_to_path: params.fragment_to_path,
+            fragment_to_import: params.fragment_to_import,
+            all_fragments: params.all_fragments,
+            current_file_path: path,
+            scalars: params.scalars,
+            schema_import: params.schema_import,
+            generate_ast_for_fragments: params.generate_ast_for_fragments,
+        };
+
 
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
             Ok(ts_code) => {

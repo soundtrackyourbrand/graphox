@@ -2,6 +2,10 @@ use apollo_compiler::ast::{OperationType, Type};
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
+use crate::features::apollo_ast::{
+    get_fragment_fragment_dependencies, get_operation_fragment_dependencies,
+    serialize_fragment_definition, serialize_operation_definition,
+};
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::path::Path;
 
@@ -13,6 +17,7 @@ pub struct CodegenContext<'a> {
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
+    pub generate_ast_for_fragments: bool,
 }
 
 pub fn generate_typescript(
@@ -91,8 +96,13 @@ pub fn generate_typescript(
                 let v_name = format!("{}{}Variables", name, suffix);
                 bodies.push_str(&format!("export interface {} {{\n", v_name));
                 for var in &op.variables {
-                    let ts_type_str =
-                        gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx, &mut used_schema_types);
+                    let ts_type_str = gql_type_to_ts(
+                        &var.ty,
+                        ctx.schema,
+                        ctx.scalars,
+                        ctx,
+                        &mut used_schema_types,
+                    );
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
                     bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
                 }
@@ -102,11 +112,27 @@ pub fn generate_typescript(
                 "{ [key: string]: never; }".to_string()
             };
 
-            let ast_json = crate::features::apollo_ast::serialize_operation(op, ctx.all_fragments);
+            let ast_content = if ctx.generate_ast_for_fragments {
+                let op_def = serialize_operation_definition(op);
+                let deps = get_operation_fragment_dependencies(op, ctx.all_fragments);
+                let mut deps_list: Vec<_> = deps.into_iter().collect();
+                deps_list.sort();
+
+                let mut definitions_parts = vec![op_def.to_string()];
+                for dep in deps_list {
+                    definitions_parts.push(format!("...{}Document.definitions", dep));
+                }
+
+                let definitions = format!("[{}]", definitions_parts.join(", "));
+
+                format!("{{ kind: 'Document', definitions: {} }}", definitions)
+            } else {
+                crate::features::apollo_ast::serialize_operation(op, ctx.all_fragments).to_string()
+            };
 
             bodies.push_str(&format!(
                 "export const {}Document = {} as unknown as DocumentNode<{}{}, {}>;\n\n",
-                name, ast_json, name, suffix, vars_type
+                name, ast_content, name, suffix, vars_type
             ));
         }
 
@@ -127,6 +153,25 @@ pub fn generate_typescript(
                 &mut used_schema_types,
             );
             bodies.push_str(&format!("export interface {} {}\n\n", frag.name, ts_type));
+
+            if ctx.generate_ast_for_fragments {
+                let frag_def = serialize_fragment_definition(frag);
+                let deps = get_fragment_fragment_dependencies(frag, ctx.all_fragments);
+                let mut deps_list: Vec<_> = deps.into_iter().collect();
+                deps_list.sort();
+
+                let mut definitions_parts = vec![frag_def.to_string()];
+                for dep in deps_list {
+                    definitions_parts.push(format!("...{}Document.definitions", dep));
+                }
+
+                let definitions = format!("[{}]", definitions_parts.join(", "));
+
+                bodies.push_str(&format!(
+                    "export const {}Document = {{ kind: 'Document', definitions: {} }} as unknown as DocumentNode<any, any>;\n\n",
+                    frag.name, definitions
+                ));
+            }
         }
     }
 
@@ -206,6 +251,15 @@ pub fn generate_typescript(
             names.join(", "),
             final_import_path
         ));
+
+        if ctx.generate_ast_for_fragments {
+            let doc_names: Vec<_> = names.iter().map(|n| format!("{}Document", n)).collect();
+            import_section.push_str(&format!(
+                "import {{ {} }} from \"{}\";\n",
+                doc_names.join(", "),
+                final_import_path
+            ));
+        }
     }
 
     if has_operations {
@@ -511,6 +565,7 @@ pub fn generate_schema_types(
         current_file_path: Path::new(""),
         scalars,
         schema_import: &None,
+        generate_ast_for_fragments: false,
     };
     let mut used_schema_types = HashSet::default();
 

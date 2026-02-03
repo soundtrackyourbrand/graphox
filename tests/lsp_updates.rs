@@ -36,6 +36,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         schema_types: None,
         scalars: None,
         ignore_deprecations: None,
+        generate_ast_for_fragments: None,
         base_dir: base_dir.to_path_buf(),
     };
     let client_capture = Arc::new(Mutex::new(None));
@@ -188,6 +189,7 @@ async fn test_lsp_fragment_rename_same_project() {
         schema_types: None,
         scalars: None,
         ignore_deprecations: None,
+        generate_ast_for_fragments: None,
         base_dir: base_dir.clone(),
     };
     let (mut service, mut messages) = LspService::new(|client| {
@@ -288,6 +290,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         schema_types: None,
         scalars: None,
         ignore_deprecations: None,
+        generate_ast_for_fragments: None,
         base_dir: base_dir.clone(),
     };
     let (mut service, mut messages) = LspService::new(|client| {

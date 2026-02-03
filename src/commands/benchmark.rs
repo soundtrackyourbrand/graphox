@@ -104,6 +104,7 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                         current_file_path: &path,
                         scalars: &cfg.scalars,
                         schema_import: &schema_import,
+                        generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                     };
                     let g_start = Instant::now();
                     if let Ok(_ts_code) = graphql_rust::features::codegen::generate_typescript(&doc, &ctx) {

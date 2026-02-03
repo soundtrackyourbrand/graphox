@@ -32,6 +32,32 @@ pub fn serialize_operation(
     })
 }
 
+pub fn serialize_operation_definition(operation: &executable::Operation) -> Value {
+    convert_operation(operation)
+}
+
+pub fn serialize_fragment_definition(fragment: &executable::Fragment) -> Value {
+    convert_fragment(fragment)
+}
+
+pub fn get_operation_fragment_dependencies(
+    operation: &executable::Operation,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> HashSet<String> {
+    let mut used = HashSet::default();
+    collect_fragments(&operation.selection_set, all_fragments, &mut used);
+    used
+}
+
+pub fn get_fragment_fragment_dependencies(
+    fragment: &executable::Fragment,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> HashSet<String> {
+    let mut used = HashSet::default();
+    collect_fragments(&fragment.selection_set, all_fragments, &mut used);
+    used
+}
+
 fn collect_fragments(
     selection_set: &executable::SelectionSet,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,

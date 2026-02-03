@@ -11,6 +11,7 @@ pub struct Config {
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
     pub scalars: Option<FnvHashMap<String, String>>,
     pub ignore_deprecations: Option<Vec<String>>,
+    pub generate_ast_for_fragments: Option<bool>,
     #[serde(skip)]
     pub base_dir: PathBuf,
 }

@@ -70,7 +70,7 @@ fn bench_document_processing(c: &mut Criterion) {
     });
 
     group.bench_function("Get Diagnostics", |b| {
-        b.iter(|| doc.get_semantic_diagnostics(&schema, &[], None))
+        b.iter(|| doc.get_semantic_diagnostics(&schema, &[], None, false))
     });
 
     group.finish();

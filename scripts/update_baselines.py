@@ -72,6 +72,7 @@ def main():
         ("tests/fixtures/multi_schema_import", "tests/baselines/multi_schema_import", False),
         ("tests/fixtures/multi_schema_import_superset", "tests/baselines/multi_schema_import_superset", False),
         ("tests/fixtures/public_test", "tests/baselines/public_test", True),
+        ("tests/fixtures/fragment_ast", "tests/baselines/fragment_ast", False),
     ]
 
     for fixture, baseline, use_schema in tasks:

@@ -278,6 +278,82 @@ projects:
 }
 
 #[test]
+fn test_cli_fragment_ast_generation() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_fragment_ast_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // Create fragment file
+    let fragment_file = temp_dir.join("fragment.graphql");
+    std::fs::write(
+        &fragment_file,
+        "fragment UserFields on User @public { id name }",
+    )
+    .unwrap();
+
+    // Create operation file
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(&query_file, "query GetMe { me { ...UserFields } }").unwrap();
+
+    // Create config
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+generate_ast_for_fragments: true
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("codegen")
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify fragment codegen
+    let frag_gen = temp_dir.join("fragment.codegen.ts");
+    assert!(frag_gen.exists());
+    let frag_content = std::fs::read_to_string(&frag_gen).unwrap();
+    assert!(frag_content.contains("export const UserFieldsDocument"));
+    assert!(frag_content.contains("\"kind\":\"FragmentDefinition\""));
+
+    // Verify query codegen
+    let query_gen = temp_dir.join("query.codegen.ts");
+    assert!(query_gen.exists());
+    let query_content = std::fs::read_to_string(&query_gen).unwrap();
+
+    // Check for import of fragment document
+    assert!(query_content.contains("import { UserFieldsDocument } from \"./fragment.codegen\";"));
+
+    // Check that it uses the fragment document definitions
+    assert!(query_content.contains("...UserFieldsDocument.definitions"));
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_test");
@@ -636,6 +712,15 @@ fn test_cli_public_test_baselines() {
         "tests/fixtures/public_test",
         "tests/baselines/public_test",
         Some("tests/fixtures/simple_schema.graphql"),
+    );
+}
+
+#[test]
+fn test_cli_fragment_ast_baselines() {
+    run_baseline_test(
+        "tests/fixtures/fragment_ast",
+        "tests/baselines/fragment_ast",
+        None,
     );
 }
 
