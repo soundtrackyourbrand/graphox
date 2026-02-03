@@ -174,6 +174,10 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: None,
                     file_operations: None,
@@ -405,6 +409,66 @@ impl LanguageServer for Backend {
             }
 
             return Ok(Some(all_references));
+        }
+
+        Ok(None)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+            doc.get_symbol_at_position(position)
+        } else {
+            None
+        };
+
+        if let Some(name) = symbol_name {
+            let mut changes = std::collections::HashMap::new();
+
+            for entry in self.documents.iter() {
+                let other_uri = entry.key();
+                let other_doc = entry.value();
+
+                let refs = other_doc.find_references_in_tree(&name, true);
+                if !refs.is_empty() {
+                    let edits: Vec<TextEdit> = refs
+                        .into_iter()
+                        .map(|loc| TextEdit {
+                            range: loc.range,
+                            new_text: new_name.clone(),
+                        })
+                        .collect();
+                    changes.insert(other_uri.clone(), edits);
+                }
+            }
+
+            return Ok(Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        if let Some(doc) = self.documents.get(&uri) {
+            if let Some(_name) = doc.get_symbol_at_position(position) {
+                // For now, we don't return the exact range, but just confirm it's renameable
+                // You can improve this by returning the range of the symbol
+                return Ok(Some(PrepareRenameResponse::DefaultBehavior {
+                    default_behavior: true,
+                }));
+            }
         }
 
         Ok(None)
