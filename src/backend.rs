@@ -215,6 +215,11 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string()]),
                     ..Default::default()
                 }),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
@@ -314,6 +319,18 @@ impl LanguageServer for Backend {
 
             let items = doc.get_completion_items(position, &schema, fragments);
             return Ok(Some(CompletionResponse::Array(items)));
+        }
+
+        Ok(None)
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        if let Some(doc) = self.documents.get(uri) {
+            let schema = self.get_schema_for_doc(uri);
+            return Ok(doc.get_signature_help(position, &schema));
         }
 
         Ok(None)

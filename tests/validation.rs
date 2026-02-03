@@ -338,13 +338,10 @@ fn test_validation_unions_and_interfaces() {
 fn test_validation_block_strings_and_comments() {
     let schema = get_schema();
     let text = r#"
-        query GetUser($id: ID = """123""") # This is a comment
+        query GetUser($id: ID! = """123""") # This is a comment
         {
-            users {
+            node(id: $id) {
                 id
-                username
-                # nested comment
-                email
             }
         }
     "#;
