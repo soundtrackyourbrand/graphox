@@ -9,19 +9,20 @@ use tree_sitter::{InputEdit, Node, Parser, Point, StreamingIterator, Tree};
 pub enum DocumentLanguage {
     GraphQL,
     TypeScript,
+    TSX,
 }
 
 impl DocumentLanguage {
     pub fn from_uri(uri: &Url) -> Self {
         let path = uri.path();
-        if path.ends_with(".ts")
-            || path.ends_with(".tsx")
+        if path.ends_with(".tsx") || path.ends_with(".jsx") {
+            DocumentLanguage::TSX
+        } else if path.ends_with(".ts")
             || path.ends_with(".cts")
             || path.ends_with(".mts")
             || path.ends_with(".js")
-            || path.ends_with(".jsx")
-            || path.ends_with(".cjs")
             || path.ends_with(".mjs")
+            || path.ends_with(".cjs")
         {
             DocumentLanguage::TypeScript
         } else {
@@ -33,6 +34,7 @@ impl DocumentLanguage {
         match self {
             DocumentLanguage::GraphQL => tree_sitter_graphql::LANGUAGE.into(),
             DocumentLanguage::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            DocumentLanguage::TSX => tree_sitter_typescript::LANGUAGE_TSX.into(),
         }
     }
 }
@@ -91,11 +93,21 @@ impl DocumentState {
             }];
         }
 
-        // TypeScript handling
-        let query = TS_QUERY_CACHE.get_or_init(|| {
-            let ts_lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
-            tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap()
-        });
+        // TypeScript/TSX handling - Fast check first
+        if !self.contains_ignore_case("GQL") && !self.contains_ignore_case("GRAPHQL") {
+            return vec![];
+        }
+
+        let query = match self.language {
+            DocumentLanguage::TSX => TSX_QUERY_CACHE.get_or_init(|| {
+                let lang = tree_sitter_typescript::LANGUAGE_TSX.into();
+                tree_sitter::Query::new(&lang, TS_GQL_QUERY).unwrap()
+            }),
+            _ => TS_QUERY_CACHE.get_or_init(|| {
+                let lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+                tree_sitter::Query::new(&lang, TS_GQL_QUERY).unwrap()
+            }),
+        };
 
         let gql_content_idx = query.capture_index_for_name("gql_content").unwrap();
         let gql_template_idx = query.capture_index_for_name("gql_template").unwrap();
@@ -112,6 +124,11 @@ impl DocumentState {
         let mut gql_blocks = vec![];
         let mut seen_nodes = std::collections::HashSet::new();
 
+        let mut gql_parser = Parser::new();
+        gql_parser
+            .set_language(&tree_sitter_graphql::LANGUAGE.into())
+            .unwrap();
+
         while let Some(m) = ts_matches.next() {
             let mut gql_node = None;
 
@@ -121,8 +138,8 @@ impl DocumentState {
                     break;
                 } else if cap.index == gql_template_idx {
                     let node = cap.node;
-                    // Check for comment
-                    let mut curr = node.prev_sibling();
+                    // Check for comment more robustly
+                    let mut curr = node.prev_named_sibling();
                     while let Some(prev) = curr {
                         if prev.kind() == "comment" {
                             let text = self.get_node_text(prev, 0);
@@ -131,10 +148,13 @@ impl DocumentState {
                                 break;
                             }
                         }
-                        if prev.kind() != "comment" && prev.kind() != " " {
+                        // Skip other named nodes if they might be between comment and template
+                        // but usually in TS they are direct siblings in arguments or declarators.
+                        // We only want to go back a little bit.
+                        if prev.kind() != "comment" {
                             break;
                         }
-                        curr = prev.prev_sibling();
+                        curr = prev.prev_named_sibling();
                     }
                     if gql_node.is_some() {
                         break;
@@ -152,11 +172,6 @@ impl DocumentState {
                 let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
 
                 let masked_gql = mask_interpolations(&raw_gql);
-
-                let mut gql_parser = Parser::new();
-                gql_parser
-                    .set_language(&tree_sitter_graphql::LANGUAGE.into())
-                    .unwrap();
 
                 if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
                     gql_blocks.push(GraphQLBlock {
@@ -212,6 +227,15 @@ impl DocumentState {
         let target_utf16_cu = line_start_utf16_cu + position.character as usize;
         let target_char = self.rope.utf16_cu_to_char(target_utf16_cu);
         self.rope.char_to_byte(target_char)
+    }
+
+    fn contains_ignore_case(&self, needle: &str) -> bool {
+        let needle_upper = needle.to_uppercase();
+        let mut full_text = String::new();
+        for chunk in self.rope.chunks() {
+            full_text.push_str(chunk);
+        }
+        full_text.to_uppercase().contains(&needle_upper)
     }
 
     pub fn get_node_text(&self, node: Node, offset: usize) -> String {

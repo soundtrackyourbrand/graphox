@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 use tree_sitter::Query;
 
 pub static TS_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+pub static TSX_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_SYMBOL_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_SEMANTIC_TOKEN_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_DEFINITION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
@@ -30,13 +31,14 @@ pub const SEMANTIC_TOKEN_QUERY: &str = r#"
     (string_value) @string
 "#;
 
-// A query to find: gql` ... ` or /* GraphQL */ ` ... `
+// Optimized query to find: gql` ... ` or potential /* GraphQL */ ` ... `
+// We combine them to let Tree-sitter's engine optimize the search.
 pub const TS_GQL_QUERY: &str = r#"
     (call_expression
         function: (identifier) @tag_name
         arguments: (template_string) @gql_content
-        (#eq? @tag_name "gql")
-    ) @gql_tagged_call
+        (#any-of? @tag_name "gql" "graphql")
+    )
 
     (template_string) @gql_template
 "#;

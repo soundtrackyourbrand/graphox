@@ -45,6 +45,9 @@ enum Commands {
         /// Directory to scan
         #[arg(default_value = ".")]
         path: String,
+        /// Show detailed fragment discovery information
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
@@ -67,8 +70,8 @@ async fn main() {
         }) => {
             run_codegen(config, &cli.schema, &path, output.as_deref(), watch).await;
         }
-        Some(Commands::Benchmark { path }) => {
-            run_benchmark(config, &cli.schema, &path).await;
+        Some(Commands::Benchmark { path, verbose }) => {
+            run_benchmark(config, &cli.schema, &path, verbose).await;
         }
     }
 }

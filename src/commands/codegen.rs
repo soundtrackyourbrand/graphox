@@ -77,30 +77,53 @@ async fn execute_codegen(
     output_dir: Option<&str>,
 ) {
     if let Some(cfg) = &config {
+        use rayon::prelude::*;
+
         let mut fragment_to_path = HashMap::new();
         let mut fragment_to_import = HashMap::new();
 
-        // First pass: find all fragments across all projects to support cross-project imports
+        // Collect all scan roots
+        let mut all_scan_roots = Vec::new();
         for project in &cfg.projects {
             let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
-            let paths = graphql_rust::utils::get_project_files(&abs_include);
-            for path in paths {
-                if is_relevant_file(&path) {
-                    let content = std::fs::read_to_string(&path).unwrap_or_default();
-                    let abs_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-                    let uri = Url::from_file_path(&abs_path).unwrap();
-                    let language = DocumentLanguage::from_uri(&uri);
-                    let mut parser = tree_sitter::Parser::new();
-                    parser
-                        .set_language(&language.get_parser_language())
-                        .unwrap();
-                    let doc = DocumentState::new(uri, &content, parser);
-                    for frag in doc.fragments() {
-                        fragment_to_path.insert(frag.name.clone(), abs_path.to_string_lossy().to_string());
-                        if let Some(import_alias) = &project.import {
-                            fragment_to_import.insert(frag.name.clone(), import_alias.clone());
+            all_scan_roots.push((abs_include, project.import.clone()));
+        }
+
+        // First pass: find all fragments across all projects in parallel
+        let scan_results: Vec<_> = all_scan_roots
+            .par_iter()
+            .map(|(abs_include, import_alias)| {
+                let paths = graphql_rust::utils::get_project_files(abs_include);
+                let mut results = Vec::new();
+                for path in paths {
+                    if is_relevant_file(&path) {
+                        let content = std::fs::read_to_string(&path).unwrap_or_default();
+                        let abs_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                        let uri = Url::from_file_path(&abs_path).unwrap();
+                        let language = DocumentLanguage::from_uri(&uri);
+                        let mut parser = tree_sitter::Parser::new();
+                        parser
+                            .set_language(&language.get_parser_language())
+                            .unwrap();
+                        let doc = DocumentState::new(uri, &content, parser);
+                        for frag in doc.fragments() {
+                            results.push((
+                                frag.name.clone(),
+                                abs_path.to_string_lossy().to_string(),
+                                import_alias.clone(),
+                            ));
                         }
                     }
+                }
+                results
+            })
+            .collect();
+
+        for results in scan_results {
+            for (name, path, alias) in results {
+                fragment_to_path.insert(name.clone(), path);
+                if let Some(a) = alias {
+                    fragment_to_import.insert(name, a);
                 }
             }
         }
@@ -139,12 +162,16 @@ async fn execute_codegen(
             }
         }
     } else {
+        use rayon::prelude::*;
         let mut fragment_to_path = HashMap::new();
         let paths = graphql_rust::utils::get_project_files(scan_path);
-        for path in paths {
-            if is_relevant_file(&path) {
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
-                let abs_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        
+        let results: Vec<_> = paths
+            .par_iter()
+            .filter(|p| is_relevant_file(p))
+            .map(|path| {
+                let content = std::fs::read_to_string(path).unwrap_or_default();
+                let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
                 let uri = Url::from_file_path(&abs_path).unwrap();
                 let language = DocumentLanguage::from_uri(&uri);
                 let mut parser = tree_sitter::Parser::new();
@@ -152,9 +179,13 @@ async fn execute_codegen(
                     .set_language(&language.get_parser_language())
                     .unwrap();
                 let doc = DocumentState::new(uri, &content, parser);
-                for frag in doc.fragments() {
-                    fragment_to_path.insert(frag.name.clone(), abs_path.to_string_lossy().to_string());
-                }
+                doc.fragments().iter().map(|f| (f.name.clone(), abs_path.to_string_lossy().to_string())).collect::<Vec<_>>()
+            })
+            .collect();
+
+        for frags in results {
+            for (name, path) in frags {
+                fragment_to_path.insert(name, path);
             }
         }
 
