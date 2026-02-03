@@ -1,5 +1,5 @@
 use apollo_compiler::Schema;
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use graphql_rust::DocumentState;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 
@@ -70,7 +70,7 @@ fn bench_document_processing(c: &mut Criterion) {
     });
 
     group.bench_function("Get Diagnostics", |b| {
-        b.iter(|| doc.get_semantic_diagnostics(&schema, &[], None, false))
+        b.iter(|| doc.get_semantic_diagnostics(&schema, &[], None, None, false))
     });
 
     group.finish();

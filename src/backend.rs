@@ -86,6 +86,17 @@ impl Backend {
         fragments
     }
 
+    fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
+        let mut used = fnv::FnvHashSet::default();
+        for entry in self.documents.iter() {
+            let doc = entry.value();
+            for spread in &doc.fragment_spreads {
+                used.insert(spread.clone());
+            }
+        }
+        used
+    }
+
     async fn reload_schema(&self, changed_path: &str) {
         let mut sources_to_reload = Vec::new();
         for project in &self.config.projects {
@@ -131,6 +142,7 @@ impl Backend {
                     .await;
 
                 let mut to_publish = Vec::new();
+                let used_fragments = self.get_used_fragments();
                 for entry in self.documents.iter() {
                     let uri = entry.key();
                     let doc = entry.value();
@@ -145,6 +157,7 @@ impl Backend {
                             let diagnostics = doc.get_semantic_diagnostics(
                                 &doc_schema,
                                 &fragments,
+                                Some(&used_fragments),
                                 Some(&self.config),
                                 false,
                             );
@@ -202,6 +215,7 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string()]),
                     ..Default::default()
                 }),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -320,11 +334,12 @@ impl LanguageServer for Backend {
         }
 
         let mut to_publish = Vec::new();
+        let used_fragments = self.get_used_fragments();
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
             let diagnostics =
-                doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
+                doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -339,7 +354,7 @@ impl LanguageServer for Backend {
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
+                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 
@@ -490,11 +505,12 @@ impl LanguageServer for Backend {
         self.documents.insert(uri.clone(), doc);
 
         let mut to_publish = Vec::new();
+        let used_fragments = self.get_used_fragments();
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
             let diagnostics =
-                doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
+                doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -509,7 +525,7 @@ impl LanguageServer for Backend {
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
+                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 
@@ -543,6 +559,74 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+        let mut actions = Vec::new();
+
+        // 1. Diagnostics-based fixes
+        for diagnostic in params.context.diagnostics {
+            if let Some(NumberOrString::String(ref code)) = diagnostic.code {
+                if code == "unused_fragment" {
+                    let mut changes = std::collections::HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range: diagnostic.range,
+                            new_text: String::new(),
+                        }],
+                    );
+
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Remove unused fragment".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        diagnostics: Some(vec![diagnostic.clone()]),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    }));
+                } else if code == "unused_variable" {
+                    let mut changes = std::collections::HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range: diagnostic.range,
+                            new_text: String::new(),
+                        }],
+                    );
+
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Remove unused variable".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        diagnostics: Some(vec![diagnostic.clone()]),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+
+        // 2. Selection-based refactors
+        if let Some(doc) = self.documents.get(uri) {
+            let extraction_actions = doc.get_extraction_actions(params.range);
+            for action in extraction_actions {
+                actions.push(CodeActionOrCommand::CodeAction(action));
+            }
+        }
+
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {

@@ -74,6 +74,15 @@ impl DocumentState {
                     self.validate_value(child, offset, expected_type, ctx);
                 }
             }
+            "variable" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "name" {
+                        let name = self.get_node_text(child, offset);
+                        ctx.used_variables.insert(name);
+                    }
+                }
+            }
             "object_value" => {
                 if let ExtendedType::InputObject(input_obj) = expected_type {
                     let mut cursor = node.walk();

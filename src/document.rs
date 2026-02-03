@@ -80,6 +80,7 @@ pub struct DocumentState {
     pub language: DocumentLanguage,
     pub graphql_trees: Vec<GraphQLBlock>,
     pub fragments: Vec<FragmentDef>,
+    pub fragment_spreads: Vec<String>,
     pub operations: Vec<OperationDef>,
     pub package_root: Option<PathBuf>,
     pub masked_source: String,
@@ -118,12 +119,14 @@ impl DocumentState {
             language,
             graphql_trees: Vec::new(),
             fragments: Vec::new(),
+            fragment_spreads: Vec::new(),
             operations: Vec::new(),
             package_root,
             masked_source,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();
         doc.fragments = doc.extract_fragment_names();
+        doc.fragment_spreads = doc.extract_fragment_spreads();
         doc.operations = doc.extract_operations();
         doc
     }
@@ -369,6 +372,47 @@ impl DocumentState {
         fragments
     }
 
+    pub fn extract_fragment_spreads(&self) -> Vec<String> {
+        let query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
+        });
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut spreads = Vec::new();
+
+        let reference_idx = query.capture_index_for_name("reference").unwrap();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                let mut is_reference = false;
+                let mut name_node = None;
+
+                for cap in m.captures {
+                    if cap.index == reference_idx {
+                        is_reference = true;
+                    } else if query.capture_names()[cap.index as usize] == "name" {
+                        name_node = Some(cap.node);
+                    }
+                }
+
+                if is_reference && let Some(name_node) = name_node {
+                    spreads.push(self.get_node_text(name_node, offset));
+                }
+            }
+        }
+        spreads
+    }
+
     pub fn extract_operations(&self) -> Vec<OperationDef> {
         let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
@@ -552,6 +596,7 @@ impl DocumentState {
 
         self.graphql_trees = self.reparse_graphql_trees();
         self.fragments = self.extract_fragment_names();
+        self.fragment_spreads = self.extract_fragment_spreads();
 
         self.masked_source = if self.language.is_host_language() {
             mask_interpolations(&self.rope.to_string())

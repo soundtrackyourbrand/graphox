@@ -1,6 +1,7 @@
 use super::ValidationContext;
 use crate::document::DocumentState;
 use apollo_compiler::ast::OperationType;
+use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 impl DocumentState {
@@ -10,17 +11,20 @@ impl DocumentState {
         offset: usize,
         ctx: &mut ValidationContext,
     ) {
+        ctx.used_variables.clear();
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
+        let mut var_defs_node = None;
 
         for child in node.children(&mut cursor) {
             if child.kind() == "operation_type" {
                 operation_type_string = self.get_node_text(child, offset);
             } else if child.kind() == "variable_definitions" {
-                self.validate_variable_definitions(child, offset, ctx);
+                var_defs_node = Some(child);
             }
         }
 
+        // 1. First pass: Collect used variables in selection set
         let op_type = match operation_type_string.as_str() {
             "query" => Some(OperationType::Query),
             "mutation" => Some(OperationType::Mutation),
@@ -38,6 +42,11 @@ impl DocumentState {
                 }
             }
         }
+
+        // 2. Second pass: Validate definitions and check usage
+        if let Some(var_defs) = var_defs_node {
+            self.validate_variable_definitions(var_defs, offset, ctx);
+        }
     }
 
     pub(super) fn validate_variable_definitions(
@@ -50,9 +59,30 @@ impl DocumentState {
         for child in node.children(&mut cursor) {
             if child.kind() == "variable_definition" {
                 let mut vd_cursor = child.walk();
+                let mut var_name = None;
                 for vd_child in child.children(&mut vd_cursor) {
-                    if vd_child.kind() == "type" {
+                    if vd_child.kind() == "variable" {
+                        let mut v_cursor = vd_child.walk();
+                        for v_child in vd_child.children(&mut v_cursor) {
+                            if v_child.kind() == "name" {
+                                var_name = Some(self.get_node_text(v_child, offset));
+                            }
+                        }
+                    } else if vd_child.kind() == "type" {
                         self.validate_type_node(vd_child, offset, ctx);
+                    }
+                }
+
+                if let Some(name) = var_name {
+                    if !ctx.used_variables.contains(&name) {
+                        ctx.diagnostics.push(Diagnostic {
+                            range: self.translate_to_file_range(child, offset),
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            message: format!("Unused variable: ${}", name),
+                            code: Some(NumberOrString::String("unused_variable".to_string())),
+                            tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                            ..Default::default()
+                        });
                     }
                 }
             }

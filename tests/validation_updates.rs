@@ -25,7 +25,7 @@ fn test_diagnostics_update_on_schema_change() {
     let doc = DocumentState::new(uri.clone(), query_text, create_parser());
 
     // Initially valid
-    let diagnostics = doc.get_semantic_diagnostics(&schema_v1, &[], None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema_v1, &[], None, None, false);
     assert!(
         diagnostics.is_empty(),
         "Initially should be valid, got {:?}",
@@ -37,7 +37,7 @@ fn test_diagnostics_update_on_schema_change() {
     let schema_v2 = Schema::parse(schema_v2_content, "schema.graphql").unwrap();
 
     // Now should have diagnostics
-    let diagnostics = doc.get_semantic_diagnostics(&schema_v2, &[], None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema_v2, &[], None, None, false);
     assert!(
         !diagnostics.is_empty(),
         "Should have diagnostics after schema change"
@@ -47,7 +47,7 @@ fn test_diagnostics_update_on_schema_change() {
     // Query fixed: use 'fullName'
     let query_text_v2 = "query { me { id fullName } }";
     let doc_v2 = DocumentState::new(uri, query_text_v2, create_parser());
-    let diagnostics = doc_v2.get_semantic_diagnostics(&schema_v2, &[], None, false);
+    let diagnostics = doc_v2.get_semantic_diagnostics(&schema_v2, &[], None, None, false);
     assert!(diagnostics.is_empty(), "Should be valid after fixing query");
 }
 
@@ -61,7 +61,7 @@ fn test_diagnostics_update_on_fragment_change() {
     let query_doc = DocumentState::new(query_uri, query_text, create_parser());
 
     // 1. Missing fragment
-    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &[], None, false);
+    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &[], None, None, false);
     assert!(!diagnostics.is_empty());
     assert!(
         diagnostics[0]
@@ -71,7 +71,7 @@ fn test_diagnostics_update_on_fragment_change() {
 
     // 2. Fragment provided (simulating it being found in another file)
     let fragments = vec!["UserFrag".to_string()];
-    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &fragments, None, false);
+    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false);
     assert!(
         diagnostics.is_empty(),
         "Should be valid when fragment is provided, got {:?}",
@@ -80,7 +80,7 @@ fn test_diagnostics_update_on_fragment_change() {
 
     // 3. Fragment renamed (simulating rename in another file)
     let fragments = vec!["UserFragRenamed".to_string()];
-    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &fragments, None, false);
+    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false);
     assert!(!diagnostics.is_empty());
     assert!(
         diagnostics[0]

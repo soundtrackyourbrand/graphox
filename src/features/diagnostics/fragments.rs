@@ -9,12 +9,35 @@ impl DocumentState {
         let mut cursor = node.walk();
         let mut type_condition_node = None;
         let mut selection_set_node = None;
+        let mut name_node = None;
 
         for child in node.children(&mut cursor) {
-            if child.kind() == "type_condition" {
+            if child.kind() == "fragment_name" {
+                let mut name_cursor = child.walk();
+                for name_child in child.children(&mut name_cursor) {
+                    if name_child.kind() == "name" {
+                        name_node = Some(name_child);
+                    }
+                }
+            } else if child.kind() == "type_condition" {
                 type_condition_node = Some(child);
             } else if child.kind() == "selection_set" {
                 selection_set_node = Some(child);
+            }
+        }
+
+        if let Some(name_node) = name_node {
+            let name = self.get_node_text(name_node, offset);
+            let is_used = ctx.used_fragments.map(|u| u.contains(&name)).unwrap_or(true);
+            if !is_used {
+                ctx.diagnostics.push(Diagnostic {
+                    range: self.translate_to_file_range(node, offset),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!("Unused fragment: {}", name),
+                    code: Some(NumberOrString::String("unused_fragment".to_string())),
+                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                    ..Default::default()
+                });
             }
         }
 

@@ -1,0 +1,68 @@
+use crate::document::DocumentState;
+use tower_lsp::lsp_types::*;
+
+impl DocumentState {
+    pub fn get_extraction_actions(&self, range: Range) -> Vec<CodeAction> {
+        let mut actions = Vec::new();
+        let start_byte = self.position_to_byte(range.start);
+        let end_byte = self.position_to_byte(range.end);
+
+        if start_byte == end_byte {
+            return actions;
+        }
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            if start_byte >= offset && end_byte <= offset + block.tree.root_node().end_byte() {
+                let local_start = start_byte - offset;
+                let local_end = end_byte - offset;
+
+                let root = block.tree.root_node();
+                if let Some(node) = root.descendant_for_byte_range(local_start, local_end) {
+                    // Check if node is a selection set or something we can extract
+                    if node.kind() == "selection_set" || node.kind() == "field" {
+                        let text = self.get_node_text(node, offset);
+
+                        let mut changes = std::collections::HashMap::new();
+                        let new_fragment_name = "NewFragment";
+
+                        let fragment_def = format!(
+                            "\n\nfragment {} on TYPE_HERE {{\n  {}\n}}\n",
+                            new_fragment_name, text
+                        );
+
+                        // 1. Replace selection with fragment spread
+                        let replace_edit = TextEdit {
+                            range: self.translate_to_file_range(node, offset),
+                            new_text: format!("...{}", new_fragment_name),
+                        };
+
+                        // 2. Add fragment definition at the end of the file
+                        let last_line = self.rope.len_lines();
+                        let append_edit = TextEdit {
+                            range: Range::new(
+                                Position::new(last_line as u32, 0),
+                                Position::new(last_line as u32, 0),
+                            ),
+                            new_text: fragment_def,
+                        };
+
+                        changes.insert(self.uri.clone(), vec![replace_edit, append_edit]);
+
+                        actions.push(CodeAction {
+                            title: "Extract to fragment".to_string(),
+                            kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
+        actions
+    }
+}

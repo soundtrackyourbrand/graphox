@@ -14,6 +14,8 @@ mod values;
 pub(super) struct ValidationContext<'a> {
     pub schema: &'a Schema,
     pub all_fragments: &'a [String],
+    pub used_fragments: Option<&'a fnv::FnvHashSet<String>>,
+    pub used_variables: fnv::FnvHashSet<String>,
     pub diagnostics: &'a mut Vec<Diagnostic>,
     pub config: Option<&'a Config>,
     pub include_ignored: bool,
@@ -24,6 +26,7 @@ impl DocumentState {
         &self,
         schema: &Schema,
         all_fragments: &[String],
+        used_fragments: Option<&fnv::FnvHashSet<String>>,
         config: Option<&Config>,
         verbose: bool,
     ) -> Vec<Diagnostic> {
@@ -70,6 +73,8 @@ impl DocumentState {
             let mut ctx = ValidationContext {
                 schema,
                 all_fragments,
+                used_fragments,
+                used_variables: fnv::FnvHashSet::default(),
                 diagnostics: &mut diagnostics,
                 config,
                 include_ignored: verbose,

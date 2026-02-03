@@ -97,8 +97,12 @@ async fn execute_project_check(
 
     let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<String>> = HashMap::default();
     let mut all_public_fragments: Vec<String> = Vec::new();
+    let mut used_fragments = fnv::FnvHashSet::default();
 
     for (_, doc) in &docs {
+        for spread in &doc.fragment_spreads {
+            used_fragments.insert(spread.clone());
+        }
         for frag in doc.fragments() {
             if frag.is_public {
                 all_public_fragments.push(frag.name.clone());
@@ -123,8 +127,13 @@ async fn execute_project_check(
             }
         }
 
-        let diagnostics =
-            doc.get_semantic_diagnostics(&schema, &package_fragments, Some(config), verbose);
+        let diagnostics = doc.get_semantic_diagnostics(
+            &schema,
+            &package_fragments,
+            Some(&used_fragments),
+            Some(config),
+            verbose,
+        );
         if !diagnostics.is_empty() {
             let mut file_header_printed = false;
             let display_path = if let Some(root) = &doc.package_root {
