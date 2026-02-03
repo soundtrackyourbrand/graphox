@@ -150,7 +150,7 @@ impl Config {
         }
     }
 
-    pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
+    pub fn get_project_for_path(&self, path: &Path) -> Option<&ProjectConfig> {
         let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let relative_path = abs_path.strip_prefix(&self.base_dir).ok();
 
@@ -171,7 +171,6 @@ impl Config {
             }
 
             if !matched {
-                // Fallback for non-glob paths
                 for pattern in project.include.patterns() {
                     let include_path = self.base_dir.join(&pattern);
                     if let Ok(include_path) = fs::canonicalize(include_path)
@@ -184,7 +183,6 @@ impl Config {
             }
 
             if matched {
-                // Check excludes
                 if let Some(exclude) = &project.exclude
                     && let Some(rel_path) = relative_path
                 {
@@ -203,10 +201,15 @@ impl Config {
             }
 
             if matched {
-                return Some(project.schema.as_key());
+                return Some(project);
             }
         }
         None
+    }
+
+    pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
+        self.get_project_for_path(path)
+            .map(|p| p.schema.as_key())
     }
 }
 

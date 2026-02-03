@@ -51,8 +51,10 @@ pub const GQL_DEFINITION_QUERY: &str = r#"
 "#;
 
 pub const GQL_DESCRIPTION_QUERY: &str = r#"
-    (object_type_definition (description (string_value))? @desc (name) @name)
-    (enum_type_definition (description (string_value))? @desc (name) @name)
+    (object_type_definition) @container
+    (enum_type_definition) @container
+    (fragment_definition) @container
+    (comment) @comment
 "#;
 
 pub const GQL_DIAGNOSTICS_QUERY: &str = r#"

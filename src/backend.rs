@@ -1,6 +1,7 @@
 use crate::Config;
 use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
+use crate::features::completion::FragmentCompletionInfo;
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
@@ -72,14 +73,29 @@ impl Backend {
         self.empty_schema.clone()
     }
 
-    fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<String> {
+    fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
         let mut fragments = Vec::new();
         for entry in self.documents.iter() {
             let other_doc = entry.value();
             let is_same_package = other_doc.package_root == doc.package_root;
+            
+            let other_path = if let Ok(p) = other_doc.uri.to_file_path() {
+                Some(p)
+            } else {
+                None
+            };
+            
+            let import_path = other_path.as_ref().and_then(|p| {
+                self.config.get_project_for_path(p).and_then(|proj| proj.import.clone())
+            });
+
             for frag in other_doc.fragments() {
                 if is_same_package || frag.is_public {
-                    fragments.push(frag.name.clone());
+                    fragments.push(FragmentCompletionInfo {
+                        name: frag.name.clone(),
+                        description: other_doc.find_description(&frag.name),
+                        import_path: if is_same_package { None } else { import_path.clone() },
+                    });
                 }
             }
         }
@@ -154,9 +170,10 @@ impl Backend {
                             .is_some_and(|p| p.as_str() == key.as_str())
                         {
                             let fragments = self.get_fragments_for_doc(doc);
+                            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
                             let diagnostics = doc.get_semantic_diagnostics(
                                 &doc_schema,
-                                &fragments,
+                                &fragment_names,
                                 Some(&used_fragments),
                                 Some(&self.config),
                                 false,
@@ -295,10 +312,28 @@ impl LanguageServer for Backend {
                     if (is_same_package || is_public_fragment)
                         && let Some(info) = other_doc.find_fragment_info(&symbol_name)
                     {
+                        let mut value = format!("```graphql\n{}\n```", info);
+                        
+                        if let Some(desc) = other_doc.find_description(&symbol_name) {
+                            value.push_str("\n\n---\n");
+                            value.push_str(&desc);
+                        }
+
+                        if !is_same_package {
+                             if let Ok(other_p) = other_doc.uri.to_file_path() {
+                                 if let Some(proj) = self.config.get_project_for_path(&other_p) {
+                                     if let Some(import) = &proj.import {
+                                         value.push_str("\n\n---\n");
+                                         value.push_str(&format!("Import: `{}`", import));
+                                     }
+                                 }
+                             }
+                        }
+
                         return Ok(Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,
-                                value: format!("```graphql\n{}\n```", info),
+                                value,
                             }),
                             range: None,
                         }));
@@ -455,8 +490,9 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
+            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics =
-                doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
+                doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -470,8 +506,9 @@ impl LanguageServer for Backend {
             let other_doc = entry.value();
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
+            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
+                other_doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 
@@ -626,8 +663,9 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
+            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics =
-                doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
+                doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -641,8 +679,9 @@ impl LanguageServer for Backend {
             let other_doc = entry.value();
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
+            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false);
+                other_doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 

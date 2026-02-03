@@ -347,7 +347,7 @@ impl DocumentState {
         Some(output)
     }
 
-    fn find_description(&self, target_name: &str) -> Option<String> {
+    pub fn find_description(&self, target_name: &str) -> Option<String> {
         let query = GQL_DESCRIPTION_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_DESCRIPTION_QUERY).unwrap()
@@ -367,42 +367,62 @@ impl DocumentState {
                 });
 
             while let Some(m) = matches.next() {
-                let mut desc_node = None;
-                let mut name_node = None;
+                let node = m.captures[0].node;
+                if node.kind() == "comment" {
+                    continue;
+                }
 
-                for capture in m.captures {
-                    let capture_name = query.capture_names()[capture.index as usize];
-                    if capture_name == "desc" {
-                        desc_node = Some(capture.node);
-                    } else if capture_name == "name" {
-                        name_node = Some(capture.node);
+                let container = node;
+                let mut name = None;
+                let mut description = None;
+
+
+                let mut cursor = container.walk();
+                for child in container.children(&mut cursor) {
+                    match child.kind() {
+                        "name" => {
+                            name = Some(self.get_node_text(child, offset));
+                        }
+                        "fragment_name" => {
+                            if let Some(n) = child.child_by_field_name("name") {
+                                name = Some(self.get_node_text(n, offset));
+                            } else if let Some(n) = child.child(0) {
+                                // Fallback for some grammar versions
+                                name = Some(self.get_node_text(n, offset));
+                            }
+                        }
+                        "description" => {
+                            if let Some(sv) = child.child_by_field_name("content") {
+                                description = Some(self.get_node_text(sv, offset));
+                            } else if let Some(sv) = child.child(0) {
+                                description = Some(self.get_node_text(sv, offset));
+                            }
+                        }
+                        "string_value" => {
+                            description = Some(self.get_node_text(child, offset));
+                        }
+                        _ => {}
                     }
                 }
 
-                if let Some(n_node) = name_node {
-                    let name = self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(n_node.start_byte() + offset)
-                                ..self.rope.byte_to_char(n_node.end_byte() + offset),
-                        )
-                        .to_string();
-
-                    if name == target_name {
-                        if let Some(d_node) = desc_node {
-                            return Some(
-                                self.rope
-                                    .slice(
-                                        self.rope.byte_to_char(d_node.start_byte() + offset)
-                                            ..self.rope.byte_to_char(d_node.end_byte() + offset),
-                                    )
-                                    .to_string()
-                                    .trim_matches('"')
-                                    .to_string(),
-                            );
-                        } else {
-                            return None;
+                if description.is_none() {
+                    // Try to find preceding comment by looking at the line above
+                    let range = self.translate_to_file_range(container, offset);
+                    if range.start.line > 0 {
+                        let prev_line_num = range.start.line - 1;
+                        let line_start = self.rope.line_to_char(prev_line_num as usize);
+                        let line_end = self.rope.line_to_char(range.start.line as usize);
+                        let line_text = self.rope.slice(line_start..line_end).to_string();
+                        let trimmed = line_text.trim();
+                        if trimmed.starts_with('#') {
+                            description = Some(trimmed.trim_start_matches('#').trim().to_string());
                         }
+                    }
+                }
+
+                if let Some(n) = name {
+                    if n == target_name {
+                        return description.map(|d| d.trim_matches('"').to_string());
                     }
                 }
             }

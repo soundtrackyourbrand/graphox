@@ -3,12 +3,18 @@ use apollo_compiler::{Schema, schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
+pub struct FragmentCompletionInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub import_path: Option<String>,
+}
+
 impl DocumentState {
     pub fn get_completion_items(
         &self,
         position: Position,
         schema: &Schema,
-        fragments: Vec<String>,
+        fragments: Vec<FragmentCompletionInfo>,
     ) -> Vec<CompletionItem> {
         let byte_offset = self.position_to_byte(position);
 
@@ -34,7 +40,7 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
-        fragments: &[String],
+        fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         let local_byte = cursor_offset.saturating_sub(offset);
 
@@ -94,7 +100,7 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
-        fragments: &[String],
+        fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         match node.kind() {
             "operation_definition" => {
@@ -172,7 +178,7 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
-        fragments: &[String],
+        fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
@@ -212,7 +218,7 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
-        fragments: &[String],
+        fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -249,7 +255,7 @@ impl DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
-        fragments: &[String],
+        fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         let target_node = if node.kind() == "selection_set" {
             node
@@ -320,7 +326,7 @@ impl DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
-        fragments: &[String],
+        fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         let mut field_name_node = None;
         let mut cursor_inner = field_node.walk();
@@ -384,13 +390,34 @@ impl DocumentState {
         None
     }
 
-    fn get_fragment_name_completions(&self, fragments: &[String]) -> Vec<CompletionItem> {
+    fn get_fragment_name_completions(
+        &self,
+        fragments: &[FragmentCompletionInfo],
+    ) -> Vec<CompletionItem> {
         fragments
             .iter()
-            .map(|name| CompletionItem {
-                label: name.clone(),
-                kind: Some(CompletionItemKind::SNIPPET),
-                ..Default::default()
+            .map(|f| {
+                let mut documentation = f.description.clone().unwrap_or_default();
+                if let Some(import) = &f.import_path {
+                    if !documentation.is_empty() {
+                        documentation.push_str("\n\n---\n");
+                    }
+                    documentation.push_str(&format!("Import: `{}`", import));
+                }
+
+                CompletionItem {
+                    label: f.name.clone(),
+                    kind: Some(CompletionItemKind::SNIPPET),
+                    documentation: if documentation.is_empty() {
+                        None
+                    } else {
+                        Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: documentation,
+                        }))
+                    },
+                    ..Default::default()
+                }
             })
             .collect()
     }
@@ -404,6 +431,12 @@ impl DocumentState {
                         label: name.to_string(),
                         kind: Some(CompletionItemKind::FIELD),
                         detail: Some(def.ty.to_string()),
+                        documentation: def.description.as_ref().map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
                         ..Default::default()
                     });
                 }
@@ -414,6 +447,12 @@ impl DocumentState {
                         label: name.to_string(),
                         kind: Some(CompletionItemKind::FIELD),
                         detail: Some(def.ty.to_string()),
+                        documentation: def.description.as_ref().map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
                         ..Default::default()
                     });
                 }
@@ -446,6 +485,12 @@ impl DocumentState {
             items.push(CompletionItem {
                 label: name.to_string(),
                 kind,
+                documentation: def.description().map(|d| {
+                    Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: d.to_string(),
+                    })
+                }),
                 ..Default::default()
             });
         }
