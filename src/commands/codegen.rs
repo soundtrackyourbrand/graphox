@@ -83,12 +83,20 @@ async fn execute_codegen(
 
             println!("Processing project with schema: {}", project.schema.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+
+            let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
+                sts.iter()
+                    .find(|st| st.schema.as_key() == project.schema.as_key())
+                    .and_then(|st| st.import.clone())
+            });
+
             execute_project_codegen(
                 &cfg.base_dir,
                 &project.schema,
                 &abs_include,
                 project_output_dir,
                 &cfg.scalars,
+                &schema_import,
             )
             .await;
         }
@@ -106,6 +114,7 @@ async fn execute_codegen(
             &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
             scan_path,
             output_dir,
+            &None,
             &None,
         ).await;
     }
@@ -154,6 +163,7 @@ async fn execute_project_codegen(
     include_glob: &str,
     output_dir: Option<&str>,
     scalars: &Option<HashMap<String, String>>,
+    schema_import: &Option<String>,
 ) {
     let mut combined_text = String::new();
     for file in source.files() {
@@ -226,6 +236,7 @@ async fn execute_project_codegen(
             fragment_to_path: &fragment_to_path,
             current_file_path: path,
             scalars,
+            schema_import,
         };
 
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {

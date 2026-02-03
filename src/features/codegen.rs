@@ -7,6 +7,7 @@ pub struct CodegenContext<'a> {
     pub fragment_to_path: &'a HashMap<String, String>,
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
+    pub schema_import: &'a Option<String>,
 }
 
 pub fn generate_typescript(
@@ -27,6 +28,7 @@ pub fn generate_typescript(
 
     let mut bodies = String::new();
     let mut has_operations = false;
+    let mut used_schema_types = std::collections::HashSet::new();
 
     for block in doc.get_graphql_trees() {
         let block_text = doc
@@ -64,7 +66,7 @@ pub fn generate_typescript(
                 .ok_or_else(|| format!("Root type for {:?} not found", op.operation_type))?;
 
             let ts_type =
-                generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments);
+                generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments, &mut used_schema_types);
 
             bodies.push_str(&format!(
                 "export interface {}{} {}\n\n",
@@ -78,7 +80,7 @@ pub fn generate_typescript(
                     v_name
                 ));
                 for var in &op.variables {
-                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars);
+                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx, &mut used_schema_types);
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
                     bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
                 }
@@ -103,7 +105,7 @@ pub fn generate_typescript(
                 .ok_or_else(|| format!("Type {} not found in schema", type_name))?;
 
             let ts_type =
-                generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments);
+                generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments, &mut used_schema_types);
             bodies.push_str(&format!("export interface {} {}\n\n", frag.name, ts_type));
         }
     }
@@ -130,6 +132,19 @@ pub fn generate_typescript(
     }
 
     let mut import_section = String::new();
+
+    if let Some(schema_import_path) = ctx.schema_import {
+        if !used_schema_types.is_empty() {
+            let mut types: Vec<_> = used_schema_types.into_iter().collect();
+            types.sort();
+            import_section.push_str(&format!(
+                "import type {{ {} }} from \"{}\";\n",
+                types.join(", "),
+                schema_import_path
+            ));
+        }
+    }
+
     let mut import_paths: Vec<_> = imports.keys().cloned().collect();
     import_paths.sort();
 
@@ -176,6 +191,7 @@ fn generate_selection_set(
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
+    used_schema_types: &mut std::collections::HashSet<String>,
 ) -> String {
     let pad = "  ".repeat(indent);
     let inner_pad = "  ".repeat(indent + 1);
@@ -220,7 +236,7 @@ fn generate_selection_set(
 
             if let Some(fd) = field_def {
                 let ts_type = if field.selection_set.selections.is_empty() {
-                    gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars)
+                    gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx, used_schema_types)
                 } else {
                     let inner_type_name = fd.ty.inner_named_type();
                     let inner_type = ctx
@@ -234,6 +250,7 @@ fn generate_selection_set(
                         ctx,
                         indent + 1,
                         used_fragments,
+                        used_schema_types,
                     )
                 };
 
@@ -302,7 +319,7 @@ fn generate_selection_set(
 
                     if let Some(fd) = field_def {
                         let ts_type = if field.selection_set.selections.is_empty() {
-                            gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars)
+                            gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx, used_schema_types)
                         } else {
                             let inner_type_name = fd.ty.inner_named_type();
                             let inner_type = ctx
@@ -316,6 +333,7 @@ fn generate_selection_set(
                                 ctx,
                                 indent + 2,
                                 used_fragments,
+                                used_schema_types,
                             );
                             wrap_in_list_and_nullability(&base_type, &fd.ty)
                         };
@@ -362,16 +380,20 @@ fn gql_type_to_ts(
     ty: &apollo_compiler::ast::Type,
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
+    ctx: &CodegenContext,
+    used_schema_types: &mut std::collections::HashSet<String>,
 ) -> String {
-    gql_type_to_ts_internal(ty, schema, false, scalars)
+    gql_type_to_ts_internal(ty, schema, false, scalars, ctx, used_schema_types)
 }
 
 fn gql_type_to_ts_with_names(
     ty: &apollo_compiler::ast::Type,
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
+    ctx: &CodegenContext,
+    used_schema_types: &mut std::collections::HashSet<String>,
 ) -> String {
-    gql_type_to_ts_internal(ty, schema, true, scalars)
+    gql_type_to_ts_internal(ty, schema, true, scalars, ctx, used_schema_types)
 }
 
 fn gql_type_to_ts_internal(
@@ -379,6 +401,8 @@ fn gql_type_to_ts_internal(
     schema: &Schema,
     use_names: bool,
     scalars: &Option<HashMap<String, String>>,
+    ctx: &CodegenContext,
+    used_schema_types: &mut std::collections::HashSet<String>,
 ) -> String {
     let inner_name = ty.inner_named_type();
     let base = match inner_name.as_str() {
@@ -393,7 +417,10 @@ fn gql_type_to_ts_internal(
             } else if let Some(t) = schema.types.get(other) {
                 match t {
                     apollo_compiler::schema::ExtendedType::Enum(enm) => {
-                        if use_names {
+                        if ctx.schema_import.is_some() {
+                            used_schema_types.insert(other.to_string());
+                            other.to_string()
+                        } else if use_names {
                             other.to_string()
                         } else {
                             let mut values: Vec<_> = enm.values.keys().collect();
@@ -407,7 +434,10 @@ fn gql_type_to_ts_internal(
                     }
                     apollo_compiler::schema::ExtendedType::InputObject(_)
                     | apollo_compiler::schema::ExtendedType::Scalar(_) => {
-                        if use_names {
+                        if ctx.schema_import.is_some() {
+                            used_schema_types.insert(other.to_string());
+                            other.to_string()
+                        } else if use_names {
                             other.to_string()
                         } else {
                             "any".to_string()
@@ -430,6 +460,15 @@ pub fn generate_schema_types(
 ) -> String {
     let mut output = String::new();
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+
+    let dummy_ctx = CodegenContext {
+        schema,
+        fragment_to_path: &HashMap::new(),
+        current_file_path: Path::new(""),
+        scalars,
+        schema_import: &None,
+    };
+    let mut used_schema_types = std::collections::HashSet::new();
 
     // 1. Enums
     let mut enum_names: Vec<_> = schema.types.keys().collect();
@@ -489,7 +528,7 @@ pub fn generate_schema_types(
                     field_deprecation,
                     1,
                 ));
-                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars);
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx, &mut used_schema_types);
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
             }

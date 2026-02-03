@@ -1,0 +1,13 @@
+enum Role {
+  ADMIN
+  USER
+}
+
+type User {
+  id: ID!
+  role: Role!
+}
+
+type Query {
+  me: User
+}

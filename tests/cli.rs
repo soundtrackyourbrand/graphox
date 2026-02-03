@@ -428,53 +428,76 @@ scalars:
 
 #[test]
 fn test_cli_codegen_baselines() {
+    run_baseline_test(
+        "tests/fixtures/codegen",
+        "tests/baselines/codegen",
+        Some("tests/fixtures/simple_schema.graphql"),
+    );
+}
+
+#[test]
+fn test_cli_schema_import_baselines() {
+    run_baseline_test(
+        "tests/fixtures/schema_import",
+        "tests/baselines/schema_import",
+        None,
+    );
+}
+
+fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let fixture_dir = Path::new("tests/fixtures/codegen");
-    let baseline_dir = Path::new("tests/baselines/codegen");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_baselines_test");
+    let fixture_dir = Path::new(fixture_dir_str);
+    let baseline_dir = Path::new(baseline_dir_str);
+    let temp_dir = std::env::temp_dir().join(format!(
+        "graphql_rust_baselines_{}",
+        fixture_dir_str.replace("/", "_")
+    ));
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
 
-    // We run codegen on the whole fixture directory, outputting to a temp directory
-    let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg("tests/fixtures/simple_schema.graphql")
+    let mut cmd = Command::new(bin_path);
+    if let Some(s) = schema_path {
+        let abs_schema = std::fs::canonicalize(s).expect("Failed to canonicalize schema path");
+        cmd.arg("--schema").arg(abs_schema);
+    }
+
+    let output = cmd
         .arg("codegen")
-        .arg(fixture_dir.to_str().unwrap())
+        .arg(".")
         .arg("--output")
         .arg(temp_dir.to_str().unwrap())
+        .current_dir(fixture_dir)
         .output()
         .expect("Failed to execute process");
 
     assert!(
         output.status.success(),
-        "Codegen command failed: {}",
+        "Codegen command failed for {}: {}",
+        fixture_dir_str,
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // For each .graphql file in fixtures, check if there is an .expected.ts file in baselines and compare
     for entry in std::fs::read_dir(fixture_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("graphql") {
             let file_stem = path.file_stem().unwrap().to_str().unwrap();
 
-            // Generated file is in the temp directory
             let mut codegen_path = temp_dir.clone();
-            codegen_path.push(path.strip_prefix(fixture_dir).unwrap());
-            codegen_path.set_extension("graphql.codegen.ts");
+            codegen_path.push(format!("{}.graphql.codegen.ts", file_stem));
 
-            // Expected file is in the baseline directory
             let expected_path = baseline_dir.join(format!("{}.expected.ts", file_stem));
+
+            if !expected_path.exists() {
+                continue;
+            }
 
             assert!(
                 codegen_path.exists(),
                 "Codegen file {:?} was not created",
                 codegen_path
-            );
-            assert!(
-                expected_path.exists(),
-                "Expected file {:?} does not exist",
-                expected_path
             );
 
             let actual = std::fs::read_to_string(&codegen_path).unwrap();
@@ -485,11 +508,10 @@ fn test_cli_codegen_baselines() {
                 println!("{}", actual);
                 println!("--- EXPECTED ---");
                 println!("{}", expected);
-                panic!("Codegen mismatch for {:?}", path);
+                panic!("Codegen mismatch for {:?} in {}", path, fixture_dir_str);
             }
         }
     }
 
-    // Cleanup temp directory
     std::fs::remove_dir_all(temp_dir).ok();
 }

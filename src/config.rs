@@ -47,6 +47,7 @@ pub struct ProjectConfig {
 pub struct SchemaTypeConfig {
     pub schema: SchemaSource,
     pub output: String,
+    pub import: Option<String>,
 }
 
 impl Config {
