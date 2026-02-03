@@ -26,7 +26,9 @@ pub async fn run_codegen(
     watch: bool,
 ) {
     if !watch {
-        execute_codegen(config, schema_path, scan_path, output_dir).await;
+        if !execute_codegen(config, schema_path, scan_path, output_dir).await {
+            std::process::exit(1);
+        }
         return;
     }
 
@@ -88,7 +90,8 @@ async fn execute_codegen(
     schema_path: &str,
     scan_path: &str,
     output_dir: Option<&str>,
-) {
+) -> bool {
+    let mut success = true;
     if let Some(cfg) = &config {
         let global_metadata = Engine::scan_workspace(cfg);
 
@@ -141,6 +144,7 @@ async fn execute_codegen(
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("{}", e);
+                    success = false;
                     continue;
                 }
             };
@@ -152,6 +156,7 @@ async fn execute_codegen(
                         project.schema.as_key(),
                         e
                     );
+                    success = false;
                     continue;
                 }
             };
@@ -181,7 +186,7 @@ async fn execute_codegen(
                 }
             }
 
-            execute_project_codegen(CodegenParams {
+            if !execute_project_codegen(CodegenParams {
                 base_dir: &cfg.base_dir,
                 source: &project.schema,
                 include_patterns: &abs_includes,
@@ -194,20 +199,26 @@ async fn execute_codegen(
                 all_fragments: &all_fragments,
                 global_metadata: &global_metadata,
             })
-            .await;
+            .await
+            {
+                success = false;
+            }
         }
 
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
                 let abs_output = cfg.base_dir.join(&st.output);
                 println!("Generating types for schema: {}", st.schema.as_key());
-                execute_schema_codegen(
+                if !execute_schema_codegen(
                     &cfg.base_dir,
                     &st.schema,
                     &abs_output.to_string_lossy(),
                     &cfg.scalars,
                 )
-                .await;
+                .await
+                {
+                    success = false;
+                }
             }
         }
     } else {
@@ -215,33 +226,49 @@ async fn execute_codegen(
         let all_graphql_paths: Vec<_> = fragment_map.values().map(PathBuf::from).collect();
 
         let schema_text = std::fs::read_to_string(schema_path).unwrap_or_default();
-        if let Ok(schema) = Schema::parse(&schema_text, schema_path)
-            && let Ok(valid_schema) = schema.validate()
-        {
-            let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
-            let include_glob = if std::path::Path::new(scan_path).is_file() {
-                scan_path.to_string()
-            } else if scan_path == "." || scan_path == "./" {
-                "**/*".to_string()
-            } else {
-                format!("{}/**/*", scan_path)
-            };
-            execute_project_codegen(CodegenParams {
-                base_dir: Path::new("."),
-                source: &SchemaSource::Single(schema_path.to_string()),
-                include_patterns: &[include_glob],
-                exclude_patterns: &[],
-                output_dir,
-                scalars: &None,
-                schema_import: &None,
-                fragment_to_path: &fragment_map,
-                fragment_to_import: &HashMap::default(),
-                all_fragments: &all_fragments,
-                global_metadata: &[],
-            })
-            .await;
+        let schema = match Schema::parse(&schema_text, schema_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to parse schema {}: {}", schema_path, e);
+                return false;
+            }
+        };
+
+        match schema.validate() {
+            Ok(valid_schema) => {
+                let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
+                let include_glob = if std::path::Path::new(scan_path).is_file() {
+                    scan_path.to_string()
+                } else if scan_path == "." || scan_path == "./" {
+                    "**/*".to_string()
+                } else {
+                    format!("{}/**/*", scan_path)
+                };
+                if !execute_project_codegen(CodegenParams {
+                    base_dir: Path::new("."),
+                    source: &SchemaSource::Single(schema_path.to_string()),
+                    include_patterns: &[include_glob],
+                    exclude_patterns: &[],
+                    output_dir,
+                    scalars: &None,
+                    schema_import: &None,
+                    fragment_to_path: &fragment_map,
+                    fragment_to_import: &HashMap::default(),
+                    all_fragments: &all_fragments,
+                    global_metadata: &[],
+                })
+                .await
+                {
+                    success = false;
+                }
+            }
+            Err(e) => {
+                eprintln!("Schema validation failed for {}: {}", schema_path, e);
+                success = false;
+            }
         }
     }
+    success
 }
 
 async fn execute_schema_codegen(
@@ -249,12 +276,12 @@ async fn execute_schema_codegen(
     source: &SchemaSource,
     output_path: &str,
     scalars: &Option<HashMap<String, String>>,
-) {
+) -> bool {
     let schema = match Engine::load_schema(base_dir, source) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e);
-            return;
+            return false;
         }
     };
 
@@ -264,16 +291,21 @@ async fn execute_schema_codegen(
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    std::fs::write(out_path, ts_code).expect("Failed to write schema types file");
+    if let Err(e) = std::fs::write(out_path, ts_code) {
+        eprintln!("Failed to write schema types file {}: {}", output_path, e);
+        return false;
+    }
     println!("Generated schema types: {}", out_path.display());
+    true
 }
 
-async fn execute_project_codegen(params: CodegenParams<'_>) {
+async fn execute_project_codegen(params: CodegenParams<'_>) -> bool {
+    let mut success = true;
     let schema = match Engine::load_schema(params.base_dir, params.source) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}", e);
-            return;
+            return false;
         }
     };
 
@@ -324,11 +356,16 @@ async fn execute_project_codegen(params: CodegenParams<'_>) {
                 if let Some(parent) = out_path.parent() {
                     std::fs::create_dir_all(parent).ok();
                 }
-                std::fs::write(&out_path, ts_code).expect("Failed to write codegen file");
-                println!("Generated: {}", out_path.display());
+                if let Err(e) = std::fs::write(&out_path, ts_code) {
+                    eprintln!("Failed to write codegen file {}: {}", out_path.display(), e);
+                    success = false;
+                } else {
+                    println!("Generated: {}", out_path.display());
+                }
             }
             Err(e) => {
                 eprintln!("Error generating types for {}: {}", path.display(), e);
+                success = false;
 
                 if e.contains("Fragment") && e.contains("not found") {
                     for meta in params.global_metadata {
@@ -343,4 +380,5 @@ async fn execute_project_codegen(params: CodegenParams<'_>) {
             }
         }
     }
+    success
 }

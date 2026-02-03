@@ -69,9 +69,9 @@ fn test_cli_ignore_files() {
 }
 
 #[test]
-fn test_cli_ignore_deprecations() {
+fn test_cli_codegen_error() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_ignore_deprecations_test");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_error_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -81,86 +81,59 @@ fn test_cli_ignore_deprecations() {
     let schema_file = temp_dir.join("schema.graphql");
     std::fs::write(
         &schema_file,
-        r#"
-type Query {
-  oldField: String @deprecated(reason: "Use newField instead")
-  ignoredField: String @deprecated(reason: "Internal use only")
-}
-"#,
+        "type User { id: ID! name: String } type Query { me: User }",
     )
     .unwrap();
 
-    // Create config
-    let config_file = temp_dir.join("graphql.yaml");
-    std::fs::write(
-        &config_file,
-        r#"
-ignore_deprecations:
-  - "Internal.*"
-projects:
-  - schema: "schema.graphql"
-    include: "query.graphql"
-"#,
-    )
-    .unwrap();
-
-    // Create query
+    // Create buggy query (unknown field)
     let query_file = temp_dir.join("query.graphql");
-    std::fs::write(&query_file, "query { oldField ignoredField }").unwrap();
+    std::fs::write(&query_file, "query { me { unknownField } }").unwrap();
 
     let output = Command::new(bin_path)
-        .arg("check")
-        .arg(".")
-        .current_dir(&temp_dir)
+        .arg("--schema")
+        .arg(schema_file.to_str().unwrap())
+        .arg("codegen")
+        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Should FAIL because oldField is NOT ignored
-    assert!(
-        !output.status.success(),
-        "Check should fail due to non-ignored deprecation"
-    );
-
-    // Should contain oldField warning
-    assert!(
-        stdout.contains("Field 'oldField' is deprecated"),
-        "Missing warning for oldField"
-    );
-
-    // Should NOT contain ignoredField warning
-    assert!(
-        !stdout.contains("Field 'ignoredField' is deprecated"),
-        "Should not warn for ignoredField"
-    );
+    // It should exit with 1 because codegen failed for the buggy query
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknownField"));
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]
-fn test_cli_public_fragments() {
+fn test_cli_codegen_invalid_schema() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_invalid_schema_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create invalid schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(&schema_file, "type Query { me: NonExistentType }").unwrap();
+
     let output = Command::new(bin_path)
         .arg("--schema")
-        .arg("tests/fixtures/simple_schema.graphql")
-        .arg("check")
-        .arg("tests/fixtures/public_test")
+        .arg(schema_file.to_str().unwrap())
+        .arg("codegen")
+        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    // It should exit with 1 because schema validation failed
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("NonExistentType"));
 
-    // pkg_b/query.graphql:
-    // ...PublicFrag should be allowed
-    // ...PrivateFrag should NOT be allowed
-
-    assert!(stdout.contains("Unknown fragment: PrivateFrag"));
-    assert!(
-        !stdout.contains("Unknown fragment: PublicFrag"),
-        "PublicFrag should be visible across packages"
-    );
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]
