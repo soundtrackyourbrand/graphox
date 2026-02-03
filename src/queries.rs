@@ -63,6 +63,7 @@ pub const GQL_COMPLETION_QUERY: &str = r#"
     (operation_definition) @operation
     (fragment_definition) @fragment
     (type_condition) @type_cond
+    (named_type) @type_cond
     (fragment_spread) @frag_spread
     (variable) @variable
     (arguments) @args

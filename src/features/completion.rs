@@ -1,8 +1,8 @@
 use crate::document::DocumentState;
-use crate::queries::*;
 use apollo_compiler::{schema, Schema};
 use tower_lsp::lsp_types::*;
-use tree_sitter::{Node, QueryCursor, StreamingIterator};
+use tree_sitter::Node;
+use std::collections::HashMap;
 
 impl DocumentState {
     pub fn get_completion_items(
@@ -35,58 +35,62 @@ impl DocumentState {
         schema: &Schema,
         fragments: &[String],
     ) -> Option<Vec<CompletionItem>> {
-        let query = GQL_COMPLETION_QUERY_CACHE.get_or_init(|| {
-            let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_COMPLETION_QUERY).unwrap()
-        });
+        let local_byte = if cursor_offset >= offset { cursor_offset - offset } else { 0 };
+        
+        let mut node = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
 
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(query, root, |n: Node| {
-            let start = n.start_byte();
-            let end = n.end_byte();
-            self.rope
-                .byte_slice((start + offset)..(end + offset))
-                .chunks()
-        });
-
-        while let Some(m) = matches.next() {
-            for cap in m.captures {
-                let range = (cap.node.start_byte() + offset)..(cap.node.end_byte() + offset);
-
-                if cursor_offset >= range.start && cursor_offset <= range.end {
-                    let capture_name = query.capture_names()[cap.index as usize];
-                    match capture_name {
-                        "operation" => {
-                            if let Some(items) = self.complete_operation(
-                                cap.node,
-                                offset,
-                                cursor_offset,
-                                schema,
-                                fragments,
-                            ) {
-                                return Some(items);
-                            }
-                        }
-                        "fragment" => {
-                            if let Some(items) = self.complete_fragment(
-                                cap.node,
-                                offset,
-                                cursor_offset,
-                                schema,
-                                fragments,
-                            ) {
-                                return Some(items);
-                            }
-                        }
-                        "type_cond" => return Some(self.get_all_type_completions(schema)),
-                        "frag_spread" => return Some(self.get_fragment_name_completions(fragments)),
-                        "variable" | "args" => return Some(self.get_operation_variables(root, offset, cursor_offset)),
-                        _ => {}
+        while let Some(current) = node {
+            match current.kind() {
+                "type_condition" | "named_type" => {
+                    return Some(self.get_all_type_completions(schema));
+                }
+                "variable" | "variable_definitions" | "arguments" => {
+                    return Some(self.get_operation_variables(root, offset, cursor_offset));
+                }
+                "fragment_spread" => {
+                    return Some(self.get_fragment_name_completions(fragments));
+                }
+                "fragment_definition" => {
+                    let text_so_far = self.rope.byte_slice(offset..(offset + local_byte)).to_string();
+                    if text_so_far.trim_end().ends_with(" on") {
+                         return Some(self.get_all_type_completions(schema));
+                    }
+                    if let Some(items) = self.complete_selection_set_at_node(current, offset, cursor_offset, schema, fragments) {
+                        return Some(items);
                     }
                 }
+                "selection_set" | "operation_definition" => {
+                    if let Some(items) = self.complete_selection_set_at_node(current, offset, cursor_offset, schema, fragments) {
+                        return Some(items);
+                    }
+                }
+                _ => {}
             }
+            node = current.parent();
         }
+
         None
+    }
+
+    fn complete_selection_set_at_node(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+        fragments: &[String],
+    ) -> Option<Vec<CompletionItem>> {
+        match node.kind() {
+            "operation_definition" => self.complete_operation(node, offset, cursor_offset, schema, fragments),
+            "fragment_definition" => self.complete_fragment(node, offset, cursor_offset, schema, fragments),
+            "selection_set" => {
+                if let Some(parent) = node.parent() {
+                    return self.complete_selection_set_at_node(parent, offset, cursor_offset, schema, fragments);
+                }
+                None
+            }
+            _ => None
+        }
     }
 
     fn get_operation_variables(
@@ -95,8 +99,8 @@ impl DocumentState {
         offset: usize,
         cursor_offset: usize,
     ) -> Vec<CompletionItem> {
-        let local_byte = cursor_offset - offset;
-        let mut current = root.descendant_for_byte_range(local_byte, local_byte);
+        let local_byte = if cursor_offset > offset { cursor_offset - offset } else { 0 };
+        let mut current = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
         let mut target_op = None;
 
         while let Some(node) = current {
@@ -401,10 +405,12 @@ impl DocumentState {
     fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
         let mut items = Vec::new();
         for (name, def) in &schema.types {
+            if name.starts_with("__") {
+                continue;
+            }
             let kind = match def {
-                schema::ExtendedType::Object(_) | schema::ExtendedType::Interface(_) => {
-                    Some(CompletionItemKind::CLASS)
-                }
+                schema::ExtendedType::Object(_) => Some(CompletionItemKind::CLASS),
+                schema::ExtendedType::Interface(_) => Some(CompletionItemKind::INTERFACE),
                 schema::ExtendedType::Enum(_) => Some(CompletionItemKind::ENUM),
                 schema::ExtendedType::Union(_) => Some(CompletionItemKind::INTERFACE),
                 schema::ExtendedType::Scalar(_) => Some(CompletionItemKind::STRUCT),

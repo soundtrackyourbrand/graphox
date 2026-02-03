@@ -60,6 +60,22 @@ fn test_print_ts_tree() {
 }
 
 #[test]
+fn test_print_gql_completion_trees() {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_graphql::LANGUAGE.into())
+        .unwrap();
+
+    let text1 = "query GetUser($userId: ID!) { user(id: $) }";
+    let tree1 = parser.parse(text1, None).unwrap();
+    println!("VAR TREE: {}", tree1.root_node().to_string());
+
+    let text2 = "fragment MyFrag on  { id }";
+    let tree2 = parser.parse(text2, None).unwrap();
+    println!("TYPE COND TREE: {}", tree2.root_node().to_string());
+}
+
+#[test]
 fn test_graphql_tag_repro() {
     let text = r#"
         const q = graphql`query { foo }`;

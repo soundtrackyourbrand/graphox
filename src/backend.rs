@@ -319,16 +319,20 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
 
-        if let Some(mut doc) = self.documents.get_mut(&uri) {
-            let mut parser = tree_sitter::Parser::new();
-            parser
-                .set_language(&doc.language.get_parser_language())
-                .unwrap();
+        {
+            if let Some(mut doc) = self.documents.get_mut(&uri) {
+                let mut parser = tree_sitter::Parser::new();
+                parser
+                    .set_language(&doc.language.get_parser_language())
+                    .unwrap();
 
-            for change in params.content_changes {
-                doc.apply_change(&change, &mut parser);
+                for change in params.content_changes {
+                    doc.apply_change(&change, &mut parser);
+                }
             }
+        }
 
+        if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
             let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());

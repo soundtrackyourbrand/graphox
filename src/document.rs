@@ -380,50 +380,54 @@ impl DocumentState {
         change: &TextDocumentContentChangeEvent,
         parser: &mut tree_sitter::Parser,
     ) {
-        let range = change.range.expect("Incremental updates require a range");
+        if let Some(range) = change.range {
+            let start_byte = self.position_to_byte(range.start);
+            let old_end_byte = self.position_to_byte(range.end);
 
-        let start_byte = self.position_to_byte(range.start);
-        let old_end_byte = self.position_to_byte(range.end);
+            let start_char = self.rope.byte_to_char(start_byte);
+            let end_char = self.rope.byte_to_char(old_end_byte);
 
-        let start_char = self.rope.byte_to_char(start_byte);
-        let end_char = self.rope.byte_to_char(old_end_byte);
+            self.rope.remove(start_char..end_char);
+            self.rope.insert(start_char, &change.text);
 
-        self.rope.remove(start_char..end_char);
-        self.rope.insert(start_char, &change.text);
+            let new_end_byte = start_byte + change.text.len();
+            let new_end_char = start_char + change.text.chars().count();
+            let new_end_line = self.rope.char_to_line(new_end_char);
 
-        let new_end_byte = start_byte + change.text.len();
-        let new_end_char = start_char + change.text.chars().count();
-        let new_end_line = self.rope.char_to_line(new_end_char);
+            let line_start_char = self.rope.line_to_char(new_end_line);
+            let line_start_utf16 = self.rope.char_to_utf16_cu(line_start_char);
+            let current_utf16 = self.rope.char_to_utf16_cu(new_end_char);
+            let new_end_col_utf16 = current_utf16 - line_start_utf16;
 
-        let line_start_char = self.rope.line_to_char(new_end_line);
-        let line_start_utf16 = self.rope.char_to_utf16_cu(line_start_char);
-        let current_utf16 = self.rope.char_to_utf16_cu(new_end_char);
-        let new_end_col_utf16 = current_utf16 - line_start_utf16;
+            let edit = InputEdit {
+                start_byte,
+                old_end_byte,
+                new_end_byte,
+                start_position: Point::new(range.start.line as usize, range.start.character as usize),
+                old_end_position: Point::new(range.end.line as usize, range.end.character as usize),
+                new_end_position: Point::new(new_end_line, new_end_col_utf16),
+            };
 
-        let edit = InputEdit {
-            start_byte,
-            old_end_byte,
-            new_end_byte,
-            start_position: Point::new(range.start.line as usize, range.start.character as usize),
-            old_end_position: Point::new(range.end.line as usize, range.end.character as usize),
-            new_end_position: Point::new(new_end_line, new_end_col_utf16),
-        };
+            self.tree.edit(&edit);
 
-        self.tree.edit(&edit);
-
-        self.tree = parser
-            .parse_with_options(
-                &mut |byte, _| {
-                    if byte >= self.rope.len_bytes() {
-                        return "";
-                    }
-                    let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
-                    &chunk[byte - chunk_byte..]
-                },
-                Some(&self.tree),
-                None,
-            )
-            .unwrap();
+            self.tree = parser
+                .parse_with_options(
+                    &mut |byte, _| {
+                        if byte >= self.rope.len_bytes() {
+                            return "";
+                        }
+                        let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
+                        &chunk[byte - chunk_byte..]
+                    },
+                    Some(&self.tree),
+                    None,
+                )
+                .unwrap();
+        } else {
+            // Full update
+            self.rope = Rope::from_str(&change.text);
+            self.tree = parser.parse(&change.text, None).unwrap();
+        }
 
         self.graphql_trees = self.reparse_graphql_trees();
         self.fragments = self.extract_fragment_names();

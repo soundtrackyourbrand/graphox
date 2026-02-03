@@ -1,5 +1,5 @@
 use apollo_compiler::Schema;
-use graphql_rust::{DocumentLanguage, DocumentState};
+use graphql_rust::DocumentState;
 use std::time::Instant;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 

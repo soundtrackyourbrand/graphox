@@ -1,8 +1,8 @@
-use tower_lsp::jsonrpc::{Request, Response};
 use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService};
 use graphql_rust::Backend;
+use tower_lsp::LspService;
 use tower_service::Service;
+use tower_lsp::jsonrpc::Request;
 
 #[tokio::test]
 async fn test_goto_definition_cross_file() {
@@ -23,7 +23,6 @@ async fn test_goto_definition_cross_file() {
 
     // 1. Open the fragment definition file
     let fragment_uri = Url::parse("file:///tests/fixtures/fragments/user_fragment.ts").unwrap();
-    // Ensure file exists (I restored it via list_directory output confirmation or will recreate if missing? It was in the list output)
     let fragment_text = std::fs::read_to_string("tests/fixtures/fragments/user_fragment.ts").expect("Fragment fixture missing");
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -55,7 +54,6 @@ async fn test_goto_definition_cross_file() {
     service.call(request).await.unwrap();
 
     // 3. Trigger Go to Definition on "...UserFragment" in query file
-    // Line 6: "      ...UserFragment" (assuming 6 spaces indent)
     let position = Position::new(6, 10); 
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {

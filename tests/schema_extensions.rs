@@ -48,7 +48,7 @@ projects:
 "#).unwrap();
 
     let config = Config::load_from_dir(dir.path());
-    let (service, _) = tower_lsp::LspService::new(|client| {
+    let (_service, _) = tower_lsp::LspService::new(|client| {
         graphql_rust::Backend::new(client, config.clone(), "base.graphql")
     });
     
