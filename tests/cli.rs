@@ -444,6 +444,15 @@ fn test_cli_schema_import_baselines() {
     );
 }
 
+#[test]
+fn test_cli_project_import_baselines() {
+    run_baseline_test(
+        "tests/fixtures/project_import",
+        "tests/baselines/project_import",
+        None,
+    );
+}
+
 fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new(fixture_dir_str);

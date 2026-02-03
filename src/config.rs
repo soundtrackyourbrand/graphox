@@ -41,6 +41,7 @@ pub struct ProjectConfig {
     pub schema: SchemaSource,
     pub include: String,
     pub output_dir: Option<String>,
+    pub import: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

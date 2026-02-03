@@ -5,6 +5,7 @@ use std::path::Path;
 pub struct CodegenContext<'a> {
     pub schema: &'a Schema,
     pub fragment_to_path: &'a HashMap<String, String>,
+    pub fragment_to_import: &'a HashMap<String, String>,
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
@@ -116,7 +117,12 @@ pub fn generate_typescript(
 
     let mut imports: HashMap<String, Vec<String>> = HashMap::new();
     for frag_name in used_frag_names {
-        if let Some(other_path) = ctx.fragment_to_path.get(&frag_name) {
+        if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name) {
+            imports
+                .entry(import_alias.clone())
+                .or_default()
+                .push(frag_name);
+        } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name) {
             let current_abs = std::fs::canonicalize(ctx.current_file_path)
                 .unwrap_or_else(|_| ctx.current_file_path.to_path_buf());
             let other_abs = std::fs::canonicalize(other_path)
@@ -150,26 +156,34 @@ pub fn generate_typescript(
 
     for path in import_paths {
         let names = imports.get(&path).unwrap();
-        let rel_path = pathdiff::diff_paths(&path, ctx.current_file_path.parent().unwrap())
-            .unwrap_or_else(|| Path::new(&path).to_path_buf());
-        let mut path_str = rel_path.to_string_lossy().to_string();
-        if !path_str.starts_with('.') {
-            path_str = format!("./{}", path_str);
-        }
-        // Remove .ts extension if present
-        if let Some(stripped) = path_str.strip_suffix(".ts") {
-            path_str = stripped.to_string();
-        }
+        
+        let final_import_path = if ctx.fragment_to_import.values().any(|v| v == &path) {
+            // It's an alias
+            path
+        } else {
+            // It's a file path, need to relativize
+            let rel_path = pathdiff::diff_paths(&path, ctx.current_file_path.parent().unwrap())
+                .unwrap_or_else(|| Path::new(&path).to_path_buf());
+            let mut path_str = rel_path.to_string_lossy().to_string();
+            if !path_str.starts_with('.') {
+                path_str = format!("./{}", path_str);
+            }
+            // Remove .ts extension if present
+            if let Some(stripped) = path_str.strip_suffix(".ts") {
+                path_str = stripped.to_string();
+            }
+            path_str
+        };
 
         import_section.push_str(&format!(
             "import type {{ {} }} from \"{}\";\n",
             names.join(", "),
-            path_str
+            final_import_path
         ));
     }
 
     if has_operations {
-        output.push_str("import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-node/core';\n");
+        output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
     }
 
     if !import_section.is_empty() {
@@ -464,6 +478,7 @@ pub fn generate_schema_types(
     let dummy_ctx = CodegenContext {
         schema,
         fragment_to_path: &HashMap::new(),
+        fragment_to_import: &HashMap::new(),
         current_file_path: Path::new(""),
         scalars,
         schema_import: &None,

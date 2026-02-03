@@ -77,6 +77,34 @@ async fn execute_codegen(
     output_dir: Option<&str>,
 ) {
     if let Some(cfg) = &config {
+        let mut fragment_to_path = HashMap::new();
+        let mut fragment_to_import = HashMap::new();
+
+        // First pass: find all fragments across all projects to support cross-project imports
+        for project in &cfg.projects {
+            let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
+            let paths = graphql_rust::utils::get_project_files(&abs_include);
+            for path in paths {
+                if is_relevant_file(&path) {
+                    let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    let abs_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                    let uri = Url::from_file_path(&abs_path).unwrap();
+                    let language = DocumentLanguage::from_uri(&uri);
+                    let mut parser = tree_sitter::Parser::new();
+                    parser
+                        .set_language(&language.get_parser_language())
+                        .unwrap();
+                    let doc = DocumentState::new(uri, &content, parser);
+                    for frag in doc.fragments() {
+                        fragment_to_path.insert(frag.name.clone(), abs_path.to_string_lossy().to_string());
+                        if let Some(import_alias) = &project.import {
+                            fragment_to_import.insert(frag.name.clone(), import_alias.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
         for project in &cfg.projects {
             let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
@@ -97,6 +125,8 @@ async fn execute_codegen(
                 project_output_dir,
                 &cfg.scalars,
                 &schema_import,
+                &fragment_to_path,
+                &fragment_to_import,
             )
             .await;
         }
@@ -109,6 +139,25 @@ async fn execute_codegen(
             }
         }
     } else {
+        let mut fragment_to_path = HashMap::new();
+        let paths = graphql_rust::utils::get_project_files(scan_path);
+        for path in paths {
+            if is_relevant_file(&path) {
+                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let abs_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                let uri = Url::from_file_path(&abs_path).unwrap();
+                let language = DocumentLanguage::from_uri(&uri);
+                let mut parser = tree_sitter::Parser::new();
+                parser
+                    .set_language(&language.get_parser_language())
+                    .unwrap();
+                let doc = DocumentState::new(uri, &content, parser);
+                for frag in doc.fragments() {
+                    fragment_to_path.insert(frag.name.clone(), abs_path.to_string_lossy().to_string());
+                }
+            }
+        }
+
         execute_project_codegen(
             Path::new("."),
             &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
@@ -116,6 +165,8 @@ async fn execute_codegen(
             output_dir,
             &None,
             &None,
+            &fragment_to_path,
+            &HashMap::new(),
         ).await;
     }
 }
@@ -164,6 +215,8 @@ async fn execute_project_codegen(
     output_dir: Option<&str>,
     scalars: &Option<HashMap<String, String>>,
     schema_import: &Option<String>,
+    fragment_to_path: &HashMap<String, String>,
+    fragment_to_import: &HashMap<String, String>,
 ) {
     let mut combined_text = String::new();
     for file in source.files() {
@@ -223,17 +276,11 @@ async fn execute_project_codegen(
         }
     }
 
-    let mut fragment_to_path = HashMap::new();
-    for (path, doc) in &docs {
-        for frag in doc.fragments() {
-            fragment_to_path.insert(frag.name.clone(), path.to_string_lossy().to_string());
-        }
-    }
-
     for (path, doc) in &docs {
         let ctx = graphql_rust::features::codegen::CodegenContext {
             schema: &schema,
-            fragment_to_path: &fragment_to_path,
+            fragment_to_path,
+            fragment_to_import,
             current_file_path: path,
             scalars,
             schema_import,

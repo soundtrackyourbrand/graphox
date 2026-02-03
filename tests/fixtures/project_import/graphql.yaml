@@ -1,0 +1,6 @@
+projects:
+  - schema: "schema.graphql"
+    include: "fragments.graphql"
+    import: "@workspace/fragments"
+  - schema: "schema.graphql"
+    include: "query.graphql"

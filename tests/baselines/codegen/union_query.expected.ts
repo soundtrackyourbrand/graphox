@@ -2,7 +2,7 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-node/core';
+import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 
 export interface GetNodePolymorphicQuery {
   __typename: "Query";
