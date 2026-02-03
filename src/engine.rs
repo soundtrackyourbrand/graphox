@@ -8,20 +8,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::Url;
 
-pub struct ScanResult {
-    pub path: PathBuf,
-    pub fragments: Vec<(String, String, Option<String>)>, // name, path, import_alias
-    pub has_gql: bool,
-    pub language: DocumentLanguage,
+#[derive(Debug, Clone)]
+pub struct FragmentMetadata {
+    pub name: String,
+    pub path: String,
+    pub import_alias: Option<String>,
+    pub is_public: bool,
 }
 
 pub struct Engine;
 
 impl Engine {
-    /// Step 1: Discover all fragments across the entire workspace for cross-project imports
-    pub fn scan_workspace(config: &Config) -> HashMap<String, (String, Option<String>)> {
-        let mut fragment_map = HashMap::new();
-
+    /// Step 1: Discover all fragments across the entire workspace
+    pub fn scan_workspace(config: &Config) -> Vec<FragmentMetadata> {
         let all_scan_roots: Vec<_> = config
             .projects
             .iter()
@@ -46,11 +45,12 @@ impl Engine {
                     if is_relevant_file(&path) {
                         if let Some(doc) = Self::parse_doc(&path) {
                             for frag in doc.fragments() {
-                                results.push((
-                                    frag.name.clone(),
-                                    path.to_string_lossy().to_string(),
-                                    import_alias.clone(),
-                                ));
+                                results.push(FragmentMetadata {
+                                    name: frag.name.clone(),
+                                    path: path.to_string_lossy().to_string(),
+                                    import_alias: import_alias.clone(),
+                                    is_public: frag.is_public,
+                                });
                             }
                         }
                     }
@@ -59,13 +59,7 @@ impl Engine {
             })
             .collect();
 
-        for results in scan_results {
-            for (name, path, alias) in results {
-                fragment_map.insert(name, (path, alias));
-            }
-        }
-
-        fragment_map
+        scan_results.into_iter().flatten().collect()
     }
 
     /// Step 1b: Discovery for simple mode (no config)
@@ -139,17 +133,15 @@ impl Engine {
         let uri = Url::from_file_path(&abs_path).ok()?;
         let language = DocumentLanguage::from_uri(&uri);
 
-        // Check fast-path
-        if language.is_host_language() {
-            let upper = content.to_uppercase();
-            if !upper.contains("GQL") && !upper.contains("GRAPHQL") {
-                return None;
-            }
-        }
-
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&language.get_parser_language()).ok()?;
-        Some(DocumentState::new(uri, &content, parser))
+        let doc = DocumentState::new(uri, &content, parser);
+
+        if language.is_host_language() && !doc.has_graphql_candidates() {
+            return None;
+        }
+
+        Some(doc)
     }
 
     pub fn load_schema(base_dir: &Path, source: &SchemaSource) -> Result<Schema, String> {

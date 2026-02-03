@@ -137,6 +137,8 @@ pub fn generate_typescript(
                     .or_default()
                     .push(frag_name);
             }
+        } else {
+            return Err(format!("Fragment '{}' not found in current project and is not marked as @public in other projects", frag_name));
         }
     }
 

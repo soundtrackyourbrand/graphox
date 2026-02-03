@@ -64,7 +64,7 @@ fn convert_operation(op: &executable::Operation) -> Value {
         },
         "name": op.name.as_ref().map(|n| convert_name(n.as_str())),
         "variableDefinitions": op.variables.iter().map(|v| convert_variable_def(v)).collect::<Vec<_>>(),
-        "directives": op.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>(),
+        "directives": op.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
         "selectionSet": convert_selection_set(&op.selection_set),
     })
 }
@@ -77,7 +77,7 @@ fn convert_fragment(frag: &executable::Fragment) -> Value {
             "kind": "NamedType",
             "name": convert_name(frag.type_condition().as_str()),
         },
-        "directives": frag.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>(),
+        "directives": frag.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
         "selectionSet": convert_selection_set(&frag.selection_set),
     })
 }
@@ -96,7 +96,7 @@ fn convert_selection(sel: &Selection) -> Value {
             "alias": f.alias.as_ref().map(|a| convert_name(a.as_str())),
             "name": convert_name(f.name.as_str()),
             "arguments": f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>(),
-            "directives": f.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>(),
+            "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
             "selectionSet": if f.selection_set.selections.is_empty() { Value::Null } else { convert_selection_set(&f.selection_set) },
         }),
         Selection::InlineFragment(f) => json!({
@@ -105,13 +105,13 @@ fn convert_selection(sel: &Selection) -> Value {
                 "kind": "NamedType",
                 "name": convert_name(t.as_str()),
             })),
-            "directives": f.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>(),
+            "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
             "selectionSet": convert_selection_set(&f.selection_set),
         }),
         Selection::FragmentSpread(f) => json!({
             "kind": "FragmentSpread",
             "name": convert_name(f.fragment_name.as_str()),
-            "directives": f.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>(),
+            "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
         }),
     }
 }
@@ -132,7 +132,7 @@ fn convert_variable_def(vd: &ast::VariableDefinition) -> Value {
         },
         "type": convert_type(&vd.ty),
         "defaultValue": vd.default_value.as_ref().map(|v| convert_value(v)),
-        "directives": vd.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>(),
+        "directives": vd.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
     })
 }
 

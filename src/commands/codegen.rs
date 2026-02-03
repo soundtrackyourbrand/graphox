@@ -1,6 +1,5 @@
 use graphql_rust::config::Config;
-use graphql_rust::engine::Engine;
-use graphql_rust::utils::is_relevant_file;
+use graphql_rust::engine::{Engine, FragmentMetadata};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -76,22 +75,15 @@ async fn execute_codegen(
     output_dir: Option<&str>,
 ) {
     if let Some(cfg) = &config {
-        let global_fragments = Engine::scan_workspace(cfg);
+        let global_metadata = Engine::scan_workspace(cfg);
         
-        let mut fragment_to_path: HashMap<String, String> = HashMap::new();
-        let mut fragment_to_import: HashMap<String, String> = HashMap::new();
-        for (name, (path, alias)) in global_fragments {
-            fragment_to_path.insert(name.clone(), path);
-            if let Some(a) = alias {
-                fragment_to_import.insert(name, a);
-            }
-        }
-
-        let all_graphql_paths: Vec<_> = fragment_to_path.values().map(PathBuf::from).collect();
+        let all_graphql_paths: Vec<_> = global_metadata.iter().map(|m| PathBuf::from(&m.path)).collect();
 
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
         for project in &cfg.projects {
-            let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
+            let project_abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
+            let project_files = graphql_rust::utils::get_project_files(&project_abs_include);
+            let project_files_set: std::collections::HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
 
             println!("Processing project with schema: {}", project.schema.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
@@ -109,7 +101,7 @@ async fn execute_codegen(
                     continue;
                 }
             };
-            let valid_schema = match schema.validate() {
+            let valid_schema = match schema.clone().validate() {
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!("Schema validation failed for {}: {}", project.schema.as_key(), e);
@@ -119,16 +111,39 @@ async fn execute_codegen(
 
             let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
 
+            // Per-project fragment maps to ensure local preference and @public check
+            let mut fragment_to_path: HashMap<String, String> = HashMap::new();
+            let mut fragment_to_import: HashMap<String, String> = HashMap::new();
+
+            for meta in &global_metadata {
+                let is_local = project_files_set.contains(&meta.path);
+                
+                if is_local {
+                    // Local always wins
+                    fragment_to_path.insert(meta.name.clone(), meta.path.clone());
+                    if let Some(a) = &meta.import_alias {
+                        fragment_to_import.insert(meta.name.clone(), a.clone());
+                    }
+                } else if meta.is_public {
+                    // Only add if public and not already filled by local
+                    fragment_to_path.entry(meta.name.clone()).or_insert_with(|| meta.path.clone());
+                    if let Some(a) = &meta.import_alias {
+                        fragment_to_import.entry(meta.name.clone()).or_insert_with(|| a.clone());
+                    }
+                }
+            }
+
             execute_project_codegen(
                 &cfg.base_dir,
                 &project.schema,
-                &abs_include,
+                &project_abs_include,
                 project_output_dir,
                 &cfg.scalars,
                 &schema_import,
                 &fragment_to_path,
                 &fragment_to_import,
                 &all_fragments,
+                &global_metadata,
             )
             .await;
         }
@@ -158,6 +173,7 @@ async fn execute_codegen(
                     &fragment_map,
                     &HashMap::new(),
                     &all_fragments,
+                    &vec![], // No metadata in simple mode
                 ).await;
             }
         }
@@ -198,6 +214,7 @@ async fn execute_project_codegen(
     fragment_to_path: &HashMap<String, String>,
     fragment_to_import: &HashMap<String, String>,
     all_fragments: &HashMap<String, apollo_compiler::Node<apollo_compiler::executable::Fragment>>,
+    global_metadata: &[FragmentMetadata],
 ) {
     let schema = match Engine::load_schema(base_dir, source) {
         Ok(s) => s,
@@ -211,11 +228,9 @@ async fn execute_project_codegen(
 
     let mut docs = Vec::new();
     for path in paths {
-        if is_relevant_file(&path) {
-            if let Some(doc) = Engine::parse_doc(&path) {
-                if !doc.get_graphql_trees().is_empty() {
-                    docs.push((path, doc));
-                }
+        if let Some(doc) = Engine::parse_doc(&path) {
+            if !doc.get_graphql_trees().is_empty() {
+                docs.push((path, doc));
             }
         }
     }
@@ -259,6 +274,14 @@ async fn execute_project_codegen(
             }
             Err(e) => {
                 eprintln!("Error generating types for {}: {}", path.display(), e);
+                
+                if e.contains("Fragment") && e.contains("not found") {
+                    for meta in global_metadata {
+                        if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
+                             eprintln!("  Hint: Fragment '{}' exists in {} but is not marked as @public", meta.name, meta.path);
+                        }
+                    }
+                }
             }
         }
     }

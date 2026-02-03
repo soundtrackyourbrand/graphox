@@ -1,10 +1,7 @@
-use graphql_rust::utils::is_relevant_file;
-use graphql_rust::{Config, DocumentLanguage, DocumentState};
+use graphql_rust::Config;
 use graphql_rust::engine::Engine;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tower_lsp::lsp_types::Url;
-use rayon::prelude::*;
 use std::path::PathBuf;
 
 pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_path: &str, verbose: bool) {
@@ -15,80 +12,29 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
     println!("Starting Benchmark...");
     let total_start = Instant::now();
 
-    // 1. Discovery & Initial Scan
+    // 1. Discovery & Metadata Collection (Parallel)
     let discovery_start = Instant::now();
-    let scan_root = if let Some(cfg) = &config {
-        let mut all_paths = Vec::new();
-        for project in &cfg.projects {
-            let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
-            let paths = graphql_rust::utils::get_project_files(&abs_include);
-            for path in paths {
-                if is_relevant_file(&path) {
-                    all_paths.push((path, project.import.clone()));
-                }
-            }
-        }
-        all_paths
+    let global_metadata = if let Some(cfg) = &config {
+        Engine::scan_workspace(cfg)
     } else {
-        graphql_rust::utils::get_project_files(scan_path)
-            .into_iter()
-            .map(|p| (p, None))
-            .collect()
+        vec![] // metadata not used in simple mode
     };
     let file_discovery_time = discovery_start.elapsed();
 
-    let total_files_scanned = scan_root.len();
-    let mut total_graphql_files = 0;
-    let mut fragment_to_path: HashMap<String, String> = HashMap::new();
-    let mut fragment_to_import: HashMap<String, String> = HashMap::new();
-
-    let scan_start = Instant::now();
-    let scan_results: Vec<_> = scan_root
-        .par_iter()
-        .map(|(path, import_alias)| {
-            let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-            if let Some(doc) = Engine::parse_doc(&abs_path) {
-                let mut fragments = Vec::new();
-                for frag in doc.fragments() {
-                    fragments.push((
-                        frag.name.clone(),
-                        abs_path.to_string_lossy().to_string(),
-                        import_alias.clone(),
-                    ));
-                }
-                Some((true, fragments, false, path.to_string_lossy().to_string()))
-            } else {
-                let skipped = DocumentLanguage::from_uri(&Url::from_file_path(path).unwrap()).is_host_language();
-                Some((false, vec![], skipped, path.to_string_lossy().to_string()))
-            }
-        })
-        .collect();
-
-    for res in scan_results.iter().flatten() {
-        let (has_gql, frags, skipped, path) = res;
-        if verbose {
-            if *skipped { println!("File skipped by fast check: {}", path); }
-            else if !*has_gql { println!("File parsed but no GraphQL blocks found: {}", path); }
-        }
-        if *has_gql {
-            total_graphql_files += 1;
-        }
-        for (name, path, alias) in frags {
-            if verbose { println!("Fragment Found: {} in {}", name, path); }
-            fragment_to_path.insert(name.clone(), path.clone());
-            if let Some(a) = alias { fragment_to_import.insert(name.clone(), a.clone()); }
-        }
+    let mut fragment_to_path_global: HashMap<String, String> = HashMap::new();
+    for meta in &global_metadata {
+        fragment_to_path_global.insert(meta.name.clone(), meta.path.clone());
     }
-    let parallel_scan_time = scan_start.elapsed();
+
+    let all_graphql_paths: Vec<_> = fragment_to_path_global.values().map(PathBuf::from).collect();
 
     // 2. Project Processing
+    let mut total_graphql_files = 0;
     let mut total_operations = 0;
     let mut total_fragments_processed = 0;
     let mut schema_parse_time = Duration::ZERO;
     let mut fragment_resolve_time = Duration::ZERO;
     let mut ts_gen_time = Duration::ZERO;
-
-    let all_graphql_paths: Vec<_> = fragment_to_path.values().map(PathBuf::from).collect();
 
     if let Some(cfg) = &config {
         for project in &cfg.projects {
@@ -108,16 +54,36 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
             fragment_resolve_time += fr_start.elapsed();
 
             let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
-            let paths = graphql_rust::utils::get_project_files(&abs_include);
-            for path in paths {
+            let project_files = graphql_rust::utils::get_project_files(&abs_include);
+            let project_files_set: std::collections::HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
+
+            // Project-specific maps
+            let mut project_fragment_to_path = HashMap::new();
+            let mut project_fragment_to_import = HashMap::new();
+
+            for meta in &global_metadata {
+                let is_local = project_files_set.contains(&meta.path);
+                if is_local {
+                    if verbose { println!("Local Fragment Found: {} in {}", meta.name, meta.path); }
+                    project_fragment_to_path.insert(meta.name.clone(), meta.path.clone());
+                    if let Some(a) = &meta.import_alias { project_fragment_to_import.insert(meta.name.clone(), a.clone()); }
+                } else if meta.is_public {
+                    if verbose { println!("Public Global Fragment Found: {} from {}", meta.name, meta.path); }
+                    project_fragment_to_path.entry(meta.name.clone()).or_insert_with(|| meta.path.clone());
+                    if let Some(a) = &meta.import_alias { project_fragment_to_import.entry(meta.name.clone()).or_insert_with(|| a.clone()); }
+                }
+            }
+
+            for path in project_files {
                 if let Some(doc) = Engine::parse_doc(&path) {
+                    total_graphql_files += 1;
                     let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
                         sts.iter().find(|st| st.schema.as_key() == project.schema.as_key()).and_then(|st| st.import.clone())
                     });
                     let ctx = graphql_rust::features::codegen::CodegenContext {
                         schema: &schema,
-                        fragment_to_path: &fragment_to_path,
-                        fragment_to_import: &fragment_to_import,
+                        fragment_to_path: &project_fragment_to_path,
+                        fragment_to_import: &project_fragment_to_import,
                         all_fragments: &all_fragments,
                         current_file_path: &path,
                         scalars: &cfg.scalars,
@@ -134,22 +100,18 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
         }
     }
     let total_duration = total_start.elapsed();
-    let processing_duration = total_duration - file_discovery_time - parallel_scan_time;
 
     println!("\n--- Benchmark Results ---");
-    println!("Total Files Scanned:      {}", total_files_scanned);
     println!("Files with GraphQL:       {}", total_graphql_files);
-    println!("Total Fragments Found:    {}", fragment_to_path.len());
+    println!("Total Fragments Found:    {}", fragment_to_path_global.len());
     println!("Total Operations processed: {}", total_operations);
     println!("Total Fragments processed:  {}", total_fragments_processed);
     println!("");
     println!("Phase Timings:");
-    println!("  File Discovery:         {:>10?}", file_discovery_time);
-    println!("  Parallel Scan & Parse:  {:>10?}", parallel_scan_time);
-    println!("  Schema Parsing:         {:>10?}", schema_parse_time);
-    println!("  Fragment Resolution:    {:>10?}", fragment_resolve_time);
-    println!("  TS Generation (serial): {:>10?}", ts_gen_time);
-    println!("  Total Processing:       {:>10?}", processing_duration);
+    println!("  File Discovery & Metadata: {:>10?}", file_discovery_time);
+    println!("  Schema Parsing:            {:>10?}", schema_parse_time);
+    println!("  Fragment Resolution:       {:>10?}", fragment_resolve_time);
+    println!("  TS Generation (serial):    {:>10?}", ts_gen_time);
     println!("--------------------------");
-    println!("Total Wall Time:          {:>10?}", total_duration);
+    println!("Total Wall Time:             {:>10?}", total_duration);
 }
