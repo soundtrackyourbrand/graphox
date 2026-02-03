@@ -1,2 +1,1 @@
 query GetPublic { users { ...PublicFrag } }
-query GetPrivate { users { ...PrivateFrag } }

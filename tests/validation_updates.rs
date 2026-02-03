@@ -1,5 +1,5 @@
 use apollo_compiler::Schema;
-use graphql_rust::{DocumentState, Backend};
+use graphql_rust::{DocumentState, Backend, Config};
 use tower_lsp::lsp_types::*;
 use std::fs;
 use tempfile::tempdir;
@@ -76,7 +76,7 @@ async fn test_backend_schema_reload() {
     fs::write(&schema_path, "type Query { me: String }").unwrap();
 
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, None, schema_path.to_str().unwrap())
+        Backend::new(client, Config::new_empty())
     });
 
     let params = DidChangeWatchedFilesParams {

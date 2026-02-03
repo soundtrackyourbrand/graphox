@@ -44,7 +44,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
     let (mut service, mut messages) = LspService::new(|client| {
         let mut cap = client_capture_clone.lock().unwrap();
         *cap = Some(client.clone());
-        Backend::new(client, Some(config), schema_path.to_str().unwrap())
+        Backend::new(client, config)
     });
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
@@ -193,7 +193,7 @@ async fn test_lsp_fragment_rename_same_project() {
         base_dir: base_dir.clone(),
     };
     let (mut service, mut messages) = LspService::new(|client| {
-        Backend::new(client, Some(config), schema_path.to_str().unwrap())
+        Backend::new(client, config)
     });
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
@@ -294,7 +294,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         base_dir: base_dir.clone(),
     };
     let (mut service, mut messages) = LspService::new(|client| {
-        Backend::new(client, Some(config), schema_a_path.to_str().unwrap())
+        Backend::new(client, config)
     });
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();

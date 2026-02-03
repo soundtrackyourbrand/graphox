@@ -5,51 +5,32 @@ use graphql_rust::{Config, DocumentLanguage, DocumentState};
 use std::path::PathBuf;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
-pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &str, verbose: bool) {
+pub async fn run_check(config: Config, verbose: bool) {
     let mut success = true;
-    if let Some(cfg) = config.clone() {
-        for project in cfg.projects {
-            let abs_includes: Vec<String> = project
-                .include
-                .patterns()
-                .iter()
-                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
-                .collect();
-            let abs_excludes: Vec<String> = project
-                .exclude
-                .as_ref()
-                .map(|e| e.patterns())
-                .unwrap_or_default()
-                .iter()
-                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
-                .collect();
+    let cfg = config.clone();
+    for project in cfg.projects {
+        let abs_includes: Vec<String> = project
+            .include
+            .patterns()
+            .iter()
+            .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+            .collect();
+        let abs_excludes: Vec<String> = project
+            .exclude
+            .as_ref()
+            .map(|e| e.patterns())
+            .unwrap_or_default()
+            .iter()
+            .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+            .collect();
 
-            println!("Checking project with schema: {}", project.schema.as_key());
-            if !execute_project_check(
-                &cfg.base_dir,
-                &project.schema,
-                &abs_includes,
-                &abs_excludes,
-                config.as_ref(),
-                verbose,
-            )
-            .await
-            {
-                success = false;
-            }
-        }
-    } else {
-        let include = if std::path::Path::new(scan_path).is_file() {
-            scan_path.to_string()
-        } else {
-            format!("{}/**/*", scan_path)
-        };
+        println!("Checking project: {}", project.include.as_key());
         if !execute_project_check(
-            std::path::Path::new("."),
-            &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
-            &[include],
-            &[],
-            None,
+            &cfg.base_dir,
+            &project.schema,
+            &abs_includes,
+            &abs_excludes,
+            &config,
             verbose,
         )
         .await
@@ -68,7 +49,7 @@ async fn execute_project_check(
     source: &graphql_rust::config::SchemaSource,
     include_patterns: &[String],
     exclude_patterns: &[String],
-    config: Option<&Config>,
+    config: &Config,
     verbose: bool,
 ) -> bool {
     let mut combined_text = String::new();
@@ -142,7 +123,8 @@ async fn execute_project_check(
             }
         }
 
-        let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments, config, verbose);
+        let diagnostics =
+            doc.get_semantic_diagnostics(&schema, &package_fragments, Some(config), verbose);
         if !diagnostics.is_empty() {
             let mut file_header_printed = false;
             let display_path = if let Some(root) = &doc.package_root {

@@ -1,12 +1,33 @@
 use tower_lsp::lsp_types::*;
-use graphql_rust::Backend;
+use graphql_rust::{Backend, Config, config::{ProjectConfig, SchemaSource, GlobPattern}};
 use tower_lsp::LspService;
 use tower_service::Service;
 use tower_lsp::jsonrpc::Request;
+use tempfile::tempdir;
+use std::fs;
+
+fn create_test_config(dir: &std::path::Path) -> Config {
+    let schema_path = dir.join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+    
+    Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: dir.to_path_buf(),
+        ..Config::new_empty()
+    }
+}
 
 #[tokio::test]
 async fn test_hover_fragment_spread() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -22,7 +43,7 @@ async fn test_hover_fragment_spread() {
     service.call(request).await.unwrap();
 
     // 1. Open file with fragment and spread
-    let uri = Url::parse("file:///hover.graphql").unwrap();
+    let uri = Url::from_file_path(dir.path().join("hover.graphql")).unwrap();
     let text = r#"
         fragment UserFields on User {
             id
@@ -50,8 +71,6 @@ async fn test_hover_fragment_spread() {
     service.call(request).await.unwrap();
 
     // 2. Request hover over 'UserFields' in the spread
-    // Line 8: "                ...UserFields"
-    // 16 spaces + 3 dots = 19. 'UserFields' starts at 19.
     let position = Position::new(8, 20);
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -92,8 +111,10 @@ async fn test_hover_fragment_spread() {
 
 #[tokio::test]
 async fn test_hover_schema_type() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, config)
     });
 
     // Initialize
@@ -112,7 +133,7 @@ async fn test_hover_schema_type() {
     service.call(request).await.unwrap();
 
     // 1. Open file
-    let uri = Url::parse("file:///hover_schema.graphql").unwrap();
+    let uri = Url::from_file_path(dir.path().join("hover_schema.graphql")).unwrap();
     let text = r#"
         query {
             users {
@@ -134,9 +155,6 @@ async fn test_hover_schema_type() {
         .finish();
     service.call(request).await.unwrap();
 
-    // 2. Request hover over 'users' which is a field returning [User!]
-    // Line 2: "            users {"
-    // 12 spaces. 'users' starts at 12.
     let position = Position::new(2, 13);
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -165,8 +183,30 @@ async fn test_hover_schema_type() {
 
 #[tokio::test]
 async fn test_hover_graphql_description() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, r#"
+        "This is a documented type"
+        type DocumentedType {
+            id: ID!
+        }
+        type Query { someField(arg: DocumentedType): ID }
+    "#).unwrap();
+    
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        ..Config::new_empty()
+    };
+
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, config)
     });
 
     // Initialize
@@ -184,16 +224,10 @@ async fn test_hover_graphql_description() {
         .finish();
     service.call(request).await.unwrap();
 
-    // 1. Open file with a documented type
-    let uri = Url::parse("file:///hover_desc.graphql").unwrap();
+    let uri = Url::from_file_path(dir.path().join("hover_desc.graphql")).unwrap();
     let text = r#"
-        "This is a documented type"
-        type DocumentedType {
-            id: ID!
-        }
-
         query {
-            someField(arg: DocumentedType): ID
+            someField(arg: { id: "1" }): ID
         }
     "#;
 
@@ -210,11 +244,19 @@ async fn test_hover_graphql_description() {
         .finish();
     service.call(request).await.unwrap();
 
-    // 2. Request hover over 'DocumentedType' in the definition
-    let position = Position::new(2, 15);
+    // Hover over 'someField' to see documentation of its argument type or field
+    // Actually the previous test hovered over type definition.
+    // Let's just open the schema itself.
+    let schema_uri = Url::from_file_path(&schema_path).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: schema_uri.clone(), language_id: "graphql".to_string(), version: 1, text: schema_text }
+    }).unwrap()).finish()).await.unwrap();
+
+    let position = Position::new(2, 15); // "type DocumentedType"
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            text_document: TextDocumentIdentifier { uri: schema_uri.clone() },
             position,
         },
         work_done_progress_params: Default::default(),
@@ -242,8 +284,10 @@ async fn test_hover_graphql_description() {
 
 #[tokio::test]
 async fn test_hover_schema_field() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, None, "tests/fixtures/simple_schema.graphql")
+        Backend::new(client, config)
     });
 
     // Initialize
@@ -262,7 +306,7 @@ async fn test_hover_schema_field() {
     service.call(request).await.unwrap();
 
     // 1. Open file
-    let uri = Url::parse("file:///hover_field.graphql").unwrap();
+    let uri = Url::from_file_path(dir.path().join("hover_field.graphql")).unwrap();
     let text = r#"
         query {
             users {
@@ -284,9 +328,6 @@ async fn test_hover_schema_field() {
         .finish();
     service.call(request).await.unwrap();
 
-    // 2. Request hover over 'id' which is a field of User
-    // Line 3: "                id"
-    // 16 spaces. 'id' starts at 16.
     let position = Position::new(3, 17);
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {

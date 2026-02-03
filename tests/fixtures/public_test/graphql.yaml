@@ -1,0 +1,5 @@
+projects:
+  - schema: "../simple_schema.graphql"
+    include: "pkg_a/**/*.graphql"
+  - schema: "../simple_schema.graphql"
+    include: "pkg_b/**/*.graphql"

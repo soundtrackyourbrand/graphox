@@ -1,5 +1,5 @@
 use tower_lsp::lsp_types::*;
-use graphql_rust::Backend;
+use graphql_rust::{Backend, Config, config::{ProjectConfig, SchemaSource, GlobPattern}};
 use tower_lsp::LspService;
 use tower_service::Service;
 use tower_lsp::jsonrpc::Request;
@@ -14,7 +14,22 @@ async fn test_goto_definition_cross_file() {
     // Create package.json to define a package root
     fs::write(base_dir.join("package.json"), "{}").unwrap();
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type Query { user: User } type User { id: ID! name: String }").unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: base_dir.to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // 0. Initialize
     let init_params = InitializeParams { ..Default::default() };

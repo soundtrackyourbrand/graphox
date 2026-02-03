@@ -4,27 +4,79 @@ use std::process::Command;
 #[test]
 fn test_cli_check_no_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_check_no_deprecations");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Copy schema and file
+    std::fs::copy(
+        "tests/fixtures/simple_schema.graphql",
+        temp_dir.join("schema.graphql"),
+    )
+    .unwrap();
+    std::fs::copy("tests/fixtures/component.ts", temp_dir.join("component.ts")).unwrap();
+
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "component.ts"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg("tests/fixtures/simple_schema.graphql")
+        .current_dir(&temp_dir)
         .arg("check")
-        .arg("tests/fixtures/component.ts") // Single file that has no deprecations
         .output()
         .expect("Failed to execute process");
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("No issues found."));
+
+    std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]
 fn test_cli_check_with_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_check_with_deprecations");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Copy schema and file
+    std::fs::copy(
+        "tests/fixtures/simple_schema.graphql",
+        temp_dir.join("schema.graphql"),
+    )
+    .unwrap();
+    std::fs::copy(
+        "tests/fixtures/deprecated.graphql",
+        temp_dir.join("deprecated.graphql"),
+    )
+    .unwrap();
+
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "deprecated.graphql"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg("tests/fixtures/simple_schema.graphql")
+        .current_dir(&temp_dir)
         .arg("check")
-        .arg("tests/fixtures/deprecated.graphql") // This file has one deprecation
         .output()
         .expect("Failed to execute process");
 
@@ -33,13 +85,24 @@ fn test_cli_check_with_deprecations() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Field 'oldField' is deprecated"));
     assert!(stdout.contains("Use username instead"));
+
+    std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]
 fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_ignore_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
+
+    std::fs::copy(
+        "tests/fixtures/simple_schema.graphql",
+        temp_dir.join("schema.graphql"),
+    )
+    .unwrap();
 
     let query_file = temp_dir.join("should_be_ignored.graphql");
     // This file has an error (unknown field)
@@ -48,11 +111,20 @@ fn test_cli_ignore_files() {
     let ignore_file = temp_dir.join(".graphqlignore");
     std::fs::write(&ignore_file, "should_be_ignored.graphql").unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg("tests/fixtures/simple_schema.graphql")
+        .current_dir(&temp_dir)
         .arg("check")
-        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
@@ -89,11 +161,20 @@ fn test_cli_codegen_error() {
     let query_file = temp_dir.join("query.graphql");
     std::fs::write(&query_file, "query { me { unknownField } }").unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
+        .current_dir(&temp_dir)
         .arg("codegen")
-        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
@@ -119,11 +200,20 @@ fn test_cli_codegen_invalid_schema() {
     let schema_file = temp_dir.join("schema.graphql");
     std::fs::write(&schema_file, "type Query { me: NonExistentType }").unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "*.graphql"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
+        .current_dir(&temp_dir)
         .arg("codegen")
-        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
@@ -157,12 +247,21 @@ fn test_cli_codegen_clean() {
     let query_file = temp_dir.join("query.graphql");
     std::fs::write(&query_file, "query { me { id name } }").unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+"#,
+    )
+    .unwrap();
+
     // 1. Run codegen
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
+        .current_dir(&temp_dir)
         .arg("codegen")
-        .arg(temp_dir.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
@@ -176,10 +275,8 @@ fn test_cli_codegen_clean() {
 
     // 2. Run codegen --clean
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
+        .current_dir(&temp_dir)
         .arg("codegen")
-        .arg(temp_dir.to_str().unwrap())
         .arg("--clean")
         .arg("--verbose")
         .output()
@@ -430,6 +527,9 @@ projects:
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
 
     // Create schema
@@ -479,6 +579,9 @@ projects:
 fn test_cli_config_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_output_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
 
     // Create schema
@@ -534,6 +637,9 @@ projects:
 fn test_cli_check_input_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_input_deprecations_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
 
     // Create schema with Deprecated Input and Deprecated Input Field
@@ -569,11 +675,20 @@ query Test($old: OldInput) {
     )
     .unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
+        .current_dir(&temp_dir)
         .arg("check")
-        .arg(query_file.to_str().unwrap())
         .output()
         .expect("Failed to execute process");
 
@@ -592,6 +707,9 @@ query Test($old: OldInput) {
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_schema_types_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
 
     let schema_fixture = "tests/fixtures/schema_types/schema.graphql";
@@ -651,6 +769,9 @@ schema_types:
 fn test_cli_custom_scalars() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_scalars_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
     std::fs::create_dir_all(&temp_dir).ok();
 
     // Create schema with custom scalar
@@ -736,11 +857,7 @@ scalars:
 
 #[test]
 fn test_cli_codegen_baselines() {
-    run_baseline_test(
-        "tests/fixtures/codegen",
-        "tests/baselines/codegen",
-        Some("tests/fixtures/simple_schema.graphql"),
-    );
+    run_baseline_test("tests/fixtures/codegen", "tests/baselines/codegen", None);
 }
 
 #[test]
@@ -784,7 +901,7 @@ fn test_cli_public_test_baselines() {
     run_baseline_test(
         "tests/fixtures/public_test",
         "tests/baselines/public_test",
-        Some("tests/fixtures/simple_schema.graphql"),
+        None,
     );
 }
 
@@ -806,7 +923,7 @@ fn test_cli_entrypoint_baselines() {
     );
 }
 
-fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path: Option<&str>) {
+fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new(fixture_dir_str);
     let baseline_dir = Path::new(baseline_dir_str);
@@ -820,10 +937,6 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path:
     std::fs::create_dir_all(&temp_dir).ok();
 
     let mut cmd = Command::new(bin_path);
-    if let Some(s) = schema_path {
-        let abs_schema = std::fs::canonicalize(s).expect("Failed to canonicalize schema path");
-        cmd.arg("--schema").arg(abs_schema);
-    }
 
     let output = cmd
         .arg("codegen")
@@ -847,6 +960,9 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path:
             let entry = entry.unwrap();
             let path = entry.path();
             if path.is_dir() {
+                if path.file_name().unwrap() == "gen" {
+                    continue;
+                }
                 stack.push(path);
                 continue;
             }

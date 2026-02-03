@@ -47,9 +47,9 @@ projects:
     include: "src/**/*.ts"
 "#).unwrap();
 
-    let config = Config::load_from_dir(dir.path());
+    let config = Config::load_from_dir(dir.path()).expect("Should load config");
     let (_service, _) = tower_lsp::LspService::new(|client| {
-        graphql_rust::Backend::new(client, config.clone(), "base.graphql")
+        graphql_rust::Backend::new(client, config.clone())
     });
     
     // Check if the backend loaded the merged schema

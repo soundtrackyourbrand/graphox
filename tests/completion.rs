@@ -1,12 +1,30 @@
 use tower_lsp::lsp_types::*;
-use graphql_rust::Backend;
+use graphql_rust::{Backend, Config, config::{ProjectConfig, SchemaSource, GlobPattern}};
 use tower_lsp::LspService;
 use tower_service::Service;
 use tower_lsp::jsonrpc::Request;
+use tempfile::tempdir;
+use std::fs;
 
 #[tokio::test]
 async fn test_completion_fields() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+    
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -21,7 +39,8 @@ async fn test_completion_fields() {
         .finish();
     service.call(request).await.unwrap();
 
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let query_path = dir.path().join("test.graphql");
+    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "query { users {  } }";
     
     let params = DidOpenTextDocumentParams {
@@ -64,7 +83,23 @@ async fn test_completion_fields() {
 
 #[tokio::test]
 async fn test_completion_variables() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { user(id: ID!): User } type User { id: ID! username: String! }").unwrap();
+    
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -79,8 +114,8 @@ async fn test_completion_variables() {
         .finish();
     service.call(request).await.unwrap();
 
-    // Use a REAL file path to avoid "source file not found" if tree-sitter or other parts try to read it
-    let uri = Url::from_file_path(std::fs::canonicalize("tests/fixtures/simple_schema.graphql").unwrap()).unwrap();
+    let query_path = dir.path().join("test.graphql");
+    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "query GetUser($userId: ID!) { user(id: $) }";
     
     let params = DidOpenTextDocumentParams {
@@ -123,7 +158,23 @@ async fn test_completion_variables() {
 
 #[tokio::test]
 async fn test_completion_fragment_spread() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+    
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -138,7 +189,8 @@ async fn test_completion_fragment_spread() {
         .finish();
     service.call(request).await.unwrap();
 
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let query_path = dir.path().join("test.graphql");
+    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "fragment MyFrag on User { id } query { users { ... } }";
     
     let params = DidOpenTextDocumentParams {
@@ -180,7 +232,23 @@ async fn test_completion_fragment_spread() {
 
 #[tokio::test]
 async fn test_completion_types_in_fragment() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, None, "tests/fixtures/simple_schema.graphql"));
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+    
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams { ..Default::default() };
@@ -195,7 +263,8 @@ async fn test_completion_types_in_fragment() {
         .finish();
     service.call(request).await.unwrap();
 
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let query_path = dir.path().join("test.graphql");
+    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "fragment MyFrag on  { id }";
     
     let params = DidOpenTextDocumentParams {
@@ -209,8 +278,6 @@ async fn test_completion_types_in_fragment() {
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
 
     // Request completions at "on |"
-    // text is "fragment MyFrag on  { id }"
-    // index of space after on is 18.
     let position = Position::new(0, 19); 
     let params = CompletionParams {
         text_document_position: TextDocumentPositionParams {

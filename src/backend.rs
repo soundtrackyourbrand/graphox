@@ -11,34 +11,26 @@ use crate::Config;
 pub struct Backend {
     pub client: Client,
     pub documents: DashMap<Url, DocumentState>,
-    pub config: Option<Config>,
+    pub config: Config,
     pub schemas: DashMap<String, Arc<Schema>>,
     pub empty_schema: Arc<Schema>,
-    pub default_schema_path: Option<String>,
 }
 
 impl Backend {
-    pub fn new(client: Client, config: Option<Config>, default_schema_path: &str) -> Self {
+    pub fn new(client: Client, config: Config) -> Self {
         let schemas = DashMap::new();
-        let empty_schema = Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
+        let empty_schema = Arc::new(
+            Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap(),
+        );
 
-        if let Some(cfg) = &config {
-            // Load project schemas from config
-            for project in &cfg.projects {
-                let key = project.schema.as_key();
-                if !schemas.contains_key(&key)
-                    && let Some(schema) = Self::load_schema_source(&cfg.base_dir, &project.schema)
-                {
-                    schemas.insert(key, schema);
-                }
+        // Load project schemas from config
+        for project in &config.projects {
+            let key = project.schema.as_key();
+            if !schemas.contains_key(&key)
+                && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema)
+            {
+                schemas.insert(key, schema);
             }
-        }
-
-        // Always try to load the CLI schema too, just in case it's used as fallback when no config is present
-        if let Ok(text) = std::fs::read_to_string(default_schema_path)
-            && let Ok(schema) = Schema::parse(&text, default_schema_path)
-        {
-            schemas.insert(default_schema_path.to_string(), Arc::new(schema));
         }
 
         Self {
@@ -47,7 +39,6 @@ impl Backend {
             config,
             schemas,
             empty_schema,
-            default_schema_path: Some(default_schema_path.to_string()),
         }
     }
 
@@ -67,18 +58,9 @@ impl Backend {
     }
 
     fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
-        if let Some(config) = &self.config {
-            if let Ok(path) = uri.to_file_path()
-                && let Some(schema_path) = config.get_schema_for_path(&path)
-                && let Some(schema) = self.schemas.get(&schema_path)
-            {
-                return schema.value().clone();
-            }
-            return self.empty_schema.clone();
-        }
-
-        if let Some(default_path) = &self.default_schema_path
-            && let Some(schema) = self.schemas.get(default_path)
+        if let Ok(path) = uri.to_file_path()
+            && let Some(schema_path) = self.config.get_schema_for_path(&path)
+            && let Some(schema) = self.schemas.get(&schema_path)
         {
             return schema.value().clone();
         }
@@ -102,40 +84,32 @@ impl Backend {
 
     async fn reload_schema(&self, changed_path: &str) {
         let mut sources_to_reload = Vec::new();
-        if let Some(cfg) = &self.config {
-            for project in &cfg.projects {
-                if project.schema.files().iter().any(|f| {
-                    let abs = cfg.base_dir.join(f);
-                    abs.to_string_lossy() == changed_path || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string()) == Some(changed_path.to_string())
-                }) {
-                    sources_to_reload.push(project.schema.clone());
-                }
-            }
-            if let Some(schema_types) = &cfg.schema_types {
-                for st in schema_types {
-                    if st.schema.files().iter().any(|f| {
-                        let abs = cfg.base_dir.join(f);
-                        abs.to_string_lossy() == changed_path || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string()) == Some(changed_path.to_string())
-                    }) {
-                        sources_to_reload.push(st.schema.clone());
-                    }
-                }
+        for project in &self.config.projects {
+            if project.schema.files().iter().any(|f| {
+                let abs = self.config.base_dir.join(f);
+                abs.to_string_lossy() == changed_path
+                    || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string())
+                        == Some(changed_path.to_string())
+            }) {
+                sources_to_reload.push(project.schema.clone());
             }
         }
-
-        if sources_to_reload.is_empty() && self.default_schema_path.as_ref().is_some_and(|p| p == changed_path) {
-            sources_to_reload.push(SchemaSource::Single(changed_path.to_string()));
+        if let Some(schema_types) = &self.config.schema_types {
+            for st in schema_types {
+                if st.schema.files().iter().any(|f| {
+                    let abs = self.config.base_dir.join(f);
+                    abs.to_string_lossy() == changed_path
+                        || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string())
+                            == Some(changed_path.to_string())
+                }) {
+                    sources_to_reload.push(st.schema.clone());
+                }
+            }
         }
 
         for source in sources_to_reload {
             let key = source.as_key();
-            let new_schema = if let Some(cfg) = &self.config {
-                Self::load_schema_source(&cfg.base_dir, &source)
-            } else {
-                std::fs::read_to_string(changed_path).ok().and_then(|text| {
-                    Schema::parse(&text, changed_path).ok().map(Arc::new)
-                })
-            };
+            let new_schema = Self::load_schema_source(&self.config.base_dir, &source);
 
             if let Some(new_schema) = new_schema {
                 self.schemas.insert(key.clone(), new_schema.clone());
@@ -149,22 +123,18 @@ impl Backend {
                     let doc = entry.value();
                     let doc_schema = self.get_schema_for_doc(uri);
                     if let Ok(doc_path) = uri.to_file_path() {
-                        let matches = if let Some(config) = &self.config {
-                            config.get_schema_for_path(&doc_path).is_some_and(|p| p.as_str() == key.as_str())
-                        } else {
-                            self.default_schema_path.as_ref().is_some_and(|p| p.as_str() == key.as_str())
-                        };
-
-                        if matches {
+                        if self
+                            .config
+                            .get_schema_for_path(&doc_path)
+                            .is_some_and(|p| p.as_str() == key.as_str())
+                        {
                             let fragments = self.get_fragments_for_doc(doc);
                             let diagnostics = doc.get_semantic_diagnostics(
                                 &doc_schema,
                                 &fragments,
-                                self.config.as_ref(),
+                                Some(&self.config),
                                 false,
                             );
-                            // We can't await while holding the DashMap lock.
-                            // Collect diagnostics and publish them later.
                             to_publish.push((uri.clone(), diagnostics));
                         }
                     }
@@ -224,35 +194,23 @@ impl LanguageServer for Backend {
             .await;
 
         let mut watchers = Vec::new();
-        if let Some(cfg) = &self.config {
-            let mut schema_files = FnvHashSet::default();
-            for project in &cfg.projects {
-                for file in project.schema.files() {
+        let mut schema_files = FnvHashSet::default();
+        for project in &self.config.projects {
+            for file in project.schema.files() {
+                schema_files.insert(file);
+            }
+        }
+        if let Some(schema_types) = &self.config.schema_types {
+            for st in schema_types {
+                for file in st.schema.files() {
                     schema_files.insert(file);
                 }
             }
-            if let Some(schema_types) = &cfg.schema_types {
-                for st in schema_types {
-                    for file in st.schema.files() {
-                        schema_files.insert(file);
-                    }
-                }
-            }
+        }
 
-            for file in schema_files {
-                watchers.push(FileSystemWatcher {
-                    glob_pattern: GlobPattern::String(file),
-                    kind: Some(WatchKind::all()),
-                });
-            }
-        } else if let Some(default_path) = &self.default_schema_path {
+        for file in schema_files {
             watchers.push(FileSystemWatcher {
-                glob_pattern: GlobPattern::String(default_path.clone()),
-                kind: Some(WatchKind::all()),
-            });
-        } else {
-            watchers.push(FileSystemWatcher {
-                glob_pattern: GlobPattern::String("**/*.graphql".to_string()),
+                glob_pattern: GlobPattern::String(file),
                 kind: Some(WatchKind::all()),
             });
         }
@@ -347,7 +305,7 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -362,7 +320,7 @@ impl LanguageServer for Backend {
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
+                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 
@@ -425,7 +383,7 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -440,7 +398,7 @@ impl LanguageServer for Backend {
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
+                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 

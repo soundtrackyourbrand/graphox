@@ -45,7 +45,7 @@ async fn test_lsp_multi_schema_support() {
     };
 
     let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, Some(config), base_path.to_str().unwrap())
+        Backend::new(client, config)
     });
 
     // Initialize

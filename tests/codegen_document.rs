@@ -25,11 +25,19 @@ fn test_codegen_document_node() {
     )
     .unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.ts"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
         .arg("codegen")
-        .arg(query_file.to_str().unwrap())
         .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
@@ -94,11 +102,19 @@ fn test_codegen_aliases_and_enums() {
     )
     .unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.ts"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
         .arg("codegen")
-        .arg(query_file.to_str().unwrap())
         .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
@@ -160,11 +176,19 @@ fn test_codegen_document_node_no_vars() {
     )
     .unwrap();
 
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.ts"
+"#,
+    )
+    .unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg(schema_file.to_str().unwrap())
         .arg("codegen")
-        .arg(query_file.to_str().unwrap())
         .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");

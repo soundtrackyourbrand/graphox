@@ -19,24 +19,21 @@ struct CodegenParams<'a> {
 }
 
 pub async fn run_codegen(
-    config: Option<Config>,
-    schema_path: &str,
-    scan_path: &str,
+    config: Config,
     output_dir: Option<&str>,
     watch: bool,
     verbose: bool,
     clean: bool,
 ) {
     if !watch {
-        if !execute_codegen(config, schema_path, scan_path, output_dir, verbose, clean).await {
+        if !execute_codegen(config, output_dir, verbose, clean).await {
             std::process::exit(1);
         }
         return;
     }
 
     println!("Watching for changes...");
-    let _ =
-        execute_codegen(config.clone(), schema_path, scan_path, output_dir, verbose, false).await;
+    let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
@@ -51,49 +48,55 @@ pub async fn run_codegen(
     )
     .expect("Failed to create debouncer");
 
-    debouncer
-        .watcher()
-        .watch(Path::new(scan_path), notify::RecursiveMode::Recursive)
-        .expect("Failed to watch directory");
+    // Watch project include directories
+    for project in &config.projects {
+        for pattern in project.include.patterns() {
+            // This is a simplification, ideally we'd find the common parent
+            let path = config.base_dir.join(pattern);
+            let watch_path = if path.to_string_lossy().contains('*') {
+                // Find first non-glob parent
+                let mut p = path.clone();
+                while p.to_string_lossy().contains('*') {
+                    if !p.pop() { break; }
+                }
+                p
+            } else {
+                path
+            };
+            debouncer
+                .watcher()
+                .watch(&watch_path, notify::RecursiveMode::Recursive)
+                .ok();
+        }
+    }
 
-    if let Some(cfg) = &config {
-        for project in &cfg.projects {
-            for file in project.schema.files() {
+    for project in &config.projects {
+        for file in project.schema.files() {
+            debouncer
+                .watcher()
+                .watch(&config.base_dir.join(file), notify::RecursiveMode::NonRecursive)
+                .ok();
+        }
+    }
+    if let Some(schema_types) = &config.schema_types {
+        for st in schema_types {
+            for file in st.schema.files() {
                 debouncer
                     .watcher()
-                    .watch(&cfg.base_dir.join(file), notify::RecursiveMode::NonRecursive)
+                    .watch(&config.base_dir.join(file), notify::RecursiveMode::NonRecursive)
                     .ok();
             }
         }
-        if let Some(schema_types) = &cfg.schema_types {
-            for st in schema_types {
-                for file in st.schema.files() {
-                    debouncer
-                        .watcher()
-                        .watch(&cfg.base_dir.join(file), notify::RecursiveMode::NonRecursive)
-                        .ok();
-                }
-            }
-        }
-    } else {
-        debouncer
-            .watcher()
-            .watch(Path::new(schema_path), notify::RecursiveMode::NonRecursive)
-            .expect("Failed to watch schema");
     }
 
     while rx.recv().await.is_some() {
         println!("\nChange detected, re-running codegen...");
-        let _ =
-            execute_codegen(config.clone(), schema_path, scan_path, output_dir, verbose, false)
-                .await;
+        let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
     }
 }
 
 async fn execute_codegen(
-    config: Option<Config>,
-    schema_path: &str,
-    scan_path: &str,
+    config: Config,
     output_dir: Option<&str>,
     verbose: bool,
     clean: bool,
@@ -101,33 +104,7 @@ async fn execute_codegen(
     let mut success = true;
     let mut all_generated_operations = Vec::new();
 
-    let cfg = if let Some(c) = config {
-        c
-    } else {
-        let include_glob = if std::path::Path::new(scan_path).is_file() {
-            scan_path.to_string()
-        } else if scan_path == "." || scan_path == "./" {
-            "**/*".to_string()
-        } else {
-            format!("{}/**/*", scan_path)
-        };
-
-        Config {
-            projects: vec![graphql_rust::config::ProjectConfig {
-                schema: SchemaSource::Single(schema_path.to_string()),
-                include: graphql_rust::config::GlobPattern::Single(include_glob),
-                exclude: None,
-                output_dir: None,
-                import: None,
-            }],
-            output_dir: None,
-            schema_types: None,
-            scalars: None,
-            ignore_deprecations: None,
-            generate_ast_for_fragments: None,
-            base_dir: PathBuf::from("."),
-        }
-    };
+    let cfg = config;
 
     let workspace_metadata = Engine::scan_workspace(&cfg);
     let global_metadata = &workspace_metadata.fragments;

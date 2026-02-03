@@ -79,11 +79,26 @@ pub struct SchemaTypeConfig {
 }
 
 impl Config {
-    pub fn load() -> Option<Self> {
-        let mut curr = std::env::current_dir().ok()?;
+    pub fn new_empty() -> Self {
+        Self {
+            output_dir: None,
+            projects: vec![],
+            schema_types: None,
+            scalars: None,
+            ignore_deprecations: None,
+            generate_ast_for_fragments: None,
+            base_dir: PathBuf::from("."),
+        }
+    }
+
+    pub fn load() -> Self {
+        let mut curr = std::env::current_dir().unwrap_or_else(|e| {
+            eprintln!("Error: Failed to get current directory: {}", e);
+            std::process::exit(1);
+        });
         loop {
             if let Some(config) = Self::load_from_dir(&curr) {
-                return Some(config);
+                return config;
             }
             if let Some(parent) = curr.parent() {
                 curr = parent.to_path_buf();
@@ -91,7 +106,8 @@ impl Config {
                 break;
             }
         }
-        None
+        eprintln!("Error: No graphql.yaml or graphql.yml found in current or parent directories. This tool requires a configuration file to run.");
+        std::process::exit(1);
     }
 
     pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Option<Self> {
@@ -237,13 +253,6 @@ projects:
     }
 
     #[test]
-    fn test_no_config() {
-        let dir = tempdir().unwrap();
-        let config = Config::load_from_dir(dir.path());
-        assert!(config.is_none());
-    }
-
-    #[test]
     fn test_load_parent_dir() {
         let dir = tempdir().unwrap();
         let parent_dir = dir.path().join("parent");
@@ -271,7 +280,6 @@ projects:
         // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
 
-        let config = config.expect("Should find config in parent directory");
         assert_eq!(config.projects.len(), 1);
         assert_eq!(config.projects[0].schema.as_key(), "s.graphql");
 

@@ -12,10 +12,6 @@ use graphql_rust::Config;
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-
-    /// Path to the GraphQL schema file
-    #[arg(short, long, default_value = "schema.graphql")]
-    schema: String,
 }
 
 #[derive(Subcommand)]
@@ -67,22 +63,22 @@ async fn main() {
 
     match cli.command {
         Some(Commands::Lsp) | None => {
-            run_lsp(config, &cli.schema).await;
+            run_lsp(config).await;
         }
-        Some(Commands::Check { path, verbose }) => {
-            run_check(config, &cli.schema, &path, verbose).await;
+        Some(Commands::Check { path: _, verbose }) => {
+            run_check(config, verbose).await;
         }
         Some(Commands::Codegen {
-            path,
+            path: _,
             output,
             watch,
             verbose,
             clean,
         }) => {
-            run_codegen(config, &cli.schema, &path, output.as_deref(), watch, verbose, clean).await;
+            run_codegen(config, output.as_deref(), watch, verbose, clean).await;
         }
-        Some(Commands::Benchmark { path, verbose }) => {
-            run_benchmark(config, &cli.schema, &path, verbose).await;
+        Some(Commands::Benchmark { path: _, verbose }) => {
+            run_benchmark(config, verbose).await;
         }
     }
 }
