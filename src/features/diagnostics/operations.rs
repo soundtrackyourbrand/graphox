@@ -1,7 +1,6 @@
 use super::ValidationContext;
 use crate::document::DocumentState;
 use apollo_compiler::ast::OperationType;
-use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 impl DocumentState {
@@ -71,14 +70,13 @@ impl DocumentState {
                                 .and_then(|arg| arg.as_str())
                                 .unwrap_or("No reason provided");
 
-                            if !self.is_deprecation_ignored(reason, ctx.config) {
-                                ctx.diagnostics.push(Diagnostic {
-                                    range: self.translate_to_file_range(child, offset),
-                                    severity: Some(DiagnosticSeverity::WARNING),
-                                    message: format!("Type '{}' is deprecated: {}", type_name, reason),
-                                    ..Default::default()
-                                });
-                            }
+                            self.add_deprecation_diagnostic(
+                                ctx,
+                                child,
+                                offset,
+                                format!("Type '{}' is deprecated: {}", type_name, reason),
+                                reason,
+                            );
                         }
                     }
                 }

@@ -137,6 +137,147 @@ fn test_cli_codegen_invalid_schema() {
 }
 
 #[test]
+fn test_cli_codegen_clean() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_clean_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // Create query
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(&query_file, "query { me { id name } }").unwrap();
+
+    // 1. Run codegen
+    let output = Command::new(bin_path)
+        .arg("--schema")
+        .arg(schema_file.to_str().unwrap())
+        .arg("codegen")
+        .arg(temp_dir.to_str().unwrap())
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let gen_file = temp_dir.join("query.codegen.ts");
+    assert!(gen_file.exists());
+
+    // 2. Run codegen --clean
+    let output = Command::new(bin_path)
+        .arg("--schema")
+        .arg(schema_file.to_str().unwrap())
+        .arg("codegen")
+        .arg(temp_dir.to_str().unwrap())
+        .arg("--clean")
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen clean failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !gen_file.exists(),
+        "Generated file should have been removed"
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Removed"));
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
+fn test_cli_check_verbose_ignored_deprecations() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_check_verbose_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema with deprecation
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        r#"
+type Query {
+  oldField: String @deprecated(reason: "Use newField instead")
+  newField: String
+}
+"#,
+    )
+    .unwrap();
+
+    // Create config that ignores it
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+ignore_deprecations:
+  - "Use newField.*"
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    // Create query using deprecated field
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(&query_file, "query { oldField }").unwrap();
+
+    // 1. Run check normally (should succeed with no output)
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("check")
+        .output()
+        .expect("Failed to execute process");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Check failed. STDOUT: {}, STDERR: {}",
+        stdout,
+        stderr
+    );
+    assert!(stdout.contains("No issues found."));
+
+    // 2. Run check --verbose (should succeed but show ignored deprecation)
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("check")
+        .arg("--verbose")
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Check verbose failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[Ignored] Field 'oldField' is deprecated"));
+    assert!(stdout.contains("Info"));
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_test");

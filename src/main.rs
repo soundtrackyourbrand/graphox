@@ -27,6 +27,9 @@ enum Commands {
         /// Directory to scan
         #[arg(default_value = ".")]
         path: String,
+        /// Show ignored deprecations
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Generate TypeScript types for operations and fragments
     Codegen {
@@ -39,6 +42,9 @@ enum Commands {
         /// Watch for changes and re-run codegen
         #[arg(short, long)]
         watch: bool,
+        /// Remove all created codegen files
+        #[arg(long)]
+        clean: bool,
     },
     /// Benchmark codegen performance
     Benchmark {
@@ -60,15 +66,16 @@ async fn main() {
         Some(Commands::Lsp) | None => {
             run_lsp(config, &cli.schema).await;
         }
-        Some(Commands::Check { path }) => {
-            run_check(config, &cli.schema, &path).await;
+        Some(Commands::Check { path, verbose }) => {
+            run_check(config, &cli.schema, &path, verbose).await;
         }
         Some(Commands::Codegen {
             path,
             output,
             watch,
+            clean,
         }) => {
-            run_codegen(config, &cli.schema, &path, output.as_deref(), watch).await;
+            run_codegen(config, &cli.schema, &path, output.as_deref(), watch, clean).await;
         }
         Some(Commands::Benchmark { path, verbose }) => {
             run_benchmark(config, &cli.schema, &path, verbose).await;

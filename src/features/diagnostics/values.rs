@@ -1,7 +1,6 @@
 use super::ValidationContext;
 use crate::document::DocumentState;
 use apollo_compiler::schema::{ExtendedType, FieldDefinition};
-use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 impl DocumentState {
@@ -40,17 +39,13 @@ impl DocumentState {
                                 .and_then(|arg| arg.as_str())
                                 .unwrap_or("No reason provided");
 
-                            if !self.is_deprecation_ignored(reason, ctx.config) {
-                                ctx.diagnostics.push(Diagnostic {
-                                    range: self.translate_to_file_range(name_node, offset),
-                                    severity: Some(DiagnosticSeverity::WARNING),
-                                    message: format!(
-                                        "Argument '{}' is deprecated: {}",
-                                        arg_name, reason
-                                    ),
-                                    ..Default::default()
-                                });
-                            }
+                            self.add_deprecation_diagnostic(
+                                ctx,
+                                name_node,
+                                offset,
+                                format!("Argument '{}' is deprecated: {}", arg_name, reason),
+                                reason,
+                            );
                         }
 
                         if let Some(v_node) = value_node {
@@ -106,17 +101,13 @@ impl DocumentState {
                                             .and_then(|arg| arg.as_str())
                                             .unwrap_or("No reason provided");
 
-                                        if !self.is_deprecation_ignored(reason, ctx.config) {
-                                            ctx.diagnostics.push(Diagnostic {
-                                                range: self.translate_to_file_range(name_node, offset),
-                                                severity: Some(DiagnosticSeverity::WARNING),
-                                                message: format!(
-                                                    "Input field '{}' is deprecated: {}",
-                                                    field_name, reason
-                                                ),
-                                                ..Default::default()
-                                            });
-                                        }
+                                        self.add_deprecation_diagnostic(
+                                            ctx,
+                                            name_node,
+                                            offset,
+                                            format!("Input field '{}' is deprecated: {}", field_name, reason),
+                                            reason,
+                                        );
                                     }
 
                                     if let Some(v_node) = value_node {
@@ -153,17 +144,13 @@ impl DocumentState {
                             .and_then(|arg| arg.as_str())
                             .unwrap_or("No reason provided");
 
-                        if !self.is_deprecation_ignored(reason, ctx.config) {
-                            ctx.diagnostics.push(Diagnostic {
-                                range: self.translate_to_file_range(node, offset),
-                                severity: Some(DiagnosticSeverity::WARNING),
-                                message: format!(
-                                    "Enum value '{}' is deprecated: {}",
-                                    value_name, reason
-                                ),
-                                ..Default::default()
-                            });
-                        }
+                        self.add_deprecation_diagnostic(
+                            ctx,
+                            node,
+                            offset,
+                            format!("Enum value '{}' is deprecated: {}", value_name, reason),
+                            reason,
+                        );
                     }
                 }
             }

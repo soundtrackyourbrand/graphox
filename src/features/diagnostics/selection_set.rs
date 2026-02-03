@@ -81,14 +81,13 @@ impl DocumentState {
                         .and_then(|arg| arg.as_str())
                         .unwrap_or("No reason provided");
 
-                    if !self.is_deprecation_ignored(reason, ctx.config) {
-                        ctx.diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(name_node, offset),
-                            severity: Some(DiagnosticSeverity::WARNING),
-                            message: format!("Field '{}' is deprecated: {}", field_name, reason),
-                            ..Default::default()
-                        });
-                    }
+                    self.add_deprecation_diagnostic(
+                        ctx,
+                        name_node,
+                        offset,
+                        format!("Field '{}' is deprecated: {}", field_name, reason),
+                        reason,
+                    );
                 }
 
                 if let Some(args_node) = arguments_node {

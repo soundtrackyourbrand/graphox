@@ -5,7 +5,7 @@ use graphql_rust::{Config, DocumentLanguage, DocumentState};
 use std::path::PathBuf;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
-pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &str) {
+pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &str, verbose: bool) {
     let mut success = true;
     if let Some(cfg) = config.clone() {
         for project in cfg.projects {
@@ -31,6 +31,7 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
                 &abs_includes,
                 &abs_excludes,
                 config.as_ref(),
+                verbose,
             )
             .await
             {
@@ -49,6 +50,7 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
             &[include],
             &[],
             None,
+            verbose,
         )
         .await
         {
@@ -67,6 +69,7 @@ async fn execute_project_check(
     include_patterns: &[String],
     exclude_patterns: &[String],
     config: Option<&Config>,
+    verbose: bool,
 ) -> bool {
     let mut combined_text = String::new();
     for file in source.files() {
@@ -139,36 +142,56 @@ async fn execute_project_check(
             }
         }
 
-        let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments, config);
+        let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments, config, verbose);
         if !diagnostics.is_empty() {
-            found_any = true;
+            let mut file_header_printed = false;
             let display_path = if let Some(root) = &doc.package_root {
                 path.strip_prefix(root).unwrap_or(path)
             } else {
                 path
             };
-            println!("\nFile: {}", display_path.display());
+
             for d in diagnostics {
-                let severity = match d.severity {
-                    Some(DiagnosticSeverity::ERROR) => "Error",
-                    Some(DiagnosticSeverity::WARNING) => "Warning",
-                    Some(DiagnosticSeverity::INFORMATION) => "Info",
-                    Some(DiagnosticSeverity::HINT) => "Hint",
-                    _ => "Diagnostic",
-                };
-                println!(
-                    "  [{}:{}] {}: {}",
-                    d.range.start.line + 1,
-                    d.range.start.character + 1,
-                    severity,
-                    d.message
+                let is_issue = matches!(
+                    d.severity,
+                    Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
                 );
+
+                if is_issue || verbose {
+                    if is_issue {
+                        found_any = true;
+                    }
+
+                    if !file_header_printed {
+                        println!("\nFile: {}", display_path.display());
+                        file_header_printed = true;
+                    }
+
+                    let severity = match d.severity {
+                        Some(DiagnosticSeverity::ERROR) => "Error",
+                        Some(DiagnosticSeverity::WARNING) => "Warning",
+                        Some(DiagnosticSeverity::INFORMATION) => "Info",
+                        Some(DiagnosticSeverity::HINT) => "Hint",
+                        _ => "Diagnostic",
+                    };
+                    println!(
+                        "  [{}:{}] {}: {}",
+                        d.range.start.line + 1,
+                        d.range.start.character + 1,
+                        severity,
+                        d.message
+                    );
+                }
             }
         }
     }
 
     if !found_any {
-        println!("No issues found.");
+        if verbose {
+            println!("\nScan complete.");
+        } else {
+            println!("No issues found.");
+        }
         true
     } else {
         false

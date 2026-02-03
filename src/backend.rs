@@ -161,6 +161,7 @@ impl Backend {
                                 &doc_schema,
                                 &fragments,
                                 self.config.as_ref(),
+                                false,
                             );
                             // We can't await while holding the DashMap lock.
                             // Collect diagnostics and publish them later.
@@ -346,7 +347,7 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -361,7 +362,7 @@ impl LanguageServer for Backend {
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
+                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 
@@ -424,7 +425,7 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -439,7 +440,7 @@ impl LanguageServer for Backend {
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
+                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref(), false);
             to_publish.push((other_uri.clone(), diagnostics));
         }
 

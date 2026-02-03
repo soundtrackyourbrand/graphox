@@ -16,6 +16,7 @@ pub(super) struct ValidationContext<'a> {
     pub all_fragments: &'a [String],
     pub diagnostics: &'a mut Vec<Diagnostic>,
     pub config: Option<&'a Config>,
+    pub include_ignored: bool,
 }
 
 impl DocumentState {
@@ -24,6 +25,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         config: Option<&Config>,
+        verbose: bool,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -45,13 +47,22 @@ impl DocumentState {
                     "doc.graphql",
                 );
                 if let Err(with_errors) = doc_res {
-                    // DiagnosticList usually has a Display implementation that lists all errors
-                    diagnostics.push(Diagnostic {
-                        range: self.translate_to_file_range(block.tree.root_node(), offset),
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        message: format!("GraphQL Parse Error: {}", with_errors.errors),
-                        ..Default::default()
-                    });
+                    // Only report parser errors if they are not about schema definitions in executable docs
+                    // (because the tool currently scans schema files too)
+                    let reportable_errors: Vec<_> = with_errors
+                        .errors
+                        .iter()
+                        .filter(|e| !e.to_string().contains("must not contain"))
+                        .collect();
+
+                    if !reportable_errors.is_empty() {
+                        diagnostics.push(Diagnostic {
+                            range: self.translate_to_file_range(block.tree.root_node(), offset),
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: format!("GraphQL Parse Error: {}", with_errors.errors),
+                            ..Default::default()
+                        });
+                    }
                 }
             }
 
@@ -61,6 +72,7 @@ impl DocumentState {
                 all_fragments,
                 diagnostics: &mut diagnostics,
                 config,
+                include_ignored: verbose,
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);
@@ -108,6 +120,31 @@ impl DocumentState {
             }
         }
         false
+    }
+
+    pub(super) fn add_deprecation_diagnostic(
+        &self,
+        ctx: &mut ValidationContext,
+        node: Node,
+        offset: usize,
+        message: String,
+        reason: &str,
+    ) {
+        if !self.is_deprecation_ignored(reason, ctx.config) {
+            ctx.diagnostics.push(Diagnostic {
+                range: self.translate_to_file_range(node, offset),
+                severity: Some(DiagnosticSeverity::WARNING),
+                message,
+                ..Default::default()
+            });
+        } else if ctx.include_ignored {
+            ctx.diagnostics.push(Diagnostic {
+                range: self.translate_to_file_range(node, offset),
+                severity: Some(DiagnosticSeverity::INFORMATION),
+                message: format!("[Ignored] {}", message),
+                ..Default::default()
+            });
+        }
     }
 
     fn collect_gql_errors(

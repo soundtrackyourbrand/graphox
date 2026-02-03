@@ -41,8 +41,18 @@ pub fn generate_typescript(
             .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
             .to_string();
 
-        let exec_doc = executable::ExecutableDocument::parse(&valid_schema, &block_text, "doc.graphql")
-            .map_err(|e| format!("Failed to parse GraphQL block: {}", e))?;
+        let exec_doc = match executable::ExecutableDocument::parse(&valid_schema, &block_text, "doc.graphql") {
+            Ok(d) => d,
+            Err(e) => {
+                let error_str = e.to_string();
+                if error_str.contains("must not contain") {
+                    // It's a schema definition, skip it
+                    continue;
+                }
+                // It's a real error in an executable doc
+                return Err(format!("Failed to parse GraphQL block: {}", e));
+            }
+        };
 
         if !exec_doc.operations.is_empty() {
             has_operations = true;
@@ -211,6 +221,10 @@ pub fn generate_typescript(
     }
 
     output.push_str(&bodies);
+
+    if bodies.is_empty() {
+        return Err("No executable operations or fragments found in this file".to_string());
+    }
 
     Ok(output)
 }

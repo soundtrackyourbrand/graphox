@@ -24,16 +24,17 @@ pub async fn run_codegen(
     scan_path: &str,
     output_dir: Option<&str>,
     watch: bool,
+    clean: bool,
 ) {
     if !watch {
-        if !execute_codegen(config, schema_path, scan_path, output_dir).await {
+        if !execute_codegen(config, schema_path, scan_path, output_dir, clean).await {
             std::process::exit(1);
         }
         return;
     }
 
     println!("Watching for changes...");
-    execute_codegen(config.clone(), schema_path, scan_path, output_dir).await;
+    execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
@@ -81,7 +82,7 @@ pub async fn run_codegen(
 
     while rx.recv().await.is_some() {
         println!("\nChange detected, re-running codegen...");
-        execute_codegen(config.clone(), schema_path, scan_path, output_dir).await;
+        execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
     }
 }
 
@@ -90,6 +91,7 @@ async fn execute_codegen(
     schema_path: &str,
     scan_path: &str,
     output_dir: Option<&str>,
+    clean: bool,
 ) -> bool {
     let mut success = true;
     if let Some(cfg) = &config {
@@ -186,19 +188,22 @@ async fn execute_codegen(
                 }
             }
 
-            if !execute_project_codegen(CodegenParams {
-                base_dir: &cfg.base_dir,
-                source: &project.schema,
-                include_patterns: &abs_includes,
-                exclude_patterns: &abs_excludes,
-                output_dir: project_output_dir,
-                scalars: &cfg.scalars,
-                schema_import: &schema_import,
-                fragment_to_path: &fragment_to_path,
-                fragment_to_import: &fragment_to_import,
-                all_fragments: &all_fragments,
-                global_metadata: &global_metadata,
-            })
+            if !execute_project_codegen(
+                CodegenParams {
+                    base_dir: &cfg.base_dir,
+                    source: &project.schema,
+                    include_patterns: &abs_includes,
+                    exclude_patterns: &abs_excludes,
+                    output_dir: project_output_dir,
+                    scalars: &cfg.scalars,
+                    schema_import: &schema_import,
+                    fragment_to_path: &fragment_to_path,
+                    fragment_to_import: &fragment_to_import,
+                    all_fragments: &all_fragments,
+                    global_metadata: &global_metadata,
+                },
+                clean,
+            )
             .await
             {
                 success = false;
@@ -208,16 +213,27 @@ async fn execute_codegen(
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
                 let abs_output = cfg.base_dir.join(&st.output);
-                println!("Generating types for schema: {}", st.schema.as_key());
-                if !execute_schema_codegen(
-                    &cfg.base_dir,
-                    &st.schema,
-                    &abs_output.to_string_lossy(),
-                    &cfg.scalars,
-                )
-                .await
-                {
-                    success = false;
+                if clean {
+                    if abs_output.exists() {
+                        if let Err(e) = std::fs::remove_file(&abs_output) {
+                            eprintln!("Failed to remove {}: {}", abs_output.display(), e);
+                            success = false;
+                        } else {
+                            println!("Removed: {}", abs_output.display());
+                        }
+                    }
+                } else {
+                    println!("Generating types for schema: {}", st.schema.as_key());
+                    if !execute_schema_codegen(
+                        &cfg.base_dir,
+                        &st.schema,
+                        &abs_output.to_string_lossy(),
+                        &cfg.scalars,
+                    )
+                    .await
+                    {
+                        success = false;
+                    }
                 }
             }
         }
@@ -229,8 +245,12 @@ async fn execute_codegen(
         let schema = match Schema::parse(&schema_text, schema_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Failed to parse schema {}: {}", schema_path, e);
-                return false;
+                if !clean {
+                    eprintln!("Failed to parse schema {}: {}", schema_path, e);
+                    return false;
+                }
+                // If clean, we might not care about schema parsing if we just want to delete files
+                Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap()
             }
         };
 
@@ -244,27 +264,61 @@ async fn execute_codegen(
                 } else {
                     format!("{}/**/*", scan_path)
                 };
-                if !execute_project_codegen(CodegenParams {
-                    base_dir: Path::new("."),
-                    source: &SchemaSource::Single(schema_path.to_string()),
-                    include_patterns: &[include_glob],
-                    exclude_patterns: &[],
-                    output_dir,
-                    scalars: &None,
-                    schema_import: &None,
-                    fragment_to_path: &fragment_map,
-                    fragment_to_import: &HashMap::default(),
-                    all_fragments: &all_fragments,
-                    global_metadata: &[],
-                })
+                if !execute_project_codegen(
+                    CodegenParams {
+                        base_dir: Path::new("."),
+                        source: &SchemaSource::Single(schema_path.to_string()),
+                        include_patterns: &[include_glob],
+                        exclude_patterns: &[],
+                        output_dir,
+                        scalars: &None,
+                        schema_import: &None,
+                        fragment_to_path: &fragment_map,
+                        fragment_to_import: &HashMap::default(),
+                        all_fragments: &all_fragments,
+                        global_metadata: &[],
+                    },
+                    clean,
+                )
                 .await
                 {
                     success = false;
                 }
             }
             Err(e) => {
-                eprintln!("Schema validation failed for {}: {}", schema_path, e);
-                success = false;
+                if !clean {
+                    eprintln!("Schema validation failed for {}: {}", schema_path, e);
+                    success = false;
+                } else {
+                    // Try to clean without valid schema
+                    let include_glob = if std::path::Path::new(scan_path).is_file() {
+                        scan_path.to_string()
+                    } else if scan_path == "." || scan_path == "./" {
+                        "**/*".to_string()
+                    } else {
+                        format!("{}/**/*", scan_path)
+                    };
+                    if !execute_project_codegen(
+                        CodegenParams {
+                            base_dir: Path::new("."),
+                            source: &SchemaSource::Single(schema_path.to_string()),
+                            include_patterns: &[include_glob],
+                            exclude_patterns: &[],
+                            output_dir,
+                            scalars: &None,
+                            schema_import: &None,
+                            fragment_to_path: &fragment_map,
+                            fragment_to_import: &HashMap::default(),
+                            all_fragments: &HashMap::default(),
+                            global_metadata: &[],
+                        },
+                        clean,
+                    )
+                    .await
+                    {
+                        success = false;
+                    }
+                }
             }
         }
     }
@@ -299,59 +353,43 @@ async fn execute_schema_codegen(
     true
 }
 
-async fn execute_project_codegen(params: CodegenParams<'_>) -> bool {
+async fn execute_project_codegen(params: CodegenParams<'_>, clean: bool) -> bool {
     let mut success = true;
-    let schema = match Engine::load_schema(params.base_dir, params.source) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{}", e);
-            return false;
-        }
-    };
-
-    let paths =
-        graphql_rust::utils::get_project_files(params.include_patterns, params.exclude_patterns);
-
-    let mut docs = Vec::new();
-    for path in paths {
-        if let Some(doc) = Engine::parse_doc(&path)
-            && !doc.get_graphql_trees().is_empty()
-        {
-            docs.push((path, doc));
-        }
-    }
-
-    for (path, doc) in &docs {
-        let ctx = graphql_rust::features::codegen::CodegenContext {
-            schema: &schema,
-            fragment_to_path: params.fragment_to_path,
-            fragment_to_import: params.fragment_to_import,
-            all_fragments: params.all_fragments,
-            current_file_path: path,
-            scalars: params.scalars,
-            schema_import: params.schema_import,
+    if !clean {
+        let schema = match Engine::load_schema(params.base_dir, params.source) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{}", e);
+                return false;
+            }
         };
+
+        let paths =
+            graphql_rust::utils::get_project_files(params.include_patterns, params.exclude_patterns);
+
+        let mut docs = Vec::new();
+        for path in paths {
+            if let Some(doc) = Engine::parse_doc(&path)
+                && !doc.get_graphql_trees().is_empty()
+            {
+                docs.push((path, doc));
+            }
+        }
+
+        for (path, doc) in &docs {
+            let ctx = graphql_rust::features::codegen::CodegenContext {
+                schema: &schema,
+                fragment_to_path: params.fragment_to_path,
+                fragment_to_import: params.fragment_to_import,
+                all_fragments: params.all_fragments,
+                current_file_path: path,
+                scalars: params.scalars,
+                schema_import: params.schema_import,
+            };
 
         match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
             Ok(ts_code) => {
-                let out_path = if let Some(dir) = params.output_dir {
-                    let mut p = PathBuf::from(dir);
-                    let rel = if path.is_absolute() {
-                        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                        let abs_cwd =
-                            std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
-                        path.strip_prefix(&abs_cwd).unwrap_or(path)
-                    } else {
-                        path
-                    };
-                    p.push(rel);
-                    p.set_extension("codegen.ts");
-                    p
-                } else {
-                    let mut p = path.clone();
-                    p.set_extension("codegen.ts");
-                    p
-                };
+                let out_path = get_output_path(path, params.output_dir);
 
                 if let Some(parent) = out_path.parent() {
                     std::fs::create_dir_all(parent).ok();
@@ -364,21 +402,60 @@ async fn execute_project_codegen(params: CodegenParams<'_>) -> bool {
                 }
             }
             Err(e) => {
-                eprintln!("Error generating types for {}: {}", path.display(), e);
-                success = false;
+                if !e.contains("No executable operations") {
+                    eprintln!("Error generating types for {}: {}", path.display(), e);
+                    success = false;
 
-                if e.contains("Fragment") && e.contains("not found") {
-                    for meta in params.global_metadata {
-                        if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
-                            eprintln!(
-                                "  Hint: Fragment '{}' exists in {} but is not marked as @public",
-                                meta.name, meta.path
-                            );
+                    if e.contains("Fragment") && e.contains("not found") {
+                        for meta in params.global_metadata {
+                            if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
+                                eprintln!(
+                                    "  Hint: Fragment '{}' exists in {} but is not marked as @public",
+                                    meta.name, meta.path
+                                );
+                            }
                         }
                     }
                 }
             }
         }
+
+        }
+    } else {
+        // Clean mode
+        let paths =
+            graphql_rust::utils::get_project_files(params.include_patterns, params.exclude_patterns);
+        for path in paths {
+            let out_path = get_output_path(&path, params.output_dir);
+            if out_path.exists() {
+                if let Err(e) = std::fs::remove_file(&out_path) {
+                    eprintln!("Failed to remove {}: {}", out_path.display(), e);
+                    success = false;
+                } else {
+                    println!("Removed: {}", out_path.display());
+                }
+            }
+        }
     }
     success
+}
+
+fn get_output_path(path: &Path, output_dir: Option<&str>) -> PathBuf {
+    if let Some(dir) = output_dir {
+        let mut p = PathBuf::from(dir);
+        let rel = if path.is_absolute() {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
+            path.strip_prefix(&abs_cwd).unwrap_or(path)
+        } else {
+            path
+        };
+        p.push(rel);
+        p.set_extension("codegen.ts");
+        p
+    } else {
+        let mut p = path.to_path_buf();
+        p.set_extension("codegen.ts");
+        p
+    }
 }
