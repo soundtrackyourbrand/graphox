@@ -93,6 +93,7 @@ impl Backend {
                 if is_same_package || frag.is_public {
                     fragments.push(FragmentCompletionInfo {
                         name: frag.name.clone(),
+                        type_condition: frag.type_condition.clone(),
                         description: other_doc.find_description(&frag.name),
                         import_path: if is_same_package { None } else { import_path.clone() },
                     });

@@ -5,6 +5,7 @@ use tree_sitter::Node;
 
 pub struct FragmentCompletionInfo {
     pub name: String,
+    pub type_condition: String,
     pub description: Option<String>,
     pub import_path: Option<String>,
 }
@@ -30,6 +31,7 @@ impl DocumentState {
             {
                 return items;
             }
+
         }
         Vec::new()
     }
@@ -48,6 +50,26 @@ impl DocumentState {
 
         while let Some(current) = node {
             match current.kind() {
+                "selection_set" | "operation_definition" | "fragment_definition" | "inline_fragment" => {
+                    // Check if we are right after dots
+                    let text_so_far = self.rope.byte_slice(offset..(offset + local_byte)).to_string();
+                    if text_so_far.trim_end().ends_with("...") {
+                         if let Some(items) = self.complete_selection_set_at_node(
+                            current,
+                            offset,
+                            cursor_offset,
+                            schema,
+                            fragments,
+                        ) {
+                            // Filter these items to ONLY include fragments
+                            return Some(items.into_iter().filter(|i| i.kind == Some(CompletionItemKind::SNIPPET)).collect());
+                        }
+                    }
+                }
+                _ => {}
+            }
+            
+            match current.kind() {
                 "type_condition" | "named_type" => {
                     return Some(self.get_all_type_completions(schema));
                 }
@@ -55,7 +77,8 @@ impl DocumentState {
                     return Some(self.get_operation_variables(root, offset, cursor_offset));
                 }
                 "fragment_spread" => {
-                    return Some(self.get_fragment_name_completions(fragments));
+                    let parent_type = self.find_parent_type_for_node(current, offset, schema);
+                    return Some(self.get_fragment_name_completions(fragments, parent_type.as_ref(), schema));
                 }
                 "fragment_definition" => {
                     let text_so_far = self
@@ -108,6 +131,9 @@ impl DocumentState {
             }
             "fragment_definition" => {
                 self.complete_fragment(node, offset, cursor_offset, schema, fragments)
+            }
+            "inline_fragment" => {
+                self.complete_inline_fragment(node, offset, cursor_offset, schema, fragments)
             }
             "selection_set" => {
                 if let Some(parent) = node.parent() {
@@ -248,6 +274,44 @@ impl DocumentState {
         None
     }
 
+    fn complete_inline_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+        fragments: &[FragmentCompletionInfo],
+    ) -> Option<Vec<CompletionItem>> {
+        let type_name = self.get_fragment_type_condition(node, offset);
+        let parent_type = if let Some(tn) = type_name {
+            schema.types.get(tn.as_str()).cloned()
+        } else {
+            // If no type condition, it inherits parent's type
+            let mut current = node.parent()?;
+            while current.kind() != "selection_set" {
+                current = current.parent()?;
+            }
+            self.find_parent_type_for_node(node, offset, schema)
+        };
+
+        if let Some(type_def) = parent_type {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "selection_set" {
+                    return self.complete_selection_set_recursive(
+                        child,
+                        offset,
+                        cursor_offset,
+                        &type_def,
+                        schema,
+                        fragments,
+                    );
+                }
+            }
+        }
+        None
+    }
+
     fn complete_selection_set_recursive(
         &self,
         node: Node,
@@ -295,8 +359,8 @@ impl DocumentState {
                             ) {
                                 return Some(items);
                             }
-                        } else if inner_child.kind() == "fragment_spread" {
-                            return Some(self.get_fragment_name_completions(fragments));
+                        } else if inner_child.kind() == "fragment_spread" || inner_child.kind() == "..." {
+                            return Some(self.get_fragment_name_completions(fragments, Some(parent_type), schema));
                         }
                     }
                 } else if kind == "field" {
@@ -310,8 +374,8 @@ impl DocumentState {
                     ) {
                         return Some(items);
                     }
-                } else if kind == "fragment_spread" {
-                    return Some(self.get_fragment_name_completions(fragments));
+                } else if kind == "fragment_spread" || kind == "..." {
+                    return Some(self.get_fragment_name_completions(fragments, Some(parent_type), schema));
                 }
             }
         }
@@ -393,9 +457,58 @@ impl DocumentState {
     fn get_fragment_name_completions(
         &self,
         fragments: &[FragmentCompletionInfo],
+        expected_type: Option<&schema::ExtendedType>,
+        schema: &Schema,
     ) -> Vec<CompletionItem> {
         fragments
             .iter()
+            .filter(|f| {
+                if let Some(parent) = expected_type {
+                    let parent_name = parent.name();
+                    if f.type_condition == parent_name.as_str() {
+                        return true;
+                    }
+
+                    match parent {
+                        schema::ExtendedType::Object(obj) => {
+                            if obj.implements_interfaces.iter().any(|i| i.as_str() == f.type_condition) {
+                                return true;
+                            }
+                        }
+                        schema::ExtendedType::Interface(iface) => {
+                            if iface.implements_interfaces.iter().any(|i| i.as_str() == f.type_condition) {
+                                return true;
+                            }
+                        }
+                        schema::ExtendedType::Union(union) => {
+                            if union.members.iter().any(|m| m.as_str() == f.type_condition) {
+                                return true;
+                            }
+                        }
+                        _ => {}
+                    }
+                    
+                    // Also check if the current type is a member of the fragment's type (if fragment is a union)
+                    if let Some(frag_type) = schema.types.get(f.type_condition.as_str()) {
+                        match frag_type {
+                            schema::ExtendedType::Union(u) => {
+                                if u.members.iter().any(|m| m.as_str() == parent_name.as_str()) {
+                                    return true;
+                                }
+                            }
+                            schema::ExtendedType::Interface(_) => {
+                                // If the fragment is on an interface, and our parent type implements it
+                                // We already handled this above for Object/Interface parents.
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    false
+                } else {
+                    true
+                }
+            })
             .map(|f| {
                 let mut documentation = f.description.clone().unwrap_or_default();
                 if let Some(import) = &f.import_path {

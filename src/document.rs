@@ -1,3 +1,4 @@
+use apollo_compiler::Schema;
 use crate::queries::*;
 use crate::utils::{find_package_root, mask_interpolations};
 use ropey::Rope;
@@ -62,6 +63,7 @@ impl fmt::Debug for GraphQLBlock {
 #[derive(Debug, Clone)]
 pub struct FragmentDef {
     pub name: String,
+    pub type_condition: String,
     pub is_public: bool,
 }
 
@@ -345,6 +347,7 @@ impl DocumentState {
 
             while let Some(m) = matches.next() {
                 let mut name = None;
+                let mut type_condition = None;
                 let mut is_fragment = false;
                 let mut is_public = false;
 
@@ -352,6 +355,8 @@ impl DocumentState {
                     let cap_name = query.capture_names()[cap.index as usize];
                     if cap_name == "symbol.name" {
                         name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.type_condition" {
+                        type_condition = Some(self.get_node_text(cap.node, offset));
                     } else if cap_name == "symbol.container" {
                         if cap.node.kind() == "fragment_definition" {
                             is_fragment = true;
@@ -365,7 +370,11 @@ impl DocumentState {
                 }
 
                 if is_fragment && let Some(n) = name {
-                    fragments.push(FragmentDef { name: n, is_public });
+                    fragments.push(FragmentDef {
+                        name: n,
+                        type_condition: type_condition.unwrap_or_default(),
+                        is_public,
+                    });
                 }
             }
         }
@@ -603,5 +612,85 @@ impl DocumentState {
         } else {
             self.rope.to_string()
         };
+    }
+}
+
+impl DocumentState {
+    pub fn find_parent_type_for_node(
+        &self,
+        node: Node,
+        offset: usize,
+        schema: &Schema,
+    ) -> Option<apollo_compiler::schema::ExtendedType> {
+        let mut current = node.parent()?;
+        while current.kind() != "selection_set" {
+            current = current.parent()?;
+        }
+
+        let container = current.parent()?;
+        match container.kind() {
+            "operation_definition" => {
+                let mut op_type_str = "query";
+                let mut walker = container.walk();
+                for child in container.children(&mut walker) {
+                    if child.kind() == "operation_type" {
+                        let text = self.get_node_text(child, offset);
+                        if text == "mutation" {
+                            op_type_str = "mutation";
+                        } else if text == "subscription" {
+                            op_type_str = "subscription";
+                        }
+                        break;
+                    }
+                }
+                let op = match op_type_str {
+                    "mutation" => apollo_compiler::ast::OperationType::Mutation,
+                    "subscription" => apollo_compiler::ast::OperationType::Subscription,
+                    _ => apollo_compiler::ast::OperationType::Query,
+                };
+                let root_name = schema
+                    .root_operation(op)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "Query".to_string());
+                schema.types.get(root_name.as_str()).cloned()
+            }
+            "fragment_definition" => {
+                let type_name = self.get_fragment_type_condition(container, offset)?;
+                schema.types.get(type_name.as_str()).cloned()
+            }
+            "field" => {
+                let parent_of_field = self.find_parent_type_for_node(container, offset, schema)?;
+                let mut f_name = None;
+                let mut f_walker = container.walk();
+                for child in container.children(&mut f_walker) {
+                    if child.kind() == "name" {
+                        f_name = Some(self.get_node_text(child, offset));
+                        break;
+                    }
+                }
+                let field_name = f_name?;
+                let field_def = match &parent_of_field {
+                    apollo_compiler::schema::ExtendedType::Object(obj) => {
+                        obj.fields.get(field_name.as_str())
+                    }
+                    apollo_compiler::schema::ExtendedType::Interface(iface) => {
+                        iface.fields.get(field_name.as_str())
+                    }
+                    _ => None,
+                }?;
+                schema
+                    .types
+                    .get(field_def.ty.inner_named_type().as_str())
+                    .cloned()
+            }
+            "inline_fragment" => {
+                if let Some(type_name) = self.get_fragment_type_condition(container, offset) {
+                    schema.types.get(type_name.as_str()).cloned()
+                } else {
+                    self.find_parent_type_for_node(container, offset, schema)
+                }
+            }
+            _ => None,
+        }
     }
 }

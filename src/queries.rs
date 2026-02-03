@@ -20,6 +20,7 @@ pub const GQL_SYMBOL_QUERY: &str = r#"
 
     (fragment_definition 
         (fragment_name (name) @symbol.name)
+        (type_condition (named_type (name) @symbol.type_condition))
         (directives)? @symbol.directives) @symbol.container
 
     (operation_definition 
