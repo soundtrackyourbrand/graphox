@@ -72,10 +72,13 @@ fn collect_fragments(
                 collect_fragments(&inline.selection_set, all_fragments, used);
             }
             Selection::FragmentSpread(spread) => {
-                if used.insert(spread.fragment_name.to_string())
-                    && let Some(frag) = all_fragments.get(spread.fragment_name.as_str())
-                {
-                    collect_fragments(&frag.selection_set, all_fragments, used);
+                let name = spread.fragment_name.as_str().to_string();
+                if used.insert(name.clone()) {
+                    if let Some(frag) = all_fragments.get(&name) {
+                        collect_fragments(&frag.selection_set, all_fragments, used);
+                    } else {
+                        // eprintln!("DEBUG: Fragment {} not found", name);
+                    }
                 }
             }
         }

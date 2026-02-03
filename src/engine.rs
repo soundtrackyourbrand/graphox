@@ -5,9 +5,8 @@ use apollo_compiler::{executable, Schema};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use tower_lsp::lsp_types::Url;
-
 use std::time::{Duration, Instant};
+use tower_lsp::lsp_types::Url;
 
 #[derive(Debug, Clone)]
 pub struct FragmentMetadata {
@@ -15,6 +14,7 @@ pub struct FragmentMetadata {
     pub path: String,
     pub import_alias: Option<String>,
     pub is_public: bool,
+    pub masked_source: String,
 }
 
 #[derive(Debug, Clone)]
@@ -89,12 +89,30 @@ impl Engine {
             }
         }
 
-        // 3. Parallel Document Parsing
+        // 3. Parallel Document Parsing (Tree-sitter + Metadata)
         let start_parse = Instant::now();
-        let path_to_doc: HashMap<PathBuf, DocumentState> = all_unique_paths
+        let path_to_doc: HashMap<PathBuf, (DocumentState, String)> = all_unique_paths
             .into_par_iter()
             .filter(|p| is_relevant_file(p))
-            .filter_map(|p| Self::parse_doc(&p).map(|doc| (p, doc)))
+            .filter_map(|p| {
+                let content = std::fs::read_to_string(&p).ok()?;
+                let abs_path = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+                let uri = Url::from_file_path(&abs_path).ok()?;
+                let language = DocumentLanguage::from_uri(&uri);
+
+                let mut parser = tree_sitter::Parser::new();
+                parser.set_language(&language.get_parser_language()).ok()?;
+                let doc = DocumentState::new(uri, &content, parser);
+
+                // For Apollo AST, we use masked content for host languages
+                let masked = if language.is_host_language() {
+                    mask_interpolations(&content)
+                } else {
+                    content
+                };
+
+                Some((p, (doc, masked)))
+            })
             .collect();
         timings.doc_parsing = start_parse.elapsed();
 
@@ -105,16 +123,20 @@ impl Engine {
 
         for (paths, import_alias) in &project_info {
             for path in paths {
-                if let Some(doc) = path_to_doc.get(path) {
+                if let Some((doc, masked_source)) = path_to_doc.get(path) {
                     let path_str = path.to_string_lossy().to_string();
+
                     for frag in doc.fragments() {
+                        // eprintln!("DEBUG: Found fragment {} in {}", frag.name, path_str);
                         all_fragments.push(FragmentMetadata {
                             name: frag.name.clone(),
                             path: path_str.clone(),
                             import_alias: import_alias.clone(),
                             is_public: frag.is_public,
+                            masked_source: masked_source.clone(),
                         });
                     }
+
                     for op in doc.operations() {
                         all_operations.push(OperationMetadata {
                             name: op.name.clone(),
@@ -173,37 +195,30 @@ impl Engine {
     /// Step 2: Transitive Fragment Resolving for a specific schema
     pub fn resolve_fragments(
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
-        all_graphql_paths: &[PathBuf],
+        fragments: &[FragmentMetadata],
     ) -> HashMap<String, apollo_compiler::Node<executable::Fragment>> {
-        let mut all_fragments = HashMap::default();
-
-        let fragment_results: Vec<Vec<_>> = all_graphql_paths
-            .par_iter()
-            .map(|path| {
-                let mut frags = Vec::new();
-                if let Some(doc) = Self::parse_doc(path) {
-                    for block in doc.get_graphql_trees() {
-                        let block_text = doc.get_node_text(block.tree.root_node(), block.offset);
-                        let masked = mask_interpolations(&block_text);
-                        if let Ok(exec_doc) = executable::ExecutableDocument::parse(
-                            valid_schema,
-                            &masked,
-                            "doc.graphql",
-                        ) {
-                            for (name, frag) in exec_doc.fragments {
-                                frags.push((name.to_string(), frag.clone()));
-                            }
-                        }
-                    }
-                }
-                frags
-            })
-            .collect();
-
-        for frags in fragment_results {
-            for (name, frag) in frags {
-                all_fragments.insert(name, frag);
+        let mut combined_source = String::new();
+        let mut seen_paths = fnv::FnvHashSet::default();
+        for frag in fragments {
+            if seen_paths.insert(&frag.path) {
+                combined_source.push_str(&frag.masked_source);
+                combined_source.push('\n');
             }
+        }
+
+        // ExecutableDocument::parse will resolve all fragment spreads against each other.
+        let exec_doc = match executable::ExecutableDocument::parse(
+            valid_schema,
+            combined_source,
+            "workspace.graphql",
+        ) {
+            Ok(doc) => doc,
+            Err(with_errors) => with_errors.partial,
+        };
+
+        let mut all_fragments = HashMap::default();
+        for (name, frag) in exec_doc.fragments {
+            all_fragments.insert(name.as_str().to_string(), frag.clone());
         }
         all_fragments
     }

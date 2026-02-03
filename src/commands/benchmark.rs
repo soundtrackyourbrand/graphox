@@ -1,3 +1,4 @@
+use apollo_compiler::{executable, Node};
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use graphql_rust::engine::Engine;
 use graphql_rust::Config;
@@ -40,6 +41,7 @@ pub async fn run_benchmark(
         .iter()
         .map(|m| PathBuf::from(&m.path))
         .collect();
+    let _ = all_graphql_paths;
 
     // 2. Project Processing
     let mut total_graphql_files = 0;
@@ -53,6 +55,8 @@ pub async fn run_benchmark(
 
     let mut project_timings = Vec::new();
     let mut schema_type_timings = Vec::new();
+    let mut resolution_cache: HashMap<String, HashMap<String, Node<executable::Fragment>>> =
+        HashMap::default();
 
     if let Some(cfg) = &config {
         for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
@@ -79,7 +83,15 @@ pub async fn run_benchmark(
             schema_parse_time += sp_start.elapsed();
 
             let fr_start = Instant::now();
-            let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
+            let all_fragments = if let Some(cached) =
+                resolution_cache.get(&project.schema.as_key())
+            {
+                cached.clone()
+            } else {
+                let resolved = Engine::resolve_fragments(&valid_schema, global_metadata);
+                resolution_cache.insert(project.schema.as_key(), resolved.clone());
+                resolved
+            };
             fragment_resolve_time += fr_start.elapsed();
 
             let project_files = &project_meta.files;

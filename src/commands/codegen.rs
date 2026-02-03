@@ -1,4 +1,4 @@
-use apollo_compiler::{executable, Node, Schema};
+use apollo_compiler::{executable, Node};
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use graphql_rust::config::{Config, SchemaSource};
 use graphql_rust::engine::{Engine, FragmentMetadata};
@@ -101,217 +101,182 @@ async fn execute_codegen(
     let mut success = true;
     let mut all_generated_operations = Vec::new();
 
-    if let Some(cfg) = &config {
-        let workspace_metadata = Engine::scan_workspace(cfg);
-        let global_metadata = &workspace_metadata.fragments;
+    let cfg = if let Some(c) = config {
+        c
+    } else {
+        let include_glob = if std::path::Path::new(scan_path).is_file() {
+            scan_path.to_string()
+        } else if scan_path == "." || scan_path == "./" {
+            "**/*".to_string()
+        } else {
+            format!("{}/**/*", scan_path)
+        };
 
-        let all_graphql_paths: Vec<_> = global_metadata
+        Config {
+            projects: vec![graphql_rust::config::ProjectConfig {
+                schema: SchemaSource::Single(schema_path.to_string()),
+                include: graphql_rust::config::GlobPattern::Single(include_glob),
+                exclude: None,
+                output_dir: None,
+                import: None,
+            }],
+            output_dir: None,
+            schema_types: None,
+            scalars: None,
+            ignore_deprecations: None,
+            generate_ast_for_fragments: None,
+            base_dir: PathBuf::from("."),
+        }
+    };
+
+    let workspace_metadata = Engine::scan_workspace(&cfg);
+    let global_metadata = &workspace_metadata.fragments;
+
+    let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
+    for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
+        let project_files = &project_meta.files;
+        let project_files_set: HashSet<String> = project_files
             .iter()
-            .map(|m| PathBuf::from(&m.path))
+            .map(|p| p.to_string_lossy().to_string())
             .collect();
 
-        let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
-        for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
-            let project_files = &project_meta.files;
-            let project_files_set: HashSet<String> = project_files
+        println!("Processing project: {}", project.include.as_key());
+        let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+
+        let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
+
+        let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
+            let mut matches: Vec<_> = sts
                 .iter()
-                .map(|p| p.to_string_lossy().to_string())
+                .filter(|st| {
+                    let st_files = st.schema.files();
+                    st_files.iter().all(|f| project_schema_files.contains(f))
+                })
                 .collect();
 
-            println!("Processing project: {}", project.include.as_key());
-            let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+            matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
+            matches.first().and_then(|st| st.import.clone())
+        });
 
-            let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
-
-            let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
-                let mut matches: Vec<_> = sts
-                    .iter()
-                    .filter(|st| {
-                        let st_files = st.schema.files();
-                        st_files.iter().all(|f| project_schema_files.contains(f))
-                    })
-                    .collect();
-
-                matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
-                matches.first().and_then(|st| st.import.clone())
-            });
-
-            let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("{}", e);
-                    success = false;
-                    continue;
-                }
-            };
-            let valid_schema = match schema.clone().validate() {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!(
-                        "Schema validation failed for project {}: {}",
-                        project.include.as_key(),
-                        e
-                    );
-                    success = false;
-                    continue;
-                }
-            };
-
-            let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
-
-            let mut fragment_to_path: HashMap<String, String> = HashMap::default();
-            let mut fragment_to_import: HashMap<String, String> = HashMap::default();
-
-            for meta in global_metadata {
-                let is_local = project_files_set.contains(&meta.path);
-
-                if is_local {
-                    fragment_to_path.insert(meta.name.clone(), meta.path.clone());
-                    if let Some(a) = &meta.import_alias {
-                        fragment_to_import.insert(meta.name.clone(), a.clone());
-                    }
-                } else if meta.is_public {
-                    fragment_to_path
-                        .entry(meta.name.clone())
-                        .or_insert_with(|| meta.path.clone());
-                    if let Some(a) = &meta.import_alias {
-                        fragment_to_import
-                            .entry(meta.name.clone())
-                            .or_insert_with(|| a.clone());
-                    }
-                }
-            }
-
-            match execute_project_codegen_entry(
-                CodegenParams {
-                    base_dir: &cfg.base_dir,
-                    source: &project.schema,
-                    project_files,
-                    output_dir: project_output_dir,
-                    scalars: &cfg.scalars,
-                    schema_import: &schema_import,
-                    fragment_to_path: &fragment_to_path,
-                    fragment_to_import: &fragment_to_import,
-                    all_fragments: &all_fragments,
-                    global_metadata: &global_metadata,
-                    generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
-                },
-                verbose,
-                clean,
-            )
-            .await
-            {
-                Ok(ops) => all_generated_operations.extend(ops),
-                Err(_) => success = false,
-            }
-        }
-
-        if let Some(schema_types) = &cfg.schema_types {
-            for st in schema_types {
-                let abs_output = cfg.base_dir.join(&st.output);
-                if clean {
-                    if abs_output.exists() {
-                        if let Err(e) = std::fs::remove_file(&abs_output) {
-                            eprintln!("Failed to remove {}: {}", abs_output.display(), e);
-                            success = false;
-                        } else if verbose {
-                            println!("Removed: {}", abs_output.display());
-                        }
-                    }
-                } else {
-                    println!("Generating types for schema: {}", st.output);
-                    if !execute_schema_codegen(
-                        &cfg.base_dir,
-                        &st.schema,
-                        &abs_output.to_string_lossy(),
-                        &cfg.scalars,
-                        verbose,
-                    )
-                    .await
-                    {
-                        success = false;
-                    }
-                }
-            }
-        }
-
-        if !clean {
-            if let Some(out_dir) = global_output_dir {
-                let out_dir_path = cfg.base_dir.join(out_dir);
-                let entrypoint_path = out_dir_path.join("graphql.ts");
-                if !all_generated_operations.is_empty() {
-                    if verbose {
-                        println!("Generating entrypoint: {}", entrypoint_path.display());
-                    }
-                    let content = graphql_rust::features::codegen::generate_entrypoint_content(
-                        &out_dir_path,
-                        &all_generated_operations,
-                    );
-                    if let Err(e) = std::fs::write(&entrypoint_path, content) {
-                        eprintln!("Failed to write entrypoint: {}", e);
-                        success = false;
-                    }
-                }
-            }
-        }
-    } else {
-        let fragment_map = Engine::scan_path(scan_path);
-        let all_graphql_paths: Vec<_> = fragment_map.values().map(PathBuf::from).collect();
-
-        let schema_text = std::fs::read_to_string(schema_path).unwrap_or_default();
-        let schema = match Schema::parse(&schema_text, schema_path) {
+        let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
             Ok(s) => s,
             Err(e) => {
-                if !clean {
-                    eprintln!("Failed to parse schema {}: {}", schema_path, e);
-                    return false;
-                }
-                Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap()
+                eprintln!("{}", e);
+                success = false;
+                continue;
+            }
+        };
+        let valid_schema = match schema.clone().validate() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "Schema validation failed for project {}: {}",
+                    project.include.as_key(),
+                    e
+                );
+                success = false;
+                continue;
             }
         };
 
-        match schema.validate() {
-            Ok(valid_schema) => {
-                let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
-                let include_glob = if std::path::Path::new(scan_path).is_file() {
-                    scan_path.to_string()
-                } else if scan_path == "." || scan_path == "./" {
-                    "**/*".to_string()
-                } else {
-                    format!("{}/**/*", scan_path)
-                };
-                let paths = graphql_rust::utils::get_project_files(&[include_glob], &[]);
-                if execute_project_codegen_entry(
-                    CodegenParams {
-                        base_dir: Path::new("."),
-                        source: &SchemaSource::Single(schema_path.to_string()),
-                        project_files: &paths,
-                        output_dir,
-                        scalars: &None,
-                        schema_import: &None,
-                        fragment_to_path: &fragment_map,
-                        fragment_to_import: &HashMap::default(),
-                        all_fragments: &all_fragments,
-                        global_metadata: &[],
-                        generate_ast_for_fragments: false,
-                    },
-                    verbose,
-                    clean,
-                )
-                .await
-                .is_err()
-                {
-                    success = false;
+        let all_fragments = Engine::resolve_fragments(&valid_schema, global_metadata);
+
+        let mut fragment_to_path: HashMap<String, String> = HashMap::default();
+        let mut fragment_to_import: HashMap<String, String> = HashMap::default();
+
+        for meta in global_metadata {
+            let is_local = project_files_set.contains(&meta.path);
+
+            if is_local {
+                fragment_to_path.insert(meta.name.clone(), meta.path.clone());
+                if let Some(a) = &meta.import_alias {
+                    fragment_to_import.insert(meta.name.clone(), a.clone());
+                }
+            } else if meta.is_public {
+                fragment_to_path
+                    .entry(meta.name.clone())
+                    .or_insert_with(|| meta.path.clone());
+                if let Some(a) = &meta.import_alias {
+                    fragment_to_import
+                        .entry(meta.name.clone())
+                        .or_insert_with(|| a.clone());
                 }
             }
-            Err(e) => {
-                if !clean {
-                    eprintln!("Schema validation failed for {}: {}", schema_path, e);
+        }
+
+        match execute_project_codegen_entry(
+            CodegenParams {
+                base_dir: &cfg.base_dir,
+                source: &project.schema,
+                project_files,
+                output_dir: project_output_dir,
+                scalars: &cfg.scalars,
+                schema_import: &schema_import,
+                fragment_to_path: &fragment_to_path,
+                fragment_to_import: &fragment_to_import,
+                all_fragments: &all_fragments,
+                global_metadata: &global_metadata,
+                generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
+            },
+            verbose,
+            clean,
+        )
+        .await
+        {
+            Ok(ops) => all_generated_operations.extend(ops),
+            Err(_) => success = false,
+        }
+    }
+
+    if let Some(schema_types) = &cfg.schema_types {
+        for st in schema_types {
+            let abs_output = cfg.base_dir.join(&st.output);
+            if clean {
+                if abs_output.exists() {
+                    if let Err(e) = std::fs::remove_file(&abs_output) {
+                        eprintln!("Failed to remove {}: {}", abs_output.display(), e);
+                        success = false;
+                    } else if verbose {
+                        println!("Removed: {}", abs_output.display());
+                    }
+                }
+            } else {
+                println!("Generating types for schema: {}", st.output);
+                if !execute_schema_codegen(
+                    &cfg.base_dir,
+                    &st.schema,
+                    &abs_output.to_string_lossy(),
+                    &cfg.scalars,
+                    verbose,
+                )
+                .await
+                {
                     success = false;
                 }
             }
         }
     }
+
+    if !clean {
+        if let Some(out_dir) = global_output_dir {
+            let out_dir_path = cfg.base_dir.join(out_dir);
+            let entrypoint_path = out_dir_path.join("graphql.ts");
+            if !all_generated_operations.is_empty() {
+                if verbose {
+                    println!("Generating entrypoint: {}", entrypoint_path.display());
+                }
+                let content = graphql_rust::features::codegen::generate_entrypoint_content(
+                    &out_dir_path,
+                    &all_generated_operations,
+                );
+                if let Err(e) = std::fs::write(&entrypoint_path, content) {
+                    eprintln!("Failed to write entrypoint: {}", e);
+                    success = false;
+                }
+            }
+        }
+    }
+
     success
 }
 
