@@ -11,6 +11,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
@@ -19,7 +20,7 @@ impl DocumentState {
             if child.kind() == "operation_type" {
                 operation_type_string = self.get_node_text(child, offset);
             } else if child.kind() == "variable_definitions" {
-                self.validate_variable_definitions(child, offset, schema, diagnostics);
+                self.validate_variable_definitions(child, offset, schema, diagnostics, config);
             }
         }
 
@@ -43,6 +44,7 @@ impl DocumentState {
                         schema,
                         all_fragments,
                         diagnostics,
+                        config,
                     );
                 }
             }
@@ -55,6 +57,7 @@ impl DocumentState {
         offset: usize,
         schema: &Schema,
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -62,7 +65,7 @@ impl DocumentState {
                 let mut vd_cursor = child.walk();
                 for vd_child in child.children(&mut vd_cursor) {
                     if vd_child.kind() == "type" {
-                        self.validate_type_node(vd_child, offset, schema, diagnostics);
+                        self.validate_type_node(vd_child, offset, schema, diagnostics, config);
                     }
                 }
             }
@@ -75,6 +78,7 @@ impl DocumentState {
         offset: usize,
         schema: &Schema,
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -91,17 +95,19 @@ impl DocumentState {
                                 .and_then(|arg| arg.as_str())
                                 .unwrap_or("No reason provided");
 
-                            diagnostics.push(Diagnostic {
-                                range: self.translate_to_file_range(child, offset),
-                                severity: Some(DiagnosticSeverity::WARNING),
-                                message: format!("Type '{}' is deprecated: {}", type_name, reason),
-                                ..Default::default()
-                            });
+                            if !self.is_deprecation_ignored(reason, config) {
+                                diagnostics.push(Diagnostic {
+                                    range: self.translate_to_file_range(child, offset),
+                                    severity: Some(DiagnosticSeverity::WARNING),
+                                    message: format!("Type '{}' is deprecated: {}", type_name, reason),
+                                    ..Default::default()
+                                });
+                            }
                         }
                     }
                 }
                 "list_type" | "non_null_type" => {
-                    self.validate_type_node(child, offset, schema, diagnostics);
+                    self.validate_type_node(child, offset, schema, diagnostics, config);
                 }
                 _ => {}
             }

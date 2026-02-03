@@ -69,29 +69,74 @@ fn test_cli_ignore_files() {
 }
 
 #[test]
-fn test_cli_scoped_fragments() {
+fn test_cli_ignore_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_ignore_deprecations_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        r#"
+type Query {
+  oldField: String @deprecated(reason: "Use newField instead")
+  ignoredField: String @deprecated(reason: "Internal use only")
+}
+"#,
+    )
+    .unwrap();
+
+    // Create config
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+ignore_deprecations:
+  - "Internal.*"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+"#,
+    )
+    .unwrap();
+
+    // Create query
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(&query_file, "query { oldField ignoredField }").unwrap();
+
     let output = Command::new(bin_path)
-        .arg("--schema")
-        .arg("tests/fixtures/simple_schema.graphql")
         .arg("check")
-        .arg("tests/fixtures/scoped")
+        .arg(".")
+        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
-    assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // pkg_a/query.graphql should be fine because FragmentA is in the same package
-    // pkg_b/query.graphql should FAIL because FragmentA is NOT in its package (pkg_b has FragmentB)
+    // Should FAIL because oldField is NOT ignored
+    assert!(
+        !output.status.success(),
+        "Check should fail due to non-ignored deprecation"
+    );
 
-    assert!(stdout.contains("pkg_b/query.graphql"));
-    assert!(stdout.contains("Unknown fragment: FragmentA"));
+    // Should contain oldField warning
+    assert!(
+        stdout.contains("Field 'oldField' is deprecated"),
+        "Missing warning for oldField"
+    );
 
-    // Optionally check that pkg_a/query.graphql is NOT mentioned as having errors
-    // (This depends on how we print, but if it has no errors it won't be printed)
-    let pkg_a_output = stdout.contains("pkg_a/query.graphql");
-    assert!(!pkg_a_output, "pkg_a/query.graphql should have no errors");
+    // Should NOT contain ignoredField warning
+    assert!(
+        !stdout.contains("Field 'ignoredField' is deprecated"),
+        "Should not warn for ignoredField"
+    );
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]

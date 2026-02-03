@@ -12,6 +12,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut cursor = selection_set.walk();
         for child in selection_set.children(&mut cursor) {
@@ -29,6 +30,7 @@ impl DocumentState {
                             schema,
                             all_fragments,
                             diagnostics,
+                            config,
                         );
                     } else if k == "inline_fragment" {
                         self.validate_inline_fragment(
@@ -38,6 +40,7 @@ impl DocumentState {
                             schema,
                             all_fragments,
                             diagnostics,
+                            config,
                         );
                     } else if k == "fragment_spread" {
                         self.validate_fragment_spread(inner, offset, all_fragments, diagnostics);
@@ -51,6 +54,7 @@ impl DocumentState {
                     schema,
                     all_fragments,
                     diagnostics,
+                    config,
                 );
             } else if kind == "fragment_spread" {
                 self.validate_fragment_spread(child, offset, all_fragments, diagnostics);
@@ -62,6 +66,7 @@ impl DocumentState {
                     schema,
                     all_fragments,
                     diagnostics,
+                    config,
                 );
             }
         }
@@ -75,6 +80,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut name_node = None;
         let mut selection_set_node = None;
@@ -112,16 +118,25 @@ impl DocumentState {
                         .and_then(|arg| arg.as_str())
                         .unwrap_or("No reason provided");
 
-                    diagnostics.push(Diagnostic {
-                        range: self.translate_to_file_range(name_node, offset),
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        message: format!("Field '{}' is deprecated: {}", field_name, reason),
-                        ..Default::default()
-                    });
+                    if !self.is_deprecation_ignored(reason, config) {
+                        diagnostics.push(Diagnostic {
+                            range: self.translate_to_file_range(name_node, offset),
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            message: format!("Field '{}' is deprecated: {}", field_name, reason),
+                            ..Default::default()
+                        });
+                    }
                 }
 
                 if let Some(args_node) = arguments_node {
-                    self.validate_arguments(args_node, offset, field_def, schema, diagnostics);
+                    self.validate_arguments(
+                        args_node,
+                        offset,
+                        field_def,
+                        schema,
+                        diagnostics,
+                        config,
+                    );
                 }
 
                 if let Some(sel_set) = selection_set_node {
@@ -134,6 +149,7 @@ impl DocumentState {
                             schema,
                             all_fragments,
                             diagnostics,
+                            config,
                         );
                     }
                 }

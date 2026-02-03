@@ -31,7 +31,7 @@ const q = gql`
 `;
 "#;
     let doc = create_ts_doc(text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
 
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
@@ -65,12 +65,12 @@ const q = gql`
 `;
 "#;
     let doc = create_ts_doc(text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
 
     let error = diagnostics
         .iter()
-        .find(|d| d.message.contains("unknownField"))
-        .unwrap();
+        .find(|d| d.message.contains("unknownField") && d.range.start.line == 5)
+        .expect("Should find precise error for unknownField");
 
     // Line 5: "    unknownField"
     // Character should be 4.

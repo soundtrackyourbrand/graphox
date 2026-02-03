@@ -11,6 +11,7 @@ impl DocumentState {
         field_def: &schema::FieldDefinition,
         schema: &Schema,
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -38,18 +39,20 @@ impl DocumentState {
                                 .and_then(|arg| arg.as_str())
                                 .unwrap_or("No reason provided");
 
-                            diagnostics.push(Diagnostic {
-                                range: self.translate_to_file_range(name_node, offset),
-                                severity: Some(DiagnosticSeverity::WARNING),
-                                message: format!("Argument '{}' is deprecated: {}", arg_name, reason),
-                                ..Default::default()
-                            });
+                            if !self.is_deprecation_ignored(reason, config) {
+                                diagnostics.push(Diagnostic {
+                                    range: self.translate_to_file_range(name_node, offset),
+                                    severity: Some(DiagnosticSeverity::WARNING),
+                                    message: format!("Argument '{}' is deprecated: {}", arg_name, reason),
+                                    ..Default::default()
+                                });
+                            }
                         }
 
                         if let Some(v_node) = value_node {
                             let arg_type_name = arg_def.ty.inner_named_type();
                             if let Some(arg_type_def) = schema.types.get(arg_type_name.as_str()) {
-                                self.validate_value(v_node, offset, arg_type_def, schema, diagnostics);
+                                self.validate_value(v_node, offset, arg_type_def, schema, diagnostics, config);
                             }
                         }
                     }
@@ -65,11 +68,12 @@ impl DocumentState {
         expected_type: &schema::ExtendedType,
         schema: &Schema,
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         match node.kind() {
             "value" => {
                 if let Some(child) = node.child(0) {
-                    self.validate_value(child, offset, expected_type, schema, diagnostics);
+                    self.validate_value(child, offset, expected_type, schema, diagnostics, config);
                 }
             }
             "object_value" => {
@@ -100,15 +104,17 @@ impl DocumentState {
                                             .and_then(|arg| arg.as_str())
                                             .unwrap_or("No reason provided");
 
-                                        diagnostics.push(Diagnostic {
-                                            range: self.translate_to_file_range(name_node, offset),
-                                            severity: Some(DiagnosticSeverity::WARNING),
-                                            message: format!(
-                                                "Input field '{}' is deprecated: {}",
-                                                field_name, reason
-                                            ),
-                                            ..Default::default()
-                                        });
+                                        if !self.is_deprecation_ignored(reason, config) {
+                                            diagnostics.push(Diagnostic {
+                                                range: self.translate_to_file_range(name_node, offset),
+                                                severity: Some(DiagnosticSeverity::WARNING),
+                                                message: format!(
+                                                    "Input field '{}' is deprecated: {}",
+                                                    field_name, reason
+                                                ),
+                                                ..Default::default()
+                                            });
+                                        }
                                     }
 
                                     if let Some(v_node) = value_node {
@@ -122,6 +128,7 @@ impl DocumentState {
                                                 field_type_def,
                                                 schema,
                                                 diagnostics,
+                                                config,
                                             );
                                         }
                                     }
@@ -135,7 +142,7 @@ impl DocumentState {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind().ends_with("_value") || child.kind() == "value" {
-                        self.validate_value(child, offset, expected_type, schema, diagnostics);
+                        self.validate_value(child, offset, expected_type, schema, diagnostics, config);
                     }
                 }
             }
@@ -151,15 +158,17 @@ impl DocumentState {
                             .and_then(|arg| arg.as_str())
                             .unwrap_or("No reason provided");
 
-                        diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(node, offset),
-                            severity: Some(DiagnosticSeverity::WARNING),
-                            message: format!(
-                                "Enum value '{}' is deprecated: {}",
-                                value_name, reason
-                            ),
-                            ..Default::default()
-                        });
+                        if !self.is_deprecation_ignored(reason, config) {
+                            diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(node, offset),
+                                severity: Some(DiagnosticSeverity::WARNING),
+                                message: format!(
+                                    "Enum value '{}' is deprecated: {}",
+                                    value_name, reason
+                                ),
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }

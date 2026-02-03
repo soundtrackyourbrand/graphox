@@ -44,7 +44,7 @@ fn benchmark_document_processing() {
 
     // 4. Benchmark Diagnostics
     let start = Instant::now();
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
     let duration = start.elapsed();
     println!(
         "Get Diagnostics: {:?} - found {} diagnostics",

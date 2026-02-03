@@ -11,6 +11,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut cursor = node.walk();
         let mut type_condition_node = None;
@@ -42,6 +43,7 @@ impl DocumentState {
                                     schema,
                                     all_fragments,
                                     diagnostics,
+                                    config,
                                 );
                             }
                         }
@@ -59,6 +61,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let mut cursor = node.walk();
         let mut type_condition_node = None;
@@ -102,6 +105,7 @@ impl DocumentState {
                 schema,
                 all_fragments,
                 diagnostics,
+                config,
             );
         }
     }

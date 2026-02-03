@@ -36,7 +36,7 @@ fn test_validation_valid_query() {
         }
     "#;
     let doc = create_doc("file:///valid.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     assert!(
         diagnostics.is_empty(),
@@ -57,7 +57,7 @@ fn test_validation_missing_field() {
         }
     "#;
     let doc = create_doc("file:///missing.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     let error = diagnostics.iter().find(|d| d.message.contains("not found"));
     assert!(error.is_some(), "Expected 'not found' error");
@@ -78,7 +78,7 @@ fn test_validation_deprecated_field() {
         }
     "#;
     let doc = create_doc("file:///deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     let warning = diagnostics
         .iter()
@@ -108,7 +108,7 @@ fn test_validation_nested_missing_field() {
         }
     "#;
     let doc = create_doc("file:///nested.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     let error = diagnostics
         .iter()
@@ -127,7 +127,7 @@ fn test_validation_fragment() {
         }
     "#;
     let doc = create_doc("file:///fragment.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     let error = diagnostics
         .iter()
@@ -150,7 +150,7 @@ fn test_validation_inline_fragment() {
         }
     "#;
     let doc = create_doc("file:///inline.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     let error = diagnostics
         .iter()
@@ -169,7 +169,7 @@ fn test_validation_unknown_fragment_spread() {
         }
     "#;
     let doc = create_doc("file:///spread.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
 
     let error = diagnostics
         .iter()
@@ -188,7 +188,7 @@ fn test_validation_known_fragment_spread() {
         }
     "#;
     let doc = create_doc("file:///known_spread.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &["KnownFrag".to_string()]);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &["KnownFrag".to_string()], None);
 
     assert!(
         diagnostics.is_empty(),
@@ -216,7 +216,7 @@ fn test_validation_input_field_deprecation() {
         }
     "#;
     let doc = create_doc("file:///input_deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
 
     let warning = diagnostics
         .iter()
@@ -250,7 +250,7 @@ fn test_validation_input_type_deprecation() {
         }
     "#;
     let doc = create_doc("file:///input_type_deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[]);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
 
     let warning = diagnostics
         .iter()

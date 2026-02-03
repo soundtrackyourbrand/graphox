@@ -9,6 +9,7 @@ pub struct Config {
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
     pub scalars: Option<std::collections::HashMap<String, String>>,
+    pub ignore_deprecations: Option<Vec<String>>,
     #[serde(skip)]
     pub base_dir: std::path::PathBuf,
 }

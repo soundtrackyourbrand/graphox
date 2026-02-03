@@ -550,6 +550,7 @@ dependencies = [
  "notify-debouncer-mini",
  "pathdiff",
  "rayon",
+ "regex",
  "ropey",
  "serde",
  "serde_json",

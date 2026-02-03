@@ -160,7 +160,7 @@ impl Backend {
 
                         if matches {
                             let fragments = self.get_fragments_for_doc(doc);
-                            let diagnostics = doc.get_semantic_diagnostics(&doc_schema, &fragments);
+                            let diagnostics = doc.get_semantic_diagnostics(&doc_schema, &fragments, self.config.as_ref());
                             self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
                         }
                     }
@@ -340,7 +340,7 @@ impl LanguageServer for Backend {
 
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments);
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
@@ -403,7 +403,7 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments);
+            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
             self.client.publish_diagnostics(uri, diagnostics, None).await;
         }
     }

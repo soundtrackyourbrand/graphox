@@ -7,11 +7,11 @@ use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
 pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &str) {
     let mut success = true;
-    if let Some(cfg) = config {
+    if let Some(cfg) = config.clone() {
         for project in cfg.projects {
             let abs_include = cfg.base_dir.join(&project.include);
             println!("Checking project with schema: {}", project.schema.as_key());
-            if !execute_project_check(&cfg.base_dir, &project.schema, &abs_include.to_string_lossy()).await {
+            if !execute_project_check(&cfg.base_dir, &project.schema, &abs_include.to_string_lossy(), config.as_ref()).await {
                 success = false;
             }
         }
@@ -24,7 +24,8 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
         if !execute_project_check(
             std::path::Path::new("."),
             &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
-            &include
+            &include,
+            None
         ).await {
             success = false;
         }
@@ -38,7 +39,8 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
 async fn execute_project_check(
     base_dir: &std::path::Path,
     source: &graphql_rust::config::SchemaSource,
-    include_glob: &str
+    include_glob: &str,
+    config: Option<&Config>,
 ) -> bool {
     let mut combined_text = String::new();
     for file in source.files() {
@@ -111,7 +113,7 @@ async fn execute_project_check(
             }
         }
 
-        let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments);
+        let diagnostics = doc.get_semantic_diagnostics(&schema, &package_fragments, config);
         if !diagnostics.is_empty() {
             found_any = true;
             let display_path = if let Some(root) = &doc.package_root {

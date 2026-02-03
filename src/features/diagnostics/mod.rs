@@ -15,6 +15,7 @@ impl DocumentState {
         &self,
         schema: &Schema,
         all_fragments: &[String],
+        config: Option<&crate::Config>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -49,6 +50,7 @@ impl DocumentState {
                 schema,
                 all_fragments,
                 &mut diagnostics,
+                config,
             );
         }
         diagnostics
@@ -61,6 +63,7 @@ impl DocumentState {
         schema: &Schema,
         all_fragments: &[String],
         diagnostics: &mut Vec<Diagnostic>,
+        config: Option<&crate::Config>,
     ) {
         let query = GQL_DIAGNOSTICS_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
@@ -80,12 +83,27 @@ impl DocumentState {
             for cap in m.captures {
                 let capture_name = query.capture_names()[cap.index as usize];
                 if capture_name == "operation" {
-                    self.validate_operation(cap.node, offset, schema, all_fragments, diagnostics);
+                    self.validate_operation(cap.node, offset, schema, all_fragments, diagnostics, config);
                 } else if capture_name == "fragment" {
-                    self.validate_fragment(cap.node, offset, schema, all_fragments, diagnostics);
+                    self.validate_fragment(cap.node, offset, schema, all_fragments, diagnostics, config);
                 }
             }
         }
+    }
+
+    pub(super) fn is_deprecation_ignored(&self, reason: &str, config: Option<&crate::Config>) -> bool {
+        if let Some(cfg) = config {
+            if let Some(patterns) = &cfg.ignore_deprecations {
+                for p in patterns {
+                    if let Ok(re) = regex::Regex::new(p) {
+                        if re.is_match(reason) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn collect_gql_errors(
