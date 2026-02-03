@@ -25,28 +25,39 @@ impl DocumentState {
                 });
 
             while let Some(m) = matches.next() {
-                let name_node = m.captures[0].node;
-                let container_node = m.captures[1].node;
+                let mut name_node = None;
+                let mut container_node = None;
 
-                let name = self
-                    .rope
-                    .slice(
-                        self.rope.byte_to_char(name_node.start_byte() + offset)
-                            ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                    )
-                    .to_string();
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name_node = Some(cap.node);
+                    } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
+                    }
+                }
 
-                #[allow(deprecated)]
-                symbols.push(DocumentSymbol {
-                    name,
-                    detail: Some(format!("GraphQL {}", container_node.kind())),
-                    kind: SymbolKind::STRUCT,
-                    tags: None,
-                    deprecated: None,
-                    range: self.translate_to_file_range(container_node, offset),
-                    selection_range: self.translate_to_file_range(name_node, offset),
-                    children: None,
-                });
+                if let (Some(name_node), Some(container_node)) = (name_node, container_node) {
+                    let name = self
+                        .rope
+                        .slice(
+                            self.rope.byte_to_char(name_node.start_byte() + offset)
+                                ..self.rope.byte_to_char(name_node.end_byte() + offset),
+                        )
+                        .to_string();
+
+                    #[allow(deprecated)]
+                    symbols.push(DocumentSymbol {
+                        name,
+                        detail: Some(format!("GraphQL {}", container_node.kind())),
+                        kind: SymbolKind::STRUCT,
+                        tags: None,
+                        deprecated: None,
+                        range: self.translate_to_file_range(container_node, offset),
+                        selection_range: self.translate_to_file_range(name_node, offset),
+                        children: None,
+                    });
+                }
             }
         }
         symbols

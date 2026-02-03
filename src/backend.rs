@@ -202,6 +202,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
@@ -715,6 +716,42 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let query = params.query.to_lowercase();
+        let mut all_symbols = Vec::new();
+
+        for entry in self.documents.iter() {
+            let doc = entry.value();
+            let symbols = doc.get_symbols();
+
+            for sym in symbols {
+                if sym.name.to_lowercase().contains(&query) {
+                    #[allow(deprecated)]
+                    all_symbols.push(SymbolInformation {
+                        name: sym.name,
+                        kind: sym.kind,
+                        tags: sym.tags,
+                        deprecated: sym.deprecated,
+                        location: Location {
+                            uri: doc.uri.clone(),
+                            range: sym.selection_range,
+                        },
+                        container_name: sym.detail,
+                    });
+                }
+            }
+        }
+
+        if all_symbols.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(all_symbols))
+        }
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
