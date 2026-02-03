@@ -1,5 +1,6 @@
 use crate::document::DocumentState;
 use crate::queries::*;
+use crate::utils::mask_interpolations;
 use apollo_compiler::Schema;
 use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, QueryCursor, StreamingIterator};
@@ -21,10 +22,27 @@ impl DocumentState {
 
         for block in blocks {
             let offset = block.offset;
-            // 1. Syntax errors
+            // 1. Syntax errors from Tree-sitter
             self.collect_gql_errors(block.tree.root_node(), offset, &mut diagnostics);
 
-            // 2. Schema validation
+            // 2. Parser/Validation errors from apollo-compiler
+            let block_text = self.get_node_text(block.tree.root_node(), offset);
+            let masked = mask_interpolations(&block_text);
+
+            if let Ok(valid_schema) = schema.clone().validate() {
+                let doc_res = apollo_compiler::executable::ExecutableDocument::parse(&valid_schema, &masked, "doc.graphql");
+                if let Err(with_errors) = doc_res {
+                    // DiagnosticList usually has a Display implementation that lists all errors
+                    diagnostics.push(Diagnostic {
+                        range: self.translate_to_file_range(block.tree.root_node(), offset),
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: format!("GraphQL Parse Error: {}", with_errors.errors),
+                        ..Default::default()
+                    });
+                }
+            }
+
+            // 3. Our manual schema validation (handles fragments across files)
             self.validate_tree(
                 block.tree.root_node(),
                 offset,
