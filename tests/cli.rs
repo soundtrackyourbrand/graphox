@@ -354,6 +354,78 @@ projects:
 }
 
 #[test]
+fn test_cli_graphql_entrypoint() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_entrypoint_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // Create a query file
+    let query_file = temp_dir.join("query.graphql");
+    let query_text = "query GetMe { me { id name } }";
+    std::fs::write(&query_file, query_text).unwrap();
+
+    // Create YAML config
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+output_dir: "gen"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let entrypoint_file = temp_dir.join("gen").join("graphql.ts");
+    assert!(
+        entrypoint_file.exists(),
+        "graphql.ts entrypoint was not created"
+    );
+
+    let content = std::fs::read_to_string(entrypoint_file).unwrap();
+    println!("--- ENTRYPOINT CONTENT ---\n{}", content);
+
+    // Check for imports
+
+    assert!(content.contains(
+        "import { GetMeQuery, GetMeQueryVariables, GetMeQueryDocument } from \"./query.codegen\";"
+    ));
+
+    // Check for graphql function overloads
+    assert!(content.contains("export function graphql(source: \"query GetMe { me { id name } }\"): typeof GetMeQueryDocument;"));
+
+    // Check for gql export
+    assert!(content.contains("export const gql = graphql;"));
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_test");
@@ -720,6 +792,15 @@ fn test_cli_fragment_ast_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_ast",
         "tests/baselines/fragment_ast",
+        None,
+    );
+}
+
+#[test]
+fn test_cli_entrypoint_baselines() {
+    run_baseline_test(
+        "tests/fixtures/entrypoint",
+        "tests/baselines/entrypoint",
         None,
     );
 }

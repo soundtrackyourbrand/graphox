@@ -7,7 +7,7 @@ use crate::features::apollo_ast::{
     serialize_fragment_definition, serialize_operation_definition,
 };
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct CodegenContext<'a> {
     pub schema: &'a Schema,
@@ -20,14 +20,23 @@ pub struct CodegenContext<'a> {
     pub generate_ast_for_fragments: bool,
 }
 
+pub struct OperationGenerated {
+    pub name: String,
+    pub source_text: String,
+    pub operation_type_name: String, // e.g. GetMeQuery
+    pub variables_type_name: String, // e.g. GetMeQueryVariables
+    pub codegen_path: PathBuf,       // Path to the .codegen.ts file
+}
+
 pub fn generate_typescript(
     doc: &crate::DocumentState,
     ctx: &CodegenContext,
-) -> Result<String, String> {
+) -> Result<(String, Vec<OperationGenerated>), String> {
     let mut output = String::new();
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
     let mut used_fragments = HashMap::default();
+    let mut generated_operations = Vec::new();
 
     // Validate schema once for ExecutableDocument parsing
     let valid_schema = ctx
@@ -134,6 +143,14 @@ pub fn generate_typescript(
                 "export const {}Document = {} as unknown as DocumentNode<{}{}, {}>;\n\n",
                 name, ast_content, name, suffix, vars_type
             ));
+
+            generated_operations.push(OperationGenerated {
+                name: name.to_string(),
+                source_text: block_text.clone(),
+                operation_type_name: format!("{}{}", name, suffix),
+                variables_type_name: vars_type,
+                codegen_path: ctx.current_file_path.to_path_buf(), // Placeholder
+            });
         }
 
         for frag in exec_doc.fragments.values() {
@@ -280,7 +297,76 @@ pub fn generate_typescript(
         return Err("No executable operations or fragments found in this file".to_string());
     }
 
-    Ok(output)
+    Ok((output, generated_operations))
+}
+
+pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGenerated]) -> String {
+    let mut output = String::new();
+    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+    output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
+
+    let mut import_lines = Vec::new();
+    let mut overloads = Vec::new();
+    let mut map_entries = Vec::new();
+
+    for op in operations {
+        let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
+            .unwrap_or_else(|| op.codegen_path.clone());
+        let mut path_str = rel_codegen_path.to_string_lossy().to_string();
+        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+            path_str = format!("./{}", path_str);
+        }
+        // Remove extension
+        let path_no_ext = if path_str.ends_with(".ts") {
+            &path_str[..path_str.len() - 3]
+        } else {
+            &path_str
+        };
+
+        import_lines.push(format!(
+            "import {{ {}, {}Variables, {}Document }} from \"{}\";",
+            op.operation_type_name, op.operation_type_name, op.operation_type_name, path_no_ext
+        ));
+
+        overloads.push(format!(
+            "export function graphql(source: {:?}): typeof {}Document;",
+            op.source_text, op.operation_type_name
+        ));
+
+        map_entries.push(format!(
+            "  {:?}: {}Document,",
+            op.source_text, op.operation_type_name
+        ));
+    }
+
+    import_lines.sort();
+    import_lines.dedup();
+    for line in import_lines {
+        output.push_str(&line);
+        output.push('\n');
+    }
+    output.push('\n');
+
+    let mut map_body = String::new();
+    for entry in map_entries {
+        map_body.push_str(&entry);
+        map_body.push('\n');
+    }
+
+    output.push_str(&format!(
+        "const documents: {{ [key: string]: any }} = {{\n{}}};\n\n",
+        map_body
+    ));
+
+    for overload in overloads {
+        output.push_str(&overload);
+        output.push('\n');
+    }
+    output.push_str("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;\n");
+    output.push_str("export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n");
+    output.push_str("export const gql = graphql;\n");
+
+    output
 }
 
 fn generate_selection_set(

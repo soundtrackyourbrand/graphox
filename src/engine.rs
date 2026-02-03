@@ -15,11 +15,25 @@ pub struct FragmentMetadata {
     pub is_public: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct OperationMetadata {
+    pub name: Option<String>,
+    pub path: String,
+    pub source_text: String,
+    pub operation_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceMetadata {
+    pub fragments: Vec<FragmentMetadata>,
+    pub operations: Vec<OperationMetadata>,
+}
+
 pub struct Engine;
 
 impl Engine {
-    /// Step 1: Discover all fragments across the entire workspace
-    pub fn scan_workspace(config: &Config) -> Vec<FragmentMetadata> {
+    /// Step 1: Discover all fragments and operations across the entire workspace
+    pub fn scan_workspace(config: &Config) -> WorkspaceMetadata {
         let projects: Vec<_> = config
             .projects
             .iter()
@@ -42,30 +56,50 @@ impl Engine {
             })
             .collect();
 
-        let scan_results: Vec<Vec<_>> = projects
+        let scan_results: Vec<(Vec<FragmentMetadata>, Vec<OperationMetadata>)> = projects
             .par_iter()
             .map(|(abs_includes, abs_excludes, import_alias)| {
                 let paths = get_project_files(abs_includes, abs_excludes);
-                let mut results = Vec::new();
+                let mut fragments = Vec::new();
+                let mut operations = Vec::new();
                 for path in paths {
                     if is_relevant_file(&path)
                         && let Some(doc) = Self::parse_doc(&path)
                     {
                         for frag in doc.fragments() {
-                            results.push(FragmentMetadata {
+                            fragments.push(FragmentMetadata {
                                 name: frag.name.clone(),
                                 path: path.to_string_lossy().to_string(),
                                 import_alias: import_alias.clone(),
                                 is_public: frag.is_public,
                             });
                         }
+                        for op in doc.operations() {
+                            operations.push(OperationMetadata {
+                                name: op.name.clone(),
+                                path: path.to_string_lossy().to_string(),
+                                source_text: op.source_text.clone(),
+                                operation_type: op.operation_type.clone(),
+                            });
+                        }
                     }
                 }
-                results
+                (fragments, operations)
             })
             .collect();
 
-        scan_results.into_iter().flatten().collect()
+        let mut all_fragments = Vec::new();
+        let mut all_operations = Vec::new();
+
+        for (fragments, operations) in scan_results {
+            all_fragments.extend(fragments);
+            all_operations.extend(operations);
+        }
+
+        WorkspaceMetadata {
+            fragments: all_fragments,
+            operations: all_operations,
+        }
     }
 
     /// Step 1b: Discovery for simple mode (no config)

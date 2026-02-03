@@ -69,6 +69,7 @@ Queries are defined as constants in `src/queries.rs` and lazily initialized in `
 
 ### Codegen & Baselines
 The codegen command generates TypeScript types. Tests for codegen compare output against files in `tests/baselines/`. If you intentionally change codegen output, run `make update-baselines` to update these files.
+- **Entrypoint:** A `graphql.ts` file is generated in the root of the `output_dir` (if specified), providing a type-safe `graphql` function.
 
 ### Configuration Handling
 The `Config` struct (in `src/config.rs`) defines how the tool scans the workspace. It supports multiple projects with different schemas.

@@ -35,7 +35,7 @@ pub async fn run_codegen(
     }
 
     println!("Watching for changes...");
-    execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
+    let _ = execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
@@ -83,7 +83,7 @@ pub async fn run_codegen(
 
     while rx.recv().await.is_some() {
         println!("\nChange detected, re-running codegen...");
-        execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
+        let _ = execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
     }
 }
 
@@ -95,15 +95,18 @@ async fn execute_codegen(
     clean: bool,
 ) -> bool {
     let mut success = true;
+    let mut all_generated_operations = Vec::new();
+
     if let Some(cfg) = &config {
-        let global_metadata = Engine::scan_workspace(cfg);
+        let workspace_metadata = Engine::scan_workspace(cfg);
+        let global_metadata = &workspace_metadata.fragments;
 
         let all_graphql_paths: Vec<_> = global_metadata
             .iter()
             .map(|m| PathBuf::from(&m.path))
             .collect();
 
-        let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
+        let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
         for project in &cfg.projects {
             let abs_includes: Vec<String> = project
                 .include
@@ -169,7 +172,7 @@ async fn execute_codegen(
             let mut fragment_to_path: HashMap<String, String> = HashMap::default();
             let mut fragment_to_import: HashMap<String, String> = HashMap::default();
 
-            for meta in &global_metadata {
+            for meta in global_metadata {
                 let is_local = project_files_set.contains(&meta.path);
 
                 if is_local {
@@ -189,7 +192,7 @@ async fn execute_codegen(
                 }
             }
 
-            if !execute_project_codegen(
+            match execute_project_codegen_entry(
                 CodegenParams {
                     base_dir: &cfg.base_dir,
                     source: &project.schema,
@@ -208,7 +211,8 @@ async fn execute_codegen(
             )
             .await
             {
-                success = false;
+                Ok(ops) => all_generated_operations.extend(ops),
+                Err(_) => success = false,
             }
         }
 
@@ -239,6 +243,24 @@ async fn execute_codegen(
                 }
             }
         }
+
+        if !clean {
+            if let Some(out_dir) = global_output_dir {
+                let out_dir_path = cfg.base_dir.join(out_dir);
+                let entrypoint_path = out_dir_path.join("graphql.ts");
+                if !all_generated_operations.is_empty() {
+                    println!("Generating entrypoint: {}", entrypoint_path.display());
+                    let content = graphql_rust::features::codegen::generate_entrypoint_content(
+                        &out_dir_path,
+                        &all_generated_operations,
+                    );
+                    if let Err(e) = std::fs::write(&entrypoint_path, content) {
+                        eprintln!("Failed to write entrypoint: {}", e);
+                        success = false;
+                    }
+                }
+            }
+        }
     } else {
         let fragment_map = Engine::scan_path(scan_path);
         let all_graphql_paths: Vec<_> = fragment_map.values().map(PathBuf::from).collect();
@@ -251,7 +273,6 @@ async fn execute_codegen(
                     eprintln!("Failed to parse schema {}: {}", schema_path, e);
                     return false;
                 }
-                // If clean, we might not care about schema parsing if we just want to delete files
                 Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap()
             }
         };
@@ -266,7 +287,7 @@ async fn execute_codegen(
                 } else {
                     format!("{}/**/*", scan_path)
                 };
-                if !execute_project_codegen(
+                if execute_project_codegen_entry(
                     CodegenParams {
                         base_dir: Path::new("."),
                         source: &SchemaSource::Single(schema_path.to_string()),
@@ -284,6 +305,7 @@ async fn execute_codegen(
                     clean,
                 )
                 .await
+                .is_err()
                 {
                     success = false;
                 }
@@ -292,37 +314,6 @@ async fn execute_codegen(
                 if !clean {
                     eprintln!("Schema validation failed for {}: {}", schema_path, e);
                     success = false;
-                } else {
-                    // Try to clean without valid schema
-                    let include_glob = if std::path::Path::new(scan_path).is_file() {
-                        scan_path.to_string()
-                    } else if scan_path == "." || scan_path == "./" {
-                        "**/*".to_string()
-                    } else {
-                        format!("{}/**/*", scan_path)
-                    };
-                    if !execute_project_codegen(
-                    CodegenParams {
-                        base_dir: Path::new("."),
-                        source: &SchemaSource::Single(schema_path.to_string()),
-                        include_patterns: &[include_glob],
-                        exclude_patterns: &[],
-                        output_dir,
-                        scalars: &None,
-                        schema_import: &None,
-                        fragment_to_path: &fragment_map,
-                        fragment_to_import: &HashMap::default(),
-                        all_fragments: &HashMap::default(),
-                        global_metadata: &[],
-                        generate_ast_for_fragments: false,
-                    },
-
-                        clean,
-                    )
-                    .await
-                    {
-                        success = false;
-                    }
                 }
             }
         }
@@ -358,14 +349,18 @@ async fn execute_schema_codegen(
     true
 }
 
-async fn execute_project_codegen(params: CodegenParams<'_>, clean: bool) -> bool {
+async fn execute_project_codegen_entry(
+    params: CodegenParams<'_>,
+    clean: bool,
+) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, ()> {
     let mut success = true;
+    let mut generated_ops = Vec::new();
     if !clean {
         let schema = match Engine::load_schema(params.base_dir, params.source) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("{}", e);
-                return false;
+                return Err(());
             }
         };
 
@@ -382,58 +377,46 @@ async fn execute_project_codegen(params: CodegenParams<'_>, clean: bool) -> bool
         }
 
         for (path, doc) in &docs {
-        let ctx = graphql_rust::features::codegen::CodegenContext {
-            schema: &schema,
-            fragment_to_path: params.fragment_to_path,
-            fragment_to_import: params.fragment_to_import,
-            all_fragments: params.all_fragments,
-            current_file_path: path,
-            scalars: params.scalars,
-            schema_import: params.schema_import,
-            generate_ast_for_fragments: params.generate_ast_for_fragments,
-        };
+            let ctx = graphql_rust::features::codegen::CodegenContext {
+                schema: &schema,
+                fragment_to_path: params.fragment_to_path,
+                fragment_to_import: params.fragment_to_import,
+                all_fragments: params.all_fragments,
+                current_file_path: path,
+                scalars: params.scalars,
+                schema_import: params.schema_import,
+                generate_ast_for_fragments: params.generate_ast_for_fragments,
+            };
 
-
-        match graphql_rust::features::codegen::generate_typescript(doc, &ctx) {
-            Ok(ts_code) => {
-                let out_path = get_output_path(path, params.output_dir);
-
-                if let Some(parent) = out_path.parent() {
-                    std::fs::create_dir_all(parent).ok();
+            match execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir) {
+                Ok(mut ops) => {
+                    generated_ops.append(&mut ops);
                 }
-                if let Err(e) = std::fs::write(&out_path, ts_code) {
-                    eprintln!("Failed to write codegen file {}: {}", out_path.display(), e);
-                    success = false;
-                } else {
-                    println!("Generated: {}", out_path.display());
-                }
-            }
-            Err(e) => {
-                if !e.contains("No executable operations") {
-                    eprintln!("Error generating types for {}: {}", path.display(), e);
-                    success = false;
+                Err(e) => {
+                    if !e.contains("No executable operations") {
+                        eprintln!("Error generating types for {}: {}", path.display(), e);
+                        success = false;
 
-                    if e.contains("Fragment") && e.contains("not found") {
-                        for meta in params.global_metadata {
-                            if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
-                                eprintln!(
+                        if e.contains("Fragment") && e.contains("not found") {
+                            for meta in params.global_metadata {
+                                if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
+                                    eprintln!(
                                     "  Hint: Fragment '{}' exists in {} but is not marked as @public",
                                     meta.name, meta.path
                                 );
+                                }
                             }
                         }
                     }
                 }
             }
         }
-
-        }
     } else {
         // Clean mode
         let paths =
             graphql_rust::utils::get_project_files(params.include_patterns, params.exclude_patterns);
         for path in paths {
-            let out_path = get_output_path(&path, params.output_dir);
+            let out_path = graphql_rust::utils::get_output_path(&path, params.output_dir);
             if out_path.exists() {
                 if let Err(e) = std::fs::remove_file(&out_path) {
                     eprintln!("Failed to remove {}: {}", out_path.display(), e);
@@ -443,26 +426,54 @@ async fn execute_project_codegen(params: CodegenParams<'_>, clean: bool) -> bool
                 }
             }
         }
+
+        if let Some(out_dir) = params.output_dir {
+            let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
+            if entrypoint_path.exists() {
+                if let Err(e) = std::fs::remove_file(&entrypoint_path) {
+                    eprintln!(
+                        "Failed to remove entrypoint {}: {}",
+                        entrypoint_path.display(),
+                        e
+                    );
+                    success = false;
+                } else {
+                    println!("Removed: {}", entrypoint_path.display());
+                }
+            }
+        }
     }
-    success
+    if success {
+        Ok(generated_ops)
+    } else {
+        Err(())
+    }
 }
 
-fn get_output_path(path: &Path, output_dir: Option<&str>) -> PathBuf {
-    if let Some(dir) = output_dir {
-        let mut p = PathBuf::from(dir);
-        let rel = if path.is_absolute() {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
-            path.strip_prefix(&abs_cwd).unwrap_or(path)
-        } else {
-            path
-        };
-        p.push(rel);
-        p.set_extension("codegen.ts");
-        p
+fn execute_single_file_codegen(
+    doc: &graphql_rust::DocumentState,
+    ctx: &graphql_rust::features::codegen::CodegenContext<'_>,
+    output_dir: Option<&str>,
+    base_dir: &Path,
+) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, String> {
+    let (ts_code, mut ops) = graphql_rust::features::codegen::generate_typescript(doc, ctx)?;
+    let out_path_raw =
+        graphql_rust::utils::get_output_path(doc.uri.to_file_path().unwrap().as_path(), output_dir);
+
+    let abs_out_path = if out_path_raw.is_absolute() {
+        out_path_raw
     } else {
-        let mut p = path.to_path_buf();
-        p.set_extension("codegen.ts");
-        p
+        base_dir.join(out_path_raw)
+    };
+
+    for op in &mut ops {
+        op.codegen_path = abs_out_path.clone();
     }
+
+    if let Some(parent) = abs_out_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&abs_out_path, ts_code).map_err(|e| e.to_string())?;
+    println!("Generated: {}", abs_out_path.display());
+    Ok(ops)
 }

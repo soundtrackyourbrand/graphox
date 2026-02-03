@@ -196,6 +196,26 @@ pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
     None
 }
 
+pub fn get_output_path(path: &Path, output_dir: Option<&str>) -> PathBuf {
+    if let Some(dir) = output_dir {
+        let mut p = PathBuf::from(dir);
+        let rel = if path.is_absolute() {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
+            path.strip_prefix(&abs_cwd).unwrap_or(path)
+        } else {
+            path
+        };
+        p.push(rel);
+        p.set_extension("codegen.ts");
+        p
+    } else {
+        let mut p = path.to_path_buf();
+        p.set_extension("codegen.ts");
+        p
+    }
+}
+
 /// Simple interpolation masker for template strings.
 /// Replaces ${...} with spaces of the same length to preserve offsets.
 pub fn mask_interpolations(text: &str) -> String {

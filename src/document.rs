@@ -54,6 +54,13 @@ pub struct FragmentDef {
     pub is_public: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct OperationDef {
+    pub name: Option<String>,
+    pub operation_type: String,
+    pub source_text: String,
+}
+
 pub struct DocumentState {
     pub uri: Url,
     pub rope: Rope,
@@ -61,6 +68,7 @@ pub struct DocumentState {
     pub language: DocumentLanguage,
     pub graphql_trees: Vec<GraphQLBlock>,
     pub fragments: Vec<FragmentDef>,
+    pub operations: Vec<OperationDef>,
     pub package_root: Option<PathBuf>,
 }
 
@@ -82,10 +90,12 @@ impl DocumentState {
             language,
             graphql_trees: Vec::new(),
             fragments: Vec::new(),
+            operations: Vec::new(),
             package_root,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();
         doc.fragments = doc.extract_fragment_names();
+        doc.operations = doc.extract_operations();
         doc
     }
 
@@ -279,6 +289,10 @@ impl DocumentState {
         &self.fragments
     }
 
+    pub fn operations(&self) -> &[OperationDef] {
+        &self.operations
+    }
+
     pub fn extract_fragment_names(&self) -> Vec<FragmentDef> {
         let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
@@ -325,6 +339,67 @@ impl DocumentState {
             }
         }
         fragments
+    }
+
+    pub fn extract_operations(&self) -> Vec<OperationDef> {
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut operations = Vec::new();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut op_type = String::from("query");
+                let mut is_operation = false;
+                let mut full_node = None;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        if cap.node.kind() == "operation_type" {
+                            op_type = self.get_node_text(cap.node, offset);
+                            is_operation = true;
+                        }
+                    } else if cap_name == "symbol.full" {
+                        if cap.node.kind() == "operation_definition" {
+                            is_operation = true;
+                            full_node = Some(cap.node);
+                        }
+                    }
+                }
+
+                if is_operation {
+                    let source_text = if let Some(n) = full_node {
+                        self.get_node_text(n, offset)
+                    } else {
+                        // Fallback if symbol.full capture failed for some reason
+                        block.tree.root_node().utf8_text(b"").unwrap_or("").to_string()
+                    };
+
+                    operations.push(OperationDef {
+                        name,
+                        operation_type: op_type,
+                        source_text,
+                    });
+                }
+            }
+        }
+        operations
     }
 
     pub fn find_fragment_info(&self, target_name: &str) -> Option<String> {

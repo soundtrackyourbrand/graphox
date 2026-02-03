@@ -4,29 +4,41 @@ use graphql_rust::Config;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_path: &str, verbose: bool) {
+pub async fn run_benchmark(
+    mut config: Option<Config>,
+    _schema_path: &str,
+    scan_path: &str,
+    verbose: bool,
+) {
     if config.is_none() {
         config = Config::load_from_dir(scan_path);
     }
-    
+
     println!("Starting Benchmark...");
     let total_start = Instant::now();
 
     // 1. Discovery & Metadata Collection (Parallel)
     let discovery_start = Instant::now();
-    let global_metadata = if let Some(cfg) = &config {
+    let workspace_metadata = if let Some(cfg) = &config {
         Engine::scan_workspace(cfg)
     } else {
-        vec![] // metadata not used in simple mode
+        graphql_rust::engine::WorkspaceMetadata {
+            fragments: vec![],
+            operations: vec![],
+        }
     };
+    let global_metadata = &workspace_metadata.fragments;
     let file_discovery_time = discovery_start.elapsed();
 
     let mut fragment_to_path_global: HashMap<String, String> = HashMap::default();
-    for meta in &global_metadata {
+    for meta in global_metadata {
         fragment_to_path_global.insert(meta.name.clone(), meta.path.clone());
     }
 
-    let all_graphql_paths: Vec<_> = fragment_to_path_global.values().map(PathBuf::from).collect();
+    let all_graphql_paths: Vec<_> = global_metadata
+        .iter()
+        .map(|m| PathBuf::from(&m.path))
+        .collect();
 
     // 2. Project Processing
     let mut total_graphql_files = 0;
@@ -38,16 +50,26 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
 
     if let Some(cfg) = &config {
         for project in &cfg.projects {
-            let s_start = Instant::now();
+            let sp_start = Instant::now();
             let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
                 Ok(s) => s,
-                Err(_) => continue,
+                Err(e) => {
+                    eprintln!("{}", e);
+                    continue;
+                }
             };
             let valid_schema = match schema.clone().validate() {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(e) => {
+                    eprintln!(
+                        "Schema validation failed for {}: {}",
+                        project.schema.as_key(),
+                        e
+                    );
+                    continue;
+                }
             };
-            schema_parse_time += s_start.elapsed();
+            schema_parse_time += sp_start.elapsed();
 
             let fr_start = Instant::now();
             let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
@@ -74,19 +96,34 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                 .collect();
 
             // Project-specific maps
-            let mut project_fragment_to_path = HashMap::default();
-            let mut project_fragment_to_import = HashMap::default();
+            let mut project_fragment_to_path: HashMap<String, String> = HashMap::default();
+            let mut project_fragment_to_import: HashMap<String, String> = HashMap::default();
 
-            for meta in &global_metadata {
+            for meta in global_metadata {
                 let is_local = project_files_set.contains(&meta.path);
                 if is_local {
-                    if verbose { println!("Local Fragment Found: {} in {}", meta.name, meta.path); }
+                    if verbose {
+                        println!("Local Fragment Found: {} in {}", meta.name, meta.path);
+                    }
                     project_fragment_to_path.insert(meta.name.clone(), meta.path.clone());
-                    if let Some(a) = &meta.import_alias { project_fragment_to_import.insert(meta.name.clone(), a.clone()); }
+                    if let Some(a) = &meta.import_alias {
+                        project_fragment_to_import.insert(meta.name.clone(), a.clone());
+                    }
                 } else if meta.is_public {
-                    if verbose { println!("Public Global Fragment Found: {} from {}", meta.name, meta.path); }
-                    project_fragment_to_path.entry(meta.name.clone()).or_insert_with(|| meta.path.clone());
-                    if let Some(a) = &meta.import_alias { project_fragment_to_import.entry(meta.name.clone()).or_insert_with(|| a.clone()); }
+                    if verbose {
+                        println!(
+                            "Public Global Fragment Found: {} from {}",
+                            meta.name, meta.path
+                        );
+                    }
+                    project_fragment_to_path
+                        .entry(meta.name.clone())
+                        .or_insert_with(|| meta.path.clone());
+                    if let Some(a) = &meta.import_alias {
+                        project_fragment_to_import
+                            .entry(meta.name.clone())
+                            .or_insert_with(|| a.clone());
+                    }
                 }
             }
 
@@ -94,7 +131,9 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                 if let Some(doc) = Engine::parse_doc(&path) {
                     total_graphql_files += 1;
                     let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
-                        sts.iter().find(|st| st.schema.as_key() == project.schema.as_key()).and_then(|st| st.import.clone())
+                        sts.iter()
+                            .find(|st| st.schema.as_key() == project.schema.as_key())
+                            .and_then(|st| st.import.clone())
                     });
                     let ctx = graphql_rust::features::codegen::CodegenContext {
                         schema: &schema,
@@ -107,9 +146,11 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
                         generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                     };
                     let g_start = Instant::now();
-                    if let Ok(_ts_code) = graphql_rust::features::codegen::generate_typescript(&doc, &ctx) {
+                    if let Ok(_ts_code) =
+                        graphql_rust::features::codegen::generate_typescript(&doc, &ctx)
+                    {
                         ts_gen_time += g_start.elapsed();
-                        total_operations += doc.get_graphql_trees().len(); 
+                        total_operations += doc.get_graphql_trees().len();
                         total_fragments_processed += doc.fragments().len();
                     }
                 }
