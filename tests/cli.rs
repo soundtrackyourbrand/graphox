@@ -498,6 +498,33 @@ fn test_cli_project_import_baselines() {
     );
 }
 
+#[test]
+fn test_cli_multi_schema_import_baselines() {
+    run_baseline_test(
+        "tests/fixtures/multi_schema_import",
+        "tests/baselines/multi_schema_import",
+        None,
+    );
+}
+
+#[test]
+fn test_cli_multi_schema_import_superset_baselines() {
+    run_baseline_test(
+        "tests/fixtures/multi_schema_import_superset",
+        "tests/baselines/multi_schema_import_superset",
+        None,
+    );
+}
+
+#[test]
+fn test_cli_public_test_baselines() {
+    run_baseline_test(
+        "tests/fixtures/public_test",
+        "tests/baselines/public_test",
+        Some("tests/fixtures/simple_schema.graphql"),
+    );
+}
+
 fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new(fixture_dir_str);
@@ -533,36 +560,48 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path:
         String::from_utf8_lossy(&output.stderr)
     );
 
-    for entry in std::fs::read_dir(fixture_dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("graphql") {
-            let file_stem = path.file_stem().unwrap().to_str().unwrap();
-
-            let mut codegen_path = temp_dir.clone();
-            codegen_path.push(format!("{}.codegen.ts", file_stem));
-
-            let expected_path = baseline_dir.join(format!("{}.expected.ts", file_stem));
-
-            if !expected_path.exists() {
+    let mut stack = vec![fixture_dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        for entry in std::fs::read_dir(current).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
                 continue;
             }
+            if path.extension().and_then(|s| s.to_str()) == Some("graphql") {
+                let rel_to_fixture = path.strip_prefix(fixture_dir).unwrap();
+                let file_stem = rel_to_fixture.file_stem().unwrap().to_str().unwrap();
+                let parent = rel_to_fixture.parent().unwrap();
 
-            assert!(
-                codegen_path.exists(),
-                "Codegen file {:?} was not created",
-                codegen_path
-            );
+                let mut codegen_path = temp_dir.clone();
+                codegen_path.push(rel_to_fixture);
+                codegen_path.set_extension("codegen.ts");
 
-            let actual = std::fs::read_to_string(&codegen_path).unwrap();
-            let expected = std::fs::read_to_string(&expected_path).unwrap();
+                let expected_path = baseline_dir
+                    .join(parent)
+                    .join(format!("{}.expected.ts", file_stem));
 
-            if actual.trim() != expected.trim() {
-                println!("--- ACTUAL ---");
-                println!("{}", actual);
-                println!("--- EXPECTED ---");
-                println!("{}", expected);
-                panic!("Codegen mismatch for {:?} in {}", path, fixture_dir_str);
+                if !expected_path.exists() {
+                    continue;
+                }
+
+                assert!(
+                    codegen_path.exists(),
+                    "Codegen file {:?} was not created",
+                    codegen_path
+                );
+
+                let actual = std::fs::read_to_string(&codegen_path).unwrap();
+                let expected = std::fs::read_to_string(&expected_path).unwrap();
+
+                if actual.trim() != expected.trim() {
+                    println!("--- ACTUAL ({:?}) ---", path);
+                    println!("{}", actual);
+                    println!("--- EXPECTED ---");
+                    println!("{}", expected);
+                    panic!("Codegen mismatch for {:?} in {}", path, fixture_dir_str);
+                }
             }
         }
     }

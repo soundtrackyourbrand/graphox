@@ -1,0 +1,11 @@
+schema_types:
+  - schema: 
+      - "base.graphql"
+    output: "types.ts"
+    import: "@workspace/types"
+
+projects:
+  - schema:
+      - "base.graphql"
+      - "ext.graphql"
+    include: "query.graphql"

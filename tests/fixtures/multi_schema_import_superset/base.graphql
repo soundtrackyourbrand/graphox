@@ -1,0 +1,13 @@
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+
+type User {
+  id: ID!
+  status: Status!
+}
+
+type Query {
+  me: User
+}

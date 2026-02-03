@@ -51,7 +51,6 @@ impl Backend {
 
     fn load_schema_source(base_dir: &std::path::Path, source: &crate::config::SchemaSource) -> Option<Arc<Schema>> {
         let mut combined_text = String::new();
-        let key = source.as_key();
         for file in source.files() {
             let path = base_dir.join(file);
             match std::fs::read_to_string(&path) {
@@ -62,7 +61,7 @@ impl Backend {
                 Err(_) => return None,
             }
         }
-        Schema::parse(&combined_text, &key).ok().map(Arc::new)
+        Schema::parse(&combined_text, &source.as_key()).ok().map(Arc::new)
     }
 
     fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
@@ -73,11 +72,9 @@ impl Backend {
             {
                 return schema.value().clone();
             }
-            // If we have a config but no match, user said "assume empty schema"
             return self.empty_schema.clone();
         }
 
-        // No config present at all, fallback to default schema (preserves CLI/test behavior)
         if let Some(default_path) = &self.default_schema_path
             && let Some(schema) = self.schemas.get(default_path)
         {
@@ -144,18 +141,15 @@ impl Backend {
                     .log_message(MessageType::INFO, format!("Schema set {} successfully reloaded!", key))
                     .await;
 
-                // Re-validate all documents that use this schema
                 for entry in self.documents.iter() {
                     let uri = entry.key();
                     let doc = entry.value();
-
                     let doc_schema = self.get_schema_for_doc(uri);
-
                     if let Ok(doc_path) = uri.to_file_path() {
                         let matches = if let Some(config) = &self.config {
-                            config.get_schema_for_path(&doc_path).is_some_and(|p| p == key)
+                            config.get_schema_for_path(&doc_path).is_some_and(|p| p.as_str() == key.as_str())
                         } else {
-                            self.default_schema_path.as_ref().is_some_and(|p| p == &key)
+                            self.default_schema_path.as_ref().is_some_and(|p| p.as_str() == key.as_str())
                         };
 
                         if matches {
@@ -250,7 +244,6 @@ impl LanguageServer for Backend {
             });
         }
 
-        // Register for schema file changes
         let registration = Registration {
             id: "watch-schema".to_string(),
             method: "workspace/didChangeWatchedFiles".to_string(),
@@ -281,7 +274,6 @@ impl LanguageServer for Backend {
                 return Ok(Some(hover));
             }
 
-            // If no schema or description hover, check if it's a fragment spread
             if let Some(symbol_name) = doc.get_symbol_at_position(position) {
                 for entry in self.documents.iter() {
                     let other_doc = entry.value();
@@ -315,7 +307,6 @@ impl LanguageServer for Backend {
 
         if let Some(doc) = self.documents.get(uri) {
             let schema = self.get_schema_for_doc(uri);
-            // Collect fragments from the same package
             let fragments = self.get_fragments_for_doc(&doc);
 
             let items = doc.get_completion_items(position, &schema, fragments);
@@ -354,14 +345,12 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // 1. Find the symbol name at the cursor
         let symbol_name = if let Some(doc) = self.documents.get(&uri) {
             doc.get_symbol_at_position(position)
         } else {
             None
         };
 
-        // 2. Search for definition in documents within the same package or public fragments
         if let Some(name) = symbol_name
             && let Some(doc) = self.documents.get(&uri)
         {
@@ -399,7 +388,6 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         self.documents.insert(uri.clone(), doc);
 
-        // Initial validation
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);

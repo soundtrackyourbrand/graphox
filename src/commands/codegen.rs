@@ -88,10 +88,21 @@ async fn execute_codegen(
             println!("Processing project with schema: {}", project.schema.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
+            let project_schema_files: std::collections::HashSet<_> = project.schema.files().into_iter().collect();
+            
             let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
-                sts.iter()
-                    .find(|st| st.schema.as_key() == project.schema.as_key())
-                    .and_then(|st| st.import.clone())
+                // Find all matching schema type configs (where the project's schema is a superset of the types' schema)
+                let mut matches: Vec<_> = sts.iter()
+                    .filter(|st| {
+                        let st_files = st.schema.files();
+                        st_files.iter().all(|f| project_schema_files.contains(f))
+                    })
+                    .collect();
+                
+                // Sort by number of matched files (most specific match first)
+                matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
+                
+                matches.first().and_then(|st| st.import.clone())
             });
 
             let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
