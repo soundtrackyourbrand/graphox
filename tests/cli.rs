@@ -181,6 +181,7 @@ fn test_cli_codegen_clean() {
         .arg("codegen")
         .arg(temp_dir.to_str().unwrap())
         .arg("--clean")
+        .arg("--verbose")
         .output()
         .expect("Failed to execute process");
 

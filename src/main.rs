@@ -42,6 +42,9 @@ enum Commands {
         /// Watch for changes and re-run codegen
         #[arg(short, long)]
         watch: bool,
+        /// Show detailed output
+        #[arg(short, long)]
+        verbose: bool,
         /// Remove all created codegen files
         #[arg(long)]
         clean: bool,
@@ -73,9 +76,10 @@ async fn main() {
             path,
             output,
             watch,
+            verbose,
             clean,
         }) => {
-            run_codegen(config, &cli.schema, &path, output.as_deref(), watch, clean).await;
+            run_codegen(config, &cli.schema, &path, output.as_deref(), watch, verbose, clean).await;
         }
         Some(Commands::Benchmark { path, verbose }) => {
             run_benchmark(config, &cli.schema, &path, verbose).await;

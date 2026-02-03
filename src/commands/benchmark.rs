@@ -18,17 +18,18 @@ pub async fn run_benchmark(
     let total_start = Instant::now();
 
     // 1. Discovery & Metadata Collection (Parallel)
-    let discovery_start = Instant::now();
     let workspace_metadata = if let Some(cfg) = &config {
         Engine::scan_workspace(cfg)
     } else {
         graphql_rust::engine::WorkspaceMetadata {
             fragments: vec![],
             operations: vec![],
+            projects: vec![],
+            timings: graphql_rust::engine::WorkspaceScanTimings::default(),
         }
     };
     let global_metadata = &workspace_metadata.fragments;
-    let file_discovery_time = discovery_start.elapsed();
+    let scan_timings = &workspace_metadata.timings;
 
     let mut fragment_to_path_global: HashMap<String, String> = HashMap::default();
     for meta in global_metadata {
@@ -46,10 +47,16 @@ pub async fn run_benchmark(
     let mut total_fragments_processed = 0;
     let mut schema_parse_time = Duration::ZERO;
     let mut fragment_resolve_time = Duration::ZERO;
+    let mut doc_parse_time = Duration::ZERO;
     let mut ts_gen_time = Duration::ZERO;
+    let mut metadata_mapping_time = Duration::ZERO;
+
+    let mut project_timings = Vec::new();
+    let mut schema_type_timings = Vec::new();
 
     if let Some(cfg) = &config {
-        for project in &cfg.projects {
+        for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
+            let project_total_start = Instant::now();
             let sp_start = Instant::now();
             let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
                 Ok(s) => s,
@@ -75,27 +82,14 @@ pub async fn run_benchmark(
             let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
             fragment_resolve_time += fr_start.elapsed();
 
-            let abs_includes: Vec<String> = project
-                .include
-                .patterns()
-                .iter()
-                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
-                .collect();
-            let abs_excludes: Vec<String> = project
-                .exclude
-                .as_ref()
-                .map(|e| e.patterns())
-                .unwrap_or_default()
-                .iter()
-                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
-                .collect();
-            let project_files = graphql_rust::utils::get_project_files(&abs_includes, &abs_excludes);
+            let project_files = &project_meta.files;
             let project_files_set: HashSet<String> = project_files
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
 
             // Project-specific maps
+            let mm_start = Instant::now();
             let mut project_fragment_to_path: HashMap<String, String> = HashMap::default();
             let mut project_fragment_to_import: HashMap<String, String> = HashMap::default();
 
@@ -126,9 +120,14 @@ pub async fn run_benchmark(
                     }
                 }
             }
+            metadata_mapping_time += mm_start.elapsed();
 
             for path in project_files {
-                if let Some(doc) = Engine::parse_doc(&path) {
+                let dp_start = Instant::now();
+                let doc_opt = Engine::parse_doc(&path);
+                doc_parse_time += dp_start.elapsed();
+
+                if let Some(doc) = doc_opt {
                     total_graphql_files += 1;
                     let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
                         sts.iter()
@@ -155,6 +154,20 @@ pub async fn run_benchmark(
                     }
                 }
             }
+            project_timings.push((project.include.as_key(), project_total_start.elapsed()));
+        }
+
+        if let Some(schema_types) = &cfg.schema_types {
+            for st in schema_types {
+                let st_start = Instant::now();
+                if let Ok(schema) = Engine::load_schema(&cfg.base_dir, &st.schema) {
+                    let g_start = Instant::now();
+                    let _ts_code =
+                        graphql_rust::features::codegen::generate_schema_types(&schema, &cfg.scalars);
+                    ts_gen_time += g_start.elapsed();
+                }
+                schema_type_timings.push((st.output.clone(), st_start.elapsed()));
+            }
         }
     }
     let total_duration = total_start.elapsed();
@@ -165,10 +178,37 @@ pub async fn run_benchmark(
     println!("Total Operations processed: {}", total_operations);
     println!("Total Fragments processed:  {}", total_fragments_processed);
     println!();
+    if !project_timings.is_empty() {
+        println!("Project Breakdown:");
+        for (key, duration) in project_timings {
+            println!("  {:30}: {:>10?}", key, duration);
+        }
+        println!();
+    }
+    if !schema_type_timings.is_empty() {
+        println!("Schema Types Breakdown:");
+        for (key, duration) in schema_type_timings {
+            println!("  {:30}: {:>10?}", key, duration);
+        }
+        println!();
+    }
     println!("Phase Timings:");
-    println!("  File Discovery & Metadata: {:>10?}", file_discovery_time);
+    println!(
+        "  Workspace Glob Resolution: {:>10?}",
+        scan_timings.glob_resolution
+    );
+    println!(
+        "  Workspace Doc Parsing:     {:>10?}",
+        scan_timings.doc_parsing
+    );
+    println!(
+        "  Workspace Metadata Extr:   {:>10?}",
+        scan_timings.metadata_extraction
+    );
     println!("  Schema Parsing:            {:>10?}", schema_parse_time);
     println!("  Fragment Resolution:       {:>10?}", fragment_resolve_time);
+    println!("  Metadata Mapping:          {:>10?}", metadata_mapping_time);
+    println!("  Document Parsing:          {:>10?}", doc_parse_time);
     println!("  TS Generation (serial):    {:>10?}", ts_gen_time);
     println!("--------------------------");
     println!("Total Wall Time:             {:>10?}", total_duration);

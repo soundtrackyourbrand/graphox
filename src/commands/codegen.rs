@@ -7,8 +7,7 @@ use std::path::{Path, PathBuf};
 struct CodegenParams<'a> {
     base_dir: &'a Path,
     source: &'a SchemaSource,
-    include_patterns: &'a [String],
-    exclude_patterns: &'a [String],
+    project_files: &'a [PathBuf],
     output_dir: Option<&'a str>,
     scalars: &'a Option<HashMap<String, String>>,
     schema_import: &'a Option<String>,
@@ -25,17 +24,19 @@ pub async fn run_codegen(
     scan_path: &str,
     output_dir: Option<&str>,
     watch: bool,
+    verbose: bool,
     clean: bool,
 ) {
     if !watch {
-        if !execute_codegen(config, schema_path, scan_path, output_dir, clean).await {
+        if !execute_codegen(config, schema_path, scan_path, output_dir, verbose, clean).await {
             std::process::exit(1);
         }
         return;
     }
 
     println!("Watching for changes...");
-    let _ = execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
+    let _ =
+        execute_codegen(config.clone(), schema_path, scan_path, output_dir, verbose, false).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
@@ -83,7 +84,9 @@ pub async fn run_codegen(
 
     while rx.recv().await.is_some() {
         println!("\nChange detected, re-running codegen...");
-        let _ = execute_codegen(config.clone(), schema_path, scan_path, output_dir, false).await;
+        let _ =
+            execute_codegen(config.clone(), schema_path, scan_path, output_dir, verbose, false)
+                .await;
     }
 }
 
@@ -92,6 +95,7 @@ async fn execute_codegen(
     schema_path: &str,
     scan_path: &str,
     output_dir: Option<&str>,
+    verbose: bool,
     clean: bool,
 ) -> bool {
     let mut success = true;
@@ -107,28 +111,14 @@ async fn execute_codegen(
             .collect();
 
         let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
-        for project in &cfg.projects {
-            let abs_includes: Vec<String> = project
-                .include
-                .patterns()
-                .iter()
-                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
-                .collect();
-            let abs_excludes: Vec<String> = project
-                .exclude
-                .as_ref()
-                .map(|e| e.patterns())
-                .unwrap_or_default()
-                .iter()
-                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
-                .collect();
-            let project_files = graphql_rust::utils::get_project_files(&abs_includes, &abs_excludes);
+        for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
+            let project_files = &project_meta.files;
             let project_files_set: HashSet<String> = project_files
                 .iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
 
-            println!("Processing project with schema: {}", project.schema.as_key());
+            println!("Processing project: {}", project.include.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
             let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
@@ -158,8 +148,8 @@ async fn execute_codegen(
                 Ok(v) => v,
                 Err(e) => {
                     eprintln!(
-                        "Schema validation failed for {}: {}",
-                        project.schema.as_key(),
+                        "Schema validation failed for project {}: {}",
+                        project.include.as_key(),
                         e
                     );
                     success = false;
@@ -196,8 +186,7 @@ async fn execute_codegen(
                 CodegenParams {
                     base_dir: &cfg.base_dir,
                     source: &project.schema,
-                    include_patterns: &abs_includes,
-                    exclude_patterns: &abs_excludes,
+                    project_files,
                     output_dir: project_output_dir,
                     scalars: &cfg.scalars,
                     schema_import: &schema_import,
@@ -207,6 +196,7 @@ async fn execute_codegen(
                     global_metadata: &global_metadata,
                     generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                 },
+                verbose,
                 clean,
             )
             .await
@@ -224,17 +214,18 @@ async fn execute_codegen(
                         if let Err(e) = std::fs::remove_file(&abs_output) {
                             eprintln!("Failed to remove {}: {}", abs_output.display(), e);
                             success = false;
-                        } else {
+                        } else if verbose {
                             println!("Removed: {}", abs_output.display());
                         }
                     }
                 } else {
-                    println!("Generating types for schema: {}", st.schema.as_key());
+                    println!("Generating types for schema: {}", st.output);
                     if !execute_schema_codegen(
                         &cfg.base_dir,
                         &st.schema,
                         &abs_output.to_string_lossy(),
                         &cfg.scalars,
+                        verbose,
                     )
                     .await
                     {
@@ -249,7 +240,9 @@ async fn execute_codegen(
                 let out_dir_path = cfg.base_dir.join(out_dir);
                 let entrypoint_path = out_dir_path.join("graphql.ts");
                 if !all_generated_operations.is_empty() {
-                    println!("Generating entrypoint: {}", entrypoint_path.display());
+                    if verbose {
+                        println!("Generating entrypoint: {}", entrypoint_path.display());
+                    }
                     let content = graphql_rust::features::codegen::generate_entrypoint_content(
                         &out_dir_path,
                         &all_generated_operations,
@@ -287,12 +280,12 @@ async fn execute_codegen(
                 } else {
                     format!("{}/**/*", scan_path)
                 };
+                let paths = graphql_rust::utils::get_project_files(&[include_glob], &[]);
                 if execute_project_codegen_entry(
                     CodegenParams {
                         base_dir: Path::new("."),
                         source: &SchemaSource::Single(schema_path.to_string()),
-                        include_patterns: &[include_glob],
-                        exclude_patterns: &[],
+                        project_files: &paths,
                         output_dir,
                         scalars: &None,
                         schema_import: &None,
@@ -302,6 +295,7 @@ async fn execute_codegen(
                         global_metadata: &[],
                         generate_ast_for_fragments: false,
                     },
+                    verbose,
                     clean,
                 )
                 .await
@@ -326,6 +320,7 @@ async fn execute_schema_codegen(
     source: &SchemaSource,
     output_path: &str,
     scalars: &Option<HashMap<String, String>>,
+    verbose: bool,
 ) -> bool {
     let schema = match Engine::load_schema(base_dir, source) {
         Ok(s) => s,
@@ -345,12 +340,15 @@ async fn execute_schema_codegen(
         eprintln!("Failed to write schema types file {}: {}", output_path, e);
         return false;
     }
-    println!("Generated schema types: {}", out_path.display());
+    if verbose {
+        println!("Generated: {}", out_path.display());
+    }
     true
 }
 
 async fn execute_project_codegen_entry(
     params: CodegenParams<'_>,
+    verbose: bool,
     clean: bool,
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, ()> {
     let mut success = true;
@@ -364,12 +362,9 @@ async fn execute_project_codegen_entry(
             }
         };
 
-        let paths =
-            graphql_rust::utils::get_project_files(params.include_patterns, params.exclude_patterns);
-
         let mut docs = Vec::new();
-        for path in paths {
-            if let Some(doc) = Engine::parse_doc(&path)
+        for path in params.project_files {
+            if let Some(doc) = Engine::parse_doc(path)
                 && !doc.get_graphql_trees().is_empty()
             {
                 docs.push((path, doc));
@@ -388,7 +383,8 @@ async fn execute_project_codegen_entry(
                 generate_ast_for_fragments: params.generate_ast_for_fragments,
             };
 
-            match execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir) {
+            match execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
+            {
                 Ok(mut ops) => {
                     generated_ops.append(&mut ops);
                 }
@@ -413,15 +409,13 @@ async fn execute_project_codegen_entry(
         }
     } else {
         // Clean mode
-        let paths =
-            graphql_rust::utils::get_project_files(params.include_patterns, params.exclude_patterns);
-        for path in paths {
-            let out_path = graphql_rust::utils::get_output_path(&path, params.output_dir);
+        for path in params.project_files {
+            let out_path = graphql_rust::utils::get_output_path(path, params.output_dir);
             if out_path.exists() {
                 if let Err(e) = std::fs::remove_file(&out_path) {
                     eprintln!("Failed to remove {}: {}", out_path.display(), e);
                     success = false;
-                } else {
+                } else if verbose {
                     println!("Removed: {}", out_path.display());
                 }
             }
@@ -437,7 +431,7 @@ async fn execute_project_codegen_entry(
                         e
                     );
                     success = false;
-                } else {
+                } else if verbose {
                     println!("Removed: {}", entrypoint_path.display());
                 }
             }
@@ -455,6 +449,7 @@ fn execute_single_file_codegen(
     ctx: &graphql_rust::features::codegen::CodegenContext<'_>,
     output_dir: Option<&str>,
     base_dir: &Path,
+    verbose: bool,
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, String> {
     let (ts_code, mut ops) = graphql_rust::features::codegen::generate_typescript(doc, ctx)?;
     let out_path_raw =
@@ -471,9 +466,11 @@ fn execute_single_file_codegen(
     }
 
     if let Some(parent) = abs_out_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).ok();
     }
     std::fs::write(&abs_out_path, ts_code).map_err(|e| e.to_string())?;
-    println!("Generated: {}", abs_out_path.display());
+    if verbose {
+        println!("Generated: {}", abs_out_path.display());
+    }
     Ok(ops)
 }

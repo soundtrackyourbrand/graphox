@@ -47,6 +47,13 @@ pub enum GlobPattern {
 }
 
 impl GlobPattern {
+    pub fn as_key(&self) -> String {
+        match self {
+            GlobPattern::Single(s) => s.clone(),
+            GlobPattern::Multiple(v) => v.join(","),
+        }
+    }
+
     pub fn patterns(&self) -> Vec<String> {
         match self {
             GlobPattern::Single(s) => vec![s.clone()],

@@ -7,6 +7,8 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::Url;
 
+use std::time::{Duration, Instant};
+
 #[derive(Debug, Clone)]
 pub struct FragmentMetadata {
     pub name: String,
@@ -23,10 +25,25 @@ pub struct OperationMetadata {
     pub operation_type: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceScanTimings {
+    pub glob_resolution: Duration,
+    pub doc_parsing: Duration,
+    pub metadata_extraction: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectMetadata {
+    pub include_key: String,
+    pub files: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkspaceMetadata {
     pub fragments: Vec<FragmentMetadata>,
     pub operations: Vec<OperationMetadata>,
+    pub projects: Vec<ProjectMetadata>,
+    pub timings: WorkspaceScanTimings,
 }
 
 pub struct Engine;
@@ -34,7 +51,11 @@ pub struct Engine;
 impl Engine {
     /// Step 1: Discover all fragments and operations across the entire workspace
     pub fn scan_workspace(config: &Config) -> WorkspaceMetadata {
-        let projects: Vec<_> = config
+        let mut timings = WorkspaceScanTimings::default();
+
+        // 1. Glob Resolution: Find which files belong to which projects
+        let start_glob = Instant::now();
+        let project_info: Vec<_> = config
             .projects
             .iter()
             .map(|p| {
@@ -52,53 +73,73 @@ impl Engine {
                     .iter()
                     .map(|p_exc| config.base_dir.join(p_exc).to_string_lossy().to_string())
                     .collect();
-                (abs_includes, abs_excludes, p.import.clone())
+                (
+                    get_project_files(&abs_includes, &abs_excludes),
+                    p.import.clone(),
+                )
             })
             .collect();
+        timings.glob_resolution = start_glob.elapsed();
 
-        let scan_results: Vec<(Vec<FragmentMetadata>, Vec<OperationMetadata>)> = projects
-            .par_iter()
-            .map(|(abs_includes, abs_excludes, import_alias)| {
-                let paths = get_project_files(abs_includes, abs_excludes);
-                let mut fragments = Vec::new();
-                let mut operations = Vec::new();
-                for path in paths {
-                    if is_relevant_file(&path)
-                        && let Some(doc) = Self::parse_doc(&path)
-                    {
-                        for frag in doc.fragments() {
-                            fragments.push(FragmentMetadata {
-                                name: frag.name.clone(),
-                                path: path.to_string_lossy().to_string(),
-                                import_alias: import_alias.clone(),
-                                is_public: frag.is_public,
-                            });
-                        }
-                        for op in doc.operations() {
-                            operations.push(OperationMetadata {
-                                name: op.name.clone(),
-                                path: path.to_string_lossy().to_string(),
-                                source_text: op.source_text.clone(),
-                                operation_type: op.operation_type.clone(),
-                            });
-                        }
-                    }
-                }
-                (fragments, operations)
-            })
+        // 2. Unique File Identification
+        let mut all_unique_paths = fnv::FnvHashSet::default();
+        for (paths, _) in &project_info {
+            for path in paths {
+                all_unique_paths.insert(path.clone());
+            }
+        }
+
+        // 3. Parallel Document Parsing
+        let start_parse = Instant::now();
+        let path_to_doc: HashMap<PathBuf, DocumentState> = all_unique_paths
+            .into_par_iter()
+            .filter(|p| is_relevant_file(p))
+            .filter_map(|p| Self::parse_doc(&p).map(|doc| (p, doc)))
             .collect();
+        timings.doc_parsing = start_parse.elapsed();
 
+        // 4. Metadata Extraction & Project Association
+        let start_metadata = Instant::now();
         let mut all_fragments = Vec::new();
         let mut all_operations = Vec::new();
 
-        for (fragments, operations) in scan_results {
-            all_fragments.extend(fragments);
-            all_operations.extend(operations);
+        for (paths, import_alias) in &project_info {
+            for path in paths {
+                if let Some(doc) = path_to_doc.get(path) {
+                    let path_str = path.to_string_lossy().to_string();
+                    for frag in doc.fragments() {
+                        all_fragments.push(FragmentMetadata {
+                            name: frag.name.clone(),
+                            path: path_str.clone(),
+                            import_alias: import_alias.clone(),
+                            is_public: frag.is_public,
+                        });
+                    }
+                    for op in doc.operations() {
+                        all_operations.push(OperationMetadata {
+                            name: op.name.clone(),
+                            path: path_str.clone(),
+                            source_text: op.source_text.clone(),
+                            operation_type: op.operation_type.clone(),
+                        });
+                    }
+                }
+            }
         }
+        timings.metadata_extraction = start_metadata.elapsed();
 
         WorkspaceMetadata {
             fragments: all_fragments,
             operations: all_operations,
+            projects: project_info
+                .into_iter()
+                .zip(&config.projects)
+                .map(|((files, _), p)| ProjectMetadata {
+                    include_key: p.include.as_key(),
+                    files,
+                })
+                .collect(),
+            timings,
         }
     }
 
@@ -193,7 +234,13 @@ impl Engine {
                     combined_text.push_str(&text);
                     combined_text.push('\n');
                 }
-                Err(e) => return Err(format!("Failed to read schema file {}: {}", path.display(), e)),
+                Err(e) => {
+                    return Err(format!(
+                        "Failed to read schema file {}: {}",
+                        path.display(),
+                        e
+                    ))
+                }
             }
         }
         Schema::parse(&combined_text, source.as_key())
