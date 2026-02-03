@@ -153,9 +153,9 @@ impl Backend {
 
                     if let Ok(doc_path) = uri.to_file_path() {
                         let matches = if let Some(config) = &self.config {
-                            config.get_schema_for_path(&doc_path).is_some_and(|p| p.as_str() == key.as_str())
+                            config.get_schema_for_path(&doc_path).is_some_and(|p| p == key)
                         } else {
-                            self.default_schema_path.as_ref().is_some_and(|p| p.as_str() == key.as_str())
+                            self.default_schema_path.as_ref().is_some_and(|p| p == &key)
                         };
 
                         if matches {
@@ -216,16 +216,47 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "LSP Started!")
             .await;
 
+        let mut watchers = Vec::new();
+        if let Some(cfg) = &self.config {
+            let mut schema_files = std::collections::HashSet::new();
+            for project in &cfg.projects {
+                for file in project.schema.files() {
+                    schema_files.insert(file);
+                }
+            }
+            if let Some(schema_types) = &cfg.schema_types {
+                for st in schema_types {
+                    for file in st.schema.files() {
+                        schema_files.insert(file);
+                    }
+                }
+            }
+
+            for file in schema_files {
+                watchers.push(FileSystemWatcher {
+                    glob_pattern: GlobPattern::String(file),
+                    kind: Some(WatchKind::all()),
+                });
+            }
+        } else if let Some(default_path) = &self.default_schema_path {
+            watchers.push(FileSystemWatcher {
+                glob_pattern: GlobPattern::String(default_path.clone()),
+                kind: Some(WatchKind::all()),
+            });
+        } else {
+            watchers.push(FileSystemWatcher {
+                glob_pattern: GlobPattern::String("**/*.graphql".to_string()),
+                kind: Some(WatchKind::all()),
+            });
+        }
+
         // Register for schema file changes
         let registration = Registration {
             id: "watch-schema".to_string(),
             method: "workspace/didChangeWatchedFiles".to_string(),
             register_options: Some(
                 serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
-                    watchers: vec![FileSystemWatcher {
-                        glob_pattern: GlobPattern::String("**/*.graphql".to_string()),
-                        kind: Some(WatchKind::all()),
-                    }],
+                    watchers,
                 })
                 .unwrap(),
             ),
@@ -417,9 +448,6 @@ impl LanguageServer for Backend {
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
             if change.uri.path().ends_with(".graphql") {
-                self.client
-                    .log_message(MessageType::INFO, format!("Schema file {} changed, reloading...", change.uri.path()))
-                    .await;
                 self.reload_schema(change.uri.path()).await;
             }
         }
