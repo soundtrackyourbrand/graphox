@@ -3,6 +3,40 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use graphql_rust::DocumentState;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 
+fn generate_large_schema(types_count: usize) -> String {
+    let mut schema = String::from("type Query { ");
+    for i in 0..types_count {
+        schema.push_str(&format!("user{}: User{} ", i, i));
+    }
+    schema.push_str("}\n");
+
+    for i in 0..types_count {
+        schema.push_str(&format!(
+            "type User{} {{ id: ID! name: String posts: [Post{}] }}\n",
+            i, i
+        ));
+        schema.push_str(&format!(
+            "type Post{} {{ id: ID! title: String author: User{} }}\n",
+            i, i
+        ));
+    }
+    schema
+}
+
+fn bench_large_schema_parsing(c: &mut Criterion) {
+    let schema_100 = generate_large_schema(100);
+    let schema_1000 = generate_large_schema(1000);
+
+    let mut group = c.benchmark_group("Large Schema Parsing");
+    group.bench_function("Parse Schema (100 types)", |b| {
+        b.iter(|| Schema::parse(&schema_100, "schema.graphql"))
+    });
+    group.bench_function("Parse Schema (1000 types)", |b| {
+        b.iter(|| Schema::parse(&schema_1000, "schema.graphql"))
+    });
+    group.finish();
+}
+
 fn bench_document_processing(c: &mut Criterion) {
     let ts_content = std::fs::read_to_string("tests/fixtures/component.ts")
         .expect("Failed to read component.ts");
@@ -141,10 +175,47 @@ fn bench_large_file_simulation(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_fragment_heavy_document(c: &mut Criterion) {
+    let mut text = String::from("query Heavy { users { id ...F0 }\n");
+    for i in 0..99 {
+        text.push_str(&format!("...F{} ", i + 1));
+    }
+    text.push_str("} }\n");
+
+    for i in 0..100 {
+        text.push_str(&format!("fragment F{} on User {{ username email }}\n", i));
+    }
+
+    let uri = Url::parse("file:///heavy.graphql").unwrap();
+    let mut group = c.benchmark_group("Fragment Heavy Document");
+
+    group.bench_function("Parse and Extract Fragments (100 fragments)", |b| {
+        b.iter(|| {
+            let mut parser = tree_sitter::Parser::new();
+            parser
+                .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                .unwrap();
+            DocumentState::new(uri.clone(), &text, parser)
+        })
+    });
+
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_graphql::LANGUAGE.into())
+        .unwrap();
+    let doc = DocumentState::new(uri.clone(), &text, parser);
+
+    group.bench_function("Get Fragments Info", |b| b.iter(|| doc.fragments()));
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_document_processing,
     bench_multi_file_update,
-    bench_large_file_simulation
+    bench_large_file_simulation,
+    bench_large_schema_parsing,
+    bench_fragment_heavy_document
 );
 criterion_main!(benches);

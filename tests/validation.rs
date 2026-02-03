@@ -262,3 +262,96 @@ fn test_validation_input_type_deprecation() {
     assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
     assert!(warning.unwrap().message.contains("Use NewInput"));
 }
+
+#[test]
+fn test_validation_unions_and_interfaces() {
+    let schema_content = r#"
+        interface Named {
+          name: String!
+        }
+        type User implements Named {
+          id: ID!
+          name: String!
+        }
+        type Bot implements Named {
+          id: ID!
+          name: String!
+          version: String!
+        }
+        union SearchResult = User | Bot
+        type Query {
+          search(term: String!): [SearchResult]
+        }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+
+    // Valid query with inline fragments
+    let text = r#"
+        query Search($term: String!) {
+            search(term: $term) {
+                ... on User { id name }
+                ... on Bot { id name version }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///valid_union.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
+    assert!(
+        diagnostics.is_empty(),
+        "Valid union query failed: {:?}",
+        diagnostics
+    );
+
+    // Invalid: field not on union
+    let text = r#"
+        query {
+            search(term: "foo") {
+                name
+            }
+        }
+    "#;
+    let doc = create_doc("file:///invalid_union.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.message.contains("not found on type 'SearchResult'")));
+
+    // Valid: field on interface
+    let text = r#"
+        query {
+            search(term: "foo") {
+                ... on Named { name }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///valid_interface.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None);
+    assert!(
+        diagnostics.is_empty(),
+        "Valid interface query failed: {:?}",
+        diagnostics
+    );
+}
+
+#[test]
+fn test_validation_block_strings_and_comments() {
+    let schema = get_schema();
+    let text = r#"
+        query GetUser($id: ID = """123""") # This is a comment
+        {
+            users {
+                id
+                username
+                # nested comment
+                email
+            }
+        }
+    "#;
+    let doc = create_doc("file:///quirks.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None);
+    assert!(
+        diagnostics.is_empty(),
+        "Block strings or comments caused issues: {:?}",
+        diagnostics
+    );
+}

@@ -175,3 +175,29 @@ pub fn mask_interpolations(text: &str) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_interpolations() {
+        let input = "query { user(id: ${userId}) { name } }";
+        let masked = mask_interpolations(input);
+        assert_eq!(masked.len(), input.len());
+        assert!(masked.contains("user(id: "));
+        assert!(masked.contains(") { name }"));
+
+        let nested = "query { user(id: ${getId({a: 1})}) { name } }";
+        let masked_nested = mask_interpolations(nested);
+        assert_eq!(masked_nested.len(), nested.len());
+
+        let multi_line = "query {\n  ${fragment}\n  user { id }\n}";
+        let masked_multi_line = mask_interpolations(multi_line);
+        assert_eq!(masked_multi_line.len(), multi_line.len());
+        assert_eq!(
+            masked_multi_line.lines().count(),
+            multi_line.lines().count()
+        );
+    }
+}
