@@ -1,0 +1,15 @@
+query GetComplexUser($id: ID!) {
+    currentUser: me {
+        uid: id
+        name: username
+    }
+    otherUser: user(id: $id) {
+        id
+        alias1: username
+        alias2: username
+        connections: friends {
+            friendId: id
+            friendName: username
+        }
+    }
+}

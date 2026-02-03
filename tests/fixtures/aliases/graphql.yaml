@@ -1,0 +1,3 @@
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"

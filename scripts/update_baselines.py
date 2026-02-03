@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_PATH = os.path.join(ROOT, "target/debug/graphql-rust")
 SIMPLE_SCHEMA = os.path.join(ROOT, "tests/fixtures/simple_schema.graphql")
 
-def update_baselines(fixture_rel, baseline_rel, use_simple_schema=False):
+def update_baselines(fixture_rel, baseline_rel):
     fixture_dir = os.path.join(ROOT, fixture_rel)
     baseline_dir = os.path.join(ROOT, baseline_rel)
     
@@ -28,10 +28,7 @@ def update_baselines(fixture_rel, baseline_rel, use_simple_schema=False):
     print(f"Updating baselines for {fixture_rel} -> {baseline_rel}")
     
     # Run codegen
-    args = [BIN_PATH]
-    if use_simple_schema:
-        args.extend(["--schema", SIMPLE_SCHEMA])
-    args.extend(["codegen", ".", "--output", temp_out])
+    args = [BIN_PATH, "codegen", ".", "--output", temp_out]
     
     try:
         subprocess.run(args, cwd=fixture_dir, check=True, capture_output=True)
@@ -68,20 +65,21 @@ def main():
         sys.exit(1)
 
     # Dictionary of fixture -> baseline mappings
-    # Tuple: (fixture_path, baseline_path, use_simple_schema)
+    # Tuple: (fixture_path, baseline_path)
     tasks = [
-        ("tests/fixtures/codegen", "tests/baselines/codegen", True),
-        ("tests/fixtures/project_import", "tests/baselines/project_import", False),
-        ("tests/fixtures/schema_import", "tests/baselines/schema_import", False),
-        ("tests/fixtures/multi_schema_import", "tests/baselines/multi_schema_import", False),
-        ("tests/fixtures/multi_schema_import_superset", "tests/baselines/multi_schema_import_superset", False),
-        ("tests/fixtures/public_test", "tests/baselines/public_test", True),
-        ("tests/fixtures/fragment_ast", "tests/baselines/fragment_ast", False),
-        ("tests/fixtures/entrypoint", "tests/baselines/entrypoint", False),
+        ("tests/fixtures/codegen", "tests/baselines/codegen"),
+        ("tests/fixtures/project_import", "tests/baselines/project_import"),
+        ("tests/fixtures/schema_import", "tests/baselines/schema_import"),
+        ("tests/fixtures/multi_schema_import", "tests/baselines/multi_schema_import"),
+        ("tests/fixtures/multi_schema_import_superset", "tests/baselines/multi_schema_import_superset"),
+        ("tests/fixtures/public_test", "tests/baselines/public_test"),
+        ("tests/fixtures/fragment_ast", "tests/baselines/fragment_ast"),
+        ("tests/fixtures/entrypoint", "tests/baselines/entrypoint"),
+        ("tests/fixtures/aliases", "tests/baselines/aliases"),
     ]
 
-    for fixture, baseline, use_schema in tasks:
-        update_baselines(fixture, baseline, use_schema)
+    for fixture, baseline in tasks:
+        update_baselines(fixture, baseline)
 
     # Cleanup temp directory
     temp_out = os.path.join(ROOT, "temp_gen_out")
