@@ -23,9 +23,11 @@ impl Backend {
         if let Some(cfg) = &config {
             // Load project schemas from config
             for project in &cfg.projects {
+                let schema_path = cfg.base_dir.join(&project.schema);
+                let schema_path_str = schema_path.to_string_lossy().to_string();
                 if !schemas.contains_key(&project.schema)
-                    && let Ok(text) = std::fs::read_to_string(&project.schema)
-                    && let Ok(schema) = Schema::parse(&text, &project.schema)
+                    && let Ok(text) = std::fs::read_to_string(&schema_path)
+                    && let Ok(schema) = Schema::parse(&text, &schema_path_str)
                 {
                     schemas.insert(project.schema.clone(), Arc::new(schema));
                 }

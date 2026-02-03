@@ -42,14 +42,14 @@ pub async fn run_codegen(
         for project in &cfg.projects {
             debouncer
                 .watcher()
-                .watch(Path::new(&project.schema), notify::RecursiveMode::NonRecursive)
+                .watch(&cfg.base_dir.join(&project.schema), notify::RecursiveMode::NonRecursive)
                 .ok();
         }
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
                 debouncer
                     .watcher()
-                    .watch(Path::new(&st.schema), notify::RecursiveMode::NonRecursive)
+                    .watch(&cfg.base_dir.join(&st.schema), notify::RecursiveMode::NonRecursive)
                     .ok();
             }
         }
@@ -75,11 +75,18 @@ async fn execute_codegen(
     if let Some(cfg) = &config {
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
         for project in &cfg.projects {
+            let abs_schema = cfg.base_dir.join(&project.schema);
+            let abs_include = if project.include.contains('*') {
+                cfg.base_dir.join(&project.include).to_string_lossy().to_string()
+            } else {
+                cfg.base_dir.join(&project.include).to_string_lossy().to_string()
+            };
+
             println!("Processing project with schema: {}", project.schema);
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
             execute_project_codegen(
-                &project.schema,
-                &project.include,
+                &abs_schema.to_string_lossy(),
+                &abs_include,
                 project_output_dir,
                 &cfg.scalars,
             )
@@ -88,8 +95,10 @@ async fn execute_codegen(
 
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
+                let abs_schema = cfg.base_dir.join(&st.schema);
+                let abs_output = cfg.base_dir.join(&st.output);
                 println!("Generating types for schema: {}", st.schema);
-                execute_schema_codegen(&st.schema, &st.output, &cfg.scalars).await;
+                execute_schema_codegen(&abs_schema.to_string_lossy(), &abs_output.to_string_lossy(), &cfg.scalars).await;
             }
         }
     } else {

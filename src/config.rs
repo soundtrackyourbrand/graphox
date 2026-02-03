@@ -9,6 +9,8 @@ pub struct Config {
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
     pub scalars: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip)]
+    pub base_dir: std::path::PathBuf,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -26,7 +28,18 @@ pub struct SchemaTypeConfig {
 
 impl Config {
     pub fn load() -> Option<Self> {
-        Self::load_from_dir(std::env::current_dir().ok()?)
+        let mut curr = std::env::current_dir().ok()?;
+        loop {
+            if let Some(config) = Self::load_from_dir(&curr) {
+                return Some(config);
+            }
+            if let Some(parent) = curr.parent() {
+                curr = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
+        None
     }
 
     pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Option<Self> {
@@ -42,21 +55,38 @@ impl Config {
             None
         }?;
 
-        let content = fs::read_to_string(config_path).ok()?;
-        serde_yaml::from_str(&content).ok()
+        let content = fs::read_to_string(&config_path).unwrap_or_else(|e| {
+            eprintln!("Error: Failed to read config file {}: {}", config_path.display(), e);
+            std::process::exit(1);
+        });
+
+        match serde_yaml::from_str::<Config>(&content) {
+            Ok(mut config) => {
+                config.base_dir = dir.to_path_buf();
+                Some(config)
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to parse config file {}: {}", config_path.display(), e);
+                std::process::exit(1);
+            }
+        }
     }
 
     pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
         let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let relative_path = abs_path.strip_prefix(&self.base_dir).ok();
 
         for project in &self.projects {
-            if let Ok(pattern) = Pattern::new(&project.include)
-                && pattern.matches_path(&abs_path)
-            {
-                return Some(project.schema.clone());
+            if let Some(rel_path) = relative_path {
+                if let Ok(pattern) = Pattern::new(&project.include)
+                    && pattern.matches_path(rel_path)
+                {
+                    return Some(project.schema.clone());
+                }
             }
             // Fallback for non-glob paths
-            if let Ok(include_path) = fs::canonicalize(&project.include)
+            let include_path = self.base_dir.join(&project.include);
+            if let Ok(include_path) = fs::canonicalize(include_path)
                 && abs_path.starts_with(&include_path)
             {
                 return Some(project.schema.clone());
@@ -123,5 +153,46 @@ projects:
         let dir = tempdir().unwrap();
         let config = Config::load_from_dir(dir.path());
         assert!(config.is_none());
+    }
+
+    #[test]
+    fn test_load_parent_dir() {
+        let dir = tempdir().unwrap();
+        let parent_dir = dir.path().join("parent");
+        let child_dir = parent_dir.join("child");
+        fs::create_dir_all(&child_dir).unwrap();
+
+        let config_path = parent_dir.join("graphql.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+projects:
+  - schema: "s.graphql"
+    include: "**/*.ts"
+"#
+        )
+        .unwrap();
+
+        // Change current directory to child_dir to test upward search
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&child_dir).unwrap();
+
+        let config = Config::load();
+        
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
+
+        let config = config.expect("Should find config in parent directory");
+        assert_eq!(config.projects.len(), 1);
+        assert_eq!(config.projects[0].schema, "s.graphql");
+
+        // Test that paths are resolved relative to the config file
+        let file_in_child = child_dir.join("test.ts");
+        fs::File::create(&file_in_child).unwrap();
+        assert_eq!(
+            config.get_schema_for_path(&file_in_child),
+            Some("s.graphql".to_string())
+        );
     }
 }

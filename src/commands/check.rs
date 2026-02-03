@@ -9,8 +9,10 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
     let mut success = true;
     if let Some(cfg) = config {
         for project in cfg.projects {
+            let abs_schema = cfg.base_dir.join(&project.schema);
+            let abs_include = cfg.base_dir.join(&project.include);
             println!("Checking project with schema: {}", project.schema);
-            if !execute_project_check(&project.schema, &project.include).await {
+            if !execute_project_check(&abs_schema.to_string_lossy(), &abs_include.to_string_lossy()).await {
                 success = false;
             }
         }
