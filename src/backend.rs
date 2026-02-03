@@ -141,6 +141,7 @@ impl Backend {
                     .log_message(MessageType::INFO, format!("Schema set {} successfully reloaded!", key))
                     .await;
 
+                let mut to_publish = Vec::new();
                 for entry in self.documents.iter() {
                     let uri = entry.key();
                     let doc = entry.value();
@@ -154,10 +155,19 @@ impl Backend {
 
                         if matches {
                             let fragments = self.get_fragments_for_doc(doc);
-                            let diagnostics = doc.get_semantic_diagnostics(&doc_schema, &fragments, self.config.as_ref());
-                            self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
+                            let diagnostics = doc.get_semantic_diagnostics(
+                                &doc_schema,
+                                &fragments,
+                                self.config.as_ref(),
+                            );
+                            // We can't await while holding the DashMap lock.
+                            // Collect diagnostics and publish them later.
+                            to_publish.push((uri.clone(), diagnostics));
                         }
                     }
+                }
+                for (uri, diagnostics) in to_publish {
+                    self.client.publish_diagnostics(uri, diagnostics, None).await;
                 }
             }
         }
@@ -319,26 +329,42 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
 
-        {
-            if let Some(mut doc) = self.documents.get_mut(&uri) {
-                let mut parser = tree_sitter::Parser::new();
-                parser
-                    .set_language(&doc.language.get_parser_language())
-                    .unwrap();
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
+            let mut parser = tree_sitter::Parser::new();
+            parser
+                .set_language(&doc.language.get_parser_language())
+                .unwrap();
 
-                for change in params.content_changes {
-                    doc.apply_change(&change, &mut parser);
-                }
+            for change in params.content_changes {
+                doc.apply_change(&change, &mut parser);
             }
         }
 
+        let mut to_publish = Vec::new();
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
             let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
+            drop(doc);
+            to_publish.push((uri.clone(), diagnostics));
+        }
+
+        // Also revalidate other documents because fragments might have changed
+        for entry in self.documents.iter() {
+            let other_uri = entry.key();
+            if other_uri == &uri {
+                continue;
+            }
+            let other_doc = entry.value();
+            let schema = self.get_schema_for_doc(other_uri);
+            let fragments = self.get_fragments_for_doc(other_doc);
+            let diagnostics =
+                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
+            to_publish.push((other_uri.clone(), diagnostics));
+        }
+
+        for (u, d) in to_publish {
+            self.client.publish_diagnostics(u, d, None).await;
         }
     }
 
@@ -392,11 +418,31 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         self.documents.insert(uri.clone(), doc);
 
+        let mut to_publish = Vec::new();
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
             let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
-            self.client.publish_diagnostics(uri, diagnostics, None).await;
+            drop(doc);
+            to_publish.push((uri.clone(), diagnostics));
+        }
+
+        // Also revalidate other documents because a new fragment might have been added
+        for entry in self.documents.iter() {
+            let other_uri = entry.key();
+            if other_uri == &uri {
+                continue;
+            }
+            let other_doc = entry.value();
+            let schema = self.get_schema_for_doc(other_uri);
+            let fragments = self.get_fragments_for_doc(other_doc);
+            let diagnostics =
+                other_doc.get_semantic_diagnostics(&schema, &fragments, self.config.as_ref());
+            to_publish.push((other_uri.clone(), diagnostics));
+        }
+
+        for (u, d) in to_publish {
+            self.client.publish_diagnostics(u, d, None).await;
         }
     }
 
