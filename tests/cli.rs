@@ -255,7 +255,7 @@ projects:
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let expected_gen_file = temp_dir.join("gen").join("query.graphql.codegen.ts");
+    let expected_gen_file = temp_dir.join("gen").join("query.codegen.ts");
     assert!(
         expected_gen_file.exists(),
         "Generated file {:?} does not exist. Output: {}",
@@ -445,7 +445,7 @@ scalars:
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let gen_file = temp_dir.join("query.graphql.codegen.ts");
+    let gen_file = temp_dir.join("query.codegen.ts");
     assert!(gen_file.exists(), "Codegen file was not created");
 
     let content = std::fs::read_to_string(gen_file).unwrap();
@@ -540,7 +540,7 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, schema_path:
             let file_stem = path.file_stem().unwrap().to_str().unwrap();
 
             let mut codegen_path = temp_dir.clone();
-            codegen_path.push(format!("{}.graphql.codegen.ts", file_stem));
+            codegen_path.push(format!("{}.codegen.ts", file_stem));
 
             let expected_path = baseline_dir.join(format!("{}.expected.ts", file_stem));
 

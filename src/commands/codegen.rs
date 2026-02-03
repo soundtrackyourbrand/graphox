@@ -330,15 +330,11 @@ async fn execute_project_codegen(
                         path.strip_prefix(&abs_cwd).unwrap_or(path)
                     };
                     p.push(rel);
-                    let mut filename = p.file_name().unwrap().to_os_string();
-                    filename.push(".codegen.ts");
-                    p.set_file_name(filename);
+                    p.set_extension("codegen.ts");
                     p
                 } else {
                     let mut p = path.clone();
-                    let mut filename = p.file_name().unwrap().to_os_string();
-                    filename.push(".codegen.ts");
-                    p.set_file_name(filename);
+                    p.set_extension("codegen.ts");
                     p
                 };
 

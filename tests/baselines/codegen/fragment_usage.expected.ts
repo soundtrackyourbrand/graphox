@@ -3,7 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
-import type { UserFields } from "./fragment_definition.graphql";
+import type { UserFields } from "./fragment_definition.codegen";
 
 export interface GetUsersWithFragmentQuery {
   __typename: "Query";

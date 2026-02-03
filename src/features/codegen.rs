@@ -168,11 +168,16 @@ pub fn generate_typescript(
             if !path_str.starts_with('.') {
                 path_str = format!("./{}", path_str);
             }
-            // Remove .ts extension if present
-            if let Some(stripped) = path_str.strip_suffix(".ts") {
-                path_str = stripped.to_string();
+            // Change extension to .codegen
+            let p = Path::new(&path_str);
+            let stem = p.file_stem().unwrap().to_str().unwrap();
+            let parent = p.parent().unwrap();
+            let final_p = parent.join(stem);
+            let mut final_path_str = final_p.to_string_lossy().to_string();
+            if !final_path_str.starts_with('.') && !final_path_str.starts_with('/') {
+                final_path_str = format!("./{}", final_path_str);
             }
-            path_str
+            format!("{}.codegen", final_path_str)
         };
 
         import_section.push_str(&format!(

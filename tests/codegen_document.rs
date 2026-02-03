@@ -40,7 +40,7 @@ fn test_codegen_document_node() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let gen_file = temp_dir.join("query.ts.codegen.ts");
+    let gen_file = temp_dir.join("query.codegen.ts");
     assert!(gen_file.exists(), "Generated file should exist");
 
     let content = std::fs::read_to_string(gen_file).unwrap();
@@ -106,7 +106,7 @@ fn test_codegen_document_node_no_vars() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let gen_file = temp_dir.join("query.ts.codegen.ts");
+    let gen_file = temp_dir.join("query.codegen.ts");
     let content = std::fs::read_to_string(gen_file).unwrap();
 
     // Check for Document type export with Record<string, never> or similar
