@@ -1,7 +1,7 @@
-use apollo_compiler::{executable, Node};
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use graphql_rust::config::{Config, SchemaSource};
-use graphql_rust::engine::{Engine, FragmentMetadata};
+use graphql_rust::engine::{Engine, FragmentMetadata, ProjectContext};
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 struct CodegenParams<'a> {
@@ -11,11 +11,10 @@ struct CodegenParams<'a> {
     output_dir: Option<&'a str>,
     scalars: &'a Option<HashMap<String, String>>,
     schema_import: &'a Option<String>,
-    fragment_to_path: &'a HashMap<String, String>,
-    fragment_to_import: &'a HashMap<String, String>,
-    all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
+    project_context: &'a ProjectContext,
     global_metadata: &'a [FragmentMetadata],
     generate_ast_for_fragments: bool,
+    workspace_documents: &'a HashMap<PathBuf, graphql_rust::DocumentState>,
 }
 
 pub async fn run_codegen(
@@ -57,7 +56,9 @@ pub async fn run_codegen(
                 // Find first non-glob parent
                 let mut p = path.clone();
                 while p.to_string_lossy().contains('*') {
-                    if !p.pop() { break; }
+                    if !p.pop() {
+                        break;
+                    }
                 }
                 p
             } else {
@@ -74,7 +75,10 @@ pub async fn run_codegen(
         for file in project.schema.files() {
             debouncer
                 .watcher()
-                .watch(&config.base_dir.join(file), notify::RecursiveMode::NonRecursive)
+                .watch(
+                    &config.base_dir.join(file),
+                    notify::RecursiveMode::NonRecursive,
+                )
                 .ok();
         }
     }
@@ -83,7 +87,10 @@ pub async fn run_codegen(
             for file in st.schema.files() {
                 debouncer
                     .watcher()
-                    .watch(&config.base_dir.join(file), notify::RecursiveMode::NonRecursive)
+                    .watch(
+                        &config.base_dir.join(file),
+                        notify::RecursiveMode::NonRecursive,
+                    )
                     .ok();
             }
         }
@@ -112,10 +119,6 @@ async fn execute_codegen(
     let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
     for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
         let project_files = &project_meta.files;
-        let project_files_set: HashSet<String> = project_files
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
 
         println!("Processing project: {}", project.include.as_key());
         let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
@@ -156,30 +159,8 @@ async fn execute_codegen(
             }
         };
 
-        let all_fragments = Engine::resolve_fragments(&valid_schema, global_metadata);
-
-        let mut fragment_to_path: HashMap<String, String> = HashMap::default();
-        let mut fragment_to_import: HashMap<String, String> = HashMap::default();
-
-        for meta in global_metadata {
-            let is_local = project_files_set.contains(&meta.path);
-
-            if is_local {
-                fragment_to_path.insert(meta.name.clone(), meta.path.clone());
-                if let Some(a) = &meta.import_alias {
-                    fragment_to_import.insert(meta.name.clone(), a.clone());
-                }
-            } else if meta.is_public {
-                fragment_to_path
-                    .entry(meta.name.clone())
-                    .or_insert_with(|| meta.path.clone());
-                if let Some(a) = &meta.import_alias {
-                    fragment_to_import
-                        .entry(meta.name.clone())
-                        .or_insert_with(|| a.clone());
-                }
-            }
-        }
+        let project_context =
+            Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
 
         match execute_project_codegen_entry(
             CodegenParams {
@@ -189,11 +170,10 @@ async fn execute_codegen(
                 output_dir: project_output_dir,
                 scalars: &cfg.scalars,
                 schema_import: &schema_import,
-                fragment_to_path: &fragment_to_path,
-                fragment_to_import: &fragment_to_import,
-                all_fragments: &all_fragments,
+                project_context: &project_context,
                 global_metadata: &global_metadata,
                 generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
+                workspace_documents: &workspace_metadata.documents,
             },
             verbose,
             clean,
@@ -271,8 +251,15 @@ async fn execute_schema_codegen(
             return false;
         }
     };
+    let valid_schema = match schema.validate() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Schema validation failed for {}: {}", source.as_key(), e);
+            return false;
+        }
+    };
 
-    let ts_code = graphql_rust::features::codegen::generate_schema_types(&schema, scalars);
+    let ts_code = graphql_rust::features::codegen::generate_schema_types(&valid_schema, scalars);
     let out_path = Path::new(output_path);
 
     if let Some(parent) = out_path.parent() {
@@ -293,8 +280,6 @@ async fn execute_project_codegen_entry(
     verbose: bool,
     clean: bool,
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, ()> {
-    let mut success = true;
-    let mut generated_ops = Vec::new();
     if !clean {
         let schema = match Engine::load_schema(params.base_dir, params.source) {
             Ok(s) => s,
@@ -303,66 +288,92 @@ async fn execute_project_codegen_entry(
                 return Err(());
             }
         };
-
-        let mut docs = Vec::new();
-        for path in params.project_files {
-            if let Some(doc) = Engine::parse_doc(path)
-                && !doc.get_graphql_trees().is_empty()
-            {
-                docs.push((path, doc));
+        let valid_schema = match schema.validate() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Schema validation failed: {}", e);
+                return Err(());
             }
-        }
+        };
 
-        for (path, doc) in &docs {
-            let ctx = graphql_rust::features::codegen::CodegenContext {
-                schema: &schema,
-                fragment_to_path: params.fragment_to_path,
-                fragment_to_import: params.fragment_to_import,
-                all_fragments: params.all_fragments,
-                current_file_path: path,
-                scalars: params.scalars,
-                schema_import: params.schema_import,
-                generate_ast_for_fragments: params.generate_ast_for_fragments,
-            };
+        let results: Vec<_> = params
+            .project_files
+            .par_iter()
+            .filter_map(|path| {
+                params.workspace_documents.get(path).map(|doc| (path, doc))
+            })
+            .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
+            .map(|(path, doc)| {
+                let ctx = graphql_rust::features::codegen::CodegenContext {
+                    schema: &valid_schema,
+                    fragment_to_path: &params.project_context.fragment_to_path,
+                    fragment_to_import: &params.project_context.fragment_to_import,
+                    all_fragments: &params.project_context.all_fragments,
+                    current_file_path: path,
+                    scalars: params.scalars,
+                    schema_import: params.schema_import,
+                    generate_ast_for_fragments: params.generate_ast_for_fragments,
+                };
 
-            match execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
-            {
-                Ok(mut ops) => {
-                    generated_ops.append(&mut ops);
-                }
-                Err(e) => {
+                execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
+                    .map_err(|e| (path.to_path_buf(), e))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|res| match res {
+                Ok(ops) => Ok(ops),
+                Err((path, e)) => {
                     if !e.contains("No executable operations") {
                         eprintln!("Error generating types for {}: {}", path.display(), e);
-                        success = false;
-
                         if e.contains("Fragment") && e.contains("not found") {
                             for meta in params.global_metadata {
                                 if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
                                     eprintln!(
-                                    "  Hint: Fragment '{}' exists in {} but is not marked as @public",
-                                    meta.name, meta.path
-                                );
+                                        "  Hint: Fragment '{}' exists in {} but is not marked as @public",
+                                        meta.name, meta.path
+                                    );
                                 }
                             }
                         }
+                        Err(())
+                    } else {
+                        Ok(Vec::new())
                     }
                 }
-            }
-        }
-    } else {
-        // Clean mode
-        for path in params.project_files {
-            let out_path = graphql_rust::utils::get_output_path(path, params.output_dir);
-            if out_path.exists() {
-                if let Err(e) = std::fs::remove_file(&out_path) {
-                    eprintln!("Failed to remove {}: {}", out_path.display(), e);
-                    success = false;
-                } else if verbose {
-                    println!("Removed: {}", out_path.display());
-                }
+            })
+            .collect();
+
+        let mut all_ops = Vec::new();
+        let mut success = true;
+        for res in results {
+            match res {
+                Ok(ops) => all_ops.extend(ops),
+                Err(_) => success = false,
             }
         }
 
+        if success { Ok(all_ops) } else { Err(()) }
+    } else {
+        // Clean mode
+        let success = params
+            .project_files
+            .par_iter()
+            .map(|path| {
+                let out_path = graphql_rust::utils::get_output_path(path, params.output_dir);
+                let mut ok = true;
+                if out_path.exists() {
+                    if let Err(e) = std::fs::remove_file(&out_path) {
+                        eprintln!("Failed to remove {}: {}", out_path.display(), e);
+                        ok = false;
+                    } else if verbose {
+                        println!("Removed: {}", out_path.display());
+                    }
+                }
+                ok
+            })
+            .reduce(|| true, |a, b| a && b);
+
+        let mut entrypoint_ok = true;
         if let Some(out_dir) = params.output_dir {
             let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
             if entrypoint_path.exists() {
@@ -372,17 +383,18 @@ async fn execute_project_codegen_entry(
                         entrypoint_path.display(),
                         e
                     );
-                    success = false;
+                    entrypoint_ok = false;
                 } else if verbose {
                     println!("Removed: {}", entrypoint_path.display());
                 }
             }
         }
-    }
-    if success {
-        Ok(generated_ops)
-    } else {
-        Err(())
+
+        if success && entrypoint_ok {
+            Ok(Vec::new())
+        } else {
+            Err(())
+        }
     }
 }
 

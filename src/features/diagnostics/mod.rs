@@ -1,7 +1,7 @@
+use crate::Config;
 use crate::document::DocumentState;
 use crate::queries::*;
 use crate::utils::mask_interpolations;
-use crate::Config;
 use apollo_compiler::Schema;
 use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, QueryCursor, StreamingIterator};

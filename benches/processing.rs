@@ -1,5 +1,5 @@
 use apollo_compiler::Schema;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use graphql_rust::DocumentState;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 

@@ -1,5 +1,7 @@
 use futures_util::StreamExt;
-use graphql_rust::{Backend, Config, config::ProjectConfig, config::SchemaSource, config::GlobPattern};
+use graphql_rust::{
+    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
@@ -170,7 +172,11 @@ async fn test_lsp_fragment_rename_same_project() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
     let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFrag on User { id }";
     fs::write(&frag_path, frag_text).unwrap();
@@ -192,9 +198,7 @@ async fn test_lsp_fragment_rename_same_project() {
         generate_ast_for_fragments: None,
         base_dir: base_dir.clone(),
     };
-    let (mut service, mut messages) = LspService::new(|client| {
-        Backend::new(client, config)
-    });
+    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
@@ -207,47 +211,145 @@ async fn test_lsp_fragment_rename_same_project() {
         }
         println!("Background task exited");
     });
-    service.call(Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: frag_uri.clone(), language_id: "graphql".to_string(), version: 1, text: frag_text.to_string() }
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: query_uri.clone(), language_id: "graphql".to_string(), version: 1, text: query_text.to_string() }
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: frag_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: frag_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: query_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: query_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     {
         let diags = received_diags.lock().unwrap();
-        let query_diag = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()).expect("Should have received query diagnostics");
-        assert!(query_diag["diagnostics"].as_array().unwrap().is_empty(), "Query should be initially valid");
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received query diagnostics");
+        assert!(
+            query_diag["diagnostics"].as_array().unwrap().is_empty(),
+            "Query should be initially valid"
+        );
     }
     let frag_text_new = "fragment UserFragRenamed on User { id }";
-    service.call(Request::build("textDocument/didChange").params(serde_json::to_value(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier { uri: frag_uri.clone(), version: 2 },
-        content_changes: vec![TextDocumentContentChangeEvent { range: None, range_length: None, text: frag_text_new.to_string() }]
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: frag_uri.clone(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: frag_text_new.to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     {
         let diags = received_diags.lock().unwrap();
-        let query_diag = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()).expect("Should have received query diagnostics after change");
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received query diagnostics after change");
         let d_list = query_diag["diagnostics"].as_array().unwrap();
-        assert!(!d_list.is_empty(), "Should have error after fragment rename");
-        assert!(d_list[0]["message"].as_str().unwrap().contains("Unknown fragment: UserFrag"));
+        assert!(
+            !d_list.is_empty(),
+            "Should have error after fragment rename"
+        );
+        assert!(
+            d_list[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown fragment: UserFrag")
+        );
     }
 
     // Fix reference
     let query_text_new = "query { me { ...UserFragRenamed } }";
-    service.call(Request::build("textDocument/didChange").params(serde_json::to_value(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier { uri: query_uri.clone(), version: 2 },
-        content_changes: vec![TextDocumentContentChangeEvent { range: None, range_length: None, text: query_text_new.to_string() }]
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: query_text_new.to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(500)).await;
     {
         let diags = received_diags.lock().unwrap();
-        let query_diag = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()).unwrap();
-        assert!(query_diag["diagnostics"].as_array().unwrap().is_empty(), "Diagnostics should clear after fixing reference");
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .unwrap();
+        assert!(
+            query_diag["diagnostics"].as_array().unwrap().is_empty(),
+            "Diagnostics should clear after fixing reference"
+        );
     }
 }
 
@@ -259,7 +361,11 @@ async fn test_lsp_fragment_rename_cross_project() {
     fs::create_dir(&pkg_a).unwrap();
     fs::write(pkg_a.join("package.json"), "{}").unwrap();
     let schema_a_path = pkg_a.join("schema.graphql");
-    fs::write(&schema_a_path, "type User { id: ID! } type Query { me: User }").unwrap();
+    fs::write(
+        &schema_a_path,
+        "type User { id: ID! } type Query { me: User }",
+    )
+    .unwrap();
     let frag_path = pkg_a.join("frag.graphql");
     let frag_text = "fragment UserFrag on User @public { id }";
     fs::write(&frag_path, frag_text).unwrap();
@@ -285,7 +391,7 @@ async fn test_lsp_fragment_rename_cross_project() {
                 exclude: None,
                 output_dir: None,
                 import: None,
-            }
+            },
         ],
         schema_types: None,
         scalars: None,
@@ -293,9 +399,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         generate_ast_for_fragments: None,
         base_dir: base_dir.clone(),
     };
-    let (mut service, mut messages) = LspService::new(|client| {
-        Backend::new(client, config)
-    });
+    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
@@ -308,46 +412,144 @@ async fn test_lsp_fragment_rename_cross_project() {
         }
         println!("Background task exited");
     });
-    service.call(Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: frag_uri.clone(), language_id: "graphql".to_string(), version: 1, text: frag_text.to_string() }
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: query_uri.clone(), language_id: "graphql".to_string(), version: 1, text: query_text.to_string() }
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: frag_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: frag_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: query_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: query_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     {
         let diags = received_diags.lock().unwrap();
-        let query_diag = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()).expect("Should have received query diagnostics");
-        assert!(query_diag["diagnostics"].as_array().unwrap().is_empty(), "Query should be initially valid");
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received query diagnostics");
+        assert!(
+            query_diag["diagnostics"].as_array().unwrap().is_empty(),
+            "Query should be initially valid"
+        );
     }
     let frag_text_new = "fragment UserFragRenamed on User @public { id }";
-    service.call(Request::build("textDocument/didChange").params(serde_json::to_value(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier { uri: frag_uri.clone(), version: 2 },
-        content_changes: vec![TextDocumentContentChangeEvent { range: None, range_length: None, text: frag_text_new.to_string() }]
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: frag_uri.clone(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: frag_text_new.to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     {
         let diags = received_diags.lock().unwrap();
-        let query_diag = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()).expect("Should have received query diagnostics after change");
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received query diagnostics after change");
         let d_list = query_diag["diagnostics"].as_array().unwrap();
-        assert!(!d_list.is_empty(), "Should have error after cross-project fragment rename");
-        assert!(d_list[0]["message"].as_str().unwrap().contains("Unknown fragment: UserFrag"));
+        assert!(
+            !d_list.is_empty(),
+            "Should have error after cross-project fragment rename"
+        );
+        assert!(
+            d_list[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown fragment: UserFrag")
+        );
     }
 
     // Fix reference in Project B
     let query_text_new = "query { me { ...UserFragRenamed } }";
-    service.call(Request::build("textDocument/didChange").params(serde_json::to_value(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier { uri: query_uri.clone(), version: 2 },
-        content_changes: vec![TextDocumentContentChangeEvent { range: None, range_length: None, text: query_text_new.to_string() }]
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: query_text_new.to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(500)).await;
     {
         let diags = received_diags.lock().unwrap();
-        let query_diag = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()).unwrap();
-        assert!(query_diag["diagnostics"].as_array().unwrap().is_empty(), "Diagnostics should clear in other project after fixing reference");
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .unwrap();
+        assert!(
+            query_diag["diagnostics"].as_array().unwrap().is_empty(),
+            "Diagnostics should clear in other project after fixing reference"
+        );
     }
 }

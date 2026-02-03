@@ -1,15 +1,22 @@
-use tower_lsp::lsp_types::*;
-use graphql_rust::{Backend, Config, config::{ProjectConfig, SchemaSource, GlobPattern}};
-use tower_lsp::LspService;
-use tower_service::Service;
-use tower_lsp::jsonrpc::Request;
-use tempfile::tempdir;
+use graphql_rust::{
+    Backend, Config,
+    config::{GlobPattern, ProjectConfig, SchemaSource},
+};
 use std::fs;
+use tempfile::tempdir;
+use tower_lsp::LspService;
+use tower_lsp::jsonrpc::Request;
+use tower_lsp::lsp_types::*;
+use tower_service::Service;
 
 fn create_test_config(dir: &std::path::Path) -> Config {
     let schema_path = dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
-    
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! }",
+    )
+    .unwrap();
+
     Config {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
@@ -30,13 +37,15 @@ async fn test_hover_fragment_spread() {
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
-    let init_params = InitializeParams { ..Default::default() };
+    let init_params = InitializeParams {
+        ..Default::default()
+    };
     let request = Request::build("initialize")
         .params(serde_json::to_value(&init_params).unwrap())
         .id(0)
         .finish();
     service.call(request).await.unwrap().unwrap();
-    
+
     let request = Request::build("initialized")
         .params(serde_json::json!({}))
         .finish();
@@ -56,7 +65,7 @@ async fn test_hover_fragment_spread() {
             }
         }
     "#;
-    
+
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
@@ -84,7 +93,7 @@ async fn test_hover_fragment_spread() {
         .id(1)
         .params(serde_json::to_value(&params).unwrap())
         .finish();
-    
+
     let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
@@ -113,9 +122,7 @@ async fn test_hover_fragment_spread() {
 async fn test_hover_schema_type() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, config)
-    });
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams {
@@ -170,8 +177,7 @@ async fn test_hover_schema_type() {
         .finish();
 
     let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -185,14 +191,18 @@ async fn test_hover_schema_type() {
 async fn test_hover_graphql_description() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");
-    fs::write(&schema_path, r#"
+    fs::write(
+        &schema_path,
+        r#"
         "This is a documented type"
         type DocumentedType {
             id: ID!
         }
         type Query { someField(arg: DocumentedType): ID }
-    "#).unwrap();
-    
+    "#,
+    )
+    .unwrap();
+
     let config = Config {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
@@ -205,9 +215,7 @@ async fn test_hover_graphql_description() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, config)
-    });
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams {
@@ -249,14 +257,31 @@ async fn test_hover_graphql_description() {
     // Let's just open the schema itself.
     let schema_uri = Url::from_file_path(&schema_path).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: schema_uri.clone(), language_id: "graphql".to_string(), version: 1, text: schema_text }
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: schema_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: schema_text,
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     let position = Position::new(2, 15); // "type DocumentedType"
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: schema_uri.clone() },
+            text_document: TextDocumentIdentifier {
+                uri: schema_uri.clone(),
+            },
             position,
         },
         work_done_progress_params: Default::default(),
@@ -268,8 +293,7 @@ async fn test_hover_graphql_description() {
         .finish();
 
     let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -286,9 +310,7 @@ async fn test_hover_graphql_description() {
 async fn test_hover_schema_field() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, config)
-    });
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
     let init_params = InitializeParams {
@@ -343,13 +365,18 @@ async fn test_hover_schema_field() {
         .finish();
 
     let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
-        assert!(m.value.contains("field User.id"), "Should show field info for User.id");
-        assert!(m.value.contains("Type: `ID!`"), "Should show correct field type");
+        assert!(
+            m.value.contains("field User.id"),
+            "Should show field info for User.id"
+        );
+        assert!(
+            m.value.contains("Type: `ID!`"),
+            "Should show correct field type"
+        );
     } else {
         panic!("Expected Markup contents");
     }

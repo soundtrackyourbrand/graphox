@@ -312,9 +312,11 @@ fn test_validation_unions_and_interfaces() {
     "#;
     let doc = create_doc("file:///invalid_union.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, false);
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.message.contains("not found on type 'SearchResult'")));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("not found on type 'SearchResult'"))
+    );
 
     // Valid: field on interface
     let text = r#"

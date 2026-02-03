@@ -1,32 +1,37 @@
-use tower_lsp::lsp_types::*;
 use graphql_rust::{Backend, Config};
-use tower_lsp::LspService;
-use tower_service::Service;
-use tower_lsp::jsonrpc::Request;
 use std::path::Path;
+use tower_lsp::LspService;
+use tower_lsp::jsonrpc::Request;
+use tower_lsp::lsp_types::*;
+use tower_service::Service;
 
 #[tokio::test]
 async fn test_lsp_fragment_scoping() {
     let (mut service, _) = LspService::new(|client| Backend::new(client, Config::new_empty()));
 
     // Initialize
-    let init_params = InitializeParams { ..Default::default() };
+    let init_params = InitializeParams {
+        ..Default::default()
+    };
     let request = Request::build("initialize")
         .params(serde_json::to_value(&init_params).unwrap())
         .id(0)
         .finish();
     service.call(request).await.unwrap().unwrap();
-    
+
     let request = Request::build("initialized")
         .params(serde_json::json!({}))
         .finish();
     service.call(request).await.unwrap();
 
     // 1. Open Public/Private fragments in pkg_a
-    let pkg_a_frag_path = std::fs::canonicalize(Path::new("tests/fixtures/public_test/pkg_a/fragment.graphql")).unwrap();
+    let pkg_a_frag_path = std::fs::canonicalize(Path::new(
+        "tests/fixtures/public_test/pkg_a/fragment.graphql",
+    ))
+    .unwrap();
     let pkg_a_uri = Url::from_file_path(pkg_a_frag_path).unwrap();
     let pkg_a_text = std::fs::read_to_string(&pkg_a_uri.to_file_path().unwrap()).unwrap();
-    
+
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: pkg_a_uri.clone(),
@@ -35,10 +40,18 @@ async fn test_lsp_fragment_scoping() {
             text: pkg_a_text,
         },
     };
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(serde_json::to_value(&params).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     // 2. Open Query in pkg_b
-    let pkg_b_query_path = std::fs::canonicalize(Path::new("tests/fixtures/public_test/pkg_b/query.graphql")).unwrap();
+    let pkg_b_query_path =
+        std::fs::canonicalize(Path::new("tests/fixtures/public_test/pkg_b/query.graphql")).unwrap();
     let pkg_b_uri = Url::from_file_path(pkg_b_query_path).unwrap();
     let pkg_b_text = r#"
         query {
@@ -48,7 +61,7 @@ async fn test_lsp_fragment_scoping() {
             }
         }
     "#;
-    
+
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: pkg_b_uri.clone(),
@@ -58,12 +71,19 @@ async fn test_lsp_fragment_scoping() {
         },
     };
     // didOpen triggers diagnostics, but we can also manually check completions
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(serde_json::to_value(&params).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     // 3. Request completions at "...P" in pkg_b
     // Line 4: "                ...PublicFrag"
     // We'll put cursor after "..."
-    let position = Position::new(3, 19); 
+    let position = Position::new(3, 19);
     let params = CompletionParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
@@ -80,16 +100,20 @@ async fn test_lsp_fragment_scoping() {
         .id(1)
         .params(serde_json::to_value(&params).unwrap())
         .finish();
-    
+
     let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     if let Some(CompletionResponse::Array(items)) = result {
         let has_public = items.iter().any(|i| i.label == "PublicFrag");
         let has_private = items.iter().any(|i| i.label == "PrivateFrag");
-        
+
         assert!(has_public, "Should suggest PublicFrag from pkg_a to pkg_b");
-        assert!(!has_private, "Should NOT suggest PrivateFrag from pkg_a to pkg_b");
+        assert!(
+            !has_private,
+            "Should NOT suggest PrivateFrag from pkg_a to pkg_b"
+        );
     } else {
         panic!("Expected array of completions");
     }
@@ -98,7 +122,9 @@ async fn test_lsp_fragment_scoping() {
     let position = Position::new(3, 20); // on PublicFrag
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: pkg_b_uri.clone() },
+            text_document: TextDocumentIdentifier {
+                uri: pkg_b_uri.clone(),
+            },
             position,
         },
         work_done_progress_params: Default::default(),
@@ -109,9 +135,10 @@ async fn test_lsp_fragment_scoping() {
         .id(2)
         .params(serde_json::to_value(&params).unwrap())
         .finish();
-    
+
     let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     match result {
         Some(GotoDefinitionResponse::Scalar(loc)) => {
@@ -123,9 +150,7 @@ async fn test_lsp_fragment_scoping() {
 
 #[tokio::test]
 async fn test_lsp_package_isolation() {
-    let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, Config::new_empty())
-    });
+    let (mut service, _) = LspService::new(|client| Backend::new(client, Config::new_empty()));
 
     // Initialize
     let init_params = InitializeParams {
@@ -143,10 +168,8 @@ async fn test_lsp_package_isolation() {
     service.call(request).await.unwrap();
 
     // 1. Open pkg_a/fragment.graphql (defines FragmentA)
-    let pkg_a_frag_path = std::fs::canonicalize(Path::new(
-        "tests/fixtures/scoped/pkg_a/fragment.graphql",
-    ))
-    .unwrap();
+    let pkg_a_frag_path =
+        std::fs::canonicalize(Path::new("tests/fixtures/scoped/pkg_a/fragment.graphql")).unwrap();
     let pkg_a_uri = Url::from_file_path(pkg_a_frag_path).unwrap();
     let pkg_a_text = "fragment FragmentA on User { id }";
 
@@ -170,10 +193,8 @@ async fn test_lsp_package_isolation() {
         .unwrap();
 
     // 2. Open pkg_b/fragment.graphql (defines FragmentB)
-    let pkg_b_frag_path = std::fs::canonicalize(Path::new(
-        "tests/fixtures/scoped/pkg_b/fragment.graphql",
-    ))
-    .unwrap();
+    let pkg_b_frag_path =
+        std::fs::canonicalize(Path::new("tests/fixtures/scoped/pkg_b/fragment.graphql")).unwrap();
     let pkg_b_uri = Url::from_file_path(pkg_b_frag_path).unwrap();
     let pkg_b_text = "fragment FragmentB on User { id }";
 
@@ -197,10 +218,8 @@ async fn test_lsp_package_isolation() {
         .unwrap();
 
     // 3. Open pkg_b/query.graphql (attempts to spread FragmentA)
-    let pkg_b_query_path = std::fs::canonicalize(Path::new(
-        "tests/fixtures/scoped/pkg_b/query.graphql",
-    ))
-    .unwrap();
+    let pkg_b_query_path =
+        std::fs::canonicalize(Path::new("tests/fixtures/scoped/pkg_b/query.graphql")).unwrap();
     let pkg_b_query_uri = Url::from_file_path(pkg_b_query_path).unwrap();
     let pkg_b_query_text = "query { users { ...FragmentA } }";
 
@@ -246,8 +265,5 @@ async fn test_lsp_package_isolation() {
     let result: Option<GotoDefinitionResponse> =
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
-    assert!(
-        result.is_none(),
-        "FragmentA should not be visible in pkg_b"
-    );
+    assert!(result.is_none(), "FragmentA should not be visible in pkg_b");
 }

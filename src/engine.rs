@@ -1,7 +1,7 @@
 use crate::config::{Config, SchemaSource};
 use crate::document::{DocumentLanguage, DocumentState};
-use crate::utils::{get_project_files, is_relevant_file, mask_interpolations};
-use apollo_compiler::{executable, Schema};
+use crate::utils::{get_project_files, is_relevant_file};
+use apollo_compiler::{Node, Schema, executable};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -44,11 +44,59 @@ pub struct WorkspaceMetadata {
     pub operations: Vec<OperationMetadata>,
     pub projects: Vec<ProjectMetadata>,
     pub timings: WorkspaceScanTimings,
+    pub documents: HashMap<PathBuf, DocumentState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectContext {
+    pub fragment_to_path: HashMap<String, String>,
+    pub fragment_to_import: HashMap<String, String>,
+    pub all_fragments: HashMap<String, Node<executable::Fragment>>,
 }
 
 pub struct Engine;
 
 impl Engine {
+    pub fn resolve_project_context(
+        valid_schema: &apollo_compiler::validation::Valid<Schema>,
+        global_metadata: &[FragmentMetadata],
+        project_files: &[PathBuf],
+    ) -> ProjectContext {
+        let project_files_set: fnv::FnvHashSet<String> = project_files
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+
+        let mut fragment_to_path: HashMap<String, String> = HashMap::default();
+        let mut fragment_to_import: HashMap<String, String> = HashMap::default();
+
+        for meta in global_metadata {
+            let is_local = project_files_set.contains(&meta.path);
+            if is_local {
+                fragment_to_path.insert(meta.name.clone(), meta.path.clone());
+                if let Some(a) = &meta.import_alias {
+                    fragment_to_import.insert(meta.name.clone(), a.clone());
+                }
+            } else if meta.is_public {
+                fragment_to_path
+                    .entry(meta.name.clone())
+                    .or_insert_with(|| meta.path.clone());
+                if let Some(a) = &meta.import_alias {
+                    fragment_to_import
+                        .entry(meta.name.clone())
+                        .or_insert_with(|| a.clone());
+                }
+            }
+        }
+
+        let all_fragments = Self::resolve_fragments(valid_schema, global_metadata);
+
+        ProjectContext {
+            fragment_to_path,
+            fragment_to_import,
+            all_fragments,
+        }
+    }
     /// Step 1: Discover all fragments and operations across the entire workspace
     pub fn scan_workspace(config: &Config) -> WorkspaceMetadata {
         let mut timings = WorkspaceScanTimings::default();
@@ -91,7 +139,7 @@ impl Engine {
 
         // 3. Parallel Document Parsing (Tree-sitter + Metadata)
         let start_parse = Instant::now();
-        let path_to_doc: HashMap<PathBuf, (DocumentState, String)> = all_unique_paths
+        let path_to_doc: HashMap<PathBuf, DocumentState> = all_unique_paths
             .into_par_iter()
             .filter(|p| is_relevant_file(p))
             .filter_map(|p| {
@@ -100,18 +148,20 @@ impl Engine {
                 let uri = Url::from_file_path(&abs_path).ok()?;
                 let language = DocumentLanguage::from_uri(&uri);
 
+                if language.is_host_language() {
+                    let bytes = content.as_bytes();
+                    let has_gql = bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+                        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"));
+                    if !has_gql {
+                        return None;
+                    }
+                }
+
                 let mut parser = tree_sitter::Parser::new();
                 parser.set_language(&language.get_parser_language()).ok()?;
                 let doc = DocumentState::new(uri, &content, parser);
 
-                // For Apollo AST, we use masked content for host languages
-                let masked = if language.is_host_language() {
-                    mask_interpolations(&content)
-                } else {
-                    content
-                };
-
-                Some((p, (doc, masked)))
+                Some((p, doc))
             })
             .collect();
         timings.doc_parsing = start_parse.elapsed();
@@ -123,7 +173,7 @@ impl Engine {
 
         for (paths, import_alias) in &project_info {
             for path in paths {
-                if let Some((doc, masked_source)) = path_to_doc.get(path) {
+                if let Some(doc) = path_to_doc.get(path) {
                     let path_str = path.to_string_lossy().to_string();
 
                     for frag in doc.fragments() {
@@ -133,7 +183,7 @@ impl Engine {
                             path: path_str.clone(),
                             import_alias: import_alias.clone(),
                             is_public: frag.is_public,
-                            masked_source: masked_source.clone(),
+                            masked_source: doc.masked_source.clone(),
                         });
                     }
 
@@ -162,6 +212,7 @@ impl Engine {
                 })
                 .collect(),
             timings,
+            documents: path_to_doc,
         }
     }
 
@@ -229,13 +280,18 @@ impl Engine {
         let uri = Url::from_file_path(&abs_path).ok()?;
         let language = DocumentLanguage::from_uri(&uri);
 
+        if language.is_host_language() {
+            let bytes = content.as_bytes();
+            let has_gql = bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+                || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"));
+            if !has_gql {
+                return None;
+            }
+        }
+
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&language.get_parser_language()).ok()?;
         let doc = DocumentState::new(uri, &content, parser);
-
-        if language.is_host_language() && !doc.has_graphql_candidates() {
-            return None;
-        }
 
         Some(doc)
     }
@@ -254,7 +310,7 @@ impl Engine {
                         "Failed to read schema file {}: {}",
                         path.display(),
                         e
-                    ))
+                    ));
                 }
             }
         }

@@ -1,8 +1,8 @@
+use apollo_compiler::Node;
 use apollo_compiler::ast::{self, OperationType, Type, Value as GqlValue};
 use apollo_compiler::executable::{self, Selection};
-use apollo_compiler::Node;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn serialize_operation(
     operation: &executable::Operation,

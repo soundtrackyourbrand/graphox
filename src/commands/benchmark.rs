@@ -1,14 +1,11 @@
-use apollo_compiler::{executable, Node};
-use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
-use graphql_rust::engine::Engine;
+use fnv::FnvHashMap as HashMap;
 use graphql_rust::Config;
+use graphql_rust::engine::Engine;
+use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-pub async fn run_benchmark(
-    config: Config,
-    verbose: bool,
-) {
+pub async fn run_benchmark(config: Config, _verbose: bool) {
     println!("Starting Benchmark...");
     let total_start = Instant::now();
 
@@ -40,8 +37,6 @@ pub async fn run_benchmark(
 
     let mut project_timings = Vec::new();
     let mut schema_type_timings = Vec::new();
-    let mut resolution_cache: HashMap<String, HashMap<String, Node<executable::Fragment>>> =
-        HashMap::default();
 
     for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
         let project_total_start = Instant::now();
@@ -68,89 +63,74 @@ pub async fn run_benchmark(
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
-        let all_fragments = if let Some(cached) =
-            resolution_cache.get(&project.schema.as_key())
-        {
-            cached.clone()
-        } else {
-            let resolved = Engine::resolve_fragments(&valid_schema, global_metadata);
-            resolution_cache.insert(project.schema.as_key(), resolved.clone());
-            resolved
-        };
+        let project_context =
+            Engine::resolve_project_context(&valid_schema, global_metadata, &project_meta.files);
         fragment_resolve_time += fr_start.elapsed();
 
         let project_files = &project_meta.files;
-        let project_files_set: HashSet<String> = project_files
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
 
         // Project-specific maps
         let mm_start = Instant::now();
-        let mut project_fragment_to_path: HashMap<String, String> = HashMap::default();
-        let mut project_fragment_to_import: HashMap<String, String> = HashMap::default();
-
-        for meta in global_metadata {
-            let is_local = project_files_set.contains(&meta.path);
-            if is_local {
-                if verbose {
-                    println!("Local Fragment Found: {} in {}", meta.name, meta.path);
-                }
-                project_fragment_to_path.insert(meta.name.clone(), meta.path.clone());
-                if let Some(a) = &meta.import_alias {
-                    project_fragment_to_import.insert(meta.name.clone(), a.clone());
-                }
-            } else if meta.is_public {
-                if verbose {
-                    println!(
-                        "Public Global Fragment Found: {} from {}",
-                        meta.name, meta.path
-                    );
-                }
-                project_fragment_to_path
-                    .entry(meta.name.clone())
-                    .or_insert_with(|| meta.path.clone());
-                if let Some(a) = &meta.import_alias {
-                    project_fragment_to_import
-                        .entry(meta.name.clone())
-                        .or_insert_with(|| a.clone());
-                }
-            }
-        }
+        // The mapping is now part of project_context
+        let project_fragment_to_path = &project_context.fragment_to_path;
+        let project_fragment_to_import = &project_context.fragment_to_import;
+        let all_fragments = &project_context.all_fragments;
         metadata_mapping_time += mm_start.elapsed();
 
-        for path in project_files {
-            let dp_start = Instant::now();
-            let doc_opt = Engine::parse_doc(path);
-            doc_parse_time += dp_start.elapsed();
+        let (p_graphql_files, p_operations, p_fragments_processed, p_doc_parse_time, p_ts_gen_time) =
+            project_files
+                .par_iter()
+                .map(|path| {
+                    let dp_start = Instant::now();
+                    let doc_opt = workspace_metadata.documents.get(path);
+                    let d_time = dp_start.elapsed();
 
-            if let Some(doc) = doc_opt {
-                total_graphql_files += 1;
-                let schema_import = config.schema_types.as_ref().and_then(|sts| {
-                    sts.iter()
-                        .find(|st| st.schema.as_key() == project.schema.as_key())
-                        .and_then(|st| st.import.clone())
-                });
-                let ctx = graphql_rust::features::codegen::CodegenContext {
-                    schema: &schema,
-                    fragment_to_path: &project_fragment_to_path,
-                    fragment_to_import: &project_fragment_to_import,
-                    all_fragments: &all_fragments,
-                    current_file_path: path,
-                    scalars: &config.scalars,
-                    schema_import: &schema_import,
-                    generate_ast_for_fragments: config.generate_ast_for_fragments.unwrap_or(false),
-                };
-                let g_start = Instant::now();
-                if let Ok(_ts_code) =
-                    graphql_rust::features::codegen::generate_typescript(&doc, &ctx)
-                {
-                    ts_gen_time += g_start.elapsed();
-                    total_operations += doc.get_graphql_trees().len();
-                    total_fragments_processed += doc.fragments().len();
-                }
-            }
-        }
+                    if let Some(doc) = doc_opt {
+                        let schema_import = config.schema_types.as_ref().and_then(|sts| {
+                            sts.iter()
+                                .find(|st| st.schema.as_key() == project.schema.as_key())
+                                .and_then(|st| st.import.clone())
+                        });
+                        let ctx = graphql_rust::features::codegen::CodegenContext {
+                            schema: &valid_schema,
+                            fragment_to_path: project_fragment_to_path,
+                            fragment_to_import: project_fragment_to_import,
+                            all_fragments: all_fragments,
+                            current_file_path: path,
+                            scalars: &config.scalars,
+                            schema_import: &schema_import,
+                            generate_ast_for_fragments: config
+                                .generate_ast_for_fragments
+                                .unwrap_or(false),
+                        };
+                        let g_start = Instant::now();
+                        if let Ok(_ts_code) =
+                            graphql_rust::features::codegen::generate_typescript(doc, &ctx)
+                        {
+                            let g_time = g_start.elapsed();
+                            return (
+                                1,
+                                doc.get_graphql_trees().len(),
+                                doc.fragments().len(),
+                                d_time,
+                                g_time,
+                            );
+                        }
+                        (1, 0, 0, d_time, Duration::ZERO)
+                    } else {
+                        (0, 0, 0, d_time, Duration::ZERO)
+                    }
+                })
+                .reduce(
+                    || (0, 0, 0, Duration::ZERO, Duration::ZERO),
+                    |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4),
+                );
+
+        total_graphql_files += p_graphql_files;
+        total_operations += p_operations;
+        total_fragments_processed += p_fragments_processed;
+        doc_parse_time += p_doc_parse_time;
+        ts_gen_time += p_ts_gen_time;
         project_timings.push((project.include.as_key(), project_total_start.elapsed()));
     }
 
@@ -158,10 +138,14 @@ pub async fn run_benchmark(
         for st in schema_types {
             let st_start = Instant::now();
             if let Ok(schema) = Engine::load_schema(&config.base_dir, &st.schema) {
-                let g_start = Instant::now();
-                let _ts_code =
-                    graphql_rust::features::codegen::generate_schema_types(&schema, &config.scalars);
-                ts_gen_time += g_start.elapsed();
+                if let Ok(valid_schema) = schema.validate() {
+                    let g_start = Instant::now();
+                    let _ts_code = graphql_rust::features::codegen::generate_schema_types(
+                        &valid_schema,
+                        &config.scalars,
+                    );
+                    ts_gen_time += g_start.elapsed();
+                }
             }
             schema_type_timings.push((st.output.clone(), st_start.elapsed()));
         }
@@ -171,7 +155,10 @@ pub async fn run_benchmark(
 
     println!("\n--- Benchmark Results ---");
     println!("Files with GraphQL:       {}", total_graphql_files);
-    println!("Total Fragments Found:    {}", fragment_to_path_global.len());
+    println!(
+        "Total Fragments Found:    {}",
+        fragment_to_path_global.len()
+    );
     println!("Total Operations processed: {}", total_operations);
     println!("Total Fragments processed:  {}", total_fragments_processed);
     println!();
@@ -203,10 +190,16 @@ pub async fn run_benchmark(
         scan_timings.metadata_extraction
     );
     println!("  Schema Parsing:            {:>10?}", schema_parse_time);
-    println!("  Fragment Resolution:       {:>10?}", fragment_resolve_time);
-    println!("  Metadata Mapping:          {:>10?}", metadata_mapping_time);
+    println!(
+        "  Fragment Resolution:       {:>10?}",
+        fragment_resolve_time
+    );
+    println!(
+        "  Metadata Mapping:          {:>10?}",
+        metadata_mapping_time
+    );
     println!("  Document Parsing:          {:>10?}", doc_parse_time);
-    println!("  TS Generation (serial):    {:>10?}", ts_gen_time);
+    println!("  TS Generation:             {:>10?}", ts_gen_time);
     println!("--------------------------");
     println!("Total Wall Time:             {:>10?}", total_duration);
 }

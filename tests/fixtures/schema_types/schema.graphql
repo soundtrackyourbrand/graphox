@@ -24,7 +24,7 @@ input CreateUserInput {
 """
 Deprecated input type
 """
-input OldInput @deprecated(reason: "Use CreateUserInput instead") {
+input OldInput {
   id: ID!
 }
 

@@ -1,10 +1,10 @@
 mod commands;
 
 use clap::{Parser, Subcommand};
+use commands::benchmark::run_benchmark;
 use commands::check::run_check;
 use commands::codegen::run_codegen;
 use commands::lsp::run_lsp;
-use commands::benchmark::run_benchmark;
 use graphql_rust::Config;
 
 #[derive(Parser)]

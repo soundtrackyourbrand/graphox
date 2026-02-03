@@ -106,7 +106,9 @@ impl Config {
                 break;
             }
         }
-        eprintln!("Error: No graphql.yaml or graphql.yml found in current or parent directories. This tool requires a configuration file to run.");
+        eprintln!(
+            "Error: No graphql.yaml or graphql.yml found in current or parent directories. This tool requires a configuration file to run."
+        );
         std::process::exit(1);
     }
 
@@ -124,7 +126,11 @@ impl Config {
         }?;
 
         let content = fs::read_to_string(&config_path).unwrap_or_else(|e| {
-            eprintln!("Error: Failed to read config file {}: {}", config_path.display(), e);
+            eprintln!(
+                "Error: Failed to read config file {}: {}",
+                config_path.display(),
+                e
+            );
             std::process::exit(1);
         });
 
@@ -134,7 +140,11 @@ impl Config {
                 Some(config)
             }
             Err(e) => {
-                eprintln!("Error: Failed to parse config file {}: {}", config_path.display(), e);
+                eprintln!(
+                    "Error: Failed to parse config file {}: {}",
+                    config_path.display(),
+                    e
+                );
                 std::process::exit(1);
             }
         }
@@ -276,7 +286,7 @@ projects:
         std::env::set_current_dir(&child_dir).unwrap();
 
         let config = Config::load();
-        
+
         // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
 
@@ -332,9 +342,15 @@ projects:
         // Canonicalize base dir for matching
         let config = Config::load_from_dir(fs::canonicalize(dir.path()).unwrap()).unwrap();
 
-        assert_eq!(config.get_schema_for_path(&ts_file), Some("s.graphql".to_string()));
+        assert_eq!(
+            config.get_schema_for_path(&ts_file),
+            Some("s.graphql".to_string())
+        );
         assert_eq!(config.get_schema_for_path(&test_file), None);
-        assert_eq!(config.get_schema_for_path(&lib_file), Some("s.graphql".to_string()));
+        assert_eq!(
+            config.get_schema_for_path(&lib_file),
+            Some("s.graphql".to_string())
+        );
         assert_eq!(config.get_schema_for_path(&other_file), None);
     }
 }

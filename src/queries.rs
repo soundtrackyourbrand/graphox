@@ -9,6 +9,7 @@ pub static GQL_DEFINITION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_DESCRIPTION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_COMPLETION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_DIAGNOSTICS_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+pub static GQL_REFERENCES_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 
 pub const GQL_SYMBOL_QUERY: &str = r#"
     (object_type_definition 
@@ -67,4 +68,9 @@ pub const GQL_COMPLETION_QUERY: &str = r#"
     (fragment_spread) @frag_spread
     (variable) @variable
     (arguments) @args
+"#;
+
+pub const GQL_REFERENCES_QUERY: &str = r#"
+    (fragment_spread (fragment_name (name) @name)) @reference
+    (fragment_definition (fragment_name (name) @name)) @definition
 "#;

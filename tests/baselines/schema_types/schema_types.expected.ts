@@ -26,8 +26,6 @@ export interface CreateUserInput {
 
 /**
  * Deprecated input type
- *
- * @deprecated Use CreateUserInput instead
  */
 export interface OldInput {
   id: string;

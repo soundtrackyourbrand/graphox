@@ -1,15 +1,17 @@
 use apollo_compiler::Schema;
-use graphql_rust::{DocumentState, Backend, Config};
-use tower_lsp::lsp_types::*;
+use graphql_rust::{Backend, Config, DocumentState};
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::LspService;
-use tower_service::Service;
 use tower_lsp::jsonrpc::Request;
+use tower_lsp::lsp_types::*;
+use tower_service::Service;
 
 fn create_parser() -> tree_sitter::Parser {
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&tree_sitter_graphql::LANGUAGE.into()).unwrap();
+    parser
+        .set_language(&tree_sitter_graphql::LANGUAGE.into())
+        .unwrap();
     parser
 }
 
@@ -24,7 +26,11 @@ fn test_diagnostics_update_on_schema_change() {
 
     // Initially valid
     let diagnostics = doc.get_semantic_diagnostics(&schema_v1, &[], None, false);
-    assert!(diagnostics.is_empty(), "Initially should be valid, got {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Initially should be valid, got {:?}",
+        diagnostics
+    );
 
     // Schema change: rename 'name' to 'fullName'
     let schema_v2_content = "type User { id: ID! fullName: String } type Query { me: User }";
@@ -32,7 +38,10 @@ fn test_diagnostics_update_on_schema_change() {
 
     // Now should have diagnostics
     let diagnostics = doc.get_semantic_diagnostics(&schema_v2, &[], None, false);
-    assert!(!diagnostics.is_empty(), "Should have diagnostics after schema change");
+    assert!(
+        !diagnostics.is_empty(),
+        "Should have diagnostics after schema change"
+    );
     assert!(diagnostics[0].message.contains("name"));
 
     // Query fixed: use 'fullName'
@@ -54,18 +63,30 @@ fn test_diagnostics_update_on_fragment_change() {
     // 1. Missing fragment
     let diagnostics = query_doc.get_semantic_diagnostics(&schema, &[], None, false);
     assert!(!diagnostics.is_empty());
-    assert!(diagnostics[0].message.contains("Unknown fragment: UserFrag"));
+    assert!(
+        diagnostics[0]
+            .message
+            .contains("Unknown fragment: UserFrag")
+    );
 
     // 2. Fragment provided (simulating it being found in another file)
     let fragments = vec!["UserFrag".to_string()];
     let diagnostics = query_doc.get_semantic_diagnostics(&schema, &fragments, None, false);
-    assert!(diagnostics.is_empty(), "Should be valid when fragment is provided, got {:?}", diagnostics);
+    assert!(
+        diagnostics.is_empty(),
+        "Should be valid when fragment is provided, got {:?}",
+        diagnostics
+    );
 
     // 3. Fragment renamed (simulating rename in another file)
     let fragments = vec!["UserFragRenamed".to_string()];
     let diagnostics = query_doc.get_semantic_diagnostics(&schema, &fragments, None, false);
     assert!(!diagnostics.is_empty());
-    assert!(diagnostics[0].message.contains("Unknown fragment: UserFrag"));
+    assert!(
+        diagnostics[0]
+            .message
+            .contains("Unknown fragment: UserFrag")
+    );
 }
 
 #[tokio::test]
@@ -75,9 +96,7 @@ async fn test_backend_schema_reload() {
     let schema_path = base_dir.join("schema.graphql");
     fs::write(&schema_path, "type Query { me: String }").unwrap();
 
-    let (mut service, _) = LspService::new(|client| {
-        Backend::new(client, Config::new_empty())
-    });
+    let (mut service, _) = LspService::new(|client| Backend::new(client, Config::new_empty()));
 
     let params = DidChangeWatchedFilesParams {
         changes: vec![FileEvent {
@@ -85,7 +104,9 @@ async fn test_backend_schema_reload() {
             typ: FileChangeType::CHANGED,
         }],
     };
-    
-    let request = Request::build("workspace/didChangeWatchedFiles").params(serde_json::to_value(&params).unwrap()).finish();
+
+    let request = Request::build("workspace/didChangeWatchedFiles")
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
     let _ = service.call(request).await.unwrap();
 }

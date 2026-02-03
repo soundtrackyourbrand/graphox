@@ -1,7 +1,9 @@
 use crate::queries::*;
 use crate::utils::{find_package_root, mask_interpolations};
 use ropey::Rope;
+use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tower_lsp::lsp_types::*;
 use tree_sitter::{InputEdit, Node, Parser, Point, StreamingIterator, Tree};
 
@@ -43,9 +45,18 @@ impl DocumentLanguage {
     }
 }
 
+#[derive(Clone)]
 pub struct GraphQLBlock {
-    pub tree: Tree,
+    pub tree: Arc<Tree>,
     pub offset: usize,
+}
+
+impl fmt::Debug for GraphQLBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphQLBlock")
+            .field("offset", &self.offset)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -61,26 +72,43 @@ pub struct OperationDef {
     pub source_text: String,
 }
 
+#[derive(Clone)]
 pub struct DocumentState {
     pub uri: Url,
     pub rope: Rope,
-    pub tree: Tree,
+    pub tree: Arc<Tree>,
     pub language: DocumentLanguage,
     pub graphql_trees: Vec<GraphQLBlock>,
     pub fragments: Vec<FragmentDef>,
     pub operations: Vec<OperationDef>,
     pub package_root: Option<PathBuf>,
+    pub masked_source: String,
+}
+
+impl fmt::Debug for DocumentState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DocumentState")
+            .field("uri", &self.uri)
+            .field("language", &self.language)
+            .finish()
+    }
 }
 
 impl DocumentState {
     pub fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
         let language = DocumentLanguage::from_uri(&uri);
         let rope = Rope::from_str(text);
-        let tree = parser.parse(text, None).unwrap();
+        let tree = Arc::new(parser.parse(text, None).unwrap());
         let package_root = if let Ok(path) = uri.to_file_path() {
             find_package_root(&path)
         } else {
             None
+        };
+
+        let masked_source = if language.is_host_language() {
+            mask_interpolations(text)
+        } else {
+            text.to_string()
         };
 
         let mut doc = Self {
@@ -92,6 +120,7 @@ impl DocumentState {
             fragments: Vec::new(),
             operations: Vec::new(),
             package_root,
+            masked_source,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();
         doc.fragments = doc.extract_fragment_names();
@@ -157,7 +186,11 @@ impl DocumentState {
                     while let Some(prev) = curr {
                         if prev.kind() == "comment" {
                             let text = self.get_node_text(prev, 0);
-                            if text.to_uppercase().contains("GRAPHQL") {
+                            if text
+                                .as_bytes()
+                                .windows(7)
+                                .any(|w| w.eq_ignore_ascii_case(b"graphql"))
+                            {
                                 gql_node = Some(node);
                                 break;
                             }
@@ -189,7 +222,7 @@ impl DocumentState {
 
                 if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
                     gql_blocks.push(GraphQLBlock {
-                        tree: gql_tree,
+                        tree: Arc::new(gql_tree),
                         offset: start_byte,
                     });
                 }
@@ -247,16 +280,11 @@ impl DocumentState {
         if self.language == DocumentLanguage::GraphQL {
             return true;
         }
-        self.contains_ignore_case("GQL") || self.contains_ignore_case("GRAPHQL")
-    }
-
-    fn contains_ignore_case(&self, needle: &str) -> bool {
-        let needle_upper = needle.to_uppercase();
-        let mut full_text = String::new();
-        for chunk in self.rope.chunks() {
-            full_text.push_str(chunk);
-        }
-        full_text.to_uppercase().contains(&needle_upper)
+        self.rope.chunks().any(|chunk| {
+            let bytes = chunk.as_bytes();
+            bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+                || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
+        })
     }
 
     pub fn get_node_text(&self, node: Node, offset: usize) -> String {
@@ -388,7 +416,12 @@ impl DocumentState {
                         self.get_node_text(n, offset)
                     } else {
                         // Fallback if symbol.full capture failed for some reason
-                        block.tree.root_node().utf8_text(b"").unwrap_or("").to_string()
+                        block
+                            .tree
+                            .root_node()
+                            .utf8_text(b"")
+                            .unwrap_or("")
+                            .to_string()
                     };
 
                     operations.push(OperationDef {
@@ -478,33 +511,52 @@ impl DocumentState {
                 start_byte,
                 old_end_byte,
                 new_end_byte,
-                start_position: Point::new(range.start.line as usize, range.start.character as usize),
+                start_position: Point::new(
+                    range.start.line as usize,
+                    range.start.character as usize,
+                ),
                 old_end_position: Point::new(range.end.line as usize, range.end.character as usize),
                 new_end_position: Point::new(new_end_line, new_end_col_utf16),
             };
 
-            self.tree.edit(&edit);
-
-            self.tree = parser
-                .parse_with_options(
-                    &mut |byte, _| {
-                        if byte >= self.rope.len_bytes() {
-                            return "";
-                        }
-                        let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
-                        &chunk[byte - chunk_byte..]
-                    },
-                    Some(&self.tree),
-                    None,
-                )
-                .unwrap();
+            // If we have other references to the tree (e.g. in WorkspaceMetadata),
+            // we can't edit it in place. We must parse from scratch or deep clone if tree-sitter supported it.
+            // Since tree-sitter Tree doesn't implement Clone, we'll try to get_mut or just re-parse.
+            if let Some(tree) = Arc::get_mut(&mut self.tree) {
+                tree.edit(&edit);
+                self.tree = Arc::new(
+                    parser
+                        .parse_with_options(
+                            &mut |byte, _| {
+                                if byte >= self.rope.len_bytes() {
+                                    return "";
+                                }
+                                let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
+                                &chunk[byte - chunk_byte..]
+                            },
+                            Some(&self.tree),
+                            None,
+                        )
+                        .unwrap(),
+                );
+            } else {
+                // Fallback: Full re-parse if tree is shared
+                let full_text = self.rope.to_string();
+                self.tree = Arc::new(parser.parse(&full_text, None).unwrap());
+            }
         } else {
             // Full update
             self.rope = Rope::from_str(&change.text);
-            self.tree = parser.parse(&change.text, None).unwrap();
+            self.tree = Arc::new(parser.parse(&change.text, None).unwrap());
         }
 
         self.graphql_trees = self.reparse_graphql_trees();
         self.fragments = self.extract_fragment_names();
+
+        self.masked_source = if self.language.is_host_language() {
+            mask_interpolations(&self.rope.to_string())
+        } else {
+            self.rope.to_string()
+        };
     }
 }

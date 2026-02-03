@@ -50,7 +50,8 @@ impl DocumentState {
 
                         if let Some(v_node) = value_node {
                             let arg_type_name = arg_def.ty.inner_named_type();
-                            if let Some(arg_type_def) = ctx.schema.types.get(arg_type_name.as_str()) {
+                            if let Some(arg_type_def) = ctx.schema.types.get(arg_type_name.as_str())
+                            {
                                 self.validate_value(v_node, offset, arg_type_def, ctx);
                             }
                         }
@@ -94,7 +95,8 @@ impl DocumentState {
                             if let Some(name_node) = name_node {
                                 let field_name = self.get_node_text(name_node, offset);
                                 if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
-                                    if let Some(directive) = field_def.directives.get("deprecated") {
+                                    if let Some(directive) = field_def.directives.get("deprecated")
+                                    {
                                         let reason = directive
                                             .argument_by_name("reason", ctx.schema)
                                             .ok()
@@ -105,7 +107,10 @@ impl DocumentState {
                                             ctx,
                                             name_node,
                                             offset,
-                                            format!("Input field '{}' is deprecated: {}", field_name, reason),
+                                            format!(
+                                                "Input field '{}' is deprecated: {}",
+                                                field_name, reason
+                                            ),
                                             reason,
                                         );
                                     }
@@ -115,7 +120,12 @@ impl DocumentState {
                                         if let Some(field_type_def) =
                                             ctx.schema.types.get(field_type_name.as_str())
                                         {
-                                            self.validate_value(v_node, offset, field_type_def, ctx);
+                                            self.validate_value(
+                                                v_node,
+                                                offset,
+                                                field_type_def,
+                                                ctx,
+                                            );
                                         }
                                     }
                                 }

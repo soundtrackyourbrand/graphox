@@ -1,16 +1,16 @@
-use apollo_compiler::ast::{OperationType, Type};
-use apollo_compiler::executable::{self, Selection, SelectionSet};
-use apollo_compiler::schema::ExtendedType;
-use apollo_compiler::{Node, Schema};
 use crate::features::apollo_ast::{
     get_fragment_fragment_dependencies, get_operation_fragment_dependencies,
     serialize_fragment_definition, serialize_operation_definition,
 };
+use apollo_compiler::ast::{OperationType, Type};
+use apollo_compiler::executable::{self, Selection, SelectionSet};
+use apollo_compiler::schema::ExtendedType;
+use apollo_compiler::{Node, Schema};
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::path::{Path, PathBuf};
 
 pub struct CodegenContext<'a> {
-    pub schema: &'a Schema,
+    pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub fragment_to_path: &'a HashMap<String, String>,
     pub fragment_to_import: &'a HashMap<String, String>,
     pub all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
@@ -38,13 +38,6 @@ pub fn generate_typescript(
     let mut used_fragments = HashMap::default();
     let mut generated_operations = Vec::new();
 
-    // Validate schema once for ExecutableDocument parsing
-    let valid_schema = ctx
-        .schema
-        .clone()
-        .validate()
-        .map_err(|e| format!("Schema validation failed: {}", e))?;
-
     let mut bodies = String::new();
     let mut has_operations = false;
     let mut used_schema_types = HashSet::default();
@@ -55,18 +48,19 @@ pub fn generate_typescript(
             .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
             .to_string();
 
-        let exec_doc = match executable::ExecutableDocument::parse(&valid_schema, &block_text, "doc.graphql") {
-            Ok(d) => d,
-            Err(e) => {
-                let error_str = e.to_string();
-                if error_str.contains("must not contain") {
-                    // It's a schema definition, skip it
-                    continue;
+        let exec_doc =
+            match executable::ExecutableDocument::parse(ctx.schema, &block_text, "doc.graphql") {
+                Ok(d) => d,
+                Err(e) => {
+                    let error_str = e.to_string();
+                    if error_str.contains("must not contain") {
+                        // It's a schema definition, skip it
+                        continue;
+                    }
+                    // It's a real error in an executable doc
+                    return Err(format!("Failed to parse GraphQL block: {}", e));
                 }
-                // It's a real error in an executable doc
-                return Err(format!("Failed to parse GraphQL block: {}", e));
-            }
-        };
+            };
 
         if !exec_doc.operations.is_empty() {
             has_operations = true;
@@ -99,7 +93,10 @@ pub fn generate_typescript(
                 &mut used_schema_types,
             );
 
-            bodies.push_str(&format!("export interface {}{} {}\n\n", name, suffix, ts_type));
+            bodies.push_str(&format!(
+                "export interface {}{} {}\n\n",
+                name, suffix, ts_type
+            ));
 
             let vars_type = if !op.variables.is_empty() {
                 let v_name = format!("{}{}Variables", name, suffix);
@@ -197,6 +194,7 @@ pub fn generate_typescript(
     used_frag_names.sort();
 
     let mut imports: HashMap<String, Vec<String>> = HashMap::default();
+    let current_path = doc.uri.path();
     for frag_name in used_frag_names {
         if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name) {
             imports
@@ -204,19 +202,19 @@ pub fn generate_typescript(
                 .or_default()
                 .push(frag_name);
         } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name) {
-            let current_abs = std::fs::canonicalize(ctx.current_file_path)
-                .unwrap_or_else(|_| ctx.current_file_path.to_path_buf());
-            let other_abs = std::fs::canonicalize(other_path)
-                .unwrap_or_else(|_| Path::new(other_path).to_path_buf());
-
-            if other_abs != current_abs {
+            // fragment_to_path contains absolute paths as strings.
+            // doc.uri.path() is also absolute.
+            if other_path != current_path {
                 imports
                     .entry(other_path.clone())
                     .or_default()
                     .push(frag_name);
             }
         } else {
-            return Err(format!("Fragment '{}' not found in current project and is not marked as @public in other projects", frag_name));
+            return Err(format!(
+                "Fragment '{}' not found in current project and is not marked as @public in other projects",
+                frag_name
+            ));
         }
     }
 
@@ -363,7 +361,9 @@ pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGen
         output.push('\n');
     }
     output.push_str("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;\n");
-    output.push_str("export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n");
+    output.push_str(
+        "export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n",
+    );
     output.push_str("export const gql = graphql;\n");
 
     output
@@ -636,7 +636,7 @@ fn gql_type_to_ts_internal(
 }
 
 pub fn generate_schema_types(
-    schema: &Schema,
+    schema: &apollo_compiler::validation::Valid<Schema>,
     scalars: &Option<HashMap<String, String>>,
 ) -> String {
     let mut output = String::new();

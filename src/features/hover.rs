@@ -1,6 +1,6 @@
 use crate::document::DocumentState;
 use crate::queries::*;
-use apollo_compiler::{schema, Schema};
+use apollo_compiler::{Schema, schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, StreamingIterator};
 
@@ -26,7 +26,8 @@ impl DocumentState {
                         )
                         .to_string();
 
-                    if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema) {
+                    if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema)
+                    {
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,
@@ -46,7 +47,8 @@ impl DocumentState {
                         });
                     }
 
-                    if let Some(field_info) = self.get_field_info(root, offset, byte_offset, schema) {
+                    if let Some(field_info) = self.get_field_info(root, offset, byte_offset, schema)
+                    {
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,
@@ -95,7 +97,7 @@ impl DocumentState {
                                 offset,
                                 cursor_offset,
                                 schema,
-                            )
+                            );
                         }
                         "fragment" => {
                             return self.find_field_in_fragment(
@@ -103,7 +105,7 @@ impl DocumentState {
                                 offset,
                                 cursor_offset,
                                 schema,
-                            )
+                            );
                         }
                         _ => {}
                     }
@@ -156,7 +158,8 @@ impl DocumentState {
         for child in node.children(&mut cursor) {
             if child.kind() == "selection_set" {
                 let range = (child.start_byte() + offset)..(child.end_byte() + offset);
-                if cursor_offset >= range.start && cursor_offset <= range.end
+                if cursor_offset >= range.start
+                    && cursor_offset <= range.end
                     && let Some(type_name) = self.get_fragment_type_condition(node, offset)
                     && let Some(type_def) = schema.types.get(type_name.as_str())
                 {

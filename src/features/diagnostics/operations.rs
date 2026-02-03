@@ -4,7 +4,12 @@ use apollo_compiler::ast::OperationType;
 use tree_sitter::Node;
 
 impl DocumentState {
-    pub(super) fn validate_operation(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
+    pub(super) fn validate_operation(
+        &self,
+        node: Node,
+        offset: usize,
+        ctx: &mut ValidationContext,
+    ) {
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
 
@@ -54,7 +59,12 @@ impl DocumentState {
         }
     }
 
-    pub(super) fn validate_type_node(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
+    pub(super) fn validate_type_node(
+        &self,
+        node: Node,
+        offset: usize,
+        ctx: &mut ValidationContext,
+    ) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             match child.kind() {

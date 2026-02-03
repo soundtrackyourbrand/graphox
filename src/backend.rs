@@ -1,12 +1,12 @@
+use crate::Config;
+use crate::config::SchemaSource;
+use crate::document::{DocumentLanguage, DocumentState};
+use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
 use std::sync::Arc;
-use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
-use crate::config::SchemaSource;
-use crate::document::{DocumentLanguage, DocumentState};
-use crate::utils::SEMANTIC_TOKEN_LEGEND;
-use crate::Config;
+use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
 
 pub struct Backend {
     pub client: Client,
@@ -19,9 +19,8 @@ pub struct Backend {
 impl Backend {
     pub fn new(client: Client, config: Config) -> Self {
         let schemas = DashMap::new();
-        let empty_schema = Arc::new(
-            Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap(),
-        );
+        let empty_schema =
+            Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
 
         // Load project schemas from config
         for project in &config.projects {
@@ -42,7 +41,10 @@ impl Backend {
         }
     }
 
-    fn load_schema_source(base_dir: &std::path::Path, source: &SchemaSource) -> Option<Arc<Schema>> {
+    fn load_schema_source(
+        base_dir: &std::path::Path,
+        source: &SchemaSource,
+    ) -> Option<Arc<Schema>> {
         let mut combined_text = String::new();
         for file in source.files() {
             let path = base_dir.join(file);
@@ -54,7 +56,9 @@ impl Backend {
                 Err(_) => return None,
             }
         }
-        Schema::parse(&combined_text, source.as_key()).ok().map(Arc::new)
+        Schema::parse(&combined_text, source.as_key())
+            .ok()
+            .map(Arc::new)
     }
 
     fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
@@ -88,7 +92,10 @@ impl Backend {
             if project.schema.files().iter().any(|f| {
                 let abs = self.config.base_dir.join(f);
                 abs.to_string_lossy() == changed_path
-                    || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string())
+                    || abs
+                        .canonicalize()
+                        .ok()
+                        .map(|p| p.to_string_lossy().to_string())
                         == Some(changed_path.to_string())
             }) {
                 sources_to_reload.push(project.schema.clone());
@@ -99,7 +106,10 @@ impl Backend {
                 if st.schema.files().iter().any(|f| {
                     let abs = self.config.base_dir.join(f);
                     abs.to_string_lossy() == changed_path
-                        || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string())
+                        || abs
+                            .canonicalize()
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
                             == Some(changed_path.to_string())
                 }) {
                     sources_to_reload.push(st.schema.clone());
@@ -114,7 +124,10 @@ impl Backend {
             if let Some(new_schema) = new_schema {
                 self.schemas.insert(key.clone(), new_schema.clone());
                 self.client
-                    .log_message(MessageType::INFO, format!("Schema set {} successfully reloaded!", key))
+                    .log_message(
+                        MessageType::INFO,
+                        format!("Schema set {} successfully reloaded!", key),
+                    )
                     .await;
 
                 let mut to_publish = Vec::new();
@@ -140,7 +153,9 @@ impl Backend {
                     }
                 }
                 for (uri, diagnostics) in to_publish {
-                    self.client.publish_diagnostics(uri, diagnostics, None).await;
+                    self.client
+                        .publish_diagnostics(uri, diagnostics, None)
+                        .await;
                 }
             }
         }
@@ -158,6 +173,7 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: None,
                     file_operations: None,
@@ -219,10 +235,8 @@ impl LanguageServer for Backend {
             id: "watch-schema".to_string(),
             method: "workspace/didChangeWatchedFiles".to_string(),
             register_options: Some(
-                serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
-                    watchers,
-                })
-                .unwrap(),
+                serde_json::to_value(DidChangeWatchedFilesRegistrationOptions { watchers })
+                    .unwrap(),
             ),
         };
         if let Err(e) = self.client.register_capability(vec![registration]).await {
@@ -305,7 +319,8 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
+            let diagnostics =
+                doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -364,6 +379,37 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+            doc.get_symbol_at_position(position)
+        } else {
+            None
+        };
+
+        if let Some(name) = symbol_name {
+            let mut all_references = Vec::new();
+
+            for entry in self.documents.iter() {
+                let other_doc = entry.value();
+
+                let refs = other_doc.find_references_in_tree(&name, include_declaration);
+                all_references.extend(refs);
+            }
+
+            if all_references.is_empty() {
+                return Ok(None);
+            }
+
+            return Ok(Some(all_references));
+        }
+
+        Ok(None)
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let language = DocumentLanguage::from_uri(&params.text_document.uri);
         let mut parser = tree_sitter::Parser::new();
@@ -383,7 +429,8 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
+            let diagnostics =
+                doc.get_semantic_diagnostics(&schema, &fragments, Some(&self.config), false);
             drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
