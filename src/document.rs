@@ -97,6 +97,9 @@ impl DocumentState {
             tree_sitter::Query::new(&ts_lang, TS_GQL_QUERY).unwrap()
         });
 
+        let gql_content_idx = query.capture_index_for_name("gql_content").unwrap();
+        let gql_template_idx = query.capture_index_for_name("gql_template").unwrap();
+
         let mut cursor = tree_sitter::QueryCursor::new();
 
         let mut ts_matches = cursor.matches(query, self.tree.root_node(), |node: Node| {
@@ -107,25 +110,60 @@ impl DocumentState {
         });
 
         let mut gql_blocks = vec![];
+        let mut seen_nodes = std::collections::HashSet::new();
+
         while let Some(m) = ts_matches.next() {
-            let gql_node = m.captures[1].node;
+            let mut gql_node = None;
 
-            let start_byte = gql_node.start_byte() + 1;
-            let end_byte = gql_node.end_byte() - 1;
-            let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
+            for cap in m.captures {
+                if cap.index == gql_content_idx {
+                    gql_node = Some(cap.node);
+                    break;
+                } else if cap.index == gql_template_idx {
+                    let node = cap.node;
+                    // Check for comment
+                    let mut curr = node.prev_sibling();
+                    while let Some(prev) = curr {
+                        if prev.kind() == "comment" {
+                            let text = self.get_node_text(prev, 0);
+                            if text.to_uppercase().contains("GRAPHQL") {
+                                gql_node = Some(node);
+                                break;
+                            }
+                        }
+                        if prev.kind() != "comment" && prev.kind() != " " {
+                            break;
+                        }
+                        curr = prev.prev_sibling();
+                    }
+                    if gql_node.is_some() {
+                        break;
+                    }
+                }
+            }
 
-            let masked_gql = mask_interpolations(&raw_gql);
+            if let Some(node) = gql_node {
+                if !seen_nodes.insert(node.id()) {
+                    continue;
+                }
 
-            let mut gql_parser = Parser::new();
-            gql_parser
-                .set_language(&tree_sitter_graphql::LANGUAGE.into())
-                .unwrap();
+                let start_byte = node.start_byte() + 1;
+                let end_byte = node.end_byte() - 1;
+                let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
 
-            if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
-                gql_blocks.push(GraphQLBlock {
-                    tree: gql_tree,
-                    offset: start_byte,
-                });
+                let masked_gql = mask_interpolations(&raw_gql);
+
+                let mut gql_parser = Parser::new();
+                gql_parser
+                    .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                    .unwrap();
+
+                if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
+                    gql_blocks.push(GraphQLBlock {
+                        tree: gql_tree,
+                        offset: start_byte,
+                    });
+                }
             }
         }
         gql_blocks

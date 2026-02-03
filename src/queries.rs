@@ -30,13 +30,15 @@ pub const SEMANTIC_TOKEN_QUERY: &str = r#"
     (string_value) @string
 "#;
 
-// A query to find: gql` ... `
+// A query to find: gql` ... ` or /* GraphQL */ ` ... `
 pub const TS_GQL_QUERY: &str = r#"
     (call_expression
         function: (identifier) @tag_name
         arguments: (template_string) @gql_content
         (#eq? @tag_name "gql")
-    )
+    ) @gql_tagged_call
+
+    (template_string) @gql_template
 "#;
 
 pub const GQL_DEFINITION_QUERY: &str = r#"
