@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod config;
 pub mod document;
+pub mod engine;
 pub mod features;
 pub mod queries;
 pub mod utils;
