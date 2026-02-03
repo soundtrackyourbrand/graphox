@@ -359,7 +359,7 @@ async fn execute_project_codegen_entry(
             .project_files
             .par_iter()
             .map(|path| {
-                let out_path = graphql_rust::utils::get_output_path(path, params.output_dir);
+                let out_path = graphql_rust::utils::get_output_path(path, params.base_dir, params.output_dir);
                 let mut ok = true;
                 if out_path.exists() {
                     if let Err(e) = std::fs::remove_file(&out_path) {
@@ -407,7 +407,7 @@ fn execute_single_file_codegen(
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, String> {
     let (ts_code, mut ops) = graphql_rust::features::codegen::generate_typescript(doc, ctx)?;
     let out_path_raw =
-        graphql_rust::utils::get_output_path(doc.uri.to_file_path().unwrap().as_path(), output_dir);
+        graphql_rust::utils::get_output_path(doc.uri.to_file_path().unwrap().as_path(), base_dir, output_dir);
 
     let abs_out_path = if out_path_raw.is_absolute() {
         out_path_raw

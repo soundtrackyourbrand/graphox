@@ -196,13 +196,11 @@ pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
     None
 }
 
-pub fn get_output_path(path: &Path, output_dir: Option<&str>) -> PathBuf {
+pub fn get_output_path(path: &Path, base_dir: &Path, output_dir: Option<&str>) -> PathBuf {
     if let Some(dir) = output_dir {
-        let mut p = PathBuf::from(dir);
+        let mut p = base_dir.join(dir);
         let rel = if path.is_absolute() {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let abs_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from("."));
-            path.strip_prefix(&abs_cwd).unwrap_or(path)
+            path.strip_prefix(base_dir).unwrap_or(path)
         } else {
             path
         };
