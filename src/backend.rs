@@ -975,7 +975,8 @@ impl LanguageServer for Backend {
 
         // 2. Selection-based refactors
         if let Some(doc) = self.documents.get(uri) {
-            let extraction_actions = doc.get_extraction_actions(params.range);
+            let schema = self.get_schema_for_doc(uri);
+            let extraction_actions = doc.get_extraction_actions(params.range, &schema);
             for action in extraction_actions {
                 actions.push(CodeActionOrCommand::CodeAction(action));
             }

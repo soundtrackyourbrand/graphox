@@ -2,7 +2,11 @@ use crate::document::DocumentState;
 use tower_lsp::lsp_types::*;
 
 impl DocumentState {
-    pub fn get_extraction_actions(&self, range: Range) -> Vec<CodeAction> {
+    pub fn get_extraction_actions(
+        &self,
+        range: Range,
+        schema: &apollo_compiler::Schema,
+    ) -> Vec<CodeAction> {
         let mut actions = Vec::new();
         let start_byte = self.position_to_byte(range.start);
         let end_byte = self.position_to_byte(range.end);
@@ -18,17 +22,31 @@ impl DocumentState {
                 let local_end = end_byte - offset;
 
                 let root = block.tree.root_node();
-                if let Some(node) = root.descendant_for_byte_range(local_start, local_end) {
+                if let Some(mut node) = root.descendant_for_byte_range(local_start, local_end) {
+                    // Climb up to find a selectable node
+                    while node.kind() != "selection_set" && node.kind() != "field" {
+                        if let Some(parent) = node.parent() {
+                            node = parent;
+                        } else {
+                            break;
+                        }
+                    }
+
                     // Check if node is a selection set or something we can extract
                     if node.kind() == "selection_set" || node.kind() == "field" {
                         let text = self.get_node_text(node, offset);
+                        let parent_type = self.find_parent_type_for_node(node, offset, schema);
+                        let type_name = parent_type
+                            .as_ref()
+                            .map(|t| t.name().as_str())
+                            .unwrap_or("TYPE_HERE");
 
                         let mut changes = std::collections::HashMap::new();
                         let new_fragment_name = "NewFragment";
 
                         let fragment_def = format!(
-                            "\n\nfragment {} on TYPE_HERE {{\n  {}\n}}\n",
-                            new_fragment_name, text
+                            "\n\nfragment {} on {} {{\n  {}\n}}\n",
+                            new_fragment_name, type_name, text
                         );
 
                         // 1. Replace selection with fragment spread

@@ -622,9 +622,13 @@ impl DocumentState {
         offset: usize,
         schema: &Schema,
     ) -> Option<apollo_compiler::schema::ExtendedType> {
-        let mut current = node.parent()?;
+        let mut current = node;
         while current.kind() != "selection_set" {
-            current = current.parent()?;
+            if let Some(parent) = current.parent() {
+                current = parent;
+            } else {
+                return None;
+            }
         }
 
         let container = current.parent()?;
