@@ -1,5 +1,6 @@
 pub mod apollo_ast;
 pub mod codegen;
+pub mod call_hierarchy;
 pub mod completion;
 pub mod code_actions;
 pub mod definition;

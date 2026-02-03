@@ -220,6 +220,7 @@ impl LanguageServer for Backend {
                     retrigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),
+                call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
@@ -331,6 +332,105 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(uri) {
             let schema = self.get_schema_for_doc(uri);
             return Ok(doc.get_signature_help(position, &schema));
+        }
+
+        Ok(None)
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        if let Some(doc) = self.documents.get(uri) {
+            return Ok(doc.prepare_call_hierarchy(position));
+        }
+
+        Ok(None)
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        let item = params.item;
+        let symbol_name = item.name;
+        let mut incoming = Vec::new();
+
+        for entry in self.documents.iter() {
+            let doc = entry.value();
+            let refs = doc.find_references_in_tree(&symbol_name, false);
+            
+            if !refs.is_empty() {
+                // For each reference, we need to find the container (fragment or operation)
+                // This is a bit expensive but necessary for call hierarchy.
+                // For now, let's group by URI.
+                
+                let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> = std::collections::HashMap::new();
+                
+                // Grouping is hard because we need the container name.
+                // Let's simplify: each reference is its own call from the file.
+                for r in refs {
+                    // Try to find what container this range is in
+                    let container_name = doc.get_container_name_at_range(r.range);
+                    let key = container_name.unwrap_or_else(|| "unknown".to_string());
+                    ranges_by_container.entry(key).or_default().push(r.range);
+                }
+
+                for (name, ranges) in ranges_by_container {
+                    incoming.push(CallHierarchyIncomingCall {
+                        from: CallHierarchyItem {
+                            name: name.clone(),
+                            kind: SymbolKind::FUNCTION,
+                            tags: None,
+                            detail: Some(doc.uri.to_string()),
+                            uri: doc.uri.clone(),
+                            range: doc.find_definition_in_tree(&name).map(|l| l.range).unwrap_or(ranges[0]),
+                            selection_range: doc.find_definition_in_tree(&name).map(|l| l.range).unwrap_or(ranges[0]),
+                            data: None,
+                        },
+                        from_ranges: ranges,
+                    });
+                }
+            }
+        }
+
+        if incoming.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(incoming))
+        }
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        let item = params.item;
+        let symbol_name = item.name;
+        let uri = item.uri;
+
+        if let Some(doc) = self.documents.get(&uri) {
+            let mut calls = doc.get_outgoing_calls(&symbol_name);
+            
+            // Resolve the 'to' items
+            for call in &mut calls {
+                let callee_name = &call.to.name;
+                // Find where it's defined
+                for entry in self.documents.iter() {
+                    let other_doc = entry.value();
+                    if let Some(loc) = other_doc.find_definition_in_tree(callee_name) {
+                        call.to.uri = loc.uri;
+                        call.to.range = loc.range;
+                        call.to.selection_range = loc.range;
+                        break;
+                    }
+                }
+            }
+            
+            return Ok(Some(calls));
         }
 
         Ok(None)
