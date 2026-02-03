@@ -81,27 +81,44 @@ async fn execute_codegen(
 
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
         for project in &cfg.projects {
-            let project_abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
-            let project_files = graphql_rust::utils::get_project_files(&project_abs_include);
-            let project_files_set: HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            let abs_includes: Vec<String> = project
+                .include
+                .patterns()
+                .iter()
+                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+                .collect();
+            let abs_excludes: Vec<String> = project
+                .exclude
+                .as_ref()
+                .map(|e| e.patterns())
+                .unwrap_or_default()
+                .iter()
+                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+                .collect();
+            let project_files = graphql_rust::utils::get_project_files(&abs_includes, &abs_excludes);
+            let project_files_set: HashSet<String> = project_files
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
 
             println!("Processing project with schema: {}", project.schema.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
             let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
-            
+
             let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
                 // Find all matching schema type configs (where the project's schema is a superset of the types' schema)
-                let mut matches: Vec<_> = sts.iter()
+                let mut matches: Vec<_> = sts
+                    .iter()
                     .filter(|st| {
                         let st_files = st.schema.files();
                         st_files.iter().all(|f| project_schema_files.contains(f))
                     })
                     .collect();
-                
+
                 // Sort by number of matched files (most specific match first)
                 matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
-                
+
                 matches.first().and_then(|st| st.import.clone())
             });
 
@@ -115,7 +132,11 @@ async fn execute_codegen(
             let valid_schema = match schema.clone().validate() {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!("Schema validation failed for {}: {}", project.schema.as_key(), e);
+                    eprintln!(
+                        "Schema validation failed for {}: {}",
+                        project.schema.as_key(),
+                        e
+                    );
                     continue;
                 }
             };
@@ -128,7 +149,7 @@ async fn execute_codegen(
 
             for meta in &global_metadata {
                 let is_local = project_files_set.contains(&meta.path);
-                
+
                 if is_local {
                     // Local always wins
                     fragment_to_path.insert(meta.name.clone(), meta.path.clone());
@@ -137,9 +158,13 @@ async fn execute_codegen(
                     }
                 } else if meta.is_public {
                     // Only add if public and not already filled by local
-                    fragment_to_path.entry(meta.name.clone()).or_insert_with(|| meta.path.clone());
+                    fragment_to_path
+                        .entry(meta.name.clone())
+                        .or_insert_with(|| meta.path.clone());
                     if let Some(a) = &meta.import_alias {
-                        fragment_to_import.entry(meta.name.clone()).or_insert_with(|| a.clone());
+                        fragment_to_import
+                            .entry(meta.name.clone())
+                            .or_insert_with(|| a.clone());
                     }
                 }
             }
@@ -147,7 +172,8 @@ async fn execute_codegen(
             execute_project_codegen(
                 &cfg.base_dir,
                 &project.schema,
-                &project_abs_include,
+                &abs_includes,
+                &abs_excludes,
                 project_output_dir,
                 &cfg.scalars,
                 &schema_import,
@@ -163,7 +189,13 @@ async fn execute_codegen(
             for st in schema_types {
                 let abs_output = cfg.base_dir.join(&st.output);
                 println!("Generating types for schema: {}", st.schema.as_key());
-                execute_schema_codegen(&cfg.base_dir, &st.schema, &abs_output.to_string_lossy(), &cfg.scalars).await;
+                execute_schema_codegen(
+                    &cfg.base_dir,
+                    &st.schema,
+                    &abs_output.to_string_lossy(),
+                    &cfg.scalars,
+                )
+                .await;
             }
         }
     } else {
@@ -174,10 +206,16 @@ async fn execute_codegen(
         if let Ok(schema) = apollo_compiler::Schema::parse(&schema_text, schema_path) {
             if let Ok(valid_schema) = schema.validate() {
                 let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
+                let include_glob = if std::path::Path::new(scan_path).is_file() {
+                    scan_path.to_string()
+                } else {
+                    format!("{}/**/*", scan_path)
+                };
                 execute_project_codegen(
                     Path::new("."),
                     &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
-                    scan_path,
+                    &[include_glob],
+                    &[],
                     output_dir,
                     &None,
                     &None,
@@ -185,7 +223,8 @@ async fn execute_codegen(
                     &HashMap::default(),
                     &all_fragments,
                     &vec![], // No metadata in simple mode
-                ).await;
+                )
+                .await;
             }
         }
     }
@@ -218,7 +257,8 @@ async fn execute_schema_codegen(
 async fn execute_project_codegen(
     base_dir: &Path,
     source: &graphql_rust::config::SchemaSource,
-    include_glob: &str,
+    include_patterns: &[String],
+    exclude_patterns: &[String],
     output_dir: Option<&str>,
     scalars: &Option<HashMap<String, String>>,
     schema_import: &Option<String>,
@@ -235,7 +275,7 @@ async fn execute_project_codegen(
         }
     };
 
-    let paths = graphql_rust::utils::get_project_files(include_glob);
+    let paths = graphql_rust::utils::get_project_files(include_patterns, exclude_patterns);
 
     let mut docs = Vec::new();
     for path in paths {

@@ -22,103 +22,154 @@ pub fn is_relevant_file(path: &Path) -> bool {
     )
 }
 
-pub fn get_project_files(include_glob: &str) -> Vec<PathBuf> {
+pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String]) -> Vec<PathBuf> {
     use globset::{Glob, GlobSetBuilder};
     use ignore::WalkBuilder;
 
-    let is_glob = include_glob.contains('*')
-        || include_glob.contains('?')
-        || include_glob.contains('[')
-        || include_glob.contains('{');
+    let mut include_builder = GlobSetBuilder::new();
+    let mut roots = Vec::new();
+    let mut direct_files = Vec::new();
 
-    // If it's not a glob, it might be a file or a directory
-    if !is_glob {
-        let p = PathBuf::from(include_glob);
-        if p.is_file() {
-            return vec![p];
+    for p in include_patterns {
+        let p_clean = if p.starts_with("./") { &p[2..] } else { p };
+        let is_glob = p_clean.contains('*')
+            || p_clean.contains('?')
+            || p_clean.contains('[')
+            || p_clean.contains('{');
+        if !is_glob {
+            let path = PathBuf::from(p_clean);
+            if path.is_file() {
+                direct_files.push(path);
+                continue;
+            }
+            if path.is_dir() {
+                roots.push(path.clone());
+                let mut p_glob = p_clean.to_string();
+                if !p_glob.ends_with('/') && !p_glob.is_empty() {
+                    p_glob.push('/');
+                }
+                p_glob.push_str("**/*");
+                if let Ok(g) = Glob::new(&p_glob) {
+                    include_builder.add(g);
+                }
+                continue;
+            }
         }
-        if p.is_dir() {
-            let mut files = Vec::new();
-            let walk = WalkBuilder::new(&p)
-                .add_custom_ignore_filename(".graphqlignore")
-                .hidden(false)
-                .build();
-            for entry in walk.filter_map(|e| e.ok()) {
-                if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                    let path = entry.path();
-                    if is_relevant_file(path) {
-                        files.push(path.to_owned());
+
+        if let Ok(g) = Glob::new(p) {
+            include_builder.add(g);
+        }
+        if p_clean != p {
+            if let Ok(g) = Glob::new(p_clean) {
+                include_builder.add(g);
+            }
+        }
+
+        let include_path = Path::new(p_clean);
+        let mut root = PathBuf::new();
+        for component in include_path.components() {
+            let s = component.as_os_str().to_str().unwrap_or("");
+            if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
+                break;
+            }
+            root.push(component);
+        }
+        if root.as_os_str().is_empty() {
+            roots.push(PathBuf::from("."));
+        } else {
+            roots.push(root);
+        }
+    }
+
+    let mut exclude_builder = GlobSetBuilder::new();
+    for p in exclude_patterns {
+        let p_clean = if p.starts_with("./") { &p[2..] } else { p };
+        if let Ok(g) = Glob::new(p_clean) {
+            exclude_builder.add(g);
+        }
+        if p != p_clean {
+            if let Ok(g) = Glob::new(p) {
+                exclude_builder.add(g);
+            }
+        }
+    }
+
+    let include_set = include_builder
+        .build()
+        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
+    let exclude_set = exclude_builder
+        .build()
+        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
+
+    let mut files = direct_files;
+
+    if roots.is_empty() && include_patterns.iter().any(|p| p.contains('*')) {
+        roots.push(PathBuf::from("."));
+    }
+
+    if !roots.is_empty() {
+        roots.sort();
+        let mut unique_roots = Vec::new();
+        for root in roots {
+            if !unique_roots.iter().any(|r| root.starts_with(r)) {
+                unique_roots.push(root);
+            }
+        }
+
+        let mut walk_builder = WalkBuilder::new(&unique_roots[0]);
+        for root in &unique_roots[1..] {
+            walk_builder.add(root);
+        }
+
+        let walk = walk_builder
+            .add_custom_ignore_filename(".graphqlignore")
+            .hidden(false)
+            .build();
+
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+        for entry in walk.filter_map(|e| e.ok()) {
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                let path = entry.path();
+                if is_relevant_file(path) {
+                    let mut matched = include_set.is_match(path);
+
+                    if !matched {
+                        if let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd) {
+                            if include_set.is_match(&rel_to_cwd) {
+                                matched = true;
+                            }
+                        }
+                    }
+
+                    if !matched {
+                        if let Some(file_name) = path.file_name() {
+                            if include_set.is_match(file_name) {
+                                matched = true;
+                            }
+                        }
+                    }
+
+                    if matched {
+                        let mut excluded = exclude_set.is_match(path);
+                        if !excluded {
+                            if let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd) {
+                                if exclude_set.is_match(&rel_to_cwd) {
+                                    excluded = true;
+                                }
+                            }
+                        }
+                        if !excluded {
+                            files.push(path.to_owned());
+                        }
                     }
                 }
             }
-            return files;
         }
     }
 
-    let glob = match Glob::new(include_glob) {
-        Ok(g) => g,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut builder = GlobSetBuilder::new();
-    builder.add(glob);
-    let glob_set = builder.build().unwrap();
-
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-
-    // Determine a search root to avoid walking the whole drive if possible
-    let include_path = Path::new(include_glob);
-    let mut root = PathBuf::new();
-    for component in include_path.components() {
-        let s = component.as_os_str().to_str().unwrap_or("");
-        if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
-            break;
-        }
-        root.push(component);
-    }
-
-    if root.as_os_str().is_empty() {
-        root = PathBuf::from(".");
-    } else if !root.is_dir() {
-        if let Some(parent) = root.parent() {
-            root = parent.to_path_buf();
-        } else {
-            root = PathBuf::from(".");
-        }
-    }
-
-    let mut files = Vec::new();
-    let walk = WalkBuilder::new(&root)
-        .add_custom_ignore_filename(".graphqlignore")
-        .hidden(false)
-        .build();
-
-    for entry in walk.filter_map(|e| e.ok()) {
-        if entry.file_type().is_some_and(|ft| ft.is_file()) {
-            let path = entry.path();
-
-            // Try matching as provided
-            if glob_set.is_match(path) {
-                files.push(path.to_owned());
-                continue;
-            }
-
-            // Try matching relative to CWD
-            if let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd) {
-                if glob_set.is_match(&rel_to_cwd) {
-                    files.push(path.to_owned());
-                    continue;
-                }
-            }
-
-            // Try matching just the file name if the glob is just a pattern
-            if let Some(file_name) = path.file_name() {
-                if glob_set.is_match(file_name) {
-                    files.push(path.to_owned());
-                }
-            }
-        }
-    }
+    files.sort();
+    files.dedup();
     files
 }
 

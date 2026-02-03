@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use graphql_rust::{Backend, Config, config::ProjectConfig, config::SchemaSource};
+use graphql_rust::{Backend, Config, config::ProjectConfig, config::SchemaSource, config::GlobPattern};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
@@ -28,7 +28,8 @@ async fn test_lsp_diagnostics_on_schema_change() {
         output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: "query.graphql".to_string(),
+            include: GlobPattern::Single("query.graphql".to_string()),
+            exclude: None,
             output_dir: None,
             import: None,
         }],
@@ -179,7 +180,8 @@ async fn test_lsp_fragment_rename_same_project() {
         output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: "**/*.graphql".to_string(),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
             output_dir: None,
             import: None,
         }],
@@ -270,13 +272,15 @@ async fn test_lsp_fragment_rename_cross_project() {
         projects: vec![
             ProjectConfig {
                 schema: SchemaSource::Single("pkg_a/schema.graphql".to_string()),
-                include: "pkg_a/**/*.graphql".to_string(),
+                include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
+                exclude: None,
                 output_dir: None,
                 import: None,
             },
             ProjectConfig {
                 schema: SchemaSource::Single("pkg_a/schema.graphql".to_string()),
-                include: "pkg_b/**/*.graphql".to_string(),
+                include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
+                exclude: None,
                 output_dir: None,
                 import: None,
             }

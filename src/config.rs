@@ -1,4 +1,4 @@
-use glob::Pattern;
+use globset::{Glob, GlobSetBuilder};
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -38,9 +38,26 @@ impl SchemaSource {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum GlobPattern {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl GlobPattern {
+    pub fn patterns(&self) -> Vec<String> {
+        match self {
+            GlobPattern::Single(s) => vec![s.clone()],
+            GlobPattern::Multiple(v) => v.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct ProjectConfig {
     pub schema: SchemaSource,
-    pub include: String,
+    pub include: GlobPattern,
+    pub exclude: Option<GlobPattern>,
     pub output_dir: Option<String>,
     pub import: Option<String>,
 }
@@ -103,18 +120,54 @@ impl Config {
         let relative_path = abs_path.strip_prefix(&self.base_dir).ok();
 
         for project in &self.projects {
+            let mut matched = false;
             if let Some(rel_path) = relative_path {
-                if let Ok(pattern) = Pattern::new(&project.include)
-                    && pattern.matches_path(rel_path)
-                {
-                    return Some(project.schema.as_key());
+                let mut builder = GlobSetBuilder::new();
+                for pattern in project.include.patterns() {
+                    if let Ok(glob) = Glob::new(&pattern) {
+                        builder.add(glob);
+                    }
+                }
+                if let Ok(set) = builder.build() {
+                    if set.is_match(rel_path) {
+                        matched = true;
+                    }
                 }
             }
-            // Fallback for non-glob paths
-            let include_path = self.base_dir.join(&project.include);
-            if let Ok(include_path) = fs::canonicalize(include_path)
-                && abs_path.starts_with(&include_path)
-            {
+
+            if !matched {
+                // Fallback for non-glob paths
+                for pattern in project.include.patterns() {
+                    let include_path = self.base_dir.join(&pattern);
+                    if let Ok(include_path) = fs::canonicalize(include_path)
+                        && abs_path.starts_with(&include_path)
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+
+            if matched {
+                // Check excludes
+                if let Some(exclude) = &project.exclude {
+                    if let Some(rel_path) = relative_path {
+                        let mut builder = GlobSetBuilder::new();
+                        for pattern in exclude.patterns() {
+                            if let Ok(glob) = Glob::new(&pattern) {
+                                builder.add(glob);
+                            }
+                        }
+                        if let Ok(set) = builder.build() {
+                            if set.is_match(rel_path) {
+                                matched = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if matched {
                 return Some(project.schema.as_key());
             }
         }
@@ -220,5 +273,51 @@ projects:
             config.get_schema_for_path(&file_in_child),
             Some("s.graphql".to_string())
         );
+    }
+
+    #[test]
+    fn test_include_exclude() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("graphql.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+projects:
+  - schema: "s.graphql"
+    include: 
+      - "src/**/*.ts"
+      - "lib/**/*.ts"
+    exclude: "**/test.ts"
+"#
+        )
+        .unwrap();
+
+        let config = Config::load_from_dir(dir.path()).unwrap();
+        assert_eq!(config.projects.len(), 1);
+        let project = &config.projects[0];
+        assert_eq!(project.include.patterns().len(), 2);
+        assert_eq!(project.exclude.as_ref().unwrap().patterns().len(), 1);
+
+        let ts_file = dir.path().join("src/main.ts");
+        let test_file = dir.path().join("src/test.ts");
+        let lib_file = dir.path().join("lib/index.ts");
+        let other_file = dir.path().join("other/file.ts");
+
+        fs::create_dir_all(ts_file.parent().unwrap()).unwrap();
+        fs::create_dir_all(lib_file.parent().unwrap()).unwrap();
+        fs::create_dir_all(other_file.parent().unwrap()).unwrap();
+        fs::File::create(&ts_file).unwrap();
+        fs::File::create(&test_file).unwrap();
+        fs::File::create(&lib_file).unwrap();
+        fs::File::create(&other_file).unwrap();
+
+        // Canonicalize base dir for matching
+        let config = Config::load_from_dir(fs::canonicalize(dir.path()).unwrap()).unwrap();
+
+        assert_eq!(config.get_schema_for_path(&ts_file), Some("s.graphql".to_string()));
+        assert_eq!(config.get_schema_for_path(&test_file), None);
+        assert_eq!(config.get_schema_for_path(&lib_file), Some("s.graphql".to_string()));
+        assert_eq!(config.get_schema_for_path(&other_file), None);
     }
 }

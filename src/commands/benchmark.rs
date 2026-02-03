@@ -53,9 +53,25 @@ pub async fn run_benchmark(mut config: Option<Config>, _schema_path: &str, scan_
             let all_fragments = Engine::resolve_fragments(&valid_schema, &all_graphql_paths);
             fragment_resolve_time += fr_start.elapsed();
 
-            let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
-            let project_files = graphql_rust::utils::get_project_files(&abs_include);
-            let project_files_set: HashSet<String> = project_files.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            let abs_includes: Vec<String> = project
+                .include
+                .patterns()
+                .iter()
+                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+                .collect();
+            let abs_excludes: Vec<String> = project
+                .exclude
+                .as_ref()
+                .map(|e| e.patterns())
+                .unwrap_or_default()
+                .iter()
+                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+                .collect();
+            let project_files = graphql_rust::utils::get_project_files(&abs_includes, &abs_excludes);
+            let project_files_set: HashSet<String> = project_files
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
 
             // Project-specific maps
             let mut project_fragment_to_path = HashMap::default();

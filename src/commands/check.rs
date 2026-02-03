@@ -9,9 +9,31 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
     let mut success = true;
     if let Some(cfg) = config.clone() {
         for project in cfg.projects {
-            let abs_include = cfg.base_dir.join(&project.include);
+            let abs_includes: Vec<String> = project
+                .include
+                .patterns()
+                .iter()
+                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+                .collect();
+            let abs_excludes: Vec<String> = project
+                .exclude
+                .as_ref()
+                .map(|e| e.patterns())
+                .unwrap_or_default()
+                .iter()
+                .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
+                .collect();
+
             println!("Checking project with schema: {}", project.schema.as_key());
-            if !execute_project_check(&cfg.base_dir, &project.schema, &abs_include.to_string_lossy(), config.as_ref()).await {
+            if !execute_project_check(
+                &cfg.base_dir,
+                &project.schema,
+                &abs_includes,
+                &abs_excludes,
+                config.as_ref(),
+            )
+            .await
+            {
                 success = false;
             }
         }
@@ -24,9 +46,12 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
         if !execute_project_check(
             std::path::Path::new("."),
             &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
-            &include,
-            None
-        ).await {
+            &[include],
+            &[],
+            None,
+        )
+        .await
+        {
             success = false;
         }
     }
@@ -39,7 +64,8 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
 async fn execute_project_check(
     base_dir: &std::path::Path,
     source: &graphql_rust::config::SchemaSource,
-    include_glob: &str,
+    include_patterns: &[String],
+    exclude_patterns: &[String],
     config: Option<&Config>,
 ) -> bool {
     let mut combined_text = String::new();
@@ -64,7 +90,7 @@ async fn execute_project_check(
     };
 
     let mut docs = Vec::new();
-    let paths = get_project_files(include_glob);
+    let paths = get_project_files(include_patterns, exclude_patterns);
 
     for path in paths {
         if is_relevant_file(&path) {

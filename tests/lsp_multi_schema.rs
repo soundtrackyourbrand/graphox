@@ -1,5 +1,5 @@
 use tower_lsp::lsp_types::*;
-use graphql_rust::{Backend, Config, config::SchemaSource, config::ProjectConfig};
+use graphql_rust::{Backend, Config, config::ProjectConfig, config::SchemaSource, config::GlobPattern};
 use tower_lsp::LspService;
 use tower_service::Service;
 use tower_lsp::jsonrpc::Request;
@@ -31,7 +31,8 @@ async fn test_lsp_multi_schema_support() {
         projects: vec![
             ProjectConfig {
                 schema: SchemaSource::Multiple(vec!["base.graphql".to_string(), "ext.graphql".to_string()]),
-                include: "query.graphql".to_string(),
+                include: GlobPattern::Single("query.graphql".to_string()),
+                exclude: None,
                 output_dir: None,
                 import: None,
             }

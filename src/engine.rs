@@ -21,25 +21,32 @@ pub struct Engine;
 impl Engine {
     /// Step 1: Discover all fragments across the entire workspace
     pub fn scan_workspace(config: &Config) -> Vec<FragmentMetadata> {
-        let all_scan_roots: Vec<_> = config
+        let projects: Vec<_> = config
             .projects
             .iter()
             .map(|p| {
-                (
-                    config
-                        .base_dir
-                        .join(&p.include)
-                        .to_string_lossy()
-                        .to_string(),
-                    p.import.clone(),
-                )
+                let abs_includes: Vec<String> = p
+                    .include
+                    .patterns()
+                    .iter()
+                    .map(|p_inc| config.base_dir.join(p_inc).to_string_lossy().to_string())
+                    .collect();
+                let abs_excludes: Vec<String> = p
+                    .exclude
+                    .as_ref()
+                    .map(|e| e.patterns())
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|p_exc| config.base_dir.join(p_exc).to_string_lossy().to_string())
+                    .collect();
+                (abs_includes, abs_excludes, p.import.clone())
             })
             .collect();
 
-        let scan_results: Vec<Vec<_>> = all_scan_roots
+        let scan_results: Vec<Vec<_>> = projects
             .par_iter()
-            .map(|(abs_include, import_alias)| {
-                let paths = get_project_files(abs_include);
+            .map(|(abs_includes, abs_excludes, import_alias)| {
+                let paths = get_project_files(abs_includes, abs_excludes);
                 let mut results = Vec::new();
                 for path in paths {
                     if is_relevant_file(&path) {
@@ -65,7 +72,7 @@ impl Engine {
     /// Step 1b: Discovery for simple mode (no config)
     pub fn scan_path(scan_path: &str) -> HashMap<String, String> {
         let mut fragment_map = HashMap::default();
-        let paths = get_project_files(scan_path);
+        let paths = get_project_files(&[scan_path.to_string()], &[]);
 
         let results: Vec<Vec<_>> = paths
             .par_iter()
