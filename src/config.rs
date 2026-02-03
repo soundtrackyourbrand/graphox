@@ -14,15 +14,38 @@ pub struct Config {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum SchemaSource {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl SchemaSource {
+    pub fn as_key(&self) -> String {
+        match self {
+            SchemaSource::Single(s) => s.clone(),
+            SchemaSource::Multiple(v) => v.join(","),
+        }
+    }
+
+    pub fn files(&self) -> Vec<String> {
+        match self {
+            SchemaSource::Single(s) => vec![s.clone()],
+            SchemaSource::Multiple(v) => v.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct ProjectConfig {
-    pub schema: String,
+    pub schema: SchemaSource,
     pub include: String,
     pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SchemaTypeConfig {
-    pub schema: String,
+    pub schema: SchemaSource,
     pub output: String,
 }
 
@@ -81,7 +104,7 @@ impl Config {
                 if let Ok(pattern) = Pattern::new(&project.include)
                     && pattern.matches_path(rel_path)
                 {
-                    return Some(project.schema.clone());
+                    return Some(project.schema.as_key());
                 }
             }
             // Fallback for non-glob paths
@@ -89,7 +112,7 @@ impl Config {
             if let Ok(include_path) = fs::canonicalize(include_path)
                 && abs_path.starts_with(&include_path)
             {
-                return Some(project.schema.clone());
+                return Some(project.schema.as_key());
             }
         }
         None
@@ -124,7 +147,7 @@ projects:
         let config = Config::load_from_dir(dir.path()).unwrap();
         assert_eq!(config.output_dir, Some("gen".to_string()));
         assert_eq!(config.projects.len(), 2);
-        assert_eq!(config.projects[0].schema, "s1.graphql");
+        assert_eq!(config.projects[0].schema.as_key(), "s1.graphql");
         assert_eq!(config.projects[1].output_dir, Some("gen2".to_string()));
     }
 
@@ -145,7 +168,7 @@ projects:
 
         let config = Config::load_from_dir(dir.path()).unwrap();
         assert_eq!(config.projects.len(), 1);
-        assert_eq!(config.projects[0].schema, "s.graphql");
+        assert_eq!(config.projects[0].schema.as_key(), "s.graphql");
     }
 
     #[test]
@@ -185,7 +208,7 @@ projects:
 
         let config = config.expect("Should find config in parent directory");
         assert_eq!(config.projects.len(), 1);
-        assert_eq!(config.projects[0].schema, "s.graphql");
+        assert_eq!(config.projects[0].schema.as_key(), "s.graphql");
 
         // Test that paths are resolved relative to the config file
         let file_in_child = child_dir.join("test.ts");

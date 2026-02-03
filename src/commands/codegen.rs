@@ -40,17 +40,21 @@ pub async fn run_codegen(
 
     if let Some(cfg) = &config {
         for project in &cfg.projects {
-            debouncer
-                .watcher()
-                .watch(&cfg.base_dir.join(&project.schema), notify::RecursiveMode::NonRecursive)
-                .ok();
+            for file in project.schema.files() {
+                debouncer
+                    .watcher()
+                    .watch(&cfg.base_dir.join(file), notify::RecursiveMode::NonRecursive)
+                    .ok();
+            }
         }
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
-                debouncer
-                    .watcher()
-                    .watch(&cfg.base_dir.join(&st.schema), notify::RecursiveMode::NonRecursive)
-                    .ok();
+                for file in st.schema.files() {
+                    debouncer
+                        .watcher()
+                        .watch(&cfg.base_dir.join(file), notify::RecursiveMode::NonRecursive)
+                        .ok();
+                }
             }
         }
     } else {
@@ -75,17 +79,13 @@ async fn execute_codegen(
     if let Some(cfg) = &config {
         let global_output_dir = cfg.output_dir.as_deref().or(output_dir);
         for project in &cfg.projects {
-            let abs_schema = cfg.base_dir.join(&project.schema);
-            let abs_include = if project.include.contains('*') {
-                cfg.base_dir.join(&project.include).to_string_lossy().to_string()
-            } else {
-                cfg.base_dir.join(&project.include).to_string_lossy().to_string()
-            };
+            let abs_include = cfg.base_dir.join(&project.include).to_string_lossy().to_string();
 
-            println!("Processing project with schema: {}", project.schema);
+            println!("Processing project with schema: {}", project.schema.as_key());
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
             execute_project_codegen(
-                &abs_schema.to_string_lossy(),
+                &cfg.base_dir,
+                &project.schema,
                 &abs_include,
                 project_output_dir,
                 &cfg.scalars,
@@ -95,33 +95,45 @@ async fn execute_codegen(
 
         if let Some(schema_types) = &cfg.schema_types {
             for st in schema_types {
-                let abs_schema = cfg.base_dir.join(&st.schema);
                 let abs_output = cfg.base_dir.join(&st.output);
-                println!("Generating types for schema: {}", st.schema);
-                execute_schema_codegen(&abs_schema.to_string_lossy(), &abs_output.to_string_lossy(), &cfg.scalars).await;
+                println!("Generating types for schema: {}", st.schema.as_key());
+                execute_schema_codegen(&cfg.base_dir, &st.schema, &abs_output.to_string_lossy(), &cfg.scalars).await;
             }
         }
     } else {
-        execute_project_codegen(schema_path, scan_path, output_dir, &None).await;
+        execute_project_codegen(
+            Path::new("."),
+            &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
+            scan_path,
+            output_dir,
+            &None,
+        ).await;
     }
 }
 
 async fn execute_schema_codegen(
-    schema_path: &str,
+    base_dir: &Path,
+    source: &graphql_rust::config::SchemaSource,
     output_path: &str,
     scalars: &Option<HashMap<String, String>>,
 ) {
-    let schema_text = match std::fs::read_to_string(schema_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Failed to read schema {}: {}", schema_path, e);
-            return;
+    let mut combined_text = String::new();
+    for file in source.files() {
+        match std::fs::read_to_string(base_dir.join(file)) {
+            Ok(t) => {
+                combined_text.push_str(&t);
+                combined_text.push('\n');
+            }
+            Err(e) => {
+                eprintln!("Failed to read schema {}: {}", source.as_key(), e);
+                return;
+            }
         }
-    };
-    let schema = match apollo_compiler::Schema::parse(&schema_text, schema_path) {
+    }
+    let schema = match apollo_compiler::Schema::parse(&combined_text, &source.as_key()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to parse schema {}: {}", schema_path, e);
+            eprintln!("Failed to parse schema {}: {}", source.as_key(), e);
             return;
         }
     };
@@ -137,22 +149,29 @@ async fn execute_schema_codegen(
 }
 
 async fn execute_project_codegen(
-    schema_path: &str,
+    base_dir: &Path,
+    source: &graphql_rust::config::SchemaSource,
     include_glob: &str,
     output_dir: Option<&str>,
     scalars: &Option<HashMap<String, String>>,
 ) {
-    let schema_text = match std::fs::read_to_string(schema_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Failed to read schema {}: {}", schema_path, e);
-            return;
+    let mut combined_text = String::new();
+    for file in source.files() {
+        match std::fs::read_to_string(base_dir.join(file)) {
+            Ok(t) => {
+                combined_text.push_str(&t);
+                combined_text.push('\n');
+            }
+            Err(e) => {
+                eprintln!("Failed to read schema {}: {}", source.as_key(), e);
+                return;
+            }
         }
-    };
-    let schema = match Schema::parse(&schema_text, schema_path) {
+    }
+    let schema = match Schema::parse(&combined_text, &source.as_key()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to parse schema {}: {}", schema_path, e);
+            eprintln!("Failed to parse schema {}: {}", source.as_key(), e);
             return;
         }
     };

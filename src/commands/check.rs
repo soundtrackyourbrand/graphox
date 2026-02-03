@@ -9,10 +9,9 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
     let mut success = true;
     if let Some(cfg) = config {
         for project in cfg.projects {
-            let abs_schema = cfg.base_dir.join(&project.schema);
             let abs_include = cfg.base_dir.join(&project.include);
-            println!("Checking project with schema: {}", project.schema);
-            if !execute_project_check(&abs_schema.to_string_lossy(), &abs_include.to_string_lossy()).await {
+            println!("Checking project with schema: {}", project.schema.as_key());
+            if !execute_project_check(&cfg.base_dir, &project.schema, &abs_include.to_string_lossy()).await {
                 success = false;
             }
         }
@@ -22,7 +21,11 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
         } else {
             format!("{}/**/*", scan_path)
         };
-        if !execute_project_check(schema_path, &include).await {
+        if !execute_project_check(
+            std::path::Path::new("."),
+            &graphql_rust::config::SchemaSource::Single(schema_path.to_string()),
+            &include
+        ).await {
             success = false;
         }
     }
@@ -32,18 +35,28 @@ pub async fn run_check(config: Option<Config>, schema_path: &str, scan_path: &st
     }
 }
 
-async fn execute_project_check(schema_path: &str, include_glob: &str) -> bool {
-    let schema_text = match std::fs::read_to_string(schema_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("Failed to read schema {}: {}", schema_path, e);
-            return false;
+async fn execute_project_check(
+    base_dir: &std::path::Path,
+    source: &graphql_rust::config::SchemaSource,
+    include_glob: &str
+) -> bool {
+    let mut combined_text = String::new();
+    for file in source.files() {
+        match std::fs::read_to_string(base_dir.join(file)) {
+            Ok(t) => {
+                combined_text.push_str(&t);
+                combined_text.push('\n');
+            }
+            Err(e) => {
+                eprintln!("Failed to read schema {}: {}", source.as_key(), e);
+                return false;
+            }
         }
-    };
-    let schema = match Schema::parse(&schema_text, schema_path) {
+    }
+    let schema = match Schema::parse(&combined_text, &source.as_key()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to parse schema {}: {}", schema_path, e);
+            eprintln!("Failed to parse schema {}: {}", source.as_key(), e);
             return false;
         }
     };

@@ -23,13 +23,11 @@ impl Backend {
         if let Some(cfg) = &config {
             // Load project schemas from config
             for project in &cfg.projects {
-                let schema_path = cfg.base_dir.join(&project.schema);
-                let schema_path_str = schema_path.to_string_lossy().to_string();
-                if !schemas.contains_key(&project.schema)
-                    && let Ok(text) = std::fs::read_to_string(&schema_path)
-                    && let Ok(schema) = Schema::parse(&text, &schema_path_str)
-                {
-                    schemas.insert(project.schema.clone(), Arc::new(schema));
+                let key = project.schema.as_key();
+                if !schemas.contains_key(&key) {
+                    if let Some(schema) = Self::load_schema_source(&cfg.base_dir, &project.schema) {
+                        schemas.insert(key, schema);
+                    }
                 }
             }
         }
@@ -49,6 +47,22 @@ impl Backend {
             empty_schema,
             default_schema_path: Some(default_schema_path.to_string()),
         }
+    }
+
+    fn load_schema_source(base_dir: &std::path::Path, source: &crate::config::SchemaSource) -> Option<Arc<Schema>> {
+        let mut combined_text = String::new();
+        let key = source.as_key();
+        for file in source.files() {
+            let path = base_dir.join(file);
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    combined_text.push_str(&text);
+                    combined_text.push('\n');
+                }
+                Err(_) => return None,
+            }
+        }
+        Schema::parse(&combined_text, &key).ok().map(Arc::new)
     }
 
     fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
@@ -87,43 +101,69 @@ impl Backend {
         fragments
     }
 
-    async fn reload_schema(&self, path: &str) {
-        if let Ok(text) = std::fs::read_to_string(path) {
-            match Schema::parse(&text, path) {
-                Ok(new_schema) => {
-                    self.schemas.insert(path.to_string(), Arc::new(new_schema));
-                    self.client
-                        .log_message(MessageType::INFO, format!("Schema {} successfully reloaded!", path))
-                        .await;
-
-                    // Re-validate all documents that use this schema
-                    for entry in self.documents.iter() {
-                        let uri = entry.key();
-                        let doc = entry.value();
-
-                        let doc_schema = self.get_schema_for_doc(uri);
-                        // This is a bit inefficient but correct: we check if the reloaded schema is the one for this doc
-                        // We can't easily check identity without comparing paths, so let's check if the doc's schema path matches
-
-                        if let Ok(doc_path) = uri.to_file_path() {
-                            let matches = if let Some(config) = &self.config {
-                                config.get_schema_for_path(&doc_path).is_some_and(|p| p == path)
-                            } else {
-                                self.default_schema_path.as_ref().is_some_and(|p| p == path)
-                            };
-
-                            if matches {
-                                let fragments = self.get_fragments_for_doc(doc);
-                                let diagnostics = doc.get_semantic_diagnostics(&doc_schema, &fragments);
-                                self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
-                            }
-                        }
+    async fn reload_schema(&self, changed_path: &str) {
+        let mut sources_to_reload = Vec::new();
+        if let Some(cfg) = &self.config {
+            for project in &cfg.projects {
+                if project.schema.files().iter().any(|f| {
+                    let abs = cfg.base_dir.join(f);
+                    abs.to_string_lossy() == changed_path || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string()) == Some(changed_path.to_string())
+                }) {
+                    sources_to_reload.push(project.schema.clone());
+                }
+            }
+            if let Some(schema_types) = &cfg.schema_types {
+                for st in schema_types {
+                    if st.schema.files().iter().any(|f| {
+                        let abs = cfg.base_dir.join(f);
+                        abs.to_string_lossy() == changed_path || abs.canonicalize().ok().map(|p| p.to_string_lossy().to_string()) == Some(changed_path.to_string())
+                    }) {
+                        sources_to_reload.push(st.schema.clone());
                     }
                 }
-                Err(e) => {
-                    self.client
-                        .show_message(MessageType::ERROR, format!("Schema {} parse error: {}", path, e))
-                        .await;
+            }
+        }
+
+        if sources_to_reload.is_empty() && self.default_schema_path.as_ref().is_some_and(|p| p == changed_path) {
+            sources_to_reload.push(crate::config::SchemaSource::Single(changed_path.to_string()));
+        }
+
+        for source in sources_to_reload {
+            let key = source.as_key();
+            let new_schema = if let Some(cfg) = &self.config {
+                Self::load_schema_source(&cfg.base_dir, &source)
+            } else {
+                std::fs::read_to_string(changed_path).ok().and_then(|text| {
+                    Schema::parse(&text, changed_path).ok().map(Arc::new)
+                })
+            };
+
+            if let Some(new_schema) = new_schema {
+                self.schemas.insert(key.clone(), new_schema.clone());
+                self.client
+                    .log_message(MessageType::INFO, format!("Schema set {} successfully reloaded!", key))
+                    .await;
+
+                // Re-validate all documents that use this schema
+                for entry in self.documents.iter() {
+                    let uri = entry.key();
+                    let doc = entry.value();
+
+                    let doc_schema = self.get_schema_for_doc(uri);
+
+                    if let Ok(doc_path) = uri.to_file_path() {
+                        let matches = if let Some(config) = &self.config {
+                            config.get_schema_for_path(&doc_path).is_some_and(|p| p.as_str() == key.as_str())
+                        } else {
+                            self.default_schema_path.as_ref().is_some_and(|p| p.as_str() == key.as_str())
+                        };
+
+                        if matches {
+                            let fragments = self.get_fragments_for_doc(doc);
+                            let diagnostics = doc.get_semantic_diagnostics(&doc_schema, &fragments);
+                            self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
+                        }
+                    }
                 }
             }
         }
