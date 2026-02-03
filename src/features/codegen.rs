@@ -26,6 +26,7 @@ pub fn generate_typescript(
         .map_err(|e| format!("Schema validation failed: {}", e))?;
 
     let mut bodies = String::new();
+    let mut has_operations = false;
 
     for block in doc.get_graphql_trees() {
         let block_text = doc
@@ -39,6 +40,10 @@ pub fn generate_typescript(
             "doc.graphql",
         )
         .map_err(|e| format!("Failed to parse GraphQL block: {}", e))?;
+
+        if !exec_doc.operations.is_empty() {
+            has_operations = true;
+        }
 
         for op in exec_doc.operations.iter() {
             let name = op
@@ -66,10 +71,11 @@ pub fn generate_typescript(
                 name, suffix, ts_type
             ));
 
-            if !op.variables.is_empty() {
+            let vars_type = if !op.variables.is_empty() {
+                let v_name = format!("{}{}Variables", name, suffix);
                 bodies.push_str(&format!(
-                    "export interface {}{}Variables {{\n",
-                    name, suffix
+                    "export interface {} {{\n",
+                    v_name
                 ));
                 for var in &op.variables {
                     let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars);
@@ -77,7 +83,15 @@ pub fn generate_typescript(
                     bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
                 }
                 bodies.push_str("}\n\n");
-            }
+                v_name
+            } else {
+                "{ [key: string]: never; }".to_string()
+            };
+
+            bodies.push_str(&format!(
+                "export type {}Document = DocumentNode<{}{}, {}>;\n\n",
+                name, name, suffix, vars_type
+            ));
         }
 
         for frag in exec_doc.fragments.values() {
@@ -139,8 +153,15 @@ pub fn generate_typescript(
         ));
     }
 
+    if has_operations {
+        output.push_str("import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-node/core';\n");
+    }
+
     if !import_section.is_empty() {
         output.push_str(&import_section);
+    }
+
+    if has_operations || !import_section.is_empty() {
         output.push('\n');
     }
 
