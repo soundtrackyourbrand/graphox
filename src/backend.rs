@@ -847,6 +847,13 @@ impl LanguageServer for Backend {
         if let Some(name) = symbol_name
             && let Some(doc) = self.documents.get(&uri)
         {
+            if name.starts_with('$') {
+                if let Some(location) = doc.find_variable_definition(&name, position) {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                }
+                return Ok(None);
+            }
+
             for entry in self.documents.iter() {
                 let other_doc = entry.value();
                 let is_same_package = other_doc.package_root == doc.package_root;
@@ -878,6 +885,14 @@ impl LanguageServer for Backend {
         };
 
         if let Some(name) = symbol_name {
+            if name.starts_with('$') {
+                if let Some(doc) = self.documents.get(&uri) {
+                    let refs = doc.find_variable_references(&name, position, include_declaration);
+                    return Ok(if refs.is_empty() { None } else { Some(refs) });
+                }
+                return Ok(None);
+            }
+
             let mut all_references = Vec::new();
 
             for entry in self.documents.iter() {
@@ -910,6 +925,30 @@ impl LanguageServer for Backend {
 
         if let Some(name) = symbol_name {
             let mut changes = std::collections::HashMap::new();
+
+            if name.starts_with('$') {
+                if let Some(doc) = self.documents.get(&uri) {
+                    let refs = doc.find_variable_references(&name, position, true);
+                    if !refs.is_empty() {
+                        let edits: Vec<TextEdit> = refs
+                            .into_iter()
+                            .map(|loc| TextEdit {
+                                range: loc.range,
+                                new_text: new_name.clone(),
+                            })
+                            .collect();
+                        changes.insert(uri.clone(), edits);
+                    }
+                }
+                return Ok(if changes.is_empty() {
+                    None
+                } else {
+                    Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    })
+                });
+            }
 
             for entry in self.documents.iter() {
                 let other_uri = entry.key();

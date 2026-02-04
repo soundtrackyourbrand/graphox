@@ -52,6 +52,7 @@ pub const GQL_DEFINITION_QUERY: &str = r#"
     (object_type_definition (name) @name)
     (fragment_definition (fragment_name (name) @name))
     (enum_type_definition (name) @name)
+    (variable_definition (variable) @name)
 "#;
 
 pub const GQL_DESCRIPTION_QUERY: &str = r#"
@@ -79,4 +80,6 @@ pub const GQL_COMPLETION_QUERY: &str = r#"
 pub const GQL_REFERENCES_QUERY: &str = r#"
     (fragment_spread (fragment_name (name) @name)) @reference
     (fragment_definition (fragment_name (name) @name)) @definition
+    (variable) @name @reference
+    (variable_definition (variable) @name @definition)
 "#;
