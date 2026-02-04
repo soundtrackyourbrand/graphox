@@ -960,6 +960,16 @@ fn test_cli_permissions_baselines() {
     );
 }
 
+#[test]
+#[ntest::timeout(250)]
+fn test_cli_swc_plugin_baselines() {
+    run_baseline_test(
+        "tests/fixtures/swc_plugin",
+        "tests/baselines/swc_plugin",
+        None,
+    );
+}
+
 fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new(fixture_dir_str);
@@ -1041,26 +1051,44 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
     }
 
     // Check for special files
-    for special in &["graphql", "permissions"] {
-        let expected_path = baseline_dir.join(format!("{}.expected.ts", special));
-        if expected_path.exists() {
-            let actual_path = temp_dir.join(format!("{}.ts", special));
-            assert!(
-                actual_path.exists(),
-                "{}.ts was not created in {}",
-                special,
-                fixture_dir_str
+    for special in &["graphql", "permissions", "manifest"] {
+        let expected_json = baseline_dir.join(format!("{}.expected.json", special));
+        let expected_ts = baseline_dir.join(format!("{}.expected.ts", special));
+
+        let (expected_path, actual_name, is_json) = if expected_json.exists() {
+            (expected_json, format!("{}.json", special), true)
+        } else if expected_ts.exists() {
+            (expected_ts, format!("{}.ts", special), false)
+        } else {
+            continue;
+        };
+
+        let actual_path = temp_dir.join(&actual_name);
+        assert!(
+            actual_path.exists(),
+            "{} was not created in {}",
+            actual_name,
+            fixture_dir_str
+        );
+
+        let actual = std::fs::read_to_string(&actual_path).unwrap();
+        let expected = std::fs::read_to_string(&expected_path).unwrap();
+
+        if is_json {
+            let actual_v: serde_json::Value = serde_json::from_str(&actual).unwrap();
+            let expected_v: serde_json::Value = serde_json::from_str(&expected).unwrap();
+            assert_eq!(
+                actual_v, expected_v,
+                "{} mismatch in {}",
+                actual_name, fixture_dir_str
             );
-
-            let actual = std::fs::read_to_string(&actual_path).unwrap();
-            let expected = std::fs::read_to_string(&expected_path).unwrap();
-
+        } else {
             if actual.trim() != expected.trim() {
-                println!("--- ACTUAL ({}.ts) ---", special);
+                println!("--- ACTUAL ({}) ---", actual_name);
                 println!("{}", actual);
                 println!("--- EXPECTED ---");
                 println!("{}", expected);
-                panic!("{}.ts mismatch in {}", special, fixture_dir_str);
+                panic!("{} mismatch in {}", actual_name, fixture_dir_str);
             }
         }
     }

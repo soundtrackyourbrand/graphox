@@ -202,7 +202,9 @@ async fn execute_codegen(
         )
         .await
         {
-            Ok(ops) => all_generated_operations.extend(ops),
+            Ok(ops) => {
+                all_generated_operations.extend(ops);
+            }
             Err(_) => success = false,
         }
     }
@@ -250,6 +252,41 @@ async fn execute_codegen(
                 );
                 if let Err(e) = std::fs::write(&entrypoint_path, content) {
                     eprintln!("Failed to write entrypoint: {}", e);
+                    success = false;
+                }
+
+                // Generate manifest for SWC plugin
+                let manifest_path = out_dir_path.join("manifest.json");
+                if verbose {
+                    println!("Generating manifest: {}", manifest_path.display());
+                }
+                let manifest_entries: Vec<_> = all_generated_operations
+                    .iter()
+                    .map(|op| {
+                        let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
+                            .unwrap_or_else(|| op.codegen_path.clone());
+                        let mut path_str = rel_path.to_string_lossy().to_string();
+                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                            path_str = format!("./{}", path_str);
+                        }
+                        // Remove .ts extension
+                        let path_no_ext = if path_str.ends_with(".ts") {
+                            &path_str[..path_str.len() - 3]
+                        } else {
+                            &path_str
+                        };
+
+                        serde_json::json!({
+                            "source": op.source_text,
+                            "path": path_no_ext,
+                            "name": format!("{}Document", op.operation_type_name)
+                        })
+                    })
+                    .collect();
+
+                let manifest_json = serde_json::to_string_pretty(&manifest_entries).unwrap();
+                if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
+                    eprintln!("Failed to write manifest: {}", e);
                     success = false;
                 }
             }
@@ -397,6 +434,7 @@ async fn execute_project_codegen_entry(
             .reduce(|| true, |a, b| a && b);
 
         let mut entrypoint_ok = true;
+        let mut manifest_ok = true;
         let mut permissions_ok = true;
         if let Some(out_dir) = params.output_dir {
             let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
@@ -410,6 +448,20 @@ async fn execute_project_codegen_entry(
                     entrypoint_ok = false;
                 } else if verbose {
                     println!("Removed: {}", entrypoint_path.display());
+                }
+            }
+
+            let manifest_path = params.base_dir.join(out_dir).join("manifest.json");
+            if manifest_path.exists() {
+                if let Err(e) = std::fs::remove_file(&manifest_path) {
+                    eprintln!(
+                        "Failed to remove manifest {}: {}",
+                        manifest_path.display(),
+                        e
+                    );
+                    manifest_ok = false;
+                } else if verbose {
+                    println!("Removed: {}", manifest_path.display());
                 }
             }
 
@@ -430,7 +482,7 @@ async fn execute_project_codegen_entry(
             }
         }
 
-        if success && entrypoint_ok && permissions_ok {
+        if success && entrypoint_ok && manifest_ok && permissions_ok {
             Ok(Vec::new())
         } else {
             Err(())

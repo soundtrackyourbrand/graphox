@@ -138,7 +138,11 @@ pub fn generate_typescript(
 
             bodies.push_str(&format!(
                 "export const {}Document = {} as unknown as DocumentNode<{}{}, {}>;\n\n",
-                name, ast_content, name, suffix, vars_type
+                format!("{}{}", name, suffix),
+                ast_content,
+                name,
+                suffix,
+                vars_type
             ));
 
             generated_operations.push(OperationGenerated {

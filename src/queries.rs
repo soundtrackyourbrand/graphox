@@ -53,7 +53,10 @@ pub const SEMANTIC_TOKEN_QUERY: &str = r#"
 pub const TS_GQL_QUERY: &str = r#"
     (call_expression
         function: (identifier) @tag_name
-        arguments: (template_string) @gql_content
+        arguments: [
+            (arguments (template_string) @gql_content)
+            (template_string) @gql_content
+        ]
         (#any-of? @tag_name "gql" "graphql")
     )
 

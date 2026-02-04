@@ -1,0 +1,21 @@
+[package]
+name = "graphql-rust-swc-plugin"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.149"
+pathdiff = "0.2"
+swc_core = { version = "56.0.0", features = [
+    "common",
+    "ecma_ast",
+    "ecma_visit",
+    "ecma_utils",
+    "ecma_plugin_transform",
+    "ecma_parser",
+    "ecma_codegen",
+] }
