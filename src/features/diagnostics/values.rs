@@ -1,6 +1,7 @@
 use super::ValidationContext;
 use crate::document::DocumentState;
 use apollo_compiler::schema::{ExtendedType, FieldDefinition};
+use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 impl DocumentState {
@@ -79,7 +80,17 @@ impl DocumentState {
                 for child in node.children(&mut cursor) {
                     if child.kind() == "name" {
                         let name = self.get_node_text(child, offset);
-                        ctx.used_variables.insert(name);
+                        ctx.used_variables.insert(name.clone());
+
+                        if !ctx.defined_variables.contains(&name) && ctx.workspace_loaded {
+                            ctx.diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!("Undefined variable: ${}", name),
+                                code: Some(NumberOrString::String("undefined_variable".to_string())),
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }

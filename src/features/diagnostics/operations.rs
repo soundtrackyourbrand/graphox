@@ -12,6 +12,8 @@ impl DocumentState {
         ctx: &mut ValidationContext,
     ) {
         ctx.used_variables.clear();
+        ctx.defined_variables.clear();
+
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
         let mut var_defs_node = None;
@@ -24,7 +26,34 @@ impl DocumentState {
             }
         }
 
-        // 1. First pass: Collect used variables in selection set
+        // 1. Collect and validate variable definitions
+        if let Some(var_defs) = var_defs_node {
+            let mut vd_cursor = var_defs.walk();
+            for child in var_defs.children(&mut vd_cursor) {
+                if child.kind() == "variable_definition" {
+                    let mut v_cursor = child.walk();
+                    let mut var_name = None;
+                    for v_child in child.children(&mut v_cursor) {
+                        if v_child.kind() == "variable" {
+                            let mut n_cursor = v_child.walk();
+                            for n_child in v_child.children(&mut n_cursor) {
+                                if n_child.kind() == "name" {
+                                    var_name = Some(self.get_node_text(n_child, offset));
+                                }
+                            }
+                        } else if v_child.kind() == "type" {
+                            self.validate_type_node(v_child, offset, ctx);
+                        }
+                    }
+
+                    if let Some(name) = var_name {
+                        ctx.defined_variables.insert(name);
+                    }
+                }
+            }
+        }
+
+        // 2. Collect used variables in selection set
         let op_type = match operation_type_string.as_str() {
             "query" => Some(OperationType::Query),
             "mutation" => Some(OperationType::Mutation),
@@ -43,46 +72,37 @@ impl DocumentState {
             }
         }
 
-        // 2. Second pass: Validate definitions and check usage
-        if let Some(var_defs) = var_defs_node {
-            self.validate_variable_definitions(var_defs, offset, ctx);
-        }
-    }
-
-    pub(super) fn validate_variable_definitions(
-        &self,
-        node: Node,
-        offset: usize,
-        ctx: &mut ValidationContext,
-    ) {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "variable_definition" {
-                let mut vd_cursor = child.walk();
-                let mut var_name = None;
-                for vd_child in child.children(&mut vd_cursor) {
-                    if vd_child.kind() == "variable" {
-                        let mut v_cursor = vd_child.walk();
-                        for v_child in vd_child.children(&mut v_cursor) {
-                            if v_child.kind() == "name" {
-                                var_name = Some(self.get_node_text(v_child, offset));
+        // 3. Check for unused variables
+        for name in &ctx.defined_variables {
+            if !ctx.used_variables.contains(name) {
+                // Find the node for this variable definition to report the diagnostic on it
+                if let Some(var_defs) = var_defs_node {
+                    let mut vd_cursor = var_defs.walk();
+                    for child in var_defs.children(&mut vd_cursor) {
+                        if child.kind() == "variable_definition" {
+                            let mut v_cursor = child.walk();
+                            for v_child in child.children(&mut v_cursor) {
+                                if v_child.kind() == "variable" {
+                                    let mut n_cursor = v_child.walk();
+                                    for n_child in v_child.children(&mut n_cursor) {
+                                        if n_child.kind() == "name"
+                                            && self.get_node_text(n_child, offset) == *name
+                                        {
+                                            ctx.diagnostics.push(Diagnostic {
+                                                range: self.translate_to_file_range(child, offset),
+                                                severity: Some(DiagnosticSeverity::WARNING),
+                                                message: format!("Unused variable: ${}", name),
+                                                code: Some(NumberOrString::String(
+                                                    "unused_variable".to_string(),
+                                                )),
+                                                tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                                                ..Default::default()
+                                            });
+                                        }
+                                    }
+                                }
                             }
                         }
-                    } else if vd_child.kind() == "type" {
-                        self.validate_type_node(vd_child, offset, ctx);
-                    }
-                }
-
-                if let Some(name) = var_name {
-                    if !ctx.used_variables.contains(&name) {
-                        ctx.diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(child, offset),
-                            severity: Some(DiagnosticSeverity::WARNING),
-                            message: format!("Unused variable: ${}", name),
-                            code: Some(NumberOrString::String("unused_variable".to_string())),
-                            tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                            ..Default::default()
-                        });
                     }
                 }
             }

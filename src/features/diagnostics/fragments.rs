@@ -6,6 +6,8 @@ use tree_sitter::Node;
 
 impl DocumentState {
     pub(super) fn validate_fragment(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
+        ctx.defined_variables.clear(); // Fragments don't have operation context variables
+
         let mut cursor = node.walk();
         let mut type_condition_node = None;
         let mut selection_set_node = None;
@@ -161,7 +163,13 @@ impl DocumentState {
                     if name_child.kind() == "name" {
                         let name = self.get_node_text(name_child, offset);
                         let mut visited = fnv::FnvHashSet::default();
-                        let exists = self.mark_used_variables_recursive(&name, ctx, &mut visited);
+                        let exists = self.mark_used_variables_recursive(
+                            &name,
+                            ctx,
+                            &mut visited,
+                            name_child,
+                            offset,
+                        );
 
                         if !exists && ctx.workspace_loaded {
                             ctx.diagnostics.push(Diagnostic {
@@ -182,6 +190,8 @@ impl DocumentState {
         name: &str,
         ctx: &mut ValidationContext,
         visited: &mut fnv::FnvHashSet<String>,
+        trigger_node: Node,
+        offset: usize,
     ) -> bool {
         if !visited.insert(name.to_string()) {
             return true;
@@ -204,12 +214,28 @@ impl DocumentState {
         if let Some(vars) = used_variables {
             for var in vars {
                 ctx.used_variables.insert(var.clone());
+
+                // Only report undefined variables if we are in an operation context
+                if !ctx.defined_variables.is_empty() {
+                    if !ctx.defined_variables.contains(var) {
+                        ctx.diagnostics.push(Diagnostic {
+                            range: self.translate_to_file_range(trigger_node, offset),
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: format!(
+                                "Undefined variable: ${} (required by fragment '{}')",
+                                var, name
+                            ),
+                            code: Some(NumberOrString::String("undefined_variable".to_string())),
+                            ..Default::default()
+                        });
+                    }
+                }
             }
         }
 
         if let Some(frags) = used_fragments {
             for frag in frags {
-                self.mark_used_variables_recursive(frag, ctx, visited);
+                self.mark_used_variables_recursive(frag, ctx, visited, trigger_node, offset);
             }
         }
 

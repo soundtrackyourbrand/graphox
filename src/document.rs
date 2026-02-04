@@ -367,9 +367,9 @@ impl DocumentState {
                     } else if cap_name == "symbol.type_condition" {
                         type_condition = Some(self.get_node_text(cap.node, offset));
                     } else if cap_name == "symbol.container" {
-                        container_node = Some(cap.node);
                         if cap.node.kind() == "fragment_definition" {
                             is_fragment = true;
+                            container_node = Some(cap.node);
                         }
                     } else if cap_name == "symbol.directives" {
                         let directives_text = self.get_node_text(cap.node, offset);
@@ -614,9 +614,9 @@ impl DocumentState {
                     if cap_name == "symbol.name" {
                         name = Some(self.get_node_text(cap.node, offset));
                     } else if cap_name == "symbol.container" {
-                        container_node = Some(cap.node);
                         if cap.node.kind() == "fragment_definition" {
                             is_fragment = true;
+                            container_node = Some(cap.node);
                         }
                     }
                 }
@@ -856,6 +856,9 @@ impl DocumentState {
                 "directives" => {
                     self.collect_variables_in_directives(child, offset, schema, vars);
                 }
+                "directive" => {
+                     self.collect_variables_in_directives(node, offset, schema, vars);
+                }
                 _ => {
                     self.collect_variables_in_fragment(child, offset, current_type, schema, vars);
                 }
@@ -1051,9 +1054,6 @@ impl DocumentState {
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind() == "value" || child.kind().ends_with("_value") {
-                        // For list, we should probably use the item type, but GraphQL allows single values to be coerced to lists.
-                        // apollo-compiler's Type doesn't easily give "item type" without checking if it's a list.
-                        // Simplified:
                         self.collect_variables_in_value(child, offset, expected_type, schema, vars);
                     }
                 }

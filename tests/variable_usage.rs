@@ -129,6 +129,54 @@ fn test_variable_unused_even_with_fragments() {
     );
 }
 
+#[test]
+fn test_undefined_variable_direct() {
+    let schema = get_schema();
+    
+    let query_text = r#"
+        query GetUser($id: ID) {
+            user(id: $undefined) {
+                id
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", query_text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+
+    let errors: Vec<_> = diagnostics.iter()
+        .filter(|d| d.message.contains("Undefined variable: $undefined"))
+        .collect();
+        
+    assert_eq!(errors.len(), 1, "Expected one undefined variable error");
+}
+
+#[test]
+fn test_undefined_variable_in_fragment_spread() {
+    let schema = get_schema();
+    
+    let query_text = r#"
+        query GetUser($id: ID) {
+            user(id: $id) {
+                ...UserFields
+            }
+        }
+        
+        fragment UserFields on User {
+            username @include(if: $admin)
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", query_text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+
+    let errors: Vec<_> = diagnostics.iter()
+        .filter(|d| d.message.contains("Undefined variable: $admin"))
+        .collect();
+        
+    assert_eq!(errors.len(), 1, "Expected one undefined variable error from fragment usage");
+}
+
 #[tokio::test]
 async fn test_fragment_hover_requirements() {
     use tower_lsp::LspService;
@@ -142,10 +190,10 @@ async fn test_fragment_hover_requirements() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+    fs::write(&schema_path, "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }").unwrap();
 
     let frag_path = base_dir.join("frag.graphql");
-    let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
+    let frag_text = "fragment UserFields on User { friend(id: $friendId) { name } }";
     fs::write(&frag_path, frag_text).unwrap();
 
     let query_path = base_dir.join("query.graphql");
@@ -204,8 +252,8 @@ async fn test_fragment_hover_requirements() {
     };
     
     assert!(value.contains("**Requires Variables:**"), "Hover should contain requirements header");
-    assert!(value.contains("$admin"), "Hover should contain $admin");
-    assert!(value.contains("Boolean!"), "Hover should contain Boolean!");
+    assert!(value.contains("$friendId"), "Hover should contain $friendId");
+    assert!(value.contains("ID"), "Hover should contain ID");
 }
 
 #[tokio::test]
@@ -221,10 +269,10 @@ async fn test_fragment_completion_requirements() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+    fs::write(&schema_path, "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }").unwrap();
 
     let frag_path = base_dir.join("frag.graphql");
-    let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
+    let frag_text = "fragment UserFields on User { friend(id: $friendId) { name } }";
     fs::write(&frag_path, frag_text).unwrap();
 
     let query_path = base_dir.join("query.graphql");
@@ -290,8 +338,24 @@ async fn test_fragment_completion_requirements() {
     };
     
     assert!(doc.contains("**Requires Variables:**"), "Completion doc should contain requirements header");
-    assert!(doc.contains("$admin"), "Completion doc should contain $admin");
-    assert!(doc.contains("Boolean!"), "Completion doc should contain Boolean!");
+    assert!(doc.contains("$friendId"), "Completion doc should contain $friendId");
+    assert!(doc.contains("ID"), "Completion doc should contain ID");
+}
+
+#[test]
+fn test_variable_in_directive_requirement() {
+    let schema_content = r#"
+        type User { id: ID! name: String }
+        type Query { me: User }
+        directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+    
+    let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
+    let doc = create_doc("file:///test.graphql", frag_text);
+    
+    let vars = doc.get_fragment_variable_types("UserFields", &schema);
+    assert_eq!(vars.get("admin").unwrap(), "Boolean!");
 }
 
 #[tokio::test]
@@ -307,7 +371,7 @@ async fn test_variable_references_including_fragments() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User } directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT").unwrap();
 
     let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
