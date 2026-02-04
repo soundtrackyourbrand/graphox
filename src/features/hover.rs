@@ -206,23 +206,44 @@ impl DocumentState {
                 if kind == "selection" {
                     let mut inner = child.walk();
                     for inner_child in child.children(&mut inner) {
-                        if inner_child.kind() == "field"
-                            && let Some(info) = self.find_field_info(
+                        if inner_child.kind() == "field" {
+                            if let Some(info) = self.find_field_info(
                                 inner_child,
                                 offset,
                                 cursor_offset,
                                 parent_type,
                                 schema,
-                            )
-                        {
-                            return Some(info);
+                            ) {
+                                return Some(info);
+                            }
+                        } else if inner_child.kind() == "inline_fragment" {
+                            if let Some(info) = self.find_field_in_inline_fragment(
+                                inner_child,
+                                offset,
+                                cursor_offset,
+                                parent_type,
+                                schema,
+                            ) {
+                                return Some(info);
+                            }
                         }
                     }
-                } else if kind == "field"
-                    && let Some(info) =
+                } else if kind == "field" {
+                    if let Some(info) =
                         self.find_field_info(child, offset, cursor_offset, parent_type, schema)
-                {
-                    return Some(info);
+                    {
+                        return Some(info);
+                    }
+                } else if kind == "inline_fragment" {
+                    if let Some(info) = self.find_field_in_inline_fragment(
+                        child,
+                        offset,
+                        cursor_offset,
+                        parent_type,
+                        schema,
+                    ) {
+                        return Some(info);
+                    }
                 }
             }
         }
@@ -286,6 +307,43 @@ impl DocumentState {
                         }
                     }
                 }
+            }
+        }
+        None
+    }
+
+    fn find_field_in_inline_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Option<String> {
+        let mut target_type = parent_type;
+        let mut selection_set_node = None;
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "type_condition" => {
+                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
+                        if let Some(new_type) = schema.types.get(type_name.as_str()) {
+                            target_type = new_type;
+                        }
+                    }
+                }
+                "selection_set" => {
+                    selection_set_node = Some(child);
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(ss) = selection_set_node {
+            let ss_range = (ss.start_byte() + offset)..(ss.end_byte() + offset);
+            if cursor_offset >= ss_range.start && cursor_offset <= ss_range.end {
+                return self.find_field_recursive(ss, offset, cursor_offset, target_type, schema);
             }
         }
         None
