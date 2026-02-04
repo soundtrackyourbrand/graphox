@@ -377,7 +377,7 @@ impl DocumentState {
                 if is_fragment && let Some(n) = name {
                     let mut source_hash = 0;
                     if let Some(container) = container_node {
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        let mut hasher = ahash::AHasher::default();
                         use std::hash::{Hash, Hasher};
                         self.get_node_text(container, offset).hash(&mut hasher);
                         source_hash = hasher.finish();

@@ -12,20 +12,20 @@ use serde_json::Value;
 
 pub struct Backend {
     pub client: Client,
-    pub documents: DashMap<Url, DocumentState>,
+    pub documents: DashMap<Url, DocumentState, ahash::RandomState>,
     pub config: Config,
-    pub schemas: DashMap<String, Arc<Schema>>,
+    pub schemas: DashMap<String, Arc<Schema>, ahash::RandomState>,
     pub empty_schema: Arc<Schema>,
     // Performance optimizations
-    pub fragment_defs: DashMap<Url, Vec<crate::document::FragmentDef>>,
-    pub fragment_spreads: DashMap<Url, Vec<String>>,
-    pub package_roots: DashMap<Url, Option<std::path::PathBuf>>,
-    pub fragment_dependents: DashMap<String, FnvHashSet<Url>>,
+    pub fragment_defs: DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>,
+    pub fragment_spreads: DashMap<Url, Vec<String>, ahash::RandomState>,
+    pub package_roots: DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>,
+    pub fragment_dependents: DashMap<String, FnvHashSet<Url>, ahash::RandomState>,
 }
 
 impl Backend {
     pub fn new(client: Client, config: Config) -> Self {
-        let schemas = DashMap::new();
+        let schemas = DashMap::with_hasher(ahash::RandomState::default());
         let empty_schema =
             Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
 
@@ -41,14 +41,14 @@ impl Backend {
 
         Self {
             client,
-            documents: DashMap::new(),
+            documents: DashMap::with_hasher(ahash::RandomState::default()),
             config,
             schemas,
             empty_schema,
-            fragment_defs: DashMap::new(),
-            fragment_spreads: DashMap::new(),
-            package_roots: DashMap::new(),
-            fragment_dependents: DashMap::new(),
+            fragment_defs: DashMap::with_hasher(ahash::RandomState::default()),
+            fragment_spreads: DashMap::with_hasher(ahash::RandomState::default()),
+            package_roots: DashMap::with_hasher(ahash::RandomState::default()),
+            fragment_dependents: DashMap::with_hasher(ahash::RandomState::default()),
         }
     }
 
