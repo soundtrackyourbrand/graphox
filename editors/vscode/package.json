@@ -1,0 +1,52 @@
+{
+  "name": "graphql-rust",
+  "displayName": "GraphQL Rust",
+  "description": "GraphQL Language Server and Codegen for Rust",
+  "version": "0.1.0",
+  "publisher": "emma",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:graphql",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "graphql.runCodegen",
+        "title": "GraphQL: Run Codegen"
+      },
+      {
+        "command": "graphql.clearCache",
+        "title": "GraphQL: Clear Cache"
+      }
+    ],
+    "languages": [
+      {
+        "id": "graphql",
+        "extensions": [
+          ".graphql"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^4.9.5"
+  }
+}
