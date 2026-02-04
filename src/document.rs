@@ -275,11 +275,20 @@ impl DocumentState {
 
     pub fn position_to_byte(&self, position: Position) -> usize {
         let line_idx = position.line as usize;
+        if line_idx >= self.rope.len_lines() {
+            return self.rope.len_bytes();
+        }
         let line_start_char = self.rope.line_to_char(line_idx);
         let line_start_utf16_cu = self.rope.char_to_utf16_cu(line_start_char);
 
         let target_utf16_cu = line_start_utf16_cu + position.character as usize;
-        let target_char = self.rope.utf16_cu_to_char(target_utf16_cu);
+        let len_utf16_cu = self.rope.len_utf16_cu();
+        
+        let target_char = if target_utf16_cu >= len_utf16_cu {
+            self.rope.len_chars()
+        } else {
+            self.rope.utf16_cu_to_char(target_utf16_cu)
+        };
         self.rope.char_to_byte(target_char)
     }
 

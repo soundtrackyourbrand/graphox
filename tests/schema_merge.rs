@@ -36,6 +36,7 @@ async fn test_lsp_multi_schema_merge() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 
@@ -101,6 +102,7 @@ async fn test_lsp_multi_schema_extension_first() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 
@@ -165,6 +167,7 @@ async fn test_lsp_multi_schema_with_docs() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 
@@ -229,6 +232,7 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 

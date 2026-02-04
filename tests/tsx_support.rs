@@ -2,6 +2,7 @@ use graphql_rust::{DocumentLanguage, DocumentState};
 use tower_lsp::lsp_types::Url;
 
 #[test]
+#[ntest::timeout(100)]
 fn test_user_repro_pattern() {
     let text = r#"
         export function BlockedTracksTable(props: BlockedTracksTableProps) {
@@ -44,6 +45,7 @@ fn test_user_repro_pattern() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_print_ts_tree() {
     let text = r#"
         const q1 = gql`query { foo }`;
@@ -60,6 +62,7 @@ fn test_print_ts_tree() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_print_gql_completion_trees() {
     let mut parser = tree_sitter::Parser::new();
     parser
@@ -76,6 +79,7 @@ fn test_print_gql_completion_trees() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_graphql_tag_repro() {
     let text = r#"
         const q = graphql`query { foo }`;

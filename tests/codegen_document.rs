@@ -1,6 +1,7 @@
 use std::process::Command;
 
 #[test]
+#[ntest::timeout(100)]
 fn test_codegen_document_node() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_document_test");
@@ -78,6 +79,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_codegen_aliases_and_enums() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_quirks_test");
@@ -152,6 +154,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_codegen_document_node_no_vars() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_document_no_vars_test");

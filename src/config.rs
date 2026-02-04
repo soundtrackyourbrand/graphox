@@ -221,8 +221,7 @@ impl Config {
     }
 
     pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
-        self.get_project_for_path(path)
-            .map(|p| p.schema.as_key())
+        self.get_project_for_path(path).map(|p| p.schema.as_key())
     }
 }
 
@@ -233,6 +232,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    #[ntest::timeout(100)]
     fn test_load_yaml() {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("graphql.yaml");
@@ -259,6 +259,7 @@ projects:
     }
 
     #[test]
+    #[ntest::timeout(100)]
     fn test_load_yml() {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("graphql.yml");
@@ -279,6 +280,7 @@ projects:
     }
 
     #[test]
+    #[ntest::timeout(100)]
     fn test_load_parent_dir() {
         let dir = tempdir().unwrap();
         let parent_dir = dir.path().join("parent");
@@ -319,6 +321,7 @@ projects:
     }
 
     #[test]
+    #[ntest::timeout(100)]
     fn test_include_exclude() {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("graphql.yaml");

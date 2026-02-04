@@ -32,6 +32,7 @@ async fn test_lsp_smart_extract_fragment() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 
@@ -106,6 +107,7 @@ async fn test_lsp_smart_extract_field() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 

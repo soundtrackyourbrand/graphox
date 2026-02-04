@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_check_no_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_check_no_deprecations");
@@ -43,6 +44,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_check_with_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_check_with_deprecations");
@@ -90,6 +92,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_ignore_test");
@@ -141,6 +144,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_codegen_error() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_error_test");
@@ -188,6 +192,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_codegen_invalid_schema() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_invalid_schema_test");
@@ -227,6 +232,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_codegen_clean() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_clean_test");
@@ -298,6 +304,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_check_verbose_ignored_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_check_verbose_test");
@@ -376,6 +383,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_fragment_ast_generation() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_fragment_ast_test");
@@ -452,6 +460,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_graphql_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_entrypoint_test");
@@ -524,6 +533,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_test");
@@ -576,6 +586,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_config_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_config_output_test");
@@ -634,6 +645,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_check_input_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_input_deprecations_test");
@@ -704,6 +716,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_schema_types_test");
@@ -766,6 +779,7 @@ schema_types:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_custom_scalars() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_scalars_test");
@@ -856,11 +870,13 @@ scalars:
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_codegen_baselines() {
     run_baseline_test("tests/fixtures/codegen", "tests/baselines/codegen", None);
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_schema_import_baselines() {
     run_baseline_test(
         "tests/fixtures/schema_import",
@@ -870,6 +886,7 @@ fn test_cli_schema_import_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_project_import_baselines() {
     run_baseline_test(
         "tests/fixtures/project_import",
@@ -879,6 +896,7 @@ fn test_cli_project_import_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_multi_schema_import_baselines() {
     run_baseline_test(
         "tests/fixtures/multi_schema_import",
@@ -888,6 +906,7 @@ fn test_cli_multi_schema_import_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_multi_schema_import_superset_baselines() {
     run_baseline_test(
         "tests/fixtures/multi_schema_import_superset",
@@ -897,6 +916,7 @@ fn test_cli_multi_schema_import_superset_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_public_test_baselines() {
     run_baseline_test(
         "tests/fixtures/public_test",
@@ -906,6 +926,7 @@ fn test_cli_public_test_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_fragment_ast_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_ast",
@@ -915,6 +936,7 @@ fn test_cli_fragment_ast_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_entrypoint_baselines() {
     run_baseline_test(
         "tests/fixtures/entrypoint",
@@ -924,6 +946,7 @@ fn test_cli_entrypoint_baselines() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_cli_aliases_baselines() {
     run_baseline_test("tests/fixtures/aliases", "tests/baselines/aliases", None);
 }

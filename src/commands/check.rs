@@ -113,6 +113,7 @@ async fn execute_project_check(
                 import_path: None,
                 is_public: frag.is_public,
                 uri: doc.uri.clone(),
+                package_root: doc.package_root.clone(),
             };
             if frag.is_public {
                 all_public_fragments.push(info.clone());
@@ -143,7 +144,6 @@ async fn execute_project_check(
             Some(&used_fragments),
             Some(config),
             verbose,
-            Some(&package_roots),
             true,
         );
         if !diagnostics.is_empty() {

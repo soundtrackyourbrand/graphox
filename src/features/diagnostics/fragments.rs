@@ -50,9 +50,7 @@ impl DocumentState {
 
                 for other in ctx.all_fragments {
                     if other.name == name && other.uri != self.uri {
-                        let other_package_root = ctx.package_roots
-                            .and_then(|roots| roots.get(&other.uri))
-                            .and_then(|r| r.clone());
+                        let other_package_root = &other.package_root;
                         
                         if current_is_public && other.is_public {
                             ctx.diagnostics.push(Diagnostic {

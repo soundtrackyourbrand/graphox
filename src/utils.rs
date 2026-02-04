@@ -222,17 +222,17 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
     for text in texts {
         let mut parser = tree_sitter::Parser::new();
         if let Err(e) = parser.set_language(&tree_sitter_graphql::LANGUAGE.into()) {
-             eprintln!("ERROR: Failed to set GraphQL language: {}", e);
-             merged.push_str(text);
-             merged.push('\n');
-             continue;
+            eprintln!("ERROR: Failed to set GraphQL language: {}", e);
+            merged.push_str(text);
+            merged.push('\n');
+            continue;
         }
         let tree = if let Some(t) = parser.parse(text, None) {
             t
         } else {
-             merged.push_str(text);
-             merged.push('\n');
-             continue;
+            merged.push_str(text);
+            merged.push('\n');
+            continue;
         };
         let root = tree.root_node();
 
@@ -253,7 +253,8 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                 (type_extension (input_object_type_extension (name) @name))
             ] @type_def
         "#;
-        let query = tree_sitter::Query::new(&tree_sitter_graphql::LANGUAGE.into(), query_str).unwrap();
+        let query =
+            tree_sitter::Query::new(&tree_sitter_graphql::LANGUAGE.into(), query_str).unwrap();
         let mut cursor = tree_sitter::QueryCursor::new();
         let mut matches = cursor.matches(&query, root, text.as_bytes());
 
@@ -270,7 +271,7 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                     container_node = Some(cap.node);
                 }
             }
-            
+
             if let (Some(name_node), Some(container_node)) = (name_node, container_node) {
                 let name = &text[name_node.start_byte()..name_node.end_byte()];
                 let is_extension = container_node.kind() == "type_extension";
@@ -289,7 +290,11 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
 
                         if is_scalar && !has_directives {
                             // Just remove duplicate scalar with no directives as "extend scalar Name" is invalid without directives
-                            modifications.push((container_node.start_byte(), container_node.end_byte(), "".to_string()));
+                            modifications.push((
+                                container_node.start_byte(),
+                                container_node.end_byte(),
+                                "".to_string(),
+                            ));
                         } else {
                             // We need to convert this to an extension.
                             // We must skip any description or comments that come before the keyword.
@@ -306,7 +311,11 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
 
                             // We replace the range from container start to keyword start with "extend "
                             // This effectively strips the description from the extension.
-                            modifications.push((container_node.start_byte(), insert_pos, "extend ".to_string()));
+                            modifications.push((
+                                container_node.start_byte(),
+                                insert_pos,
+                                "extend ".to_string(),
+                            ));
                         }
                     } else {
                         seen_base.insert(name.to_string());
@@ -372,6 +381,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ntest::timeout(100)]
     fn test_mask_interpolations() {
         let input = "query { user(id: ${userId}) { name } }";
         let masked = mask_interpolations(input);

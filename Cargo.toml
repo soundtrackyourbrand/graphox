@@ -17,6 +17,7 @@ tree-sitter-typescript = "0.23.2"
 pathdiff = "0.2"
 notify = "8.0.0"
 notify-debouncer-mini = "0.6"
+ntest = "0.9"
 ignore = "0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"

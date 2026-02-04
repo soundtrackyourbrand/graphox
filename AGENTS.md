@@ -84,6 +84,7 @@ The `Config` struct (in `src/config.rs`) defines how the tool scans the workspac
 - **Integration Tests:** Located in `tests/`. Use `tests/fixtures/simple_schema.graphql` for most tests.
 - **LSP Tests:** Use `tower-lsp`'s testing utilities to simulate client requests.
 - **Fixture Based:** Add new GraphQL or TSX files to `tests/fixtures/` and use them in integration tests.
+- **Performance & Timeouts:** Our LSP is designed to be fast. Tests should NOT require long timeouts or arbitrary `sleep` delays. If a test is slow or deadlocks, investigate the underlying cause (e.g., concurrency issues) rather than masking it with increased timeouts.
 
 ## Adding New Features
 

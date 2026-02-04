@@ -11,6 +11,7 @@ pub struct FragmentCompletionInfo {
     pub import_path: Option<String>,
     pub is_public: bool,
     pub uri: Url,
+    pub package_root: Option<std::path::PathBuf>,
 }
 
 impl DocumentState {

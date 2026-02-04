@@ -2,14 +2,14 @@ use crate::Config;
 use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::features::completion::FragmentCompletionInfo;
-use crate::utils::{is_relevant_file, SEMANTIC_TOKEN_LEGEND};
+use crate::utils::{SEMANTIC_TOKEN_LEGEND, is_relevant_file};
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
+use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
-use serde_json::Value;
 
 pub struct Backend {
     pub client: Client,
@@ -26,7 +26,6 @@ pub struct Backend {
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
 }
-
 
 impl Backend {
     pub fn new(client: Client, mut config: Config) -> Self {
@@ -86,10 +85,10 @@ impl Backend {
     }
 
     pub fn normalize_uri(&self, uri: Url) -> Url {
-        if let Ok(path) = uri.to_file_path() {
-            if let Ok(canon) = std::fs::canonicalize(&path) {
-                return Url::from_file_path(canon).unwrap_or(uri);
-            }
+        if let Ok(path) = uri.to_file_path()
+            && let Ok(canon) = std::fs::canonicalize(&path)
+        {
+            return Url::from_file_path(canon).unwrap_or(uri);
         }
         uri
     }
@@ -105,38 +104,50 @@ impl Backend {
         self.empty_schema.clone()
     }
 
-    pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
-        let mut fragments = Vec::new();
-        let target_package_root = doc.package_root.as_ref();
+    pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
+        self.fragment_defs
+            .iter()
+            .flat_map(|entry| {
+                let uri = entry.key();
+                let frags = entry.value();
 
-        for entry in self.fragment_defs.iter() {
-            let other_uri = entry.key();
-            let other_frags = entry.value();
+                let import_path = if let Ok(p) = uri.to_file_path() {
+                    self.config
+                        .get_project_for_path(&p)
+                        .and_then(|proj| proj.import.clone())
+                } else {
+                    None
+                };
 
-            let is_same_package = self.package_roots.get(other_uri).map(|pr| pr.as_ref() == target_package_root).unwrap_or(false);
+                let package_root = self.package_roots.get(uri).and_then(|r| r.value().clone());
 
-            let import_path = if is_same_package {
-                None
-            } else if let Ok(p) = other_uri.to_file_path() {
-                self.config.get_project_for_path(&p).and_then(|proj| proj.import.clone())
-            } else {
-                None
-            };
-
-            for frag in other_frags {
-                if is_same_package || frag.is_public {
-                    fragments.push(FragmentCompletionInfo {
+                frags
+                    .iter()
+                    .map(|frag| FragmentCompletionInfo {
                         name: frag.name.clone(),
                         type_condition: frag.type_condition.clone(),
                         description: frag.description.clone(),
                         import_path: import_path.clone(),
                         is_public: frag.is_public,
-                        uri: other_uri.clone(),
-                    });
-                }
-            }
-        }
-        fragments
+                        uri: uri.clone(),
+                        package_root: package_root.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
+        let all_fragments = self.get_all_fragments_info();
+        let target_package_root = doc.package_root.as_ref();
+
+        all_fragments
+            .into_iter()
+            .filter(|f| {
+                let is_same_package = f.package_root.as_ref() == target_package_root;
+                is_same_package || f.is_public
+            })
+            .collect()
     }
 
     pub fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
@@ -155,24 +166,23 @@ impl Backend {
     {
         let start = std::time::Instant::now();
         let res = fut.await;
-        if let Some(tracing) = &self.config.tracing {
-            if tracing.enabled {
-                let elapsed = start.elapsed();
-                if elapsed.as_millis() >= tracing.threshold_ms as u128 {
-                    self.client
-                        .log_message(
-                            MessageType::LOG,
-                            format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
-                        )
-                        .await;
-                }
+        if let Some(tracing) = &self.config.tracing
+            && tracing.enabled
+        {
+            let elapsed = start.elapsed();
+            if elapsed.as_millis() >= tracing.threshold_ms as u128 {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
+                    )
+                    .await;
             }
         }
         res
     }
 
     async fn reload_schema(&self, changed_path: &str) {
-
         let mut sources_to_reload = Vec::new();
         for project in &self.config.projects {
             if project.schema.files().iter().any(|f| {
@@ -218,27 +228,39 @@ impl Backend {
 
                 let mut to_publish = Vec::new();
                 let used_fragments = self.get_used_fragments();
-                for entry in self.documents.iter() {
-                    let uri = entry.key();
-                    let doc = entry.value();
-                    let doc_schema = self.get_schema_for_doc(uri);
-                    if let Ok(doc_path) = uri.to_file_path() {
-                        if self
-                            .config
-                            .get_schema_for_path(&doc_path)
-                            .is_some_and(|p| p.as_str() == key.as_str())
-                        {
-                            let fragments = self.get_fragments_for_doc(doc);
-                            let diagnostics = doc.get_semantic_diagnostics(
-                                &doc_schema,
-                                &fragments,
-                                Some(&used_fragments),
-                                Some(&self.config),
-                                false,
-                                Some(&self.package_roots),
-                                self.workspace_loaded.load(Ordering::SeqCst),
-                            );
-                            to_publish.push((uri.clone(), diagnostics));
+                let all_fragments_info = self.get_all_fragments_info();
+                let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
+
+                let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+                for uri in all_uris {
+                    if let Some(doc) = self.documents.get(&uri) {
+                        let doc_schema = self.get_schema_for_doc(&uri);
+                        if let Ok(doc_path) = uri.to_file_path() {
+                            if self
+                                .config
+                                .get_schema_for_path(&doc_path)
+                                .is_some_and(|p| p.as_str() == key.as_str())
+                            {
+                                let target_package_root = doc.package_root.as_ref();
+                                let fragments: Vec<_> = all_fragments_info
+                                    .iter()
+                                    .filter(|f| {
+                                        let is_same_package = f.package_root.as_ref() == target_package_root;
+                                        is_same_package || f.is_public
+                                    })
+                                    .cloned()
+                                    .collect();
+
+                                let diagnostics = doc.get_semantic_diagnostics(
+                                    &doc_schema,
+                                    &fragments,
+                                    Some(&used_fragments),
+                                    Some(&self.config),
+                                    false,
+                                    workspace_loaded,
+                                );
+                                to_publish.push((uri.clone(), diagnostics));
+                            }
                         }
                     }
                 }
@@ -258,49 +280,34 @@ impl Backend {
         for project in &self.config.projects {
             let key = project.schema.as_key();
             if !self.schemas.contains_key(&key)
-                && let Some(schema) = Self::load_schema_source(&self.config.base_dir, &project.schema)
+                && let Some(schema) =
+                    Self::load_schema_source(&self.config.base_dir, &project.schema)
             {
                 self.schemas.insert(key, schema);
             }
         }
 
         // Re-validate all open documents
-        let mut to_publish = Vec::new();
-        let used_fragments = self.get_used_fragments();
-        for entry in self.documents.iter() {
-            let uri = entry.key();
-            let doc = entry.value();
-            let schema = self.get_schema_for_doc(uri);
-            let fragments = self.get_fragments_for_doc(doc);
-            let diagnostics = doc.get_semantic_diagnostics(
-                &schema,
-                &fragments,
-                Some(&used_fragments),
-                Some(&self.config),
-                false,
-                Some(&self.package_roots),
-                self.workspace_loaded.load(Ordering::SeqCst),
-            );
-            to_publish.push((uri.clone(), diagnostics));
-        }
-
-        for (uri, diagnostics) in to_publish {
-            self.client.publish_diagnostics(uri, diagnostics, None).await;
-        }
+        self.validate_all_documents().await;
 
         self.client
             .log_message(MessageType::INFO, "Cache cleared and schemas reloaded!")
             .await;
     }
 
-        pub async fn run_codegen(&self) {
-            let workspace_metadata = crate::engine::Engine::scan_workspace(&self.config, |_, _| {});
+    pub async fn run_codegen(&self) {
+        let workspace_metadata = crate::engine::Engine::scan_workspace(&self.config, |_, _| {});
 
         let global_metadata = &workspace_metadata.fragments;
         let global_output_dir = self.config.output_dir.as_deref();
         let mut all_generated_operations = Vec::new();
 
-        for (project, project_meta) in self.config.projects.iter().zip(&workspace_metadata.projects) {
+        for (project, project_meta) in self
+            .config
+            .projects
+            .iter()
+            .zip(&workspace_metadata.projects)
+        {
             let project_files = &project_meta.files;
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
@@ -375,7 +382,11 @@ impl Backend {
                     if let Ok((ts_code, mut ops)) =
                         crate::features::codegen::generate_typescript(doc, &ctx)
                     {
-                        let out_path = crate::utils::get_output_path(path, &self.config.base_dir, project_output_dir);
+                        let out_path = crate::utils::get_output_path(
+                            path,
+                            &self.config.base_dir,
+                            project_output_dir,
+                        );
                         let abs_out_path = if out_path.is_absolute() {
                             out_path
                         } else {
@@ -410,41 +421,66 @@ impl Backend {
         }
     }
 
-    fn update_dependency_indices(&self, uri: &Url, old_spreads: Option<Vec<String>>, new_spreads: Vec<String>) {
+    fn update_dependency_indices(
+        &self,
+        uri: &Url,
+        old_spreads: Option<Vec<String>>,
+        new_spreads: Vec<String>,
+    ) {
         if let Some(old) = old_spreads {
             for spread in old {
-                if !new_spreads.contains(&spread) {
-                    if let Some(mut entry) = self.fragment_dependents.get_mut(&spread) {
-                        entry.remove(uri);
-                    }
+                if !new_spreads.contains(&spread)
+                    && let Some(mut entry) = self.fragment_dependents.get_mut(&spread)
+                {
+                    entry.remove(uri);
                 }
             }
         }
 
         for spread in new_spreads {
-            self.fragment_dependents.entry(spread).or_default().insert(uri.clone());
+            self.fragment_dependents
+                .entry(spread)
+                .or_default()
+                .insert(uri.clone());
         }
     }
+
     pub async fn validate_all_documents(&self) {
         let mut to_publish = Vec::new();
         let used_fragments = self.get_used_fragments();
         let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
 
-        for entry in self.documents.iter() {
-            let uri = entry.key();
-            let doc = entry.value();
-            let schema = self.get_schema_for_doc(uri);
-            let fragments = self.get_fragments_for_doc(doc);
-            let diagnostics = doc.get_semantic_diagnostics(
-                &schema,
-                &fragments,
-                Some(&used_fragments),
-                Some(&self.config),
-                false,
-                Some(&self.package_roots),
-                workspace_loaded,
-            );
-            to_publish.push((uri.clone(), diagnostics));
+        // Pre-calculate all fragments info to avoid holding locks during O(N^2) work
+        let all_fragments_info = self.get_all_fragments_info();
+
+        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+
+        for uri in all_uris {
+            if let Some(doc) = self.documents.get(&uri) {
+                let schema = self.get_schema_for_doc(&uri);
+
+                // Filter fragments for this doc
+                let target_package_root = doc.package_root.as_ref();
+                let filtered_fragments: Vec<_> = all_fragments_info
+                    .iter()
+                    .filter(|f| {
+                        let is_same_package = f.package_root.as_ref() == target_package_root;
+
+                        is_same_package || f.is_public
+                    })
+                    .cloned()
+                    .collect();
+
+                let diagnostics = doc.get_semantic_diagnostics(
+                    &schema,
+                    &filtered_fragments,
+                    Some(&used_fragments),
+                    Some(&self.config),
+                    false,
+                    workspace_loaded,
+                );
+                to_publish.push((uri.clone(), diagnostics));
+            }
         }
 
         for (u, d) in to_publish {
@@ -519,18 +555,18 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "LSP Started!")
             .await;
 
-        if let Some(tracing) = &self.config.tracing {
-            if tracing.enabled {
-                self.client
-                    .log_message(
-                        MessageType::INFO,
-                        format!(
-                            "Performance tracing enabled (threshold: {}ms)",
-                            tracing.threshold_ms
-                        ),
-                    )
-                    .await;
-            }
+        if let Some(tracing) = &self.config.tracing
+            && tracing.enabled
+        {
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!(
+                        "Performance tracing enabled (threshold: {}ms)",
+                        tracing.threshold_ms
+                    ),
+                )
+                .await;
         }
 
         // Spawn workspace scan in background to avoid hanging the LSP
@@ -551,30 +587,35 @@ impl LanguageServer for Backend {
             let token = NumberOrString::String("workspace-scan".to_string());
             let cancelled = workspace_scan_cancelled;
 
-            // Create progress
-            let _ = client
-                .send_request::<request::WorkDoneProgressCreate>(WorkDoneProgressCreateParams {
-                    token: token.clone(),
-                })
-                .await;
+            // Create progress in a separate task so it doesn't block the scan if the client doesn't respond to the request
+            let client_clone = client.clone();
+            let token_clone = token.clone();
+            tokio::spawn(async move {
+                let _ = client_clone
+                    .send_request::<request::WorkDoneProgressCreate>(WorkDoneProgressCreateParams {
+                        token: token_clone.clone(),
+                    })
+                    .await;
 
-            // Begin progress
-            let _ = client
-                .send_notification::<notification::Progress>(ProgressParams {
-                    token: token.clone(),
-                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
-                        WorkDoneProgressBegin {
-                            title: "Scanning workspace".to_string(),
-                            cancellable: Some(true),
-                            message: Some("Parsing GraphQL files...".to_string()),
-                            percentage: Some(0),
-                        },
-                    )),
-                })
-                .await;
+                // Begin progress
+                let _ = client_clone
+                    .send_notification::<notification::Progress>(ProgressParams {
+                        token: token_clone,
+                        value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                            WorkDoneProgressBegin {
+                                title: "Scanning workspace".to_string(),
+                                cancellable: Some(true),
+                                message: Some("Parsing GraphQL files...".to_string()),
+                                percentage: Some(0),
+                            },
+                        )),
+                    })
+                    .await;
+            });
 
-            let workspace_metadata =
-                crate::engine::Engine::scan_workspace_cancellable(&config, |_, doc| {
+            let workspace_metadata = crate::engine::Engine::scan_workspace_cancellable(
+                &config,
+                |_, doc| {
                     if cancelled.load(Ordering::Relaxed) {
                         return;
                     }
@@ -596,7 +637,9 @@ impl LanguageServer for Backend {
                     if !documents.contains_key(&uri) {
                         documents.insert(uri, doc);
                     }
-                }, cancelled.clone());
+                },
+                cancelled.clone(),
+            );
             let total_docs = workspace_metadata.documents.len();
 
             workspace_loaded.store(true, Ordering::SeqCst);
@@ -627,6 +670,8 @@ impl LanguageServer for Backend {
                             None
                         };
 
+                        let package_root = package_roots.get(uri).and_then(|r| r.value().clone());
+
                         FragmentCompletionInfo {
                             name: frag.name.clone(),
                             type_condition: frag.type_condition.clone(),
@@ -634,6 +679,7 @@ impl LanguageServer for Backend {
                             import_path,
                             is_public: frag.is_public,
                             uri: uri.clone(),
+                            package_root,
                         }
                     }).collect::<Vec<_>>()
                 })
@@ -656,11 +702,14 @@ impl LanguageServer for Backend {
 
                 // Filter fragments for this doc (same package or public)
                 let target_package_root = doc.package_root.as_ref();
-                let filtered_fragments: Vec<_> = all_fragments_info.iter().filter(|f| {
-                    let f_package_root = package_roots.get(&f.uri).and_then(|r| r.clone());
-                    let is_same_package = f_package_root.as_ref() == target_package_root;
-                    is_same_package || f.is_public
-                }).cloned().collect();
+                let filtered_fragments: Vec<_> = all_fragments_info
+                    .iter()
+                    .filter(|f| {
+                        let is_same_package = f.package_root.as_ref() == target_package_root;
+                        is_same_package || f.is_public
+                    })
+                    .cloned()
+                    .collect();
 
                 let diagnostics = doc.get_semantic_diagnostics(
                     &schema,
@@ -668,7 +717,6 @@ impl LanguageServer for Backend {
                     Some(&used_fragments),
                     Some(&config),
                     false,
-                    Some(&package_roots),
                     true,
                 );
                 to_publish.push((uri.clone(), diagnostics));
@@ -682,9 +730,11 @@ impl LanguageServer for Backend {
             let _ = client
                 .send_notification::<notification::Progress>(ProgressParams {
                     token,
-                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(WorkDoneProgressEnd {
-                        message: Some(format!("Finished scanning {} files", total_docs)),
-                    })),
+                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                        WorkDoneProgressEnd {
+                            message: Some(format!("Finished scanning {} files", total_docs)),
+                        },
+                    )),
                 })
                 .await;
 
@@ -723,14 +773,17 @@ impl LanguageServer for Backend {
                     .unwrap(),
             ),
         };
-        if let Err(e) = self.client.register_capability(vec![registration]).await {
-            self.client
-                .log_message(
-                    MessageType::ERROR,
-                    format!("Failed to register schema watcher: {}", e),
-                )
-                .await;
-        }
+        let client_clone = self.client.clone();
+        tokio::spawn(async move {
+            if let Err(e) = client_clone.register_capability(vec![registration]).await {
+                client_clone
+                    .log_message(
+                        MessageType::ERROR,
+                        format!("Failed to register schema watcher: {}", e),
+                    )
+                    .await;
+            }
+        });
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -763,13 +816,11 @@ impl LanguageServer for Backend {
                                 value.push_str(&desc);
                             }
 
-                            if !is_same_package {
-                                if let Ok(other_p) = other_doc.uri.to_file_path() {
-                                    if let Some(proj) = self.config.get_project_for_path(&other_p) {
-                                        if let Some(import) = &proj.import {
-                                            value.push_str("\n\n---\n");
-                                            value.push_str(&format!("Import: `{}`", import));
-                                        }
+                            if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path() {
+                                if let Some(proj) = self.config.get_project_for_path(&other_p) {
+                                    if let Some(import) = &proj.import {
+                                        value.push_str("\n\n---\n");
+                                        value.push_str(&format!("Import: `{}`", import));
                                     }
                                 }
                             }
@@ -825,7 +876,13 @@ impl LanguageServer for Backend {
         &self,
         params: CallHierarchyPrepareParams,
     ) -> Result<Option<Vec<CallHierarchyItem>>> {
-        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri.clone());
+        let uri = self.normalize_uri(
+            params
+                .text_document_position_params
+                .text_document
+                .uri
+                .clone(),
+        );
         let position = params.text_document_position_params.position;
 
         if let Some(doc) = self.documents.get(&uri) {
@@ -846,14 +903,15 @@ impl LanguageServer for Backend {
         for entry in self.documents.iter() {
             let doc = entry.value();
             let refs = doc.find_references_in_tree(&symbol_name, false);
-            
+
             if !refs.is_empty() {
                 // For each reference, we need to find the container (fragment or operation)
                 // This is a bit expensive but necessary for call hierarchy.
                 // For now, let's group by URI.
-                
-                let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> = std::collections::HashMap::new();
-                
+
+                let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> =
+                    std::collections::HashMap::new();
+
                 // Grouping is hard because we need the container name.
                 // Let's simplify: each reference is its own call from the file.
                 for r in refs {
@@ -871,8 +929,14 @@ impl LanguageServer for Backend {
                             tags: None,
                             detail: Some(doc.uri.to_string()),
                             uri: doc.uri.clone(),
-                            range: doc.find_definition_in_tree(&name).map(|l| l.range).unwrap_or(ranges[0]),
-                            selection_range: doc.find_definition_in_tree(&name).map(|l| l.range).unwrap_or(ranges[0]),
+                            range: doc
+                                .find_definition_in_tree(&name)
+                                .map(|l| l.range)
+                                .unwrap_or(ranges[0]),
+                            selection_range: doc
+                                .find_definition_in_tree(&name)
+                                .map(|l| l.range)
+                                .unwrap_or(ranges[0]),
                             data: None,
                         },
                         from_ranges: ranges,
@@ -898,7 +962,7 @@ impl LanguageServer for Backend {
 
         if let Some(doc) = self.documents.get(&uri) {
             let mut calls = doc.get_outgoing_calls(&symbol_name);
-            
+
             // Resolve the 'to' items
             for call in &mut calls {
                 let callee_name = &call.to.name;
@@ -913,7 +977,7 @@ impl LanguageServer for Backend {
                     }
                 }
             }
-            
+
             return Ok(Some(calls));
         }
 
@@ -929,64 +993,21 @@ impl LanguageServer for Backend {
             .set_language(&language.get_parser_language())
             .unwrap();
 
-        let doc = DocumentState::new(
-            uri.clone(),
-            &params.text_document.text,
-            parser,
-        );
+        let doc = DocumentState::new(uri.clone(), &params.text_document.text, parser);
 
         // Update performance indices
-        self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-        self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
-        self.package_roots.insert(uri.clone(), doc.package_root.clone());
+        self.fragment_defs
+            .insert(uri.clone(), doc.fragments().to_vec());
+        self.fragment_spreads
+            .insert(uri.clone(), doc.fragment_spreads.clone());
+        self.package_roots
+            .insert(uri.clone(), doc.package_root.clone());
         self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
-        
+
         self.documents.insert(uri.clone(), doc);
 
-        let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
-        let mut to_publish = Vec::new();
-        let used_fragments = self.get_used_fragments();
-        if let Some(doc) = self.documents.get(&uri) {
-            let schema = self.get_schema_for_doc(&uri);
-            let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(
-                &schema,
-                &fragments,
-                Some(&used_fragments),
-                Some(&self.config),
-                false,
-                Some(&self.package_roots),
-                workspace_loaded,
-            );
-            to_publish.push((uri.clone(), diagnostics));
-        }
-
-        // Also revalidate other documents because a new fragment might have been added
-        for entry in self.documents.iter() {
-            let other_uri = entry.key();
-            if other_uri == &uri {
-                continue;
-            }
-            let other_doc = entry.value();
-            let schema = self.get_schema_for_doc(other_uri);
-            let fragments = self.get_fragments_for_doc(other_doc);
-            let diagnostics = other_doc.get_semantic_diagnostics(
-                &schema,
-                &fragments,
-                Some(&used_fragments),
-                Some(&self.config),
-                false,
-                Some(&self.package_roots),
-                workspace_loaded,
-            );
-            to_publish.push((other_uri.clone(), diagnostics));
-        }
-
-        for (u, d) in to_publish {
-            self.client.publish_diagnostics(u, d, None).await;
-        }
+        self.validate_all_documents().await;
     }
-
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = self.normalize_uri(params.text_document.uri);
         self.open_documents.remove(&uri);
@@ -995,10 +1016,11 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = self.normalize_uri(params.text_document.uri.clone());
 
-        let mut modified_fragments = Vec::new();
+        let mut new_fragments_opt = None;
+        let mut new_spreads_opt = None;
+        let mut package_root_opt = None;
 
         if let Some(mut doc) = self.documents.get_mut(&uri) {
-            let old_fragments = doc.fragments().to_vec();
             let old_spreads = doc.fragment_spreads.clone();
 
             let mut parser = tree_sitter::Parser::new();
@@ -1009,83 +1031,28 @@ impl LanguageServer for Backend {
             for change in params.content_changes {
                 doc.apply_change(&change, &mut parser);
             }
-            
+
             let new_fragments = doc.fragments().to_vec();
             let new_spreads = doc.fragment_spreads.clone();
 
-            // Detect modified fragments
-            for nf in &new_fragments {
-                let found = old_fragments.iter().find(|of| of.name == nf.name);
-                match found {
-                    Some(of) if of.source_hash != nf.source_hash || of.type_condition != nf.type_condition => {
-                        modified_fragments.push(nf.name.clone());
-                    }
-                    None => {
-                        modified_fragments.push(nf.name.clone());
-                    }
-                    _ => {}
-                }
-            }
-            // Also detect deleted fragments
-            for of in &old_fragments {
-                if !new_fragments.iter().any(|nf| nf.name == of.name) {
-                    modified_fragments.push(of.name.clone());
-                }
-            }
+            new_fragments_opt = Some(new_fragments);
+            new_spreads_opt = Some((old_spreads, new_spreads));
+            package_root_opt = Some(doc.package_root.clone());
+        }
 
-            // Update performance indices
+        if let Some(new_fragments) = new_fragments_opt {
             self.fragment_defs.insert(uri.clone(), new_fragments);
-            self.fragment_spreads.insert(uri.clone(), new_spreads.clone());
-            self.package_roots.insert(uri.clone(), doc.package_root.clone());
+        }
+        if let Some((old_spreads, new_spreads)) = new_spreads_opt {
+            self.fragment_spreads
+                .insert(uri.clone(), new_spreads.clone());
             self.update_dependency_indices(&uri, Some(old_spreads), new_spreads);
         }
-
-        let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
-        let mut to_publish = Vec::new();
-        let used_fragments = self.get_used_fragments();
-
-        // 1. Re-validate the changed document
-        if let Some(doc) = self.documents.get(&uri) {
-            let schema = self.get_schema_for_doc(&uri);
-            let fragments = self.get_fragments_for_doc(&doc);
-            let diagnostics = doc.get_semantic_diagnostics(
-                &schema,
-                &fragments,
-                Some(&used_fragments),
-                Some(&self.config),
-                false,
-                Some(&self.package_roots),
-                workspace_loaded,
-            );
-
-            to_publish.push((uri.clone(), diagnostics));
+        if let Some(package_root) = package_root_opt {
+            self.package_roots.insert(uri.clone(), package_root);
         }
 
-        // Also revalidate other documents because a new fragment might have been added
-        for entry in self.documents.iter() {
-            let other_uri = entry.key();
-            if other_uri == &uri {
-                continue;
-            }
-            let other_doc = entry.value();
-            let schema = self.get_schema_for_doc(other_uri);
-            let fragments = self.get_fragments_for_doc(other_doc);
-            let diagnostics = other_doc.get_semantic_diagnostics(
-                &schema,
-                &fragments,
-                Some(&used_fragments),
-                Some(&self.config),
-                false,
-                Some(&self.package_roots),
-                workspace_loaded,
-            );
-
-            to_publish.push((other_uri.clone(), diagnostics));
-        }
-
-        for (u, d) in to_publish {
-            self.client.publish_diagnostics(u, d, None).await;
-        }
+        self.validate_all_documents().await;
     }
 
     async fn goto_definition(
@@ -1093,8 +1060,13 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         self.with_tracing("goto_definition", async move {
-            let uri =
-                self.normalize_uri(params.text_document_position_params.text_document.uri.clone());
+            let uri = self.normalize_uri(
+                params
+                    .text_document_position_params
+                    .text_document
+                    .uri
+                    .clone(),
+            );
             let position = params.text_document_position_params.position;
 
             let symbol_name = if let Some(doc) = self.documents.get(&uri) {
@@ -1251,12 +1223,12 @@ impl LanguageServer for Backend {
         let uri = self.normalize_uri(params.text_document.uri.clone());
         let position = params.position;
 
-        if let Some(doc) = self.documents.get(&uri) {
-            if let Some(_name) = doc.get_symbol_at_position(position) {
-                return Ok(Some(PrepareRenameResponse::DefaultBehavior {
-                    default_behavior: true,
-                }));
-            }
+        if let Some(doc) = self.documents.get(&uri)
+            && let Some(_name) = doc.get_symbol_at_position(position)
+        {
+            return Ok(Some(PrepareRenameResponse::DefaultBehavior {
+                default_behavior: true,
+            }));
         }
 
         Ok(None)
@@ -1380,11 +1352,11 @@ impl LanguageServer for Backend {
             }
         }
 
-        // 2. Selection-based refactors
+        // 2. Refactoring actions
         if let Some(doc) = self.documents.get(uri) {
             let schema = self.get_schema_for_doc(uri);
-            let extraction_actions = doc.get_extraction_actions(params.range, &schema);
-            for action in extraction_actions {
+            let refactor_actions = doc.get_extraction_actions(params.range, &schema);
+            for action in refactor_actions {
                 actions.push(CodeActionOrCommand::CodeAction(action));
             }
         }
@@ -1394,10 +1366,6 @@ impl LanguageServer for Backend {
         } else {
             Ok(Some(actions))
         }
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
@@ -1411,55 +1379,107 @@ impl LanguageServer for Backend {
             let mut to_publish = Vec::new();
             let used_fragments = self.get_used_fragments();
             let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
+            let all_fragments_info = self.get_all_fragments_info();
 
             for change in params.changes {
                 if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
                     let path = change.uri.to_file_path().unwrap();
-                    if let Some(schema_path) = self.config.get_schema_for_path(&path) {
-                        self.reload_schema(&schema_path).await;
+                    let path_str = path.to_string_lossy().to_string();
+                    
+                    // Check if this is a schema file
+                    let mut is_schema = false;
+                    for project in &self.config.projects {
+                        if project.schema.files().iter().any(|f| {
+                            let abs = self.config.base_dir.join(f);
+                            abs.to_string_lossy() == path_str
+                                || abs
+                                    .canonicalize()
+                                    .ok()
+                                    .map(|p| p.to_string_lossy().to_string())
+                                    == Some(path_str.clone())
+                        }) {
+                            is_schema = true;
+                            break;
+                        }
+                    }
+
+                    if !is_schema {
+                        if let Some(schema_types) = &self.config.schema_types {
+                            for st in schema_types {
+                                if st.schema.files().iter().any(|f| {
+                                    let abs = self.config.base_dir.join(f);
+                                    abs.to_string_lossy() == path_str
+                                        || abs
+                                            .canonicalize()
+                                            .ok()
+                                            .map(|p| p.to_string_lossy().to_string())
+                                            == Some(path_str.clone())
+                                }) {
+                                    is_schema = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if is_schema {
+                        self.reload_schema(&path_str).await;
                     } else if is_relevant_file(&path) {
                         // Update document if it's already open
                         let uri = self.normalize_uri(change.uri);
-                        if let Some(mut doc) = self.documents.get_mut(&uri) {
-                            if let Ok(content) = std::fs::read_to_string(&path) {
-                                let mut parser = tree_sitter::Parser::new();
-                                parser
-                                    .set_language(&doc.language.get_parser_language())
-                                    .unwrap();
-                                *doc = DocumentState::new(uri.clone(), &content, parser);
+                        if let Some(mut doc) = self.documents.get_mut(&uri)
+                            && let Ok(content) = std::fs::read_to_string(&path)
+                        {
+                            let mut parser = tree_sitter::Parser::new();
+                            parser
+                                .set_language(&doc.language.get_parser_language())
+                                .unwrap();
+                            *doc = DocumentState::new(uri.clone(), &content, parser);
 
-                                // Update metadata
-                                self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-                                self.fragment_spreads
-                                    .insert(uri.clone(), doc.fragment_spreads.clone());
-                                self.package_roots
-                                    .insert(uri.clone(), doc.package_root.clone());
-                            }
+                            // Update metadata
+                            self.fragment_defs
+                                .insert(uri.clone(), doc.fragments().to_vec());
+                            self.fragment_spreads
+                                .insert(uri.clone(), doc.fragment_spreads.clone());
+                            self.package_roots
+                                .insert(uri.clone(), doc.package_root.clone());
                         }
 
                         // Re-validate all documents because this file might have changed fragments
-                        for entry in self.documents.iter() {
-                            let uri = entry.key();
-                            let doc = entry.value();
-                            let schema = self.get_schema_for_doc(uri);
-                            let fragments = self.get_fragments_for_doc(doc);
-                            let diagnostics = doc.get_semantic_diagnostics(
-                                &schema,
-                                &fragments,
-                                Some(&used_fragments),
-                                Some(&self.config),
-                                false,
-                                Some(&self.package_roots),
-                                workspace_loaded,
-                            );
-                            to_publish.push((uri.clone(), diagnostics));
+                        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+                        for uri in all_uris {
+                            if let Some(doc) = self.documents.get(&uri) {
+                                let schema = self.get_schema_for_doc(&uri);
+                                
+                                let target_package_root = doc.package_root.as_ref();
+                                let fragments: Vec<_> = all_fragments_info
+                                    .iter()
+                                    .filter(|f| {
+                                        let is_same_package = f.package_root.as_ref() == target_package_root;
+                                        is_same_package || f.is_public
+                                    })
+                                    .cloned()
+                                    .collect();
+
+                                let diagnostics = doc.get_semantic_diagnostics(
+                                    &schema,
+                                    &fragments,
+                                    Some(&used_fragments),
+                                    Some(&self.config),
+                                    false,
+                                    workspace_loaded,
+                                );
+                                to_publish.push((uri.clone(), diagnostics));
+                            }
                         }
                     }
                 }
             }
 
             for (uri, diagnostics) in to_publish {
-                self.client.publish_diagnostics(uri, diagnostics, None).await;
+                self.client
+                    .publish_diagnostics(uri, diagnostics, None)
+                    .await;
             }
         })
         .await
@@ -1486,5 +1506,69 @@ impl LanguageServer for Backend {
             }
         })
         .await
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, GlobPattern, ProjectConfig, SchemaSource};
+    use tower_lsp::LspService;
+    use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn test_validate_all_documents_performance() {
+        let config = Config {
+            base_dir: std::env::current_dir().unwrap(),
+            projects: vec![ProjectConfig {
+                schema: SchemaSource::Single("schema.graphql".to_string()),
+                include: GlobPattern::Single("**/*.graphql".to_string()),
+                exclude: None,
+                output_dir: None,
+                import: None,
+            }],
+            output_dir: None,
+            schema_types: None,
+            scalars: None,
+            ignore_deprecations: None,
+            generate_ast_for_fragments: None,
+            tracing: None,
+        };
+
+        let (service, _) = LspService::new(|client| Backend::new(client, config));
+        
+        // This should complete very quickly even with multiple documents
+        let res = timeout(Duration::from_millis(500), service.inner().validate_all_documents()).await;
+        assert!(res.is_ok(), "validate_all_documents took too long or deadlocked");
+    }
+
+    #[tokio::test]
+    async fn test_get_all_fragments_info_no_deadlock() {
+        let config = Config {
+            base_dir: std::env::current_dir().unwrap(),
+            projects: vec![],
+            output_dir: None,
+            schema_types: None,
+            scalars: None,
+            ignore_deprecations: None,
+            generate_ast_for_fragments: None,
+            tracing: None,
+        };
+
+        let (service, _) = LspService::new(|client| Backend::new(client, config));
+        let backend = service.inner();
+
+        // Simulate some data
+        let uri = Url::parse("file:///test.graphql").unwrap();
+        backend.fragment_defs.insert(uri.clone(), vec![]);
+
+        let res = timeout(Duration::from_millis(100), async {
+            backend.get_all_fragments_info()
+        }).await;
+        assert!(res.is_ok(), "get_all_fragments_info deadlocked");
     }
 }

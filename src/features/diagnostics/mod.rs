@@ -19,8 +19,6 @@ pub(super) struct ValidationContext<'a> {
     pub diagnostics: &'a mut Vec<Diagnostic>,
     pub config: Option<&'a Config>,
     pub include_ignored: bool,
-    pub package_roots:
-        Option<&'a dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
     pub workspace_loaded: bool,
 }
 
@@ -32,7 +30,6 @@ impl DocumentState {
         used_fragments: Option<&fnv::FnvHashSet<String>>,
         config: Option<&Config>,
         verbose: bool,
-        package_roots: Option<&dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
         workspace_loaded: bool,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
@@ -83,7 +80,6 @@ impl DocumentState {
                 diagnostics: &mut diagnostics,
                 config,
                 include_ignored: verbose,
-                package_roots,
                 workspace_loaded,
             };
 

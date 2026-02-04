@@ -100,7 +100,7 @@ impl Engine {
         }
     }
     /// Step 1: Discover all fragments and operations across the entire workspace
-    pub fn scan_workspace<F>(config: &Config, mut on_doc: F) -> WorkspaceMetadata
+    pub fn scan_workspace<F>(config: &Config, on_doc: F) -> WorkspaceMetadata
     where
         F: FnMut(PathBuf, DocumentState) + Send,
     {

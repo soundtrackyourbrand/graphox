@@ -12,12 +12,17 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(1000)]
 async fn test_lsp_fragment_collisions() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
 
     let pkg_a = base_dir.join("pkg_a");
     fs::create_dir_all(&pkg_a).unwrap();
@@ -36,10 +41,18 @@ async fn test_lsp_fragment_collisions() {
     fs::write(&frag_d_path, "fragment PublicFrag on User { name }").unwrap();
 
     let frag_e_path = pkg_b.join("pub_collision.graphql");
-    fs::write(&frag_e_path, "fragment PublicCollision on User @public { id }").unwrap();
+    fs::write(
+        &frag_e_path,
+        "fragment PublicCollision on User @public { id }",
+    )
+    .unwrap();
 
     let frag_f_path = pkg_a.join("pub_collision_2.graphql");
-    fs::write(&frag_f_path, "fragment PublicCollision on User @public { name }").unwrap();
+    fs::write(
+        &frag_f_path,
+        "fragment PublicCollision on User @public { name }",
+    )
+    .unwrap();
 
     let config = Config {
         output_dir: None,
@@ -64,22 +77,57 @@ async fn test_lsp_fragment_collisions() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
-        base_dir: base_dir.clone(),
+        base_dir: base_dir.to_path_buf(),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
-    let received_diags = Arc::new(Mutex::new(std::collections::HashMap::<Url, Vec<Diagnostic>>::new()));
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+    let received_diags = Arc::new(Mutex::new(
+        std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
+    ));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "textDocument/publishDiagnostics" {
-                let params: PublishDiagnosticsParams = serde_json::from_value(msg.params().unwrap().clone()).unwrap();
-                received_diags_clone.lock().unwrap().insert(params.uri, params.diagnostics);
+                let params: PublishDiagnosticsParams =
+                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                received_diags_clone
+                    .lock()
+                    .unwrap()
+                    .insert(params.uri, params.diagnostics);
+            } else if msg.method() == "window/logMessage" {
+                let params: LogMessageParams =
+                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                if params.message == "Workspace scan complete." {
+                    let _ = scan_done_tx.send(()).await;
+                }
             }
         }
     });
 
-    service.call(Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // Wait for background scan to complete
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
     let uri_b = Url::from_file_path(&frag_b_path).unwrap();
@@ -88,43 +136,143 @@ async fn test_lsp_fragment_collisions() {
     let uri_e = Url::from_file_path(&frag_e_path).unwrap();
     let uri_f = Url::from_file_path(&frag_f_path).unwrap();
 
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: uri_a.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_a_path).unwrap() },
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: uri_b.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_b_path).unwrap() },
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: uri_c.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_c_path).unwrap() },
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: uri_d.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_d_path).unwrap() },
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: uri_e.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_e_path).unwrap() },
-    }).unwrap()).finish()).await.unwrap();
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem { uri: uri_f.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_f_path).unwrap() },
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: uri_a.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&frag_a_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: uri_b.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&frag_b_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: uri_c.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&frag_c_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: uri_d.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&frag_d_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: uri_e.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&frag_e_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: uri_f.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&frag_f_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let diags = received_diags.lock().unwrap();
-    
+
     // Check private collision in pkg_a
     let d_a = diags.get(&uri_a).unwrap();
-    assert!(d_a.iter().any(|d| d.message.contains("Duplicate fragment name: 'DuplicateFrag'")));
+    assert!(d_a.iter().any(|d| {
+        d.message
+            .contains("Duplicate fragment name: 'DuplicateFrag'")
+    }));
 
     // Check shadowing in shadow.graphql
     let d_d = diags.get(&uri_d).unwrap();
-    assert!(d_d.iter().any(|d| d.message.contains("shadows a public fragment")));
+    assert!(
+        d_d.iter()
+            .any(|d| d.message.contains("shadows a public fragment"))
+    );
 
     // Check public collision
     let d_e = diags.get(&uri_e).unwrap();
-    assert!(d_e.iter().any(|d| d.message.contains("Duplicate public fragment name: 'PublicCollision'")));
+    assert!(d_e.iter().any(|d| {
+        d.message
+            .contains("Duplicate public fragment name: 'PublicCollision'")
+    }));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(1000)]
 async fn test_lsp_diagnostics_on_schema_change() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -153,7 +301,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
-        base_dir: base_dir.clone(),
+        base_dir: base_dir.to_path_buf(),
     };
 
     let client_capture = Arc::new(Mutex::new(None));
@@ -163,6 +311,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         *cap = Some(client.clone());
         Backend::new(client, config)
     });
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
@@ -170,6 +319,12 @@ async fn test_lsp_diagnostics_on_schema_change() {
             if msg.method() == "textDocument/publishDiagnostics" {
                 let params = msg.params().unwrap();
                 received_diags_clone.lock().unwrap().push(params.clone());
+            } else if msg.method() == "window/logMessage" {
+                let params: LogMessageParams =
+                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                if params.message == "Workspace scan complete." {
+                    let _ = scan_done_tx.send(()).await;
+                }
             }
         }
     });
@@ -185,6 +340,20 @@ async fn test_lsp_diagnostics_on_schema_change() {
                 .finish(),
         )
         .await;
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // Wait for background scan to complete
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     // Open document
@@ -205,7 +374,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         .await
         .unwrap();
     // Wait for initial diagnostics
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         assert!(
@@ -241,7 +410,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         .await
         .unwrap();
     // 6. Wait for diagnostics after schema change
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -274,7 +443,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         .await
         .unwrap();
     // 8. Verify diagnostics cleared
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -283,6 +452,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ntest::timeout(1000)]
 async fn test_lsp_fragment_rename_same_project() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
@@ -312,20 +482,25 @@ async fn test_lsp_fragment_rename_same_project() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
-        base_dir: base_dir.clone(),
+        base_dir: base_dir.to_path_buf(),
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            println!("MSG: {}", msg.method());
             if msg.method() == "textDocument/publishDiagnostics" {
                 let params = msg.params().unwrap();
                 received_diags_clone.lock().unwrap().push(params.clone());
+            } else if msg.method() == "window/logMessage" {
+                let params: LogMessageParams =
+                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                if params.message == "Workspace scan complete." {
+                    let _ = scan_done_tx.send(()).await;
+                }
             }
         }
-        println!("Background task exited");
     });
     service
         .call(
@@ -336,6 +511,20 @@ async fn test_lsp_fragment_rename_same_project() {
         )
         .await
         .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // Wait for background scan to complete
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
     let query_uri = Url::from_file_path(&query_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
     service
@@ -374,7 +563,7 @@ async fn test_lsp_fragment_rename_same_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -409,7 +598,7 @@ async fn test_lsp_fragment_rename_same_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -454,7 +643,7 @@ async fn test_lsp_fragment_rename_same_project() {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -470,6 +659,7 @@ async fn test_lsp_fragment_rename_same_project() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ntest::timeout(1000)]
 async fn test_lsp_fragment_rename_cross_project() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
@@ -514,20 +704,25 @@ async fn test_lsp_fragment_rename_cross_project() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
-        base_dir: base_dir.clone(),
+        base_dir: base_dir.to_path_buf(),
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            println!("MSG: {}", msg.method());
             if msg.method() == "textDocument/publishDiagnostics" {
                 let params = msg.params().unwrap();
                 received_diags_clone.lock().unwrap().push(params.clone());
+            } else if msg.method() == "window/logMessage" {
+                let params: LogMessageParams =
+                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                if params.message == "Workspace scan complete." {
+                    let _ = scan_done_tx.send(()).await;
+                }
             }
         }
-        println!("Background task exited");
     });
     service
         .call(
@@ -538,6 +733,20 @@ async fn test_lsp_fragment_rename_cross_project() {
         )
         .await
         .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // Wait for background scan to complete
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
     let query_uri = Url::from_file_path(&query_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
     service
@@ -576,7 +785,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -611,7 +820,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -656,7 +865,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags

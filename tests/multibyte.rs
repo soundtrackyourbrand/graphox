@@ -12,6 +12,7 @@ fn create_ts_doc(text: &str) -> DocumentState {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_multibyte_range_calculation() {
     let schema_content = r#"
         type Query {
@@ -31,7 +32,7 @@ const q = gql`
 `;
 "#;
     let doc = create_ts_doc(text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None, true);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
@@ -47,6 +48,7 @@ const q = gql`
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_emoji_in_query_comment() {
     let schema_content = r#"
         type Query {
@@ -65,7 +67,7 @@ const q = gql`
 `;
 "#;
     let doc = create_ts_doc(text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None, true);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
     let error = diagnostics
         .iter()
@@ -79,6 +81,7 @@ const q = gql`
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_goto_definition_with_emoji() {
     let text = r#"
 fragment UserFrag on User { id }

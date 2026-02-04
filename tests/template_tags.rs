@@ -2,6 +2,7 @@ use graphql_rust::DocumentState;
 use tower_lsp::lsp_types::Url;
 
 #[test]
+#[ntest::timeout(100)]
 fn test_template_extraction_variants() {
     let text = r#"
         // Standard tag
@@ -54,6 +55,7 @@ fn test_template_extraction_variants() {
 }
 
 #[test]
+#[ntest::timeout(100)]
 fn test_template_deduplication() {
     // This tests that we don't extract the same template twice if both query patterns match
     // although with current implementation it's unlikely, it's good to be sure.

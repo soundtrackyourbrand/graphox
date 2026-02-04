@@ -4,6 +4,7 @@ use std::io::Write;
 use tempfile::tempdir;
 
 #[test]
+#[ntest::timeout(100)]
 fn test_config_multiple_schemas() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("graphql.yaml");
