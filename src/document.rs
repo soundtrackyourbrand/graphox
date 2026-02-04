@@ -66,6 +66,7 @@ pub struct FragmentDef {
     pub type_condition: String,
     pub is_public: bool,
     pub description: Option<String>,
+    pub source_hash: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -374,7 +375,13 @@ impl DocumentState {
                 }
 
                 if is_fragment && let Some(n) = name {
+                    let mut source_hash = 0;
                     if let Some(container) = container_node {
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        use std::hash::{Hash, Hasher};
+                        self.get_node_text(container, offset).hash(&mut hasher);
+                        source_hash = hasher.finish();
+
                         let mut walker = container.walk();
                         for child in container.children(&mut walker) {
                             if child.kind() == "description" {
@@ -407,6 +414,7 @@ impl DocumentState {
                         type_condition: type_condition.unwrap_or_default(),
                         is_public,
                         description,
+                        source_hash,
                     });
                 }
             }

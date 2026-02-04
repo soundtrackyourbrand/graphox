@@ -20,6 +20,7 @@ pub struct Backend {
     pub fragment_defs: DashMap<Url, Vec<crate::document::FragmentDef>>,
     pub fragment_spreads: DashMap<Url, Vec<String>>,
     pub package_roots: DashMap<Url, Option<std::path::PathBuf>>,
+    pub fragment_dependents: DashMap<String, FnvHashSet<Url>>,
 }
 
 impl Backend {
@@ -47,6 +48,7 @@ impl Backend {
             fragment_defs: DashMap::new(),
             fragment_spreads: DashMap::new(),
             package_roots: DashMap::new(),
+            fragment_dependents: DashMap::new(),
         }
     }
 
@@ -358,6 +360,22 @@ impl Backend {
             }
         }
     }
+
+    fn update_dependency_indices(&self, uri: &Url, old_spreads: Option<Vec<String>>, new_spreads: Vec<String>) {
+        if let Some(old) = old_spreads {
+            for spread in old {
+                if !new_spreads.contains(&spread) {
+                    if let Some(mut entry) = self.fragment_dependents.get_mut(&spread) {
+                        entry.remove(uri);
+                    }
+                }
+            }
+        }
+
+        for spread in new_spreads {
+            self.fragment_dependents.entry(spread).or_default().insert(uri.clone());
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -650,7 +668,12 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
 
+        let mut modified_fragments = Vec::new();
+
         if let Some(mut doc) = self.documents.get_mut(&uri) {
+            let old_fragments = doc.fragments().to_vec();
+            let old_spreads = doc.fragment_spreads.clone();
+
             let mut parser = tree_sitter::Parser::new();
             parser
                 .set_language(&doc.language.get_parser_language())
@@ -659,16 +682,41 @@ impl LanguageServer for Backend {
             for change in params.content_changes {
                 doc.apply_change(&change, &mut parser);
             }
+            
+            let new_fragments = doc.fragments().to_vec();
+            let new_spreads = doc.fragment_spreads.clone();
+
+            // Detect modified fragments
+            for nf in &new_fragments {
+                let found = old_fragments.iter().find(|of| of.name == nf.name);
+                match found {
+                    Some(of) if of.source_hash != nf.source_hash || of.type_condition != nf.type_condition => {
+                        modified_fragments.push(nf.name.clone());
+                    }
+                    None => {
+                        modified_fragments.push(nf.name.clone());
+                    }
+                    _ => {}
+                }
+            }
+            // Also detect deleted fragments
+            for of in &old_fragments {
+                if !new_fragments.iter().any(|nf| nf.name == of.name) {
+                    modified_fragments.push(of.name.clone());
+                }
+            }
+
             // Update performance indices
-            self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-            self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
+            self.fragment_defs.insert(uri.clone(), new_fragments);
+            self.fragment_spreads.insert(uri.clone(), new_spreads.clone());
             self.package_roots.insert(uri.clone(), doc.package_root.clone());
+            self.update_dependency_indices(&uri, Some(old_spreads), new_spreads);
         }
 
         let mut to_publish = Vec::new();
         let used_fragments = self.get_used_fragments();
         
-        // Re-validate the changed document
+        // 1. Re-validate the changed document
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
@@ -678,33 +726,28 @@ impl LanguageServer for Backend {
             to_publish.push((uri.clone(), diagnostics));
         }
 
-        // Optimization: Only re-validate other documents if they are relevant
-        let changed_path = uri.to_file_path().ok();
-        let changed_schema = changed_path.as_ref().and_then(|p| self.config.get_schema_for_path(p));
-        let changed_package_root = self.documents.get(&uri).and_then(|d| d.package_root.clone());
+        // 2. Re-validate dependent documents
+        let mut dependents_to_check = FnvHashSet::default();
+        for frag_name in modified_fragments {
+            if let Some(deps) = self.fragment_dependents.get(&frag_name) {
+                for dep_uri in deps.value() {
+                    dependents_to_check.insert(dep_uri.clone());
+                }
+            }
+        }
 
-        for entry in self.documents.iter() {
-            let other_uri = entry.key();
-            if other_uri == &uri {
+        for dep_uri in dependents_to_check {
+            if dep_uri == uri {
                 continue;
             }
-
-            let other_doc = entry.value();
-            let other_path = other_uri.to_file_path().ok();
-            
-            let same_package = other_doc.package_root == changed_package_root;
-            let same_schema = other_path.as_ref().and_then(|p| self.config.get_schema_for_path(p)) == changed_schema;
-
-            if !same_package && !same_schema {
-                continue;
+            if let Some(other_doc) = self.documents.get(&dep_uri) {
+                let schema = self.get_schema_for_doc(&dep_uri);
+                let fragments = self.get_fragments_for_doc(&other_doc);
+                let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
+                let diagnostics =
+                    other_doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
+                to_publish.push((dep_uri.clone(), diagnostics));
             }
-
-            let schema = self.get_schema_for_doc(other_uri);
-            let fragments = self.get_fragments_for_doc(other_doc);
-            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
-            let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
-            to_publish.push((other_uri.clone(), diagnostics));
         }
 
         for (u, d) in to_publish {
@@ -856,6 +899,7 @@ impl LanguageServer for Backend {
         self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
         self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
         self.package_roots.insert(uri.clone(), doc.package_root.clone());
+        self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
         
         self.documents.insert(uri.clone(), doc);
 
