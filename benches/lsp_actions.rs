@@ -214,6 +214,30 @@ fn bench_lsp_actions(c: &mut Criterion) {
         });
     });
 
+    group.bench_function("Run Codegen", |b| {
+        b.to_async(&rt).iter(|| backend.run_codegen());
+    });
+
+    group.bench_function("Check Workspace (Full Diagnostics)", |b| {
+        b.to_async(&rt).iter(|| async {
+            let used_fragments = backend.get_used_fragments();
+            for entry in backend.documents.iter() {
+                let uri = entry.key();
+                let doc = entry.value();
+                let schema = backend.get_schema_for_doc(uri);
+                let fragments = backend.get_fragments_for_doc(doc);
+                let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
+                let _diagnostics = doc.get_semantic_diagnostics(
+                    &schema,
+                    &fragment_names,
+                    Some(&used_fragments),
+                    Some(&backend.config),
+                    false,
+                );
+            }
+        });
+    });
+
     group.finish();
 }
 

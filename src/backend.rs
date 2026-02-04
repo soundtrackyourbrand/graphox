@@ -72,7 +72,7 @@ impl Backend {
             .map(Arc::new)
     }
 
-    fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
+    pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
         if let Ok(path) = uri.to_file_path()
             && let Some(schema_path) = self.config.get_schema_for_path(&path)
             && let Some(schema) = self.schemas.get(&schema_path)
@@ -83,7 +83,7 @@ impl Backend {
         self.empty_schema.clone()
     }
 
-    fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
+    pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
         let mut fragments = Vec::new();
         let target_package_root = doc.package_root.as_ref();
 
@@ -115,7 +115,7 @@ impl Backend {
         fragments
     }
 
-    fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
+    pub fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
         let mut used = fnv::FnvHashSet::default();
         for entry in self.fragment_spreads.iter() {
             for spread in entry.value() {
@@ -245,7 +245,7 @@ impl Backend {
             .await;
     }
 
-    async fn run_codegen(&self) {
+    pub async fn run_codegen(&self) {
         let workspace_metadata = crate::engine::Engine::scan_workspace(&self.config);
         let global_metadata = &workspace_metadata.fragments;
         let global_output_dir = self.config.output_dir.as_deref();
