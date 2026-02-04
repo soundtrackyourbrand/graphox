@@ -128,3 +128,259 @@ fn test_variable_unused_even_with_fragments() {
         "Expected one unused variable ($unused)"
     );
 }
+
+#[tokio::test]
+async fn test_fragment_hover_requirements() {
+    use tower_lsp::LspService;
+    use tower_service::Service;
+    use graphql_rust::{Backend, Config};
+    use graphql_rust::config::{ProjectConfig, SchemaSource, GlobPattern};
+    use std::fs;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+
+    let frag_path = base_dir.join("frag.graphql");
+    let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
+    fs::write(&frag_path, frag_text).unwrap();
+
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { ...UserFields } }";
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: base_dir.clone(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    service.call(tower_lsp::jsonrpc::Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+    service.call(tower_lsp::jsonrpc::Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let query_uri = Url::from_file_path(query_path).unwrap();
+
+    service.call(tower_lsp::jsonrpc::Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: query_uri.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: query_text.to_string(),
+        },
+    }).unwrap()).finish()).await.unwrap();
+
+    // Hover over ...UserFields
+    // query { me { ...UserFields } }
+    // 0123456789012345678
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
+            position: Position::new(0, 18),
+        },
+        work_done_progress_params: Default::default(),
+    };
+
+    let request = tower_lsp::jsonrpc::Request::build("textDocument/hover").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    
+    let hover = result.expect("Expected hover");
+    let value = match hover.contents {
+        HoverContents::Markup(m) => m.value,
+        _ => panic!("Expected markup content"),
+    };
+    
+    assert!(value.contains("**Requires Variables:**"), "Hover should contain requirements header");
+    assert!(value.contains("$admin"), "Hover should contain $admin");
+    assert!(value.contains("Boolean!"), "Hover should contain Boolean!");
+}
+
+#[tokio::test]
+async fn test_fragment_completion_requirements() {
+    use tower_lsp::LspService;
+    use tower_service::Service;
+    use graphql_rust::{Backend, Config};
+    use graphql_rust::config::{ProjectConfig, SchemaSource, GlobPattern};
+    use std::fs;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+
+    let frag_path = base_dir.join("frag.graphql");
+    let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
+    fs::write(&frag_path, frag_text).unwrap();
+
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { ... } }";
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: base_dir.clone(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    service.call(tower_lsp::jsonrpc::Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+    service.call(tower_lsp::jsonrpc::Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let query_uri = Url::from_file_path(query_path).unwrap();
+
+    service.call(tower_lsp::jsonrpc::Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: query_uri.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: query_text.to_string(),
+        },
+    }).unwrap()).finish()).await.unwrap();
+
+    // Completion after ...
+    // query { me { ... } }
+    // 01234567890123456
+    let params = CompletionParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
+            position: Position::new(0, 16),
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+        context: None,
+    };
+
+    let request = tower_lsp::jsonrpc::Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    
+    let completion = match result.expect("Expected completion") {
+        CompletionResponse::Array(items) => items,
+        _ => panic!("Expected array of items"),
+    };
+    
+    let item = completion.iter().find(|i| i.label == "UserFields").expect("Should find UserFields completion");
+    let doc = match item.documentation.as_ref().unwrap() {
+        Documentation::MarkupContent(m) => &m.value,
+        _ => panic!("Expected markup content"),
+    };
+    
+    assert!(doc.contains("**Requires Variables:**"), "Completion doc should contain requirements header");
+    assert!(doc.contains("$admin"), "Completion doc should contain $admin");
+    assert!(doc.contains("Boolean!"), "Completion doc should contain Boolean!");
+}
+
+#[tokio::test]
+async fn test_variable_references_including_fragments() {
+    use tower_lsp::LspService;
+    use tower_service::Service;
+    use graphql_rust::{Backend, Config};
+    use graphql_rust::config::{ProjectConfig, SchemaSource, GlobPattern};
+    use std::fs;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+
+    let frag_path = base_dir.join("frag.graphql");
+    let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
+    fs::write(&frag_path, frag_text).unwrap();
+
+    let query_path = base_dir.join("query.graphql");
+    let query_text = r#"
+        query GetMe($admin: Boolean!) {
+            me {
+                id
+                ...UserFields
+            }
+        }
+    "#;
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+        }],
+        base_dir: base_dir.clone(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    service.call(tower_lsp::jsonrpc::Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+    service.call(tower_lsp::jsonrpc::Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    // Wait for scan
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let query_uri = Url::from_file_path(query_path).unwrap();
+    let frag_uri = Url::from_file_path(frag_path).unwrap();
+
+    // Open files
+    service.call(tower_lsp::jsonrpc::Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: query_uri.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: query_text.to_string(),
+        },
+    }).unwrap()).finish()).await.unwrap();
+
+    // Request references for $admin in GetMe
+    // query GetMe($admin: Boolean!)
+    // 01234567890123456789
+    // Position(1, 21) is on $admin
+    let params = ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
+            position: Position::new(1, 21),
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+        context: ReferenceContext { include_declaration: true },
+    };
+
+    let request = tower_lsp::jsonrpc::Request::build("textDocument/references").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Vec<Location>> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    
+    let locations = result.expect("Expected locations");
+    
+    // We expect 2 locations:
+    // 1. Declaration in query.graphql
+    // 2. Usage in frag.graphql
+    
+    assert!(locations.iter().any(|l| l.uri == query_uri), "Expected reference in query.graphql");
+    assert!(locations.iter().any(|l| l.uri == frag_uri), "Expected reference in frag.graphql");
+}

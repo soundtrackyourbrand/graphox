@@ -473,6 +473,10 @@ impl DocumentState {
     }
 
     pub fn extract_fragment_spreads(&self) -> Vec<String> {
+        self.get_fragment_spreads_in_node(self.tree.root_node(), 0)
+    }
+
+    pub fn get_fragment_spreads_in_node(&self, node: Node, offset: usize) -> Vec<String> {
         let query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
@@ -483,32 +487,33 @@ impl DocumentState {
 
         let reference_idx = query.capture_index_for_name("reference").unwrap();
 
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
-                let start = node.start_byte();
-                let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
-            });
+        let mut matches = cursor.matches(query, node, |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+            self.rope
+                .byte_slice((start + offset)..(end + offset))
+                .chunks()
+        });
 
-            while let Some(m) = matches.next() {
-                let mut is_reference = false;
-                let mut name_node = None;
+        while let Some(m) = matches.next() {
+            let mut is_reference = false;
+            let mut name_node = None;
 
-                for cap in m.captures {
-                    if cap.index == reference_idx {
-                        is_reference = true;
-                    } else if query.capture_names()[cap.index as usize] == "name" {
-                        name_node = Some(cap.node);
-                    }
+            for cap in m.captures {
+                if cap.index == reference_idx {
+                    is_reference = true;
+                } else if query.capture_names()[cap.index as usize] == "name" {
+                    name_node = Some(cap.node);
                 }
+            }
 
-                if is_reference && let Some(name_node) = name_node {
-                    let name = self.get_node_text(name_node, offset);
-                    if !name.starts_with('$') {
-                        spreads.push(name);
+            if is_reference && let Some(name_node) = name_node {
+                let name = self.get_node_text(name_node, offset);
+                if !name.starts_with('$') {
+                    if let Some(parent) = name_node.parent() {
+                        if parent.kind() == "fragment_name" {
+                            spreads.push(name);
+                        }
                     }
                 }
             }
@@ -780,6 +785,285 @@ impl DocumentState {
                 }
             }
             _ => None,
+        }
+    }
+
+    pub fn get_fragment_variable_types(&self, fragment_name: &str, schema: &Schema) -> std::collections::BTreeMap<String, String> {
+        let mut vars = std::collections::BTreeMap::new();
+        
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+        let mut cursor = tree_sitter::QueryCursor::new();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches = cursor.matches(query, block.tree.root_node(), |node: Node| {
+                let start = node.start_byte();
+                let end = node.end_byte();
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
+            });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut is_fragment = false;
+                let mut container_node = None;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        if cap.node.kind() == "fragment_definition" {
+                            is_fragment = true;
+                            container_node = Some(cap.node);
+                        }
+                    }
+                }
+
+                if is_fragment && let Some(n) = name {
+                    if n == fragment_name && let Some(container) = container_node {
+                        if let Some(type_name) = self.get_fragment_type_condition(container, offset) {
+                            if let Some(type_def) = schema.types.get(type_name.as_str()) {
+                                self.collect_variables_in_fragment(container, offset, type_def, schema, &mut vars);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        vars
+    }
+
+    fn collect_variables_in_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        current_type: &apollo_compiler::schema::ExtendedType,
+        schema: &Schema,
+        vars: &mut std::collections::BTreeMap<String, String>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "selection_set" => {
+                    self.collect_variables_in_selection_set(child, offset, current_type, schema, vars);
+                }
+                "directives" => {
+                    self.collect_variables_in_directives(child, offset, schema, vars);
+                }
+                _ => {
+                    self.collect_variables_in_fragment(child, offset, current_type, schema, vars);
+                }
+            }
+        }
+    }
+
+    fn collect_variables_in_selection_set(
+        &self,
+        node: Node,
+        offset: usize,
+        current_type: &apollo_compiler::schema::ExtendedType,
+        schema: &Schema,
+        vars: &mut std::collections::BTreeMap<String, String>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "field" => {
+                    let mut field_name = None;
+                    let mut arguments = None;
+                    let mut selection_set = None;
+                    let mut directives = None;
+                    
+                    let mut f_cursor = child.walk();
+                    for f_child in child.children(&mut f_cursor) {
+                        match f_child.kind() {
+                            "name" => field_name = Some(self.get_node_text(f_child, offset)),
+                            "arguments" => arguments = Some(f_child),
+                            "selection_set" => selection_set = Some(f_child),
+                            "directives" => directives = Some(f_child),
+                            "directive" => {
+                                self.collect_variables_in_directives(child, offset, schema, vars);
+                            }
+                            _ => {}
+                        }
+                    }
+                    
+                    if let Some(fname) = field_name {
+                        let field_def = match current_type {
+                            apollo_compiler::schema::ExtendedType::Object(obj) => obj.fields.get(fname.as_str()),
+                            apollo_compiler::schema::ExtendedType::Interface(iface) => iface.fields.get(fname.as_str()),
+                            _ => None,
+                        };
+                        
+                        if let Some(fdef) = field_def {
+                            if let Some(args_node) = arguments {
+                                self.collect_variables_in_arguments(args_node, offset, &fdef.arguments, schema, vars);
+                            }
+                            
+                            if let Some(dirs_node) = directives {
+                                self.collect_variables_in_directives(dirs_node, offset, schema, vars);
+                            }
+                            
+                            if let Some(sel_node) = selection_set {
+                                let next_type_name = fdef.ty.inner_named_type();
+                                if let Some(next_type) = schema.types.get(next_type_name.as_str()) {
+                                    self.collect_variables_in_selection_set(sel_node, offset, next_type, schema, vars);
+                                }
+                            }
+                        }
+                    }
+                }
+                "inline_fragment" => {
+                    let type_name = self.get_fragment_type_condition(child, offset);
+                    let target_type = if let Some(tn) = type_name {
+                        schema.types.get(tn.as_str()).cloned()
+                    } else {
+                        Some(current_type.clone())
+                    };
+                    
+                    if let Some(tty) = target_type {
+                        self.collect_variables_in_fragment(child, offset, &tty, schema, vars);
+                    }
+                }
+                "selection" => {
+                    self.collect_variables_in_selection_set(child, offset, current_type, schema, vars);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_variables_in_arguments(
+        &self,
+        node: Node,
+        offset: usize,
+        arg_defs: &[apollo_compiler::Node<apollo_compiler::schema::InputValueDefinition>],
+        schema: &Schema,
+        vars: &mut std::collections::BTreeMap<String, String>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "argument" {
+                let mut arg_name = None;
+                let mut value_node = None;
+                let mut a_cursor = child.walk();
+                for a_child in child.children(&mut a_cursor) {
+                    if a_child.kind() == "name" {
+                        arg_name = Some(self.get_node_text(a_child, offset));
+                    } else if a_child.kind() == "value" || a_child.kind().ends_with("_value") {
+                        value_node = Some(a_child);
+                    }
+                }
+                
+                if let (Some(aname), Some(vnode)) = (arg_name, value_node) {
+                    if let Some(adef) = arg_defs.iter().find(|a| a.name.as_str() == aname) {
+                        self.collect_variables_in_value(vnode, offset, &adef.ty, schema, vars);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_variables_in_directives(
+        &self,
+        node: Node,
+        offset: usize,
+        schema: &Schema,
+        vars: &mut std::collections::BTreeMap<String, String>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "directive" {
+                let mut dir_name = None;
+                let mut arguments = None;
+                let mut d_cursor = child.walk();
+                for d_child in child.children(&mut d_cursor) {
+                    if d_child.kind() == "name" {
+                        dir_name = Some(self.get_node_text(d_child, offset));
+                    } else if d_child.kind() == "arguments" {
+                        arguments = Some(d_child);
+                    }
+                }
+                
+                if let Some(dname) = dir_name {
+                    if let Some(ddef) = schema.directive_definitions.get(dname.as_str()) {
+                        if let Some(args_node) = arguments {
+                            self.collect_variables_in_arguments(args_node, offset, &ddef.arguments, schema, vars);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_variables_in_value(
+        &self,
+        node: Node,
+        offset: usize,
+        expected_type: &apollo_compiler::schema::Type,
+        schema: &Schema,
+        vars: &mut std::collections::BTreeMap<String, String>,
+    ) {
+        match node.kind() {
+            "variable" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "name" {
+                        let name = self.get_node_text(child, offset);
+                        vars.insert(name, expected_type.to_string());
+                    }
+                }
+            }
+            "object_value" => {
+                if let Some(ty_def) = schema.types.get(expected_type.inner_named_type().as_str()) {
+                    if let apollo_compiler::schema::ExtendedType::InputObject(input_obj) = ty_def {
+                        let mut cursor = node.walk();
+                        for child in node.children(&mut cursor) {
+                            if child.kind() == "object_field" {
+                                let mut field_name = None;
+                                let mut value_node = None;
+                                let mut of_cursor = child.walk();
+                                for of_child in child.children(&mut of_cursor) {
+                                    if of_child.kind() == "name" {
+                                        field_name = Some(self.get_node_text(of_child, offset));
+                                    } else if of_child.kind() == "value" || of_child.kind().ends_with("_value") {
+                                        value_node = Some(of_child);
+                                    }
+                                }
+                                
+                                if let (Some(fname), Some(vnode)) = (field_name, value_node) {
+                                    if let Some(fdef) = input_obj.fields.get(fname.as_str()) {
+                                        self.collect_variables_in_value(vnode, offset, &fdef.ty, schema, vars);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "list_value" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "value" || child.kind().ends_with("_value") {
+                        // For list, we should probably use the item type, but GraphQL allows single values to be coerced to lists.
+                        // apollo-compiler's Type doesn't easily give "item type" without checking if it's a list.
+                        // Simplified:
+                        self.collect_variables_in_value(child, offset, expected_type, schema, vars);
+                    }
+                }
+            }
+            "value" => {
+                if let Some(child) = node.child(0) {
+                    self.collect_variables_in_value(child, offset, expected_type, schema, vars);
+                }
+            }
+            _ => {}
         }
     }
 }

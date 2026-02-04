@@ -133,6 +133,7 @@ impl Backend {
                         package_root: package_root.clone(),
                         used_variables: frag.used_variables.clone(),
                         used_fragments: frag.used_fragments.clone(),
+                        requirements: std::collections::BTreeMap::new(),
                     })
                     .collect::<Vec<_>>()
             })
@@ -150,6 +151,84 @@ impl Backend {
                 is_same_package || f.is_public
             })
             .collect()
+    }
+
+    fn get_transitive_fragments(&self, initial_spreads: Vec<String>, package_root: Option<&std::path::PathBuf>) -> fnv::FnvHashSet<Url> {
+        let mut visited_names = fnv::FnvHashSet::default();
+        let mut fragment_uris = fnv::FnvHashSet::default();
+        let mut to_visit = initial_spreads;
+
+        let all_fragments = self.get_all_fragments_info();
+
+        while let Some(name) = to_visit.pop() {
+            if !visited_names.insert(name.clone()) {
+                continue;
+            }
+
+            // Find this fragment (respecting scoping)
+            if let Some(frag) = all_fragments.iter().find(|f| {
+                f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
+            }) {
+                fragment_uris.insert(frag.uri.clone());
+                
+                // Add its nested spreads
+                if let Some(doc) = self.documents.get(&frag.uri) {
+                    // Find the specific fragment def in the doc to get its spreads
+                    if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
+                        for nested in &def.used_fragments {
+                            to_visit.push(nested.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        fragment_uris
+    }
+
+    pub fn get_fragment_requirements(
+        &self,
+        name: &str,
+        schema: &Schema,
+        package_root: Option<&std::path::PathBuf>,
+    ) -> std::collections::BTreeMap<String, String> {
+        let mut requirements = std::collections::BTreeMap::new();
+        let mut visited = fnv::FnvHashSet::default();
+        self.collect_fragment_requirements_recursive(name, schema, package_root, &mut requirements, &mut visited);
+        requirements
+    }
+
+    fn collect_fragment_requirements_recursive(
+        &self,
+        name: &str,
+        schema: &Schema,
+        package_root: Option<&std::path::PathBuf>,
+        requirements: &mut std::collections::BTreeMap<String, String>,
+        visited: &mut fnv::FnvHashSet<String>,
+    ) {
+        if !visited.insert(name.to_string()) {
+            return;
+        }
+
+        let all_fragments = self.get_all_fragments_info();
+        if let Some(frag) = all_fragments.iter().find(|f| {
+            f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
+        }) {
+            if let Some(doc) = self.documents.get(&frag.uri) {
+                // Get variables from this fragment
+                let local_vars = doc.get_fragment_variable_types(name, schema);
+                for (var, ty) in local_vars {
+                    requirements.insert(var, ty);
+                }
+
+                // Get nested fragments
+                if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
+                    for nested in &def.used_fragments {
+                        self.collect_fragment_requirements_recursive(nested, schema, package_root, requirements, visited);
+                    }
+                }
+            }
+        }
     }
 
     pub fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
@@ -684,6 +763,7 @@ impl LanguageServer for Backend {
                             package_root,
                             used_variables: frag.used_variables.clone(),
                             used_fragments: frag.used_fragments.clone(),
+                            requirements: std::collections::BTreeMap::new(),
                         }
                     }).collect::<Vec<_>>()
                 })
@@ -815,6 +895,14 @@ impl LanguageServer for Backend {
                         {
                             let mut value = format!("```graphql\n{}\n```", info);
 
+                            let requirements = self.get_fragment_requirements(&symbol_name, &schema, doc.package_root.as_ref());
+                            if !requirements.is_empty() {
+                                value.push_str("\n\n**Requires Variables:**\n");
+                                for (var, ty) in requirements {
+                                    value.push_str(&format!("- `${}`: `{}`\n", var, ty));
+                                }
+                            }
+
                             if let Some(desc) = other_doc.find_description(&symbol_name) {
                                 value.push_str("\n\n---\n");
                                 value.push_str(&desc);
@@ -853,7 +941,15 @@ impl LanguageServer for Backend {
 
             if let Some(doc) = self.documents.get(&uri) {
                 let schema = self.get_schema_for_doc(&uri);
-                let fragments = self.get_fragments_for_doc(&doc);
+                let mut fragments = self.get_fragments_for_doc(&doc);
+
+                for f in &mut fragments {
+                    f.requirements = self.get_fragment_requirements(
+                        &f.name,
+                        &schema,
+                        doc.package_root.as_ref(),
+                    );
+                }
 
                 let items = doc.get_completion_items(position, &schema, fragments);
                 return Ok(Some(CompletionResponse::Array(items)));
@@ -1125,9 +1221,23 @@ impl LanguageServer for Backend {
             if let Some(name) = symbol_name {
                 if name.starts_with('$') {
                     if let Some(doc) = self.documents.get(&uri) {
-                        let refs =
+                        let mut all_refs =
                             doc.find_variable_references(&name, position, include_declaration);
-                        return Ok(if refs.is_empty() { None } else { Some(refs) });
+                        
+                        // Find transitive references in fragments
+                        if let Some((op_node, offset)) = doc.find_containing_operation_node(position) {
+                            let initial_spreads = doc.get_fragment_spreads_in_node(op_node, offset);
+                            let frag_uris = self.get_transitive_fragments(initial_spreads, doc.package_root.as_ref());
+                            
+                            for f_uri in frag_uris {
+                                if let Some(f_doc) = self.documents.get(&f_uri) {
+                                    let frag_refs = f_doc.find_references_in_tree(&name, false);
+                                    all_refs.extend(frag_refs);
+                                }
+                            }
+                        }
+
+                        return Ok(if all_refs.is_empty() { None } else { Some(all_refs) });
                     }
                     return Ok(None);
                 }

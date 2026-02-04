@@ -94,10 +94,6 @@ impl DocumentState {
         target_name: &str,
         include_declaration: bool,
     ) -> Vec<Location> {
-        if target_name.starts_with('$') {
-            return Vec::new();
-        }
-
         let query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()

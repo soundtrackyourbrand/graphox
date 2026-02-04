@@ -14,6 +14,7 @@ pub struct FragmentCompletionInfo {
     pub package_root: Option<std::path::PathBuf>,
     pub used_variables: Vec<String>,
     pub used_fragments: Vec<String>,
+    pub requirements: std::collections::BTreeMap<String, String>,
 }
 
 impl DocumentState {
@@ -512,6 +513,17 @@ impl DocumentState {
             })
             .map(|f| {
                 let mut documentation = f.description.clone().unwrap_or_default();
+                
+                if !f.requirements.is_empty() {
+                    if !documentation.is_empty() {
+                        documentation.push_str("\n\n---\n");
+                    }
+                    documentation.push_str("**Requires Variables:**\n");
+                    for (var, ty) in &f.requirements {
+                        documentation.push_str(&format!("- `${}`: `{}`\n", var, ty));
+                    }
+                }
+
                 if let Some(import) = &f.import_path {
                     if !documentation.is_empty() {
                         documentation.push_str("\n\n---\n");

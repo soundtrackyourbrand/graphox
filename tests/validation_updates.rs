@@ -84,6 +84,7 @@ fn test_diagnostics_update_on_fragment_change() {
         package_root: None,
         used_variables: Vec::new(),
         used_fragments: Vec::new(),
+        requirements: std::collections::BTreeMap::new(),
     }];
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);
@@ -104,6 +105,7 @@ fn test_diagnostics_update_on_fragment_change() {
         package_root: None,
         used_variables: Vec::new(),
         used_fragments: Vec::new(),
+        requirements: std::collections::BTreeMap::new(),
     }];
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);

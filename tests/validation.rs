@@ -206,6 +206,7 @@ fn test_validation_known_fragment_spread() {
         package_root: None,
         used_variables: Vec::new(),
         used_fragments: Vec::new(),
+        requirements: std::collections::BTreeMap::new(),
     }];
     let diagnostics = doc.get_semantic_diagnostics(schema, &fragments, None, None, false, true);
 

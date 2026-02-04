@@ -116,6 +116,7 @@ async fn execute_project_check(
                 package_root: doc.package_root.clone(),
                 used_variables: frag.used_variables.clone(),
                 used_fragments: frag.used_fragments.clone(),
+                requirements: std::collections::BTreeMap::new(),
             };
             if frag.is_public {
                 all_public_fragments.push(info.clone());
