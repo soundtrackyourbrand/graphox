@@ -1,5 +1,5 @@
 use apollo_compiler::Schema;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use graphql_rust::DocumentState;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 
@@ -28,6 +28,7 @@ fn bench_large_schema_parsing(c: &mut Criterion) {
     let schema_1000 = generate_large_schema(1000);
 
     let mut group = c.benchmark_group("Large Schema Parsing");
+    group.sample_size(10);
     group.bench_function("Parse Schema (100 types)", |b| {
         b.iter(|| Schema::parse(&schema_100, "schema.graphql"))
     });
@@ -46,6 +47,7 @@ fn bench_document_processing(c: &mut Criterion) {
     let uri = Url::parse("file:///tests/fixtures/component.ts").unwrap();
 
     let mut group = c.benchmark_group("Document Processing");
+    group.sample_size(10);
 
     group.bench_function("Document creation (Parsing TS)", |b| {
         b.iter(|| {
@@ -63,8 +65,6 @@ fn bench_document_processing(c: &mut Criterion) {
         .unwrap();
     let doc = DocumentState::new(uri.clone(), &ts_content, parser);
 
-    group.bench_function("Get GraphQL Trees", |b| b.iter(|| doc.get_graphql_trees()));
-
     group.bench_function("Get Semantic Tokens", |b| {
         b.iter(|| doc.get_semantic_tokens())
     });
@@ -81,6 +81,7 @@ fn bench_multi_file_update(c: &mut Criterion) {
         .expect("Failed to read component.ts");
 
     let mut group = c.benchmark_group("Multi-file Updates");
+    group.sample_size(10);
 
     group.bench_function("Initial fragment collection (100 files)", |b| {
         b.iter_with_setup(
@@ -147,6 +148,7 @@ fn bench_large_file_simulation(c: &mut Criterion) {
     let uri = Url::parse("file:///tests/fixtures/large_component.ts").unwrap();
 
     let mut group = c.benchmark_group("Large File Simulation (100x)");
+    group.sample_size(10);
 
     group.bench_function("Large Document creation", |b| {
         b.iter(|| {
@@ -188,6 +190,7 @@ fn bench_fragment_heavy_document(c: &mut Criterion) {
 
     let uri = Url::parse("file:///heavy.graphql").unwrap();
     let mut group = c.benchmark_group("Fragment Heavy Document");
+    group.sample_size(10);
 
     group.bench_function("Parse and Extract Fragments (100 fragments)", |b| {
         b.iter(|| {
