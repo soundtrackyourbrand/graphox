@@ -5,6 +5,8 @@ use apollo_compiler::{executable, Node, Schema};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_lsp::lsp_types::Url;
 
@@ -102,6 +104,17 @@ impl Engine {
     where
         F: FnMut(PathBuf, DocumentState) + Send,
     {
+        Self::scan_workspace_cancellable(config, on_doc, Arc::new(AtomicBool::new(false)))
+    }
+
+    pub fn scan_workspace_cancellable<F>(
+        config: &Config,
+        mut on_doc: F,
+        cancelled: Arc<AtomicBool>,
+    ) -> WorkspaceMetadata
+    where
+        F: FnMut(PathBuf, DocumentState) + Send,
+    {
         let mut timings = WorkspaceScanTimings::default();
 
         // 1. Glob Resolution
@@ -146,6 +159,9 @@ impl Engine {
             .into_par_iter()
             .filter(|p| is_relevant_file(p))
             .filter_map(|p| {
+                if cancelled.load(Ordering::Relaxed) {
+                    return None;
+                }
                 let content = std::fs::read_to_string(&p).ok()?;
                 let abs_path = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
                 let uri = Url::from_file_path(&abs_path).ok()?;
@@ -170,6 +186,9 @@ impl Engine {
 
         let mut path_to_doc = HashMap::default();
         for (p, doc) in docs_vec {
+            if cancelled.load(Ordering::Relaxed) {
+                break;
+            }
             on_doc(p.clone(), doc.clone());
             path_to_doc.insert(p, doc);
         }

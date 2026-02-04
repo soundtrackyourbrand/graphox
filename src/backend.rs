@@ -24,6 +24,7 @@ pub struct Backend {
     pub fragment_dependents: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub workspace_loaded: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
+    pub workspace_scan_cancelled: Arc<AtomicBool>,
 }
 
 
@@ -60,6 +61,7 @@ impl Backend {
             fragment_dependents: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             workspace_loaded: Arc::new(AtomicBool::new(false)),
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
+            workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -507,8 +509,11 @@ impl LanguageServer for Backend {
         let empty_schema = self.empty_schema.clone();
         let schemas = self.schemas.clone();
 
+        let workspace_scan_cancelled = self.workspace_scan_cancelled.clone();
+
         tokio::spawn(async move {
             let token = NumberOrString::String("workspace-scan".to_string());
+            let cancelled = workspace_scan_cancelled;
 
             // Create progress
             let _ = client
@@ -524,7 +529,7 @@ impl LanguageServer for Backend {
                     value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
                         WorkDoneProgressBegin {
                             title: "Scanning workspace".to_string(),
-                            cancellable: Some(false),
+                            cancellable: Some(true),
                             message: Some("Parsing GraphQL files...".to_string()),
                             percentage: Some(0),
                         },
@@ -532,25 +537,30 @@ impl LanguageServer for Backend {
                 })
                 .await;
 
-            let workspace_metadata = crate::engine::Engine::scan_workspace(&config, |_, doc| {
-                let uri = doc.uri.clone();
-                fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-                fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
-                package_roots.insert(uri.clone(), doc.package_root.clone());
+            let workspace_metadata =
+                crate::engine::Engine::scan_workspace_cancellable(&config, |_, doc| {
+                    if cancelled.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let uri = doc.uri.clone();
 
-                for spread in &doc.fragment_spreads {
-                    fragment_dependents
-                        .entry(spread.clone())
-                        .or_default()
-                        .insert(uri.clone());
-                }
+                    fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+                    fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
+                    package_roots.insert(uri.clone(), doc.package_root.clone());
 
-                // If the document is not already open, we still might want to keep it in memory
-                // for fast definition/hover/etc.
-                if !documents.contains_key(&uri) {
-                    documents.insert(uri, doc);
-                }
-            });
+                    for spread in &doc.fragment_spreads {
+                        fragment_dependents
+                            .entry(spread.clone())
+                            .or_default()
+                            .insert(uri.clone());
+                    }
+
+                    // If the document is not already open, we still might want to keep it in memory
+                    // for fast definition/hover/etc.
+                    if !documents.contains_key(&uri) {
+                        documents.insert(uri, doc);
+                    }
+                }, cancelled.clone());
             let total_docs = workspace_metadata.documents.len();
 
             workspace_loaded.store(true, Ordering::SeqCst);
