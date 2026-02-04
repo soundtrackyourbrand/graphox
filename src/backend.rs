@@ -307,49 +307,20 @@ impl Backend {
                     )
                     .await;
 
-                let mut to_publish = Vec::new();
-                let used_fragments = self.get_used_fragments();
-                let all_fragments_info = self.get_all_fragments_info();
-                let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
-
+                let mut affected_by_schema = Vec::new();
                 let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
                 for uri in all_uris {
-                    if let Some(doc) = self.documents.get(&uri) {
-                        let doc_schema = self.get_schema_for_doc(&uri);
-                        if let Ok(doc_path) = uri.to_file_path() {
-                            if self
-                                .config
-                                .get_schema_for_path(&doc_path)
-                                .is_some_and(|p| p.as_str() == key.as_str())
-                            {
-                                let target_package_root = doc.package_root.as_ref();
-                                let fragments: Vec<_> = all_fragments_info
-                                    .iter()
-                                    .filter(|f| {
-                                        let is_same_package = f.package_root.as_ref() == target_package_root;
-                                        is_same_package || f.is_public
-                                    })
-                                    .cloned()
-                                    .collect();
-
-                                let diagnostics = doc.get_semantic_diagnostics(
-                                    &doc_schema,
-                                    &fragments,
-                                    Some(&used_fragments),
-                                    Some(&self.config),
-                                    false,
-                                    workspace_loaded,
-                                );
-                                to_publish.push((uri.clone(), diagnostics));
-                            }
+                    if let Ok(doc_path) = uri.to_file_path() {
+                        if self
+                            .config
+                            .get_schema_for_path(&doc_path)
+                            .is_some_and(|p| p.as_str() == key.as_str())
+                        {
+                            affected_by_schema.push(uri);
                         }
                     }
                 }
-                for (uri, diagnostics) in to_publish {
-                    self.client
-                        .publish_diagnostics(uri, diagnostics, None)
-                        .await;
-                }
+                self.validate_uris(affected_by_schema).await;
             }
         }
     }
@@ -526,7 +497,11 @@ impl Backend {
         }
     }
 
-    pub async fn validate_all_documents(&self) {
+    pub async fn validate_uris(&self, uris: Vec<Url>) {
+        if uris.is_empty() {
+            return;
+        }
+
         let mut to_publish = Vec::new();
         let used_fragments = self.get_used_fragments();
         let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
@@ -534,9 +509,7 @@ impl Backend {
         // Pre-calculate all fragments info to avoid holding locks during O(N^2) work
         let all_fragments_info = self.get_all_fragments_info();
 
-        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
-
-        for uri in all_uris {
+        for uri in uris {
             if let Some(doc) = self.documents.get(&uri) {
                 let schema = self.get_schema_for_doc(&uri);
 
@@ -546,7 +519,6 @@ impl Backend {
                     .iter()
                     .filter(|f| {
                         let is_same_package = f.package_root.as_ref() == target_package_root;
-
                         is_same_package || f.is_public
                     })
                     .cloned()
@@ -567,6 +539,38 @@ impl Backend {
         for (u, d) in to_publish {
             self.client.publish_diagnostics(u, d, None).await;
         }
+    }
+
+    pub async fn validate_all_documents(&self) {
+        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+        self.validate_uris(all_uris).await;
+    }
+
+    fn get_affected_uris(&self, initial_uri: Url, affected_fragments: FnvHashSet<String>) -> Vec<Url> {
+        let mut uris_to_validate = FnvHashSet::default();
+        uris_to_validate.insert(initial_uri);
+
+        let mut to_process: Vec<String> = affected_fragments.into_iter().collect();
+        let mut processed_fragments = FnvHashSet::default();
+
+        while let Some(frag_name) = to_process.pop() {
+            if !processed_fragments.insert(frag_name.clone()) {
+                continue;
+            }
+
+            if let Some(dependents) = self.fragment_dependents.get(&frag_name) {
+                for dep_uri in dependents.value() {
+                    if uris_to_validate.insert(dep_uri.clone()) {
+                        if let Some(doc) = self.documents.get(dep_uri) {
+                            for f in doc.fragments() {
+                                to_process.push(f.name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        uris_to_validate.into_iter().collect()
     }
 }
 
@@ -1095,6 +1099,11 @@ impl LanguageServer for Backend {
 
         let doc = DocumentState::new(uri.clone(), &params.text_document.text, parser);
 
+        let mut affected_fragment_names = FnvHashSet::default();
+        for f in doc.fragments() {
+            affected_fragment_names.insert(f.name.clone());
+        }
+
         // Update performance indices
         self.fragment_defs
             .insert(uri.clone(), doc.fragments().to_vec());
@@ -1106,7 +1115,8 @@ impl LanguageServer for Backend {
 
         self.documents.insert(uri.clone(), doc);
 
-        self.validate_all_documents().await;
+        let uris_to_validate = self.get_affected_uris(uri, affected_fragment_names);
+        self.validate_uris(uris_to_validate).await;
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = self.normalize_uri(params.text_document.uri);
@@ -1119,8 +1129,14 @@ impl LanguageServer for Backend {
         let mut new_fragments_opt = None;
         let mut new_spreads_opt = None;
         let mut package_root_opt = None;
+        let mut affected_fragment_names = FnvHashSet::default();
 
         if let Some(mut doc) = self.documents.get_mut(&uri) {
+            // Collect fragments before change
+            for f in doc.fragments() {
+                affected_fragment_names.insert(f.name.clone());
+            }
+
             let old_spreads = doc.fragment_spreads.clone();
 
             let mut parser = tree_sitter::Parser::new();
@@ -1130,6 +1146,11 @@ impl LanguageServer for Backend {
 
             for change in params.content_changes {
                 doc.apply_change(&change, &mut parser);
+            }
+
+            // Collect fragments after change
+            for f in doc.fragments() {
+                affected_fragment_names.insert(f.name.clone());
             }
 
             let new_fragments = doc.fragments().to_vec();
@@ -1152,7 +1173,8 @@ impl LanguageServer for Backend {
             self.package_roots.insert(uri.clone(), package_root);
         }
 
-        self.validate_all_documents().await;
+        let uris_to_validate = self.get_affected_uris(uri, affected_fragment_names);
+        self.validate_uris(uris_to_validate).await;
     }
 
     async fn goto_definition(
