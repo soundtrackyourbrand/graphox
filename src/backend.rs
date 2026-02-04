@@ -16,6 +16,10 @@ pub struct Backend {
     pub config: Config,
     pub schemas: DashMap<String, Arc<Schema>>,
     pub empty_schema: Arc<Schema>,
+    // Performance optimizations
+    pub fragment_defs: DashMap<Url, Vec<crate::document::FragmentDef>>,
+    pub fragment_spreads: DashMap<Url, Vec<String>>,
+    pub package_roots: DashMap<Url, Option<std::path::PathBuf>>,
 }
 
 impl Backend {
@@ -40,6 +44,9 @@ impl Backend {
             config,
             schemas,
             empty_schema,
+            fragment_defs: DashMap::new(),
+            fragment_spreads: DashMap::new(),
+            package_roots: DashMap::new(),
         }
     }
 
@@ -76,27 +83,29 @@ impl Backend {
 
     fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
         let mut fragments = Vec::new();
-        for entry in self.documents.iter() {
-            let other_doc = entry.value();
-            let is_same_package = other_doc.package_root == doc.package_root;
-            
-            let other_path = if let Ok(p) = other_doc.uri.to_file_path() {
-                Some(p)
+        let target_package_root = doc.package_root.as_ref();
+
+        for entry in self.fragment_defs.iter() {
+            let other_uri = entry.key();
+            let other_frags = entry.value();
+
+            let is_same_package = self.package_roots.get(other_uri).map(|pr| pr.as_ref() == target_package_root).unwrap_or(false);
+
+            let import_path = if is_same_package {
+                None
+            } else if let Ok(p) = other_uri.to_file_path() {
+                self.config.get_project_for_path(&p).and_then(|proj| proj.import.clone())
             } else {
                 None
             };
-            
-            let import_path = other_path.as_ref().and_then(|p| {
-                self.config.get_project_for_path(p).and_then(|proj| proj.import.clone())
-            });
 
-            for frag in other_doc.fragments() {
+            for frag in other_frags {
                 if is_same_package || frag.is_public {
                     fragments.push(FragmentCompletionInfo {
                         name: frag.name.clone(),
                         type_condition: frag.type_condition.clone(),
-                        description: other_doc.find_description(&frag.name),
-                        import_path: if is_same_package { None } else { import_path.clone() },
+                        description: frag.description.clone(),
+                        import_path: import_path.clone(),
                     });
                 }
             }
@@ -106,14 +115,14 @@ impl Backend {
 
     fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
         let mut used = fnv::FnvHashSet::default();
-        for entry in self.documents.iter() {
-            let doc = entry.value();
-            for spread in &doc.fragment_spreads {
+        for entry in self.fragment_spreads.iter() {
+            for spread in entry.value() {
                 used.insert(spread.clone());
             }
         }
         used
     }
+
 
     async fn reload_schema(&self, changed_path: &str) {
         let mut sources_to_reload = Vec::new();
@@ -650,27 +659,46 @@ impl LanguageServer for Backend {
             for change in params.content_changes {
                 doc.apply_change(&change, &mut parser);
             }
+            // Update performance indices
+            self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+            self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
+            self.package_roots.insert(uri.clone(), doc.package_root.clone());
         }
 
         let mut to_publish = Vec::new();
         let used_fragments = self.get_used_fragments();
+        
+        // Re-validate the changed document
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
             let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics =
                 doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
-            drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
 
-        // Also revalidate other documents because fragments might have changed
+        // Optimization: Only re-validate other documents if they are relevant
+        let changed_path = uri.to_file_path().ok();
+        let changed_schema = changed_path.as_ref().and_then(|p| self.config.get_schema_for_path(p));
+        let changed_package_root = self.documents.get(&uri).and_then(|d| d.package_root.clone());
+
         for entry in self.documents.iter() {
             let other_uri = entry.key();
             if other_uri == &uri {
                 continue;
             }
+
             let other_doc = entry.value();
+            let other_path = other_uri.to_file_path().ok();
+            
+            let same_package = other_doc.package_root == changed_package_root;
+            let same_schema = other_path.as_ref().and_then(|p| self.config.get_schema_for_path(p)) == changed_schema;
+
+            if !same_package && !same_schema {
+                continue;
+            }
+
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
             let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
@@ -823,6 +851,12 @@ impl LanguageServer for Backend {
             parser,
         );
         let uri = params.text_document.uri;
+        
+        // Update performance indices
+        self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+        self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
+        self.package_roots.insert(uri.clone(), doc.package_root.clone());
+        
         self.documents.insert(uri.clone(), doc);
 
         let mut to_publish = Vec::new();

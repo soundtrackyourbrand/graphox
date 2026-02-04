@@ -65,6 +65,7 @@ pub struct FragmentDef {
     pub name: String,
     pub type_condition: String,
     pub is_public: bool,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -350,6 +351,8 @@ impl DocumentState {
                 let mut type_condition = None;
                 let mut is_fragment = false;
                 let mut is_public = false;
+                let mut description = None;
+                let mut container_node = None;
 
                 for cap in m.captures {
                     let cap_name = query.capture_names()[cap.index as usize];
@@ -358,6 +361,7 @@ impl DocumentState {
                     } else if cap_name == "symbol.type_condition" {
                         type_condition = Some(self.get_node_text(cap.node, offset));
                     } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
                         if cap.node.kind() == "fragment_definition" {
                             is_fragment = true;
                         }
@@ -370,10 +374,39 @@ impl DocumentState {
                 }
 
                 if is_fragment && let Some(n) = name {
+                    if let Some(container) = container_node {
+                        let mut walker = container.walk();
+                        for child in container.children(&mut walker) {
+                            if child.kind() == "description" {
+                                if let Some(sv) = child.child_by_field_name("content") {
+                                    description = Some(self.get_node_text(sv, offset).trim_matches('"').to_string());
+                                } else if let Some(sv) = child.child(0) {
+                                    description = Some(self.get_node_text(sv, offset).trim_matches('"').to_string());
+                                }
+                            }
+                        }
+                        
+                        if description.is_none() {
+                            // Try to find preceding comment
+                            let range = self.translate_to_file_range(container, offset);
+                            if range.start.line > 0 {
+                                let prev_line_num = range.start.line - 1;
+                                let line_start = self.rope.line_to_char(prev_line_num as usize);
+                                let line_end = self.rope.line_to_char(range.start.line as usize);
+                                let line_text = self.rope.slice(line_start..line_end).to_string();
+                                let trimmed = line_text.trim();
+                                if trimmed.starts_with('#') {
+                                    description = Some(trimmed.trim_start_matches('#').trim().to_string());
+                                }
+                            }
+                        }
+                    }
+
                     fragments.push(FragmentDef {
                         name: n,
                         type_condition: type_condition.unwrap_or_default(),
                         is_public,
+                        description,
                     });
                 }
             }

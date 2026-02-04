@@ -52,8 +52,7 @@ impl DocumentState {
             match current.kind() {
                 "selection_set" | "operation_definition" | "fragment_definition" | "inline_fragment" => {
                     // Check if we are right after dots
-                    let text_so_far = self.rope.byte_slice(offset..(offset + local_byte)).to_string();
-                    if text_so_far.trim_end().ends_with("...") {
+                    if self.is_after_dots(offset, local_byte) {
                          if let Some(items) = self.complete_selection_set_at_node(
                             current,
                             offset,
@@ -81,11 +80,7 @@ impl DocumentState {
                     return Some(self.get_fragment_name_completions(fragments, parent_type.as_ref(), schema));
                 }
                 "fragment_definition" => {
-                    let text_so_far = self
-                        .rope
-                        .byte_slice(offset..(offset + local_byte))
-                        .to_string();
-                    if text_so_far.trim_end().ends_with(" on") {
+                    if self.is_after_on(offset, local_byte) {
                         return Some(self.get_all_type_completions(schema));
                     }
                     if let Some(items) = self.complete_selection_set_at_node(
@@ -608,5 +603,50 @@ impl DocumentState {
             });
         }
         items
+    }
+
+    fn is_after_dots(&self, offset: usize, local_byte: usize) -> bool {
+        let start = offset + local_byte.saturating_sub(10);
+        let end = offset + local_byte;
+        let slice = self.rope.byte_slice(start..end).to_string();
+        let mut dot_count = 0;
+        for c in slice.chars().rev() {
+            if c.is_whitespace() {
+                continue;
+            }
+            if c == '.' {
+                dot_count += 1;
+                if dot_count == 3 {
+                    return true;
+                }
+            } else {
+                break;
+            }
+        }
+        false
+    }
+
+    fn is_after_on(&self, offset: usize, local_byte: usize) -> bool {
+        let start = offset + local_byte.saturating_sub(10);
+        let end = offset + local_byte;
+        let slice = self.rope.byte_slice(start..end).to_string();
+        let mut found_n = false;
+        for c in slice.chars().rev() {
+            if c.is_whitespace() {
+                continue;
+            }
+            if !found_n {
+                if c == 'n' || c == 'N' {
+                    found_n = true;
+                } else {
+                    return false;
+                }
+            } else if c == 'o' || c == 'O' {
+                return true;
+            } else {
+                return false;
+            }
+        }
+        false
     }
 }
