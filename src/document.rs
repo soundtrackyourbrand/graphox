@@ -67,6 +67,8 @@ pub struct FragmentDef {
     pub is_public: bool,
     pub description: Option<String>,
     pub source_hash: u64,
+    pub used_variables: Vec<String>,
+    pub used_fragments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -143,7 +145,6 @@ impl DocumentState {
             }];
         }
 
-        // TypeScript/TSX handling - Fast check first
         if !self.has_graphql_candidates() {
             return vec![];
         }
@@ -188,7 +189,6 @@ impl DocumentState {
                     break;
                 } else if cap.index == gql_template_idx {
                     let node = cap.node;
-                    // Check for comment more robustly
                     let mut curr = node.prev_named_sibling();
                     while let Some(prev) = curr {
                         if prev.kind() == "comment" {
@@ -202,9 +202,6 @@ impl DocumentState {
                                 break;
                             }
                         }
-                        // Skip other named nodes if they might be between comment and template
-                        // but usually in TS they are direct siblings in arguments or declarators.
-                        // We only want to go back a little bit.
                         if prev.kind() != "comment" {
                             break;
                         }
@@ -263,7 +260,6 @@ impl DocumentState {
         let char_at_offset = self.rope.byte_to_char(byte_offset);
         let char_at_line_start = self.rope.byte_to_char(line_start_byte);
 
-        // Ropey methods are char_to_utf16_cu
         let utf16_cu_at_offset = self.rope.char_to_utf16_cu(char_at_offset);
         let utf16_cu_at_line_start = self.rope.char_to_utf16_cu(char_at_line_start);
 
@@ -385,6 +381,8 @@ impl DocumentState {
 
                 if is_fragment && let Some(n) = name {
                     let mut source_hash = 0;
+                    let mut used_variables = Vec::new();
+                    let mut used_fragments = Vec::new();
                     if let Some(container) = container_node {
                         let mut hasher = ahash::AHasher::default();
                         use std::hash::{Hash, Hasher};
@@ -401,9 +399,50 @@ impl DocumentState {
                                 }
                             }
                         }
-                        
+
+                        let ref_query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
+                            let lang = tree_sitter_graphql::LANGUAGE.into();
+                            tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
+                        });
+                        let mut ref_cursor = tree_sitter::QueryCursor::new();
+
+                        let mut ref_matches = ref_cursor.matches(ref_query, container, |node: Node| {
+                            let start = node.start_byte();
+                            let end = node.end_byte();
+                            self.rope
+                                .byte_slice((start + offset)..(end + offset))
+                                .chunks()
+                        });
+
+                        while let Some(rm) = ref_matches.next() {
+                            let mut is_reference = false;
+                            let mut name_node = None;
+                            for rcap in rm.captures {
+                                if ref_query.capture_names()[rcap.index as usize] == "reference" {
+                                    is_reference = true;
+                                } else if ref_query.capture_names()[rcap.index as usize] == "name" {
+                                    name_node = Some(rcap.node);
+                                }
+                            }
+
+                            if is_reference && let Some(nn) = name_node {
+                                let node_text = self.get_node_text(nn, offset);
+                                if node_text.starts_with('$') {
+                                    let mut v_cursor = nn.walk();
+                                    for v_child in nn.children(&mut v_cursor) {
+                                        if v_child.kind() == "name" {
+                                            used_variables.push(self.get_node_text(v_child, offset));
+                                        }
+                                    }
+                                } else if let Some(parent) = nn.parent() {
+                                    if parent.kind() == "fragment_name" {
+                                        used_fragments.push(node_text);
+                                    }
+                                }
+                            }
+                        }
+
                         if description.is_none() {
-                            // Try to find preceding comment
                             let range = self.translate_to_file_range(container, offset);
                             if range.start.line > 0 {
                                 let prev_line_num = range.start.line - 1;
@@ -424,6 +463,8 @@ impl DocumentState {
                         is_public,
                         description,
                         source_hash,
+                        used_variables,
+                        used_fragments,
                     });
                 }
             }
@@ -465,7 +506,10 @@ impl DocumentState {
                 }
 
                 if is_reference && let Some(name_node) = name_node {
-                    spreads.push(self.get_node_text(name_node, offset));
+                    let name = self.get_node_text(name_node, offset);
+                    if !name.starts_with('$') {
+                        spreads.push(name);
+                    }
                 }
             }
         }
@@ -518,7 +562,6 @@ impl DocumentState {
                     let source_text = if let Some(n) = full_node {
                         self.get_node_text(n, offset)
                     } else {
-                        // Fallback if symbol.full capture failed for some reason
                         block
                             .tree
                             .root_node()
@@ -578,7 +621,6 @@ impl DocumentState {
                     && n == target_name
                     && let Some(cont) = container_node
                 {
-                    // Extract the selection set or the whole fragment
                     return Some(self.get_node_text(cont, offset));
                 }
             }
@@ -622,9 +664,6 @@ impl DocumentState {
                 new_end_position: Point::new(new_end_line, new_end_col_utf16),
             };
 
-            // If we have other references to the tree (e.g. in WorkspaceMetadata),
-            // we can't edit it in place. We must parse from scratch or deep clone if tree-sitter supported it.
-            // Since tree-sitter Tree doesn't implement Clone, we'll try to get_mut or just re-parse.
             if let Some(tree) = Arc::get_mut(&mut self.tree) {
                 tree.edit(&edit);
                 self.tree = Arc::new(
@@ -643,12 +682,10 @@ impl DocumentState {
                         .unwrap(),
                 );
             } else {
-                // Fallback: Full re-parse if tree is shared
                 let full_text = self.rope.to_string();
                 self.tree = Arc::new(parser.parse(&full_text, None).unwrap());
             }
         } else {
-            // Full update
             self.rope = Rope::from_str(&change.text);
             self.tree = Arc::new(parser.parse(&change.text, None).unwrap());
         }
@@ -663,9 +700,7 @@ impl DocumentState {
             self.rope.to_string()
         };
     }
-}
 
-impl DocumentState {
     pub fn find_parent_type_for_node(
         &self,
         node: Node,

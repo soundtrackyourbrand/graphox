@@ -114,6 +114,8 @@ async fn execute_project_check(
                 is_public: frag.is_public,
                 uri: doc.uri.clone(),
                 package_root: doc.package_root.clone(),
+                used_variables: frag.used_variables.clone(),
+                used_fragments: frag.used_fragments.clone(),
             };
             if frag.is_public {
                 all_public_fragments.push(info.clone());

@@ -51,6 +51,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
     }
 }
 
@@ -67,7 +68,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
     // Pre-populate documents to simulate an initialized LSP with a large workspace
     rt.block_on(async {
-        let workspace_metadata = graphql_rust::engine::Engine::scan_workspace(&config);
+        let workspace_metadata = graphql_rust::engine::Engine::scan_workspace(&config, |_, _| {});
         for project_meta in workspace_metadata.projects {
             for file_path in project_meta.files {
                 let abs_path = fs::canonicalize(&file_path).unwrap();
@@ -232,7 +233,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
                     Some(&used_fragments),
                     Some(&backend.config),
                     false,
-                    Some(&backend.package_roots),
+                    true,
                 );
             }
         });

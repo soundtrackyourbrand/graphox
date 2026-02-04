@@ -131,6 +131,8 @@ impl Backend {
                         is_public: frag.is_public,
                         uri: uri.clone(),
                         package_root: package_root.clone(),
+                        used_variables: frag.used_variables.clone(),
+                        used_fragments: frag.used_fragments.clone(),
                     })
                     .collect::<Vec<_>>()
             })
@@ -680,6 +682,8 @@ impl LanguageServer for Backend {
                             is_public: frag.is_public,
                             uri: uri.clone(),
                             package_root,
+                            used_variables: frag.used_variables.clone(),
+                            used_fragments: frag.used_fragments.clone(),
                         }
                     }).collect::<Vec<_>>()
                 })

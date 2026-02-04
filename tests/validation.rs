@@ -204,6 +204,8 @@ fn test_validation_known_fragment_spread() {
         is_public: false,
         uri: Url::parse("file:///test.graphql").unwrap(),
         package_root: None,
+        used_variables: Vec::new(),
+        used_fragments: Vec::new(),
     }];
     let diagnostics = doc.get_semantic_diagnostics(schema, &fragments, None, None, false, true);
 

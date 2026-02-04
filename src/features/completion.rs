@@ -12,6 +12,8 @@ pub struct FragmentCompletionInfo {
     pub is_public: bool,
     pub uri: Url,
     pub package_root: Option<std::path::PathBuf>,
+    pub used_variables: Vec<String>,
+    pub used_fragments: Vec<String>,
 }
 
 impl DocumentState {

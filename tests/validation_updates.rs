@@ -82,6 +82,8 @@ fn test_diagnostics_update_on_fragment_change() {
         is_public: false,
         uri: Url::parse("file:///frag.graphql").unwrap(),
         package_root: None,
+        used_variables: Vec::new(),
+        used_fragments: Vec::new(),
     }];
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);
@@ -100,6 +102,8 @@ fn test_diagnostics_update_on_fragment_change() {
         is_public: false,
         uri: Url::parse("file:///frag.graphql").unwrap(),
         package_root: None,
+        used_variables: Vec::new(),
+        used_fragments: Vec::new(),
     }];
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);

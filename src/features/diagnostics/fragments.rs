@@ -160,8 +160,8 @@ impl DocumentState {
                 for name_child in child.children(&mut name_cursor) {
                     if name_child.kind() == "name" {
                         let name = self.get_node_text(name_child, offset);
-                        let exists = ctx.all_fragments.iter().any(|f| f.name == name) 
-                            || self.fragments.iter().any(|f| f.name == name);
+                        let mut visited = fnv::FnvHashSet::default();
+                        let exists = self.mark_used_variables_recursive(&name, ctx, &mut visited);
 
                         if !exists && ctx.workspace_loaded {
                             ctx.diagnostics.push(Diagnostic {
@@ -175,5 +175,44 @@ impl DocumentState {
                 }
             }
         }
+    }
+
+    fn mark_used_variables_recursive(
+        &self,
+        name: &str,
+        ctx: &mut ValidationContext,
+        visited: &mut fnv::FnvHashSet<String>,
+    ) -> bool {
+        if !visited.insert(name.to_string()) {
+            return true;
+        }
+
+        let mut used_variables = None;
+        let mut used_fragments = None;
+        let mut exists = false;
+
+        if let Some(f) = ctx.all_fragments.iter().find(|f| f.name == name) {
+            exists = true;
+            used_variables = Some(&f.used_variables);
+            used_fragments = Some(&f.used_fragments);
+        } else if let Some(f) = self.fragments.iter().find(|f| f.name == name) {
+            exists = true;
+            used_variables = Some(&f.used_variables);
+            used_fragments = Some(&f.used_fragments);
+        }
+
+        if let Some(vars) = used_variables {
+            for var in vars {
+                ctx.used_variables.insert(var.clone());
+            }
+        }
+
+        if let Some(frags) = used_fragments {
+            for frag in frags {
+                self.mark_used_variables_recursive(frag, ctx, visited);
+            }
+        }
+
+        exists
     }
 }
