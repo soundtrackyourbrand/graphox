@@ -37,6 +37,9 @@ pub const GQL_SYMBOL_QUERY: &str = r#"
 
     (operation_definition 
         (name)? @symbol.name) @symbol.container
+
+    (directive_definition
+        (name) @symbol.name) @symbol.container
 "#;
 
 pub const SEMANTIC_TOKEN_QUERY: &str = r#"
@@ -59,8 +62,12 @@ pub const TS_GQL_QUERY: &str = r#"
 
 pub const GQL_DEFINITION_QUERY: &str = r#"
     (object_type_definition (name) @name)
-    (fragment_definition (fragment_name (name) @name))
+    (interface_type_definition (name) @name)
     (enum_type_definition (name) @name)
+    (union_type_definition (name) @name)
+    (input_object_type_definition (name) @name)
+    (scalar_type_definition (name) @name)
+    (fragment_definition (fragment_name (name) @name))
     (variable_definition (variable) @name)
 "#;
 
