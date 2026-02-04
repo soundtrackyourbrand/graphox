@@ -1,6 +1,6 @@
 use crate::Config;
 use crate::config::SchemaSource;
-use crate::document::DocumentState;
+use crate::document::{DocumentLanguage, DocumentState};
 use crate::features::completion::FragmentCompletionInfo;
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use apollo_compiler::Schema;
@@ -56,17 +56,17 @@ impl Backend {
         base_dir: &std::path::Path,
         source: &SchemaSource,
     ) -> Option<Arc<Schema>> {
-        let mut combined_text = String::new();
+        let mut texts = Vec::new();
         for file in source.files() {
             let path = base_dir.join(file);
             match std::fs::read_to_string(&path) {
                 Ok(text) => {
-                    combined_text.push_str(&text);
-                    combined_text.push('\n');
+                    texts.push(text);
                 }
                 Err(_) => return None,
             }
         }
+        let combined_text = crate::utils::merge_schema_texts(&texts);
         Schema::parse(&combined_text, source.as_key())
             .ok()
             .map(Arc::new)
@@ -797,6 +797,130 @@ impl LanguageServer for Backend {
         for (u, d) in to_publish {
             self.client.publish_diagnostics(u, d, None).await;
         }
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+            doc.get_symbol_at_position(position)
+        } else {
+            None
+        };
+
+        if let Some(name) = symbol_name
+            && let Some(doc) = self.documents.get(&uri)
+        {
+            for entry in self.documents.iter() {
+                let other_doc = entry.value();
+                let is_same_package = other_doc.package_root == doc.package_root;
+                let is_public_fragment = other_doc
+                    .fragments()
+                    .iter()
+                    .any(|f| f.name == name && f.is_public);
+
+                if (is_same_package || is_public_fragment)
+                    && let Some(location) = other_doc.find_definition_in_tree(&name)
+                {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+            doc.get_symbol_at_position(position)
+        } else {
+            None
+        };
+
+        if let Some(name) = symbol_name {
+            let mut all_references = Vec::new();
+
+            for entry in self.documents.iter() {
+                let other_doc = entry.value();
+
+                let refs = other_doc.find_references_in_tree(&name, include_declaration);
+                all_references.extend(refs);
+            }
+
+            if all_references.is_empty() {
+                return Ok(None);
+            }
+
+            return Ok(Some(all_references));
+        }
+
+        Ok(None)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+            doc.get_symbol_at_position(position)
+        } else {
+            None
+        };
+
+        if let Some(name) = symbol_name {
+            let mut changes = std::collections::HashMap::new();
+
+            for entry in self.documents.iter() {
+                let other_uri = entry.key();
+                let other_doc = entry.value();
+
+                let refs = other_doc.find_references_in_tree(&name, true);
+                if !refs.is_empty() {
+                    let edits: Vec<TextEdit> = refs
+                        .into_iter()
+                        .map(|loc| TextEdit {
+                            range: loc.range,
+                            new_text: new_name.clone(),
+                        })
+                        .collect();
+                    changes.insert(other_uri.clone(), edits);
+                }
+            }
+
+            return Ok(Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        if let Some(doc) = self.documents.get(&uri) {
+            if let Some(_name) = doc.get_symbol_at_position(position) {
+                return Ok(Some(PrepareRenameResponse::DefaultBehavior {
+                    default_behavior: true,
+                }));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn document_symbol(

@@ -116,6 +116,9 @@ async fn test_goto_definition_cross_file() {
         .finish();
 
     let response = service.call(request).await.unwrap().unwrap();
+    if let Some(err) = response.error() {
+        panic!("LSP Error: {:?}", err);
+    }
     let result: Option<GotoDefinitionResponse> =
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 

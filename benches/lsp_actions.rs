@@ -232,6 +232,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
                     Some(&used_fragments),
                     Some(&backend.config),
                     false,
+                    Some(&backend.package_roots),
                 );
             }
         });

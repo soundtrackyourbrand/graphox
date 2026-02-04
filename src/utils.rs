@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::SemanticTokenType;
+use tree_sitter::StreamingIterator;
 
 pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
     SemanticTokenType::VARIABLE,
@@ -212,6 +213,122 @@ pub fn get_output_path(path: &Path, base_dir: &Path, output_dir: Option<&str>) -
         p.set_extension("codegen.ts");
         p
     }
+}
+
+pub fn merge_schema_texts(texts: &[String]) -> String {
+    let mut merged = String::new();
+    let mut seen_base = fnv::FnvHashSet::default();
+
+    for text in texts {
+        let mut parser = tree_sitter::Parser::new();
+        if let Err(e) = parser.set_language(&tree_sitter_graphql::LANGUAGE.into()) {
+             eprintln!("ERROR: Failed to set GraphQL language: {}", e);
+             merged.push_str(text);
+             merged.push('\n');
+             continue;
+        }
+        let tree = if let Some(t) = parser.parse(text, None) {
+            t
+        } else {
+             merged.push_str(text);
+             merged.push('\n');
+             continue;
+        };
+        let root = tree.root_node();
+
+        let query_str = r#"
+            [
+                (object_type_definition (name) @name)
+                (interface_type_definition (name) @name)
+                (enum_type_definition (name) @name)
+                (scalar_type_definition (name) @name)
+                (union_type_definition (name) @name)
+                (input_object_type_definition (name) @name)
+
+                (type_extension (object_type_extension (name) @name))
+                (type_extension (interface_type_extension (name) @name))
+                (type_extension (enum_type_extension (name) @name))
+                (type_extension (scalar_type_extension (name) @name))
+                (type_extension (union_type_extension (name) @name))
+                (type_extension (input_object_type_extension (name) @name))
+            ] @type_def
+        "#;
+        let query = tree_sitter::Query::new(&tree_sitter_graphql::LANGUAGE.into(), query_str).unwrap();
+        let mut cursor = tree_sitter::QueryCursor::new();
+        let mut matches = cursor.matches(&query, root, text.as_bytes());
+
+        let mut modifications = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let mut name_node = None;
+            let mut container_node = None;
+            for cap in m.captures {
+                let cap_name = query.capture_names()[cap.index as usize];
+                if cap_name == "name" {
+                    name_node = Some(cap.node);
+                } else if cap_name == "type_def" {
+                    container_node = Some(cap.node);
+                }
+            }
+            
+            if let (Some(name_node), Some(container_node)) = (name_node, container_node) {
+                let name = &text[name_node.start_byte()..name_node.end_byte()];
+                let is_extension = container_node.kind() == "type_extension";
+
+                if !is_extension {
+                    if seen_base.contains(name) {
+                        let is_scalar = container_node.kind() == "scalar_type_definition";
+                        let mut has_directives = false;
+                        let mut cursor = container_node.walk();
+                        for child in container_node.children(&mut cursor) {
+                            if child.kind() == "directives" {
+                                has_directives = true;
+                                break;
+                            }
+                        }
+
+                        if is_scalar && !has_directives {
+                            // Just remove duplicate scalar with no directives as "extend scalar Name" is invalid without directives
+                            modifications.push((container_node.start_byte(), container_node.end_byte(), "".to_string()));
+                        } else {
+                            // We need to convert this to an extension.
+                            // We must skip any description or comments that come before the keyword.
+                            let mut insert_pos = container_node.start_byte();
+
+                            let mut cursor = container_node.walk();
+                            for child in container_node.children(&mut cursor) {
+                                let kind = child.kind();
+                                if kind != "description" && kind != "comment" {
+                                    insert_pos = child.start_byte();
+                                    break;
+                                }
+                            }
+
+                            // We replace the range from container start to keyword start with "extend "
+                            // This effectively strips the description from the extension.
+                            modifications.push((container_node.start_byte(), insert_pos, "extend ".to_string()));
+                        }
+                    } else {
+                        seen_base.insert(name.to_string());
+                    }
+                }
+            }
+        }
+
+        modifications.sort_by_key(|m| m.0);
+        let mut final_text = String::new();
+        let mut current_pos = 0;
+        for (start, end, replacement) in modifications {
+            final_text.push_str(&text[current_pos..start]);
+            final_text.push_str(&replacement);
+            current_pos = end;
+        }
+        final_text.push_str(&text[current_pos..]);
+        merged.push_str(&final_text);
+        merged.push('\n');
+    }
+
+    merged
 }
 
 /// Simple interpolation masker for template strings.
