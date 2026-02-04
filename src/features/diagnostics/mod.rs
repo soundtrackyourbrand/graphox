@@ -12,7 +12,7 @@ mod selection_set;
 mod values;
 
 pub(super) struct ValidationContext<'a> {
-    pub schema: &'a Schema,
+    pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub all_fragments: &'a [crate::features::completion::FragmentCompletionInfo],
     pub used_fragments: Option<&'a fnv::FnvHashSet<String>>,
     pub used_variables: fnv::FnvHashSet<String>,
@@ -26,7 +26,7 @@ pub(super) struct ValidationContext<'a> {
 impl DocumentState {
     pub fn get_semantic_diagnostics(
         &self,
-        schema: &Schema,
+        valid_schema: &apollo_compiler::validation::Valid<Schema>,
         all_fragments: &[crate::features::completion::FragmentCompletionInfo],
         used_fragments: Option<&fnv::FnvHashSet<String>>,
         config: Option<&Config>,
@@ -46,35 +46,33 @@ impl DocumentState {
             let block_text = self.get_node_text(block.tree.root_node(), offset);
             let masked = mask_interpolations(&block_text);
 
-            if let Ok(valid_schema) = schema.clone().validate() {
-                let doc_res = apollo_compiler::executable::ExecutableDocument::parse(
-                    &valid_schema,
-                    &masked,
-                    "doc.graphql",
-                );
-                if let Err(with_errors) = doc_res {
-                    // Only report parser errors if they are not about schema definitions in executable docs
-                    // (because the tool currently scans schema files too)
-                    let reportable_errors: Vec<_> = with_errors
-                        .errors
-                        .iter()
-                        .filter(|e| !e.to_string().contains("must not contain"))
-                        .collect();
+            let doc_res = apollo_compiler::executable::ExecutableDocument::parse(
+                valid_schema,
+                &masked,
+                "doc.graphql",
+            );
+            if let Err(with_errors) = doc_res {
+                // Only report parser errors if they are not about schema definitions in executable docs
+                // (because the tool currently scans schema files too)
+                let reportable_errors: Vec<_> = with_errors
+                    .errors
+                    .iter()
+                    .filter(|e| !e.to_string().contains("must not contain"))
+                    .collect();
 
-                    if !reportable_errors.is_empty() {
-                        diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(block.tree.root_node(), offset),
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            message: format!("GraphQL Parse Error: {}", with_errors.errors),
-                            ..Default::default()
-                        });
-                    }
+                if !reportable_errors.is_empty() {
+                    diagnostics.push(Diagnostic {
+                        range: self.translate_to_file_range(block.tree.root_node(), offset),
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: format!("GraphQL Parse Error: {}", with_errors.errors),
+                        ..Default::default()
+                    });
                 }
             }
 
             // 3. Our manual schema validation (handles fragments across files)
             let mut ctx = ValidationContext {
-                schema,
+                schema: valid_schema,
                 all_fragments,
                 used_fragments,
                 used_variables: fnv::FnvHashSet::default(),

@@ -2,7 +2,6 @@ use graphql_rust::{
     Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
 use std::fs;
-use std::path::Path;
 use tempfile::tempdir;
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;

@@ -63,6 +63,15 @@ async fn test_lsp_command_clear_cache() {
         .await
         .unwrap();
 
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
     let query_uri = Url::from_file_path(&query_path).unwrap();
     service
         .call(
@@ -166,6 +175,15 @@ async fn test_lsp_command_run_codegen() {
             Request::build("initialize")
                 .params(serde_json::to_value(InitializeParams::default()).unwrap())
                 .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
                 .finish(),
         )
         .await

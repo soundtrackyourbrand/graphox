@@ -20,7 +20,10 @@ fn test_multibyte_range_calculation() {
           newField: String
         }
     "#;
-    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     // 🚀 is 4 bytes in UTF-8, 1 char in Unicode, 2 code units in UTF-16
     let text = r#"
@@ -55,7 +58,10 @@ fn test_emoji_in_query_comment() {
           field: String
         }
     "#;
-    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let text = r#"
 const q = gql`

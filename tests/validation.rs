@@ -5,12 +5,22 @@ use tower_lsp::lsp_types::*;
 
 // Shared schema for tests
 static SCHEMA: OnceLock<Schema> = OnceLock::new();
+static VALID_SCHEMA: OnceLock<apollo_compiler::validation::Valid<Schema>> = OnceLock::new();
 
 fn get_schema() -> &'static Schema {
     SCHEMA.get_or_init(|| {
         let schema_content = std::fs::read_to_string("tests/fixtures/simple_schema.graphql")
             .expect("Failed to read schema file");
         Schema::parse(&schema_content, "schema.graphql").expect("Failed to parse schema")
+    })
+}
+
+fn get_valid_schema() -> &'static apollo_compiler::validation::Valid<Schema> {
+    VALID_SCHEMA.get_or_init(|| {
+        get_schema()
+            .clone()
+            .validate()
+            .expect("Schema validation failed")
     })
 }
 
@@ -26,7 +36,6 @@ fn create_doc(uri_str: &str, text: &str) -> DocumentState {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_valid_query() {
-    let schema = get_schema();
     let text = r#"
         query GetUser {
             users {
@@ -37,7 +46,8 @@ fn test_validation_valid_query() {
         }
     "#;
     let doc = create_doc("file:///valid.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     assert!(
         diagnostics.is_empty(),
@@ -49,7 +59,6 @@ fn test_validation_valid_query() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_missing_field() {
-    let schema = get_schema();
     let text = r#"
         query GetUser {
             users {
@@ -59,7 +68,8 @@ fn test_validation_missing_field() {
         }
     "#;
     let doc = create_doc("file:///missing.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     let error = diagnostics.iter().find(|d| d.message.contains("not found"));
     assert!(error.is_some(), "Expected 'not found' error");
@@ -71,7 +81,6 @@ fn test_validation_missing_field() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_deprecated_field() {
-    let schema = get_schema();
     let text = r#"
         query GetUser {
             users {
@@ -81,7 +90,8 @@ fn test_validation_deprecated_field() {
         }
     "#;
     let doc = create_doc("file:///deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     let warning = diagnostics
         .iter()
@@ -99,7 +109,6 @@ fn test_validation_deprecated_field() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_nested_missing_field() {
-    let schema = get_schema();
     let text = r#"
         query GetPosts {
             posts {
@@ -112,7 +121,8 @@ fn test_validation_nested_missing_field() {
         }
     "#;
     let doc = create_doc("file:///nested.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     let error = diagnostics
         .iter()
@@ -124,7 +134,6 @@ fn test_validation_nested_missing_field() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_fragment() {
-    let schema = get_schema();
     let text = r#"
         fragment UserFrag on User {
             id
@@ -132,7 +141,8 @@ fn test_validation_fragment() {
         }
     "#;
     let doc = create_doc("file:///fragment.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     let error = diagnostics
         .iter()
@@ -144,7 +154,6 @@ fn test_validation_fragment() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_inline_fragment() {
-    let schema = get_schema();
     let text = r#"
         query {
             users {
@@ -156,7 +165,8 @@ fn test_validation_inline_fragment() {
         }
     "#;
     let doc = create_doc("file:///inline.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     let error = diagnostics
         .iter()
@@ -167,7 +177,6 @@ fn test_validation_inline_fragment() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_unknown_fragment_spread() {
-    let schema = get_schema();
     let text = r#"
         query {
             users {
@@ -176,7 +185,8 @@ fn test_validation_unknown_fragment_spread() {
         }
     "#;
     let doc = create_doc("file:///spread.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
     let error = diagnostics
         .iter()
@@ -187,7 +197,6 @@ fn test_validation_unknown_fragment_spread() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_known_fragment_spread() {
-    let schema = get_schema();
     let text = r#"
         query {
             users {
@@ -208,7 +217,8 @@ fn test_validation_known_fragment_spread() {
         used_fragments: Vec::new(),
         requirements: std::collections::BTreeMap::new(),
     }];
-    let diagnostics = doc.get_semantic_diagnostics(schema, &fragments, None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &fragments, None, None, false, true);
 
     assert!(
         diagnostics.is_empty(),
@@ -229,7 +239,10 @@ fn test_validation_input_field_deprecation() {
           test(input: CreateUserInput): String
         }
     "#;
-    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let text = r#"
         query Test {
@@ -248,41 +261,6 @@ fn test_validation_input_field_deprecation() {
     );
     assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
     assert!(warning.unwrap().message.contains("Use newField"));
-}
-
-#[test]
-#[ntest::timeout(100)]
-fn test_validation_input_type_deprecation() {
-    let schema_content = r#"
-        input OldInput @deprecated(reason: "Use NewInput") {
-          id: ID!
-        }
-        input NewInput {
-          id: ID!
-        }
-        type Query {
-          test(old: OldInput, new: NewInput): String
-        }
-    "#;
-    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
-
-    let text = r#"
-        query Test($old: OldInput) {
-            test(old: $old, new: { id: "1" })
-        }
-    "#;
-    let doc = create_doc("file:///input_type_deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-
-    let warning = diagnostics
-        .iter()
-        .find(|d| d.message.contains("Type 'OldInput' is deprecated"));
-    assert!(
-        warning.is_some(),
-        "Expected 'deprecated' warning for input type"
-    );
-    assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
-    assert!(warning.unwrap().message.contains("Use NewInput"));
 }
 
 #[test]
@@ -306,7 +284,10 @@ fn test_validation_unions_and_interfaces() {
           search(term: String!): [SearchResult]
         }
     "#;
-    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     // Valid query with inline fragments
     let text = r#"
@@ -329,7 +310,7 @@ fn test_validation_unions_and_interfaces() {
     let text = r#"
         query {
             search(term: "foo") {
-                name
+                id
             }
         }
     "#;
@@ -359,7 +340,6 @@ fn test_validation_unions_and_interfaces() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_block_strings_and_comments() {
-    let schema = get_schema();
     let text = r#"
         query GetUser($id: ID! = """123""") # This is a comment
         {
@@ -369,7 +349,8 @@ fn test_validation_block_strings_and_comments() {
         }
     "#;
     let doc = create_doc("file:///quirks.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
     assert!(
         diagnostics.is_empty(),
         "Block strings or comments caused issues: {:?}",

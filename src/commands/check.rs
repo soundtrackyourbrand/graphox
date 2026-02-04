@@ -72,6 +72,13 @@ async fn execute_project_check(
             return false;
         }
     };
+    let valid_schema = match schema.validate() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Schema validation failed {}: {}", source.as_key(), e);
+            return false;
+        }
+    };
 
     let mut docs = Vec::new();
     let paths = get_project_files(include_patterns, exclude_patterns);
@@ -142,7 +149,7 @@ async fn execute_project_check(
         }
 
         let diagnostics = doc.get_semantic_diagnostics(
-            &schema,
+            &valid_schema,
             &package_fragments,
             Some(&used_fragments),
             Some(config),

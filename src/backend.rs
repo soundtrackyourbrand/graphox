@@ -17,6 +17,8 @@ pub struct Backend {
     pub config: Config,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub empty_schema: Arc<Schema>,
+    pub valid_empty_schema: Arc<apollo_compiler::validation::Valid<Schema>>,
+    pub validated_schemas: Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
     // Performance optimizations
     pub fragment_defs: Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
     pub fragment_spreads: Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
@@ -35,8 +37,10 @@ impl Backend {
         }
 
         let schemas = DashMap::with_hasher(ahash::RandomState::default());
+        let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
         let empty_schema =
             Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
+        let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap());
 
         // Load project schemas from config
         for project in &config.projects {
@@ -44,6 +48,9 @@ impl Backend {
             if !schemas.contains_key(&key)
                 && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema)
             {
+                if let Ok(valid) = (*schema).clone().validate() {
+                    validated_schemas.insert(key.clone(), Arc::new(valid));
+                }
                 schemas.insert(key, schema);
             }
         }
@@ -53,7 +60,9 @@ impl Backend {
             documents: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             config,
             schemas: Arc::new(schemas),
+            validated_schemas: Arc::new(validated_schemas),
             empty_schema,
+            valid_empty_schema,
             fragment_defs: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             fragment_spreads: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             package_roots: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
@@ -93,15 +102,15 @@ impl Backend {
         uri
     }
 
-    pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
+    pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<apollo_compiler::validation::Valid<Schema>> {
         if let Ok(path) = uri.to_file_path()
             && let Some(schema_path) = self.config.get_schema_for_path(&path)
-            && let Some(schema) = self.schemas.get(&schema_path)
+            && let Some(schema) = self.validated_schemas.get(&schema_path)
         {
             return schema.value().clone();
         }
 
-        self.empty_schema.clone()
+        self.valid_empty_schema.clone()
     }
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
@@ -299,6 +308,9 @@ impl Backend {
             let new_schema = Self::load_schema_source(&self.config.base_dir, &source);
 
             if let Some(new_schema) = new_schema {
+                if let Ok(valid) = (*new_schema).clone().validate() {
+                    self.validated_schemas.insert(key.clone(), Arc::new(valid));
+                }
                 self.schemas.insert(key.clone(), new_schema.clone());
                 self.client
                     .log_message(
@@ -327,6 +339,7 @@ impl Backend {
 
     async fn clear_cache(&self) {
         self.schemas.clear();
+        self.validated_schemas.clear();
 
         // Reload project schemas from config
         for project in &self.config.projects {
@@ -335,6 +348,9 @@ impl Backend {
                 && let Some(schema) =
                     Self::load_schema_source(&self.config.base_dir, &project.schema)
             {
+                if let Ok(valid) = (*schema).clone().validate() {
+                    self.validated_schemas.insert(key.clone(), Arc::new(valid));
+                }
                 self.schemas.insert(key, schema);
             }
         }
@@ -723,6 +739,24 @@ impl LanguageServer for Backend {
                         documents.insert(uri, doc);
                     }
                 },
+                |current, total| {
+                    if total == 0 { return; }
+                    let percentage = (current * 100 / total) as u32;
+                    let client = client.clone();
+                    let token = token.clone();
+                    tokio::spawn(async move {
+                        let _ = client.send_notification::<notification::Progress>(ProgressParams {
+                            token,
+                            value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
+                                WorkDoneProgressReport {
+                                    cancellable: Some(true),
+                                    message: Some(format!("Parsing GraphQL files... ({}/{})", current, total)),
+                                    percentage: Some(percentage),
+                                },
+                            )),
+                        }).await;
+                    });
+                },
                 cancelled.clone(),
             );
             let total_docs = workspace_metadata.documents.len();
@@ -740,13 +774,21 @@ impl LanguageServer for Backend {
                 used
             };
 
+            // Pre-calculate validated schemas
+            let mut validated_schemas = fnv::FnvHashMap::default();
+            for entry in schemas.iter() {
+                if let Ok(valid) = (**entry.value()).clone().validate() {
+                    validated_schemas.insert(entry.key().clone(), Arc::new(valid));
+                }
+            }
+            let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap());
+
             // Pre-calculate all fragments info
             let all_fragments_info: Vec<FragmentCompletionInfo> = fragment_defs
                 .iter()
                 .flat_map(|entry| {
                     let uri = entry.key();
                     let frags = entry.value();
-                    let _package_root = package_roots.get(uri).and_then(|r| r.clone());
                     
                     frags.iter().map(|frag| {
                         let import_path = if let Ok(p) = uri.to_file_path() {
@@ -773,42 +815,46 @@ impl LanguageServer for Backend {
                 })
                 .collect();
 
-            let mut to_publish = Vec::new();
-            for entry in documents.iter() {
-                let uri = entry.key();
-                let doc = entry.value();
+            use rayon::prelude::*;
+            let to_publish: Vec<(Url, Vec<Diagnostic>)> = documents
+                .as_ref()
+                .par_iter()
+                .map(|entry| {
+                    let uri = entry.key();
+                    let doc = entry.value();
 
-                // Get schema for doc
-                let schema = if let Ok(path) = uri.to_file_path()
-                    && let Some(schema_path) = config.get_schema_for_path(&path)
-                    && let Some(schema) = schemas.get(&schema_path)
-                {
-                    schema.value().clone()
-                } else {
-                    empty_schema.clone()
-                };
+                    // Get schema for doc
+                    let schema = if let Ok(path) = uri.to_file_path()
+                        && let Some(schema_path) = config.get_schema_for_path(&path)
+                        && let Some(schema) = validated_schemas.get(&schema_path)
+                    {
+                        schema.clone()
+                    } else {
+                        valid_empty_schema.clone()
+                    };
 
-                // Filter fragments for this doc (same package or public)
-                let target_package_root = doc.package_root.as_ref();
-                let filtered_fragments: Vec<_> = all_fragments_info
-                    .iter()
-                    .filter(|f| {
-                        let is_same_package = f.package_root.as_ref() == target_package_root;
-                        is_same_package || f.is_public
-                    })
-                    .cloned()
-                    .collect();
+                    // Filter fragments for this doc (same package or public)
+                    let target_package_root = doc.package_root.as_ref();
+                    let filtered_fragments: Vec<_> = all_fragments_info
+                        .iter()
+                        .filter(|f| {
+                            let is_same_package = f.package_root.as_ref() == target_package_root;
+                            is_same_package || f.is_public
+                        })
+                        .cloned()
+                        .collect();
 
-                let diagnostics = doc.get_semantic_diagnostics(
-                    &schema,
-                    &filtered_fragments,
-                    Some(&used_fragments),
-                    Some(&config),
-                    false,
-                    true,
-                );
-                to_publish.push((uri.clone(), diagnostics));
-            }
+                    let diagnostics = doc.get_semantic_diagnostics(
+                        &schema,
+                        &filtered_fragments,
+                        Some(&used_fragments),
+                        Some(&config),
+                        false,
+                        true,
+                    );
+                    (uri.clone(), diagnostics)
+                })
+                .collect();
 
             for (u, d) in to_publish {
                 client.publish_diagnostics(u, d, None).await;

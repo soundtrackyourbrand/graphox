@@ -104,16 +104,23 @@ impl Engine {
     where
         F: FnMut(PathBuf, DocumentState) + Send,
     {
-        Self::scan_workspace_cancellable(config, on_doc, Arc::new(AtomicBool::new(false)))
+        Self::scan_workspace_cancellable(
+            config,
+            on_doc,
+            |_, _| {},
+            Arc::new(AtomicBool::new(false)),
+        )
     }
 
-    pub fn scan_workspace_cancellable<F>(
+    pub fn scan_workspace_cancellable<F, P>(
         config: &Config,
         mut on_doc: F,
+        mut on_progress: P,
         cancelled: Arc<AtomicBool>,
     ) -> WorkspaceMetadata
     where
         F: FnMut(PathBuf, DocumentState) + Send,
+        P: FnMut(usize, usize) + Send,
     {
         let mut timings = WorkspaceScanTimings::default();
 
@@ -121,7 +128,7 @@ impl Engine {
         let start_glob = Instant::now();
         let project_info: Vec<_> = config
             .projects
-            .iter()
+            .par_iter()
             .map(|p| {
                 let abs_includes: Vec<String> = p
                     .include
@@ -185,10 +192,12 @@ impl Engine {
             .collect();
 
         let mut path_to_doc = HashMap::default();
-        for (p, doc) in docs_vec {
+        let total_docs = docs_vec.len();
+        for (i, (p, doc)) in docs_vec.into_iter().enumerate() {
             if cancelled.load(Ordering::Relaxed) {
                 break;
             }
+            on_progress(i, total_docs);
             on_doc(p.clone(), doc.clone());
             path_to_doc.insert(p, doc);
         }

@@ -19,7 +19,10 @@ fn create_parser() -> tree_sitter::Parser {
 #[ntest::timeout(1000)]
 fn test_diagnostics_update_on_schema_change() {
     let schema_v1_content = "type User { id: ID! name: String } type Query { me: User }";
-    let schema_v1 = Schema::parse(schema_v1_content, "schema.graphql").unwrap();
+    let schema_v1 = Schema::parse(schema_v1_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = "query { me { id name } }";
     let uri = Url::parse("file:///query.graphql").unwrap();
@@ -35,7 +38,10 @@ fn test_diagnostics_update_on_schema_change() {
 
     // Schema change: rename 'name' to 'fullName'
     let schema_v2_content = "type User { id: ID! fullName: String } type Query { me: User }";
-    let schema_v2 = Schema::parse(schema_v2_content, "schema.graphql").unwrap();
+    let schema_v2 = Schema::parse(schema_v2_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     // Now should have diagnostics
     let diagnostics = doc.get_semantic_diagnostics(&schema_v2, &[], None, None, false, true);
@@ -48,8 +54,7 @@ fn test_diagnostics_update_on_schema_change() {
     // Query fixed: use 'fullName'
     let query_text_v2 = "query { me { id fullName } }";
     let doc_v2 = DocumentState::new(uri, query_text_v2, create_parser());
-    let diagnostics =
-        doc_v2.get_semantic_diagnostics(&schema_v2, &[], None, None, false, true);
+    let diagnostics = doc_v2.get_semantic_diagnostics(&schema_v2, &[], None, None, false, true);
     assert!(diagnostics.is_empty(), "Should be valid after fixing query");
 }
 
@@ -57,15 +62,17 @@ fn test_diagnostics_update_on_schema_change() {
 #[ntest::timeout(1000)]
 fn test_diagnostics_update_on_fragment_change() {
     let schema_content = "type User { id: ID! name: String } type Query { me: User }";
-    let schema = Schema::parse(schema_content, "schema.graphql").unwrap();
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = "query { me { ...UserFrag } }";
     let query_uri = Url::parse("file:///query.graphql").unwrap();
     let query_doc = DocumentState::new(query_uri, query_text, create_parser());
 
     // 1. Missing fragment
-    let diagnostics =
-        query_doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+    let diagnostics = query_doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
     assert!(!diagnostics.is_empty());
     assert!(
         diagnostics[0]
