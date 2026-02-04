@@ -18,16 +18,25 @@ pub const GQL_SYMBOL_QUERY: &str = r#"
     (enum_type_definition 
         (name) @symbol.name) @symbol.container
 
+    (interface_type_definition 
+        (name) @symbol.name) @symbol.container
+
+    (union_type_definition 
+        (name) @symbol.name) @symbol.container
+
+    (input_object_type_definition 
+        (name) @symbol.name) @symbol.container
+
+    (scalar_type_definition 
+        (name) @symbol.name) @symbol.container
+
     (fragment_definition 
         (fragment_name (name) @symbol.name)
         (type_condition (named_type (name) @symbol.type_condition))
         (directives)? @symbol.directives) @symbol.container
 
     (operation_definition 
-        (name) @symbol.name) @symbol.container
-
-    (interface_type_definition 
-        (name) @symbol.name) @symbol.container
+        (name)? @symbol.name) @symbol.container
 "#;
 
 pub const SEMANTIC_TOKEN_QUERY: &str = r#"

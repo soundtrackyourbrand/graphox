@@ -1169,34 +1169,35 @@ impl LanguageServer for Backend {
             );
             let position = params.text_document_position_params.position;
 
-            let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-                doc.get_symbol_at_position(position)
-            } else {
-                None
-            };
-
-            if let Some(name) = symbol_name
-                && let Some(doc) = self.documents.get(&uri)
-            {
-                if name.starts_with('$') {
-                    if let Some(location) = doc.find_variable_definition(&name, position) {
-                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                    }
-                    return Ok(None);
+            if let Some(doc) = self.documents.get(&uri) {
+                let schema = self.get_schema_for_doc(&uri);
+                if let Some(loc) = doc.get_field_definition_location(position, &schema, &self.documents) {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
                 }
 
-                for entry in self.documents.iter() {
-                    let other_doc = entry.value();
-                    let is_same_package = other_doc.package_root == doc.package_root;
-                    let is_public_fragment = other_doc
-                        .fragments()
-                        .iter()
-                        .any(|f| f.name == name && f.is_public);
+                let symbol_name = doc.get_symbol_at_position(position);
 
-                    if (is_same_package || is_public_fragment)
-                        && let Some(location) = other_doc.find_definition_in_tree(&name)
-                    {
-                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                if let Some(name) = symbol_name {
+                    if name.starts_with('$') {
+                        if let Some(location) = doc.find_variable_definition(&name, position) {
+                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                        }
+                        return Ok(None);
+                    }
+
+                    for entry in self.documents.iter() {
+                        let other_doc = entry.value();
+                        let is_same_package = other_doc.package_root == doc.package_root;
+                        let is_public_fragment = other_doc
+                            .fragments()
+                            .iter()
+                            .any(|f| f.name == name && f.is_public);
+
+                        if (is_same_package || is_public_fragment)
+                            && let Some(location) = other_doc.find_definition_in_tree(&name)
+                        {
+                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                        }
                     }
                 }
             }

@@ -478,3 +478,100 @@ async fn test_rename_inside_inline_fragment() {
     
     assert_eq!(file_changes.len(), 2, "Should have 2 changes (definition and spread), got: {:?}", file_changes);
 }
+
+#[tokio::test]
+async fn test_goto_definition_field_in_schema() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    initialize_service(&mut service).await;
+
+    // Open schema first so it's in documents
+    let schema_path = dir.path().join("schema.graphql");
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    let schema_uri = Url::from_file_path(&schema_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen")
+        .params(serde_json::to_value(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: schema_uri.clone(),
+                language_id: "graphql".to_string(),
+                version: 1,
+                text: schema_text,
+            },
+        }).unwrap())
+        .finish()).await.unwrap();
+
+    let query_path = dir.path().join("query.graphql");
+    let text = r#"
+        query {
+            search {
+                ... on User {
+                    username
+                }
+            }
+        }
+    "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen")
+        .params(serde_json::to_value(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "graphql".to_string(),
+                version: 1,
+                text: text.to_string(),
+            },
+        }).unwrap())
+        .finish()).await.unwrap();
+
+    // Go to definition for 'username'
+    let username_pos = text.find("username").unwrap();
+    let position = {
+        let mut line = 0;
+        let mut col = 0;
+        for (i, c) in text.chars().enumerate() {
+            if i == username_pos {
+                break;
+            }
+            if c == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        Position::new(line, col)
+    };
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/definition")
+        .id(1)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    assert!(result.is_some(), "Goto definition should return something for 'username'");
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        let expected_path = schema_uri.path().to_lowercase();
+        let actual_path = loc.uri.path().to_lowercase();
+        // Handle macOS /private/var vs /var
+        let expected_path = expected_path.trim_start_matches("/private");
+        let actual_path = actual_path.trim_start_matches("/private");
+        assert_eq!(expected_path, actual_path);
+    } else {
+        panic!("Expected Scalar(Location)");
+    }
+}
