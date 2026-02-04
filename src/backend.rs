@@ -149,8 +149,30 @@ impl Backend {
         used
     }
 
+    async fn with_tracing<T, Fut>(&self, name: &str, fut: Fut) -> Fut::Output
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        let start = std::time::Instant::now();
+        let res = fut.await;
+        if let Some(tracing) = &self.config.tracing {
+            if tracing.enabled {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() >= tracing.threshold_ms as u128 {
+                    self.client
+                        .log_message(
+                            MessageType::LOG,
+                            format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
+                        )
+                        .await;
+                }
+            }
+        }
+        res
+    }
 
     async fn reload_schema(&self, changed_path: &str) {
+
         let mut sources_to_reload = Vec::new();
         for project in &self.config.projects {
             if project.schema.files().iter().any(|f| {
@@ -497,6 +519,20 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "LSP Started!")
             .await;
 
+        if let Some(tracing) = &self.config.tracing {
+            if tracing.enabled {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!(
+                            "Performance tracing enabled (threshold: {}ms)",
+                            tracing.threshold_ms
+                        ),
+                    )
+                    .await;
+            }
+        }
+
         // Spawn workspace scan in background to avoid hanging the LSP
         let client = self.client.clone();
         let config = self.config.clone();
@@ -698,73 +734,79 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
-        let position = params.text_document_position_params.position;
+        self.with_tracing("hover", async move {
+            let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
+            let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(&uri) {
-            let schema = self.get_schema_for_doc(&uri);
-            if let Some(hover) = doc.get_hover_info(position, &schema) {
-                return Ok(Some(hover));
-            }
+            if let Some(doc) = self.documents.get(&uri) {
+                let schema = self.get_schema_for_doc(&uri);
+                if let Some(hover) = doc.get_hover_info(position, &schema) {
+                    return Ok(Some(hover));
+                }
 
-            if let Some(symbol_name) = doc.get_symbol_at_position(position) {
-                for entry in self.documents.iter() {
-                    let other_doc = entry.value();
-                    let is_same_package = other_doc.package_root == doc.package_root;
-                    let is_public_fragment = other_doc
-                        .fragments()
-                        .iter()
-                        .any(|f| f.name == symbol_name && f.is_public);
+                if let Some(symbol_name) = doc.get_symbol_at_position(position) {
+                    for entry in self.documents.iter() {
+                        let other_doc = entry.value();
+                        let is_same_package = other_doc.package_root == doc.package_root;
+                        let is_public_fragment = other_doc
+                            .fragments()
+                            .iter()
+                            .any(|f| f.name == symbol_name && f.is_public);
 
-                    if (is_same_package || is_public_fragment)
-                        && let Some(info) = other_doc.find_fragment_info(&symbol_name)
-                    {
-                        let mut value = format!("```graphql\n{}\n```", info);
-                        
-                        if let Some(desc) = other_doc.find_description(&symbol_name) {
-                            value.push_str("\n\n---\n");
-                            value.push_str(&desc);
+                        if (is_same_package || is_public_fragment)
+                            && let Some(info) = other_doc.find_fragment_info(&symbol_name)
+                        {
+                            let mut value = format!("```graphql\n{}\n```", info);
+
+                            if let Some(desc) = other_doc.find_description(&symbol_name) {
+                                value.push_str("\n\n---\n");
+                                value.push_str(&desc);
+                            }
+
+                            if !is_same_package {
+                                if let Ok(other_p) = other_doc.uri.to_file_path() {
+                                    if let Some(proj) = self.config.get_project_for_path(&other_p) {
+                                        if let Some(import) = &proj.import {
+                                            value.push_str("\n\n---\n");
+                                            value.push_str(&format!("Import: `{}`", import));
+                                        }
+                                    }
+                                }
+                            }
+
+                            return Ok(Some(Hover {
+                                contents: HoverContents::Markup(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value,
+                                }),
+                                range: None,
+                            }));
                         }
-
-                        if !is_same_package {
-                             if let Ok(other_p) = other_doc.uri.to_file_path() {
-                                 if let Some(proj) = self.config.get_project_for_path(&other_p) {
-                                     if let Some(import) = &proj.import {
-                                         value.push_str("\n\n---\n");
-                                         value.push_str(&format!("Import: `{}`", import));
-                                     }
-                                 }
-                             }
-                        }
-
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value,
-                            }),
-                            range: None,
-                        }));
                     }
                 }
             }
-        }
 
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = self.normalize_uri(params.text_document_position.text_document.uri);
-        let position = params.text_document_position.position;
+        self.with_tracing("completion", async move {
+            let uri = self.normalize_uri(params.text_document_position.text_document.uri);
+            let position = params.text_document_position.position;
 
-        if let Some(doc) = self.documents.get(&uri) {
-            let schema = self.get_schema_for_doc(&uri);
-            let fragments = self.get_fragments_for_doc(&doc);
+            if let Some(doc) = self.documents.get(&uri) {
+                let schema = self.get_schema_for_doc(&uri);
+                let fragments = self.get_fragments_for_doc(&doc);
 
-            let items = doc.get_completion_items(position, &schema, fragments);
-            return Ok(Some(CompletionResponse::Array(items)));
-        }
+                let items = doc.get_completion_items(position, &schema, fragments);
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
 
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
@@ -1050,100 +1092,135 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri.clone());
-        let position = params.text_document_position_params.position;
+        self.with_tracing("goto_definition", async move {
+            let uri =
+                self.normalize_uri(params.text_document_position_params.text_document.uri.clone());
+            let position = params.text_document_position_params.position;
 
-        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-            doc.get_symbol_at_position(position)
-        } else {
-            None
-        };
+            let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+                doc.get_symbol_at_position(position)
+            } else {
+                None
+            };
 
-        if let Some(name) = symbol_name
-            && let Some(doc) = self.documents.get(&uri)
-        {
-            if name.starts_with('$') {
-                if let Some(location) = doc.find_variable_definition(&name, position) {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            if let Some(name) = symbol_name
+                && let Some(doc) = self.documents.get(&uri)
+            {
+                if name.starts_with('$') {
+                    if let Some(location) = doc.find_variable_definition(&name, position) {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                    }
+                    return Ok(None);
                 }
-                return Ok(None);
+
+                for entry in self.documents.iter() {
+                    let other_doc = entry.value();
+                    let is_same_package = other_doc.package_root == doc.package_root;
+                    let is_public_fragment = other_doc
+                        .fragments()
+                        .iter()
+                        .any(|f| f.name == name && f.is_public);
+
+                    if (is_same_package || is_public_fragment)
+                        && let Some(location) = other_doc.find_definition_in_tree(&name)
+                    {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                    }
+                }
             }
 
-            for entry in self.documents.iter() {
-                let other_doc = entry.value();
-                let is_same_package = other_doc.package_root == doc.package_root;
-                let is_public_fragment = other_doc
-                    .fragments()
-                    .iter()
-                    .any(|f| f.name == name && f.is_public);
-
-                if (is_same_package || is_public_fragment)
-                    && let Some(location) = other_doc.find_definition_in_tree(&name)
-                {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                }
-            }
-        }
-
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let uri = self.normalize_uri(params.text_document_position.text_document.uri.clone());
-        let position = params.text_document_position.position;
-        let include_declaration = params.context.include_declaration;
+        self.with_tracing("references", async move {
+            let uri = self.normalize_uri(params.text_document_position.text_document.uri.clone());
+            let position = params.text_document_position.position;
+            let include_declaration = params.context.include_declaration;
 
-        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-            doc.get_symbol_at_position(position)
-        } else {
-            None
-        };
+            let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+                doc.get_symbol_at_position(position)
+            } else {
+                None
+            };
 
-        if let Some(name) = symbol_name {
-            if name.starts_with('$') {
-                if let Some(doc) = self.documents.get(&uri) {
-                    let refs = doc.find_variable_references(&name, position, include_declaration);
-                    return Ok(if refs.is_empty() { None } else { Some(refs) });
+            if let Some(name) = symbol_name {
+                if name.starts_with('$') {
+                    if let Some(doc) = self.documents.get(&uri) {
+                        let refs =
+                            doc.find_variable_references(&name, position, include_declaration);
+                        return Ok(if refs.is_empty() { None } else { Some(refs) });
+                    }
+                    return Ok(None);
                 }
-                return Ok(None);
+
+                let mut all_references = Vec::new();
+
+                for entry in self.documents.iter() {
+                    let other_doc = entry.value();
+
+                    let refs = other_doc.find_references_in_tree(&name, include_declaration);
+                    all_references.extend(refs);
+                }
+
+                if all_references.is_empty() {
+                    return Ok(None);
+                }
+
+                return Ok(Some(all_references));
             }
 
-            let mut all_references = Vec::new();
-
-            for entry in self.documents.iter() {
-                let other_doc = entry.value();
-
-                let refs = other_doc.find_references_in_tree(&name, include_declaration);
-                all_references.extend(refs);
-            }
-
-            if all_references.is_empty() {
-                return Ok(None);
-            }
-
-            return Ok(Some(all_references));
-        }
-
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let uri = self.normalize_uri(params.text_document_position.text_document.uri.clone());
-        let position = params.text_document_position.position;
-        let new_name = params.new_name;
+        self.with_tracing("rename", async move {
+            let uri = self.normalize_uri(params.text_document_position.text_document.uri.clone());
+            let position = params.text_document_position.position;
+            let new_name = params.new_name;
 
-        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-            doc.get_symbol_at_position(position)
-        } else {
-            None
-        };
+            let symbol_name = if let Some(doc) = self.documents.get(&uri) {
+                doc.get_symbol_at_position(position)
+            } else {
+                None
+            };
 
-        if let Some(name) = symbol_name {
-            let mut changes = std::collections::HashMap::new();
+            if let Some(name) = symbol_name {
+                let mut changes = std::collections::HashMap::new();
 
-            if name.starts_with('$') {
-                if let Some(doc) = self.documents.get(&uri) {
-                    let refs = doc.find_variable_references(&name, position, true);
+                if name.starts_with('$') {
+                    if let Some(doc) = self.documents.get(&uri) {
+                        let refs = doc.find_variable_references(&name, position, true);
+                        if !refs.is_empty() {
+                            let edits: Vec<TextEdit> = refs
+                                .into_iter()
+                                .map(|loc| TextEdit {
+                                    range: loc.range,
+                                    new_text: new_name.clone(),
+                                })
+                                .collect();
+                            changes.insert(uri.clone(), edits);
+                        }
+                    }
+                    return Ok(if changes.is_empty() {
+                        None
+                    } else {
+                        Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        })
+                    });
+                }
+
+                for entry in self.documents.iter() {
+                    let other_uri = entry.key();
+                    let other_doc = entry.value();
+
+                    let refs = other_doc.find_references_in_tree(&name, true);
                     if !refs.is_empty() {
                         let edits: Vec<TextEdit> = refs
                             .into_iter()
@@ -1152,43 +1229,19 @@ impl LanguageServer for Backend {
                                 new_text: new_name.clone(),
                             })
                             .collect();
-                        changes.insert(uri.clone(), edits);
+                        changes.insert(other_uri.clone(), edits);
                     }
                 }
-                return Ok(if changes.is_empty() {
-                    None
-                } else {
-                    Some(WorkspaceEdit {
-                        changes: Some(changes),
-                        ..Default::default()
-                    })
-                });
+
+                return Ok(Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                }));
             }
 
-            for entry in self.documents.iter() {
-                let other_uri = entry.key();
-                let other_doc = entry.value();
-
-                let refs = other_doc.find_references_in_tree(&name, true);
-                if !refs.is_empty() {
-                    let edits: Vec<TextEdit> = refs
-                        .into_iter()
-                        .map(|loc| TextEdit {
-                            range: loc.range,
-                            new_text: new_name.clone(),
-                        })
-                        .collect();
-                    changes.insert(other_uri.clone(), edits);
-                }
-            }
-
-            return Ok(Some(WorkspaceEdit {
-                changes: Some(changes),
-                ..Default::default()
-            }));
-        }
-
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn prepare_rename(
@@ -1354,78 +1407,84 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        let mut to_publish = Vec::new();
-        let used_fragments = self.get_used_fragments();
-        let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
+        self.with_tracing("did_change_watched_files", async move {
+            let mut to_publish = Vec::new();
+            let used_fragments = self.get_used_fragments();
+            let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
 
-        for change in params.changes {
-            if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
-                let path = change.uri.to_file_path().unwrap();
-                if let Some(schema_path) = self.config.get_schema_for_path(&path) {
-                    self.reload_schema(&schema_path).await;
-                } else if is_relevant_file(&path) {
-                    // Update document if it's already open
-                    let uri = self.normalize_uri(change.uri);
-                    if let Some(mut doc) = self.documents.get_mut(&uri) {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            let mut parser = tree_sitter::Parser::new();
-                            parser
-                                .set_language(&doc.language.get_parser_language())
-                                .unwrap();
-                            *doc = DocumentState::new(uri.clone(), &content, parser);
+            for change in params.changes {
+                if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
+                    let path = change.uri.to_file_path().unwrap();
+                    if let Some(schema_path) = self.config.get_schema_for_path(&path) {
+                        self.reload_schema(&schema_path).await;
+                    } else if is_relevant_file(&path) {
+                        // Update document if it's already open
+                        let uri = self.normalize_uri(change.uri);
+                        if let Some(mut doc) = self.documents.get_mut(&uri) {
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                let mut parser = tree_sitter::Parser::new();
+                                parser
+                                    .set_language(&doc.language.get_parser_language())
+                                    .unwrap();
+                                *doc = DocumentState::new(uri.clone(), &content, parser);
 
-                            // Update metadata
-                            self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-                            self.fragment_spreads
-                                .insert(uri.clone(), doc.fragment_spreads.clone());
-                            self.package_roots
-                                .insert(uri.clone(), doc.package_root.clone());
+                                // Update metadata
+                                self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+                                self.fragment_spreads
+                                    .insert(uri.clone(), doc.fragment_spreads.clone());
+                                self.package_roots
+                                    .insert(uri.clone(), doc.package_root.clone());
+                            }
                         }
-                    }
 
-                    // Re-validate all documents because this file might have changed fragments
-                    for entry in self.documents.iter() {
-                        let uri = entry.key();
-                        let doc = entry.value();
-                        let schema = self.get_schema_for_doc(uri);
-                        let fragments = self.get_fragments_for_doc(doc);
-                        let diagnostics = doc.get_semantic_diagnostics(
-                            &schema,
-                            &fragments,
-                            Some(&used_fragments),
-                            Some(&self.config),
-                            false,
-                            Some(&self.package_roots),
-                            workspace_loaded,
-                        );
-                        to_publish.push((uri.clone(), diagnostics));
+                        // Re-validate all documents because this file might have changed fragments
+                        for entry in self.documents.iter() {
+                            let uri = entry.key();
+                            let doc = entry.value();
+                            let schema = self.get_schema_for_doc(uri);
+                            let fragments = self.get_fragments_for_doc(doc);
+                            let diagnostics = doc.get_semantic_diagnostics(
+                                &schema,
+                                &fragments,
+                                Some(&used_fragments),
+                                Some(&self.config),
+                                false,
+                                Some(&self.package_roots),
+                                workspace_loaded,
+                            );
+                            to_publish.push((uri.clone(), diagnostics));
+                        }
                     }
                 }
             }
-        }
 
-        for (uri, diagnostics) in to_publish {
-            self.client.publish_diagnostics(uri, diagnostics, None).await;
-        }
+            for (uri, diagnostics) in to_publish {
+                self.client.publish_diagnostics(uri, diagnostics, None).await;
+            }
+        })
+        .await
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
-        match params.command.as_str() {
-            "graphql.runCodegen" => {
-                self.client
-                    .log_message(MessageType::INFO, "Running codegen...")
-                    .await;
-                self.run_codegen().await;
-                self.client
-                    .log_message(MessageType::INFO, "Codegen complete!")
-                    .await;
-                Ok(None)
+        self.with_tracing("execute_command", async move {
+            match params.command.as_str() {
+                "graphql.runCodegen" => {
+                    self.client
+                        .log_message(MessageType::INFO, "Running codegen...")
+                        .await;
+                    self.run_codegen().await;
+                    self.client
+                        .log_message(MessageType::INFO, "Codegen complete!")
+                        .await;
+                    Ok(None)
+                }
+                "graphql.clearCache" => {
+                    self.clear_cache().await;
+                    Ok(None)
+                }
+                _ => Ok(None),
             }
-            "graphql.clearCache" => {
-                self.clear_cache().await;
-                Ok(None)
-            }
-            _ => Ok(None),
-        }
+        })
+        .await
     }
 }

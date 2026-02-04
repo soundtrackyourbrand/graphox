@@ -63,6 +63,7 @@ async fn test_lsp_fragment_collisions() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
 
@@ -151,8 +152,10 @@ async fn test_lsp_diagnostics_on_schema_change() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
-        base_dir: base_dir.to_path_buf(),
+        tracing: None,
+        base_dir: base_dir.clone(),
     };
+
     let client_capture = Arc::new(Mutex::new(None));
     let client_capture_clone = client_capture.clone();
     let (mut service, mut messages) = LspService::new(|client| {
@@ -308,6 +311,7 @@ async fn test_lsp_fragment_rename_same_project() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -509,6 +513,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         scalars: None,
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
+        tracing: None,
         base_dir: base_dir.clone(),
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

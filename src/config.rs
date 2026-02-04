@@ -12,8 +12,20 @@ pub struct Config {
     pub scalars: Option<FnvHashMap<String, String>>,
     pub ignore_deprecations: Option<Vec<String>>,
     pub generate_ast_for_fragments: Option<bool>,
+    pub tracing: Option<TracingConfig>,
     #[serde(skip)]
     pub base_dir: PathBuf,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TracingConfig {
+    pub enabled: bool,
+    #[serde(default = "default_threshold")]
+    pub threshold_ms: u64,
+}
+
+fn default_threshold() -> u64 {
+    20
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -87,6 +99,7 @@ impl Config {
             scalars: None,
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
+            tracing: None,
             base_dir: PathBuf::from("."),
         }
     }
