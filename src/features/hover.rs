@@ -15,9 +15,16 @@ impl DocumentState {
 
             if byte_offset >= offset && byte_offset < offset + tree_len {
                 let local_byte = byte_offset - offset;
-                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+                let mut node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
-                if node.kind() == "name" {
+                // If we are on a symbol that's part of a larger construct, move up
+                if node.kind() == "$" {
+                    if let Some(parent) = node.parent() {
+                        node = parent;
+                    }
+                }
+
+                if node.kind() == "name" || node.kind() == "variable" {
                     let symbol_name = self
                         .rope
                         .slice(
@@ -25,6 +32,18 @@ impl DocumentState {
                                 ..self.rope.byte_to_char(node.end_byte() + offset),
                         )
                         .to_string();
+
+                    if node.kind() == "variable" || node.parent().map_or(false, |p| p.kind() == "variable") {
+                        if let Some(var_info) = self.get_variable_info(root, offset, byte_offset, schema) {
+                            return Some(Hover {
+                                contents: HoverContents::Markup(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value: var_info,
+                                }),
+                                range: Some(self.translate_to_file_range(node, offset)),
+                            });
+                        }
+                    }
 
                     if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema)
                     {
@@ -112,6 +131,76 @@ impl DocumentState {
                 }
             }
         }
+        None
+    }
+
+    fn get_variable_info(
+        &self,
+        root: Node,
+        offset: usize,
+        cursor_offset: usize,
+        _schema: &Schema,
+    ) -> Option<String> {
+        let node = root.descendant_for_byte_range(cursor_offset - offset, cursor_offset - offset)?;
+        let mut var_node = if node.kind() == "variable" {
+            node
+        } else if node.parent()?.kind() == "variable" {
+            node.parent()?
+        } else {
+            return None;
+        };
+
+        if var_node.kind() == "$" {
+            if let Some(p) = var_node.parent() {
+                if p.kind() == "variable" {
+                    var_node = p;
+                }
+            }
+        }
+
+        let var_name = self.get_node_text(var_node, offset);
+
+        // Find the operation or fragment containing this variable
+        let mut curr = var_node;
+        while let Some(parent) = curr.parent() {
+            if parent.kind() == "operation_definition" {
+                // Look for variable definitions in this operation
+                let mut cursor = parent.walk();
+                for child in parent.children(&mut cursor) {
+                    if child.kind() == "variable_definitions" {
+                        let mut vd_cursor = child.walk();
+                        for vd in child.children(&mut vd_cursor) {
+                            if vd.kind() == "variable_definition" {
+                                let mut v = None;
+                                let mut ty = None;
+                                let mut v_cursor = vd.walk();
+                                for v_child in vd.children(&mut v_cursor) {
+                                    if v_child.kind() == "variable" {
+                                        v = Some(v_child);
+                                    } else if v_child.kind() == "type" {
+                                        ty = Some(v_child);
+                                    }
+                                }
+
+                                if let Some(v) = v {
+                                    if self.get_node_text(v, offset) == var_name {
+                                        if let Some(ty_node) = ty {
+                                            let ty_text = self.get_node_text(ty_node, offset);
+                                            return Some(format!(
+                                                "### variable {}\n---\nType: `{}`",
+                                                var_name, ty_text
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            curr = parent;
+        }
+
         None
     }
 

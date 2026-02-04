@@ -393,3 +393,127 @@ async fn test_hover_schema_field() {
         panic!("Expected Markup contents");
     }
 }
+
+#[tokio::test]
+async fn test_hover_variable() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams {
+        ..Default::default()
+    };
+    let request = Request::build("initialize")
+        .params(serde_json::to_value(&init_params).unwrap())
+        .id(0)
+        .finish();
+    service.call(request).await.unwrap().unwrap();
+
+    let request = Request::build("initialized")
+        .params(serde_json::json!({}))
+        .finish();
+    service.call(request).await.unwrap();
+
+    // 1. Open file with variable
+    let query_path = dir.path().join("hover_var.graphql");
+    let text = r#"
+        query GetUser($id: ID!) {
+            users {
+                id
+            }
+        }
+    "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: text.to_string(),
+        },
+    };
+    let request = Request::build("textDocument/didOpen")
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    service.call(request).await.unwrap();
+
+    // Hover over '$id' in the variable definition
+    let position = Position::new(1, 22); // $id: ID!
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/hover")
+        .id(1)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    assert!(result.is_some(), "Hover should return something for variable definition");
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(m.value.contains("variable $id"), "Should contain variable name");
+        assert!(m.value.contains("Type: `ID!`"), "Should contain variable type");
+    } else {
+        panic!("Expected Markup contents");
+    }
+
+    // Hover over its usage
+    let text_with_usage = r#"
+        query GetUser($id: ID!) {
+            node(id: $id) {
+                id
+            }
+        }
+    "#;
+    fs::write(&dir.path().join("hover_var_usage.graphql"), text_with_usage).unwrap();
+    let query_path_usage = std::fs::canonicalize(dir.path().join("hover_var_usage.graphql")).unwrap();
+    let uri_usage = Url::from_file_path(&query_path_usage).unwrap();
+
+    let params = DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri_usage.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: text_with_usage.to_string(),
+        },
+    };
+    let request = Request::build("textDocument/didOpen")
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    service.call(request).await.unwrap();
+
+    let position = Position::new(2, 22); // $id in node(id: $id)
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri_usage.clone() },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/hover")
+        .id(2)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    assert!(result.is_some(), "Hover should return something for variable usage");
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(m.value.contains("variable $id"), "Should contain variable name");
+        assert!(m.value.contains("Type: `ID!`"), "Should contain variable type");
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
