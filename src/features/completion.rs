@@ -38,7 +38,6 @@ impl DocumentState {
             {
                 return items;
             }
-
         }
         Vec::new()
     }
@@ -57,10 +56,13 @@ impl DocumentState {
 
         while let Some(current) = node {
             match current.kind() {
-                "selection_set" | "operation_definition" | "fragment_definition" | "inline_fragment" => {
+                "selection_set"
+                | "operation_definition"
+                | "fragment_definition"
+                | "inline_fragment" => {
                     // Check if we are right after dots
                     if self.is_after_dots(offset, local_byte) {
-                         if let Some(items) = self.complete_selection_set_at_node(
+                        if let Some(items) = self.complete_selection_set_at_node(
                             current,
                             offset,
                             cursor_offset,
@@ -68,13 +70,18 @@ impl DocumentState {
                             fragments,
                         ) {
                             // Filter these items to ONLY include fragments
-                            return Some(items.into_iter().filter(|i| i.kind == Some(CompletionItemKind::SNIPPET)).collect());
+                            return Some(
+                                items
+                                    .into_iter()
+                                    .filter(|i| i.kind == Some(CompletionItemKind::SNIPPET))
+                                    .collect(),
+                            );
                         }
                     }
                 }
                 _ => {}
             }
-            
+
             match current.kind() {
                 "type_condition" | "named_type" => {
                     return Some(self.get_all_type_completions(schema));
@@ -84,7 +91,11 @@ impl DocumentState {
                 }
                 "fragment_spread" => {
                     let parent_type = self.find_parent_type_for_node(current, offset, schema);
-                    return Some(self.get_fragment_name_completions(fragments, parent_type.as_ref(), schema));
+                    return Some(self.get_fragment_name_completions(
+                        fragments,
+                        parent_type.as_ref(),
+                        schema,
+                    ));
                 }
                 "fragment_definition" => {
                     if self.is_after_on(offset, local_byte) {
@@ -361,8 +372,14 @@ impl DocumentState {
                             ) {
                                 return Some(items);
                             }
-                        } else if inner_child.kind() == "fragment_spread" || inner_child.kind() == "..." {
-                            return Some(self.get_fragment_name_completions(fragments, Some(parent_type), schema));
+                        } else if inner_child.kind() == "fragment_spread"
+                            || inner_child.kind() == "..."
+                        {
+                            return Some(self.get_fragment_name_completions(
+                                fragments,
+                                Some(parent_type),
+                                schema,
+                            ));
                         }
                     }
                 } else if kind == "field" {
@@ -377,7 +394,11 @@ impl DocumentState {
                         return Some(items);
                     }
                 } else if kind == "fragment_spread" || kind == "..." {
-                    return Some(self.get_fragment_name_completions(fragments, Some(parent_type), schema));
+                    return Some(self.get_fragment_name_completions(
+                        fragments,
+                        Some(parent_type),
+                        schema,
+                    ));
                 }
             }
         }
@@ -473,12 +494,20 @@ impl DocumentState {
 
                     match parent {
                         schema::ExtendedType::Object(obj) => {
-                            if obj.implements_interfaces.iter().any(|i| i.as_str() == f.type_condition) {
+                            if obj
+                                .implements_interfaces
+                                .iter()
+                                .any(|i| i.as_str() == f.type_condition)
+                            {
                                 return true;
                             }
                         }
                         schema::ExtendedType::Interface(iface) => {
-                            if iface.implements_interfaces.iter().any(|i| i.as_str() == f.type_condition) {
+                            if iface
+                                .implements_interfaces
+                                .iter()
+                                .any(|i| i.as_str() == f.type_condition)
+                            {
                                 return true;
                             }
                         }
@@ -489,7 +518,7 @@ impl DocumentState {
                         }
                         _ => {}
                     }
-                    
+
                     // Also check if the current type is a member of the fragment's type (if fragment is a union)
                     if let Some(frag_type) = schema.types.get(f.type_condition.as_str()) {
                         match frag_type {
@@ -513,7 +542,7 @@ impl DocumentState {
             })
             .map(|f| {
                 let mut documentation = f.description.clone().unwrap_or_default();
-                
+
                 if !f.requirements.is_empty() {
                     if !documentation.is_empty() {
                         documentation.push_str("\n\n---\n");

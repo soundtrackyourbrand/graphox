@@ -1,15 +1,15 @@
+use futures_util::StreamExt;
 use graphql_rust::{
     Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
 use std::fs;
+use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
-use futures_util::StreamExt;
-use std::sync::{Arc, Mutex};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_workspace_scan_concurrency() {
@@ -39,6 +39,7 @@ async fn test_workspace_scan_concurrency() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         schema_types: None,
         scalars: None,
@@ -53,7 +54,7 @@ async fn test_workspace_scan_concurrency() {
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let progress_updates = Arc::new(Mutex::new(Vec::new()));
     let progress_updates_clone = progress_updates.clone();
-    
+
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "window/logMessage" {
@@ -63,7 +64,10 @@ async fn test_workspace_scan_concurrency() {
                     let _ = scan_done_tx.send(()).await;
                 }
             } else if msg.method() == "$/progress" {
-                progress_updates_clone.lock().unwrap().push(msg.params().unwrap().clone());
+                progress_updates_clone
+                    .lock()
+                    .unwrap()
+                    .push(msg.params().unwrap().clone());
             }
         }
     });
@@ -135,16 +139,20 @@ async fn test_workspace_scan_concurrency() {
         },
         work_done_progress_params: Default::default(),
     };
-    
+
     let hover_request = Request::build("textDocument/hover")
         .id(2)
         .params(serde_json::to_value(&hover_params).unwrap())
         .finish();
-    
-    let hover_response = service.call(hover_request).await.unwrap().unwrap();
-    let hover_result: Option<Hover> = serde_json::from_value(hover_response.result().unwrap().clone()).unwrap();
 
-    assert!(hover_result.is_some(), "Hover should return a result even during workspace scan");
+    let hover_response = service.call(hover_request).await.unwrap().unwrap();
+    let hover_result: Option<Hover> =
+        serde_json::from_value(hover_response.result().unwrap().clone()).unwrap();
+
+    assert!(
+        hover_result.is_some(),
+        "Hover should return a result even during workspace scan"
+    );
 
     // 4. Wait for scan to complete
     let _ = tokio::time::timeout(Duration::from_secs(5), scan_done_rx.recv())

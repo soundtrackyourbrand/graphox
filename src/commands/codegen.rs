@@ -15,6 +15,7 @@ struct CodegenParams<'a> {
     global_metadata: &'a [FragmentMetadata],
     generate_ast_for_fragments: bool,
     workspace_documents: &'a HashMap<PathBuf, graphql_rust::DocumentState>,
+    generate_permissions: bool,
 }
 
 pub async fn run_codegen(
@@ -162,6 +163,26 @@ async fn execute_codegen(
         let project_context =
             Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
 
+        if !clean && project.generate_permissions.unwrap_or(false) {
+            if let Some(out_dir) = project_output_dir {
+                let out_dir_path = cfg.base_dir.join(out_dir);
+                std::fs::create_dir_all(&out_dir_path).ok();
+                let permissions_path = out_dir_path.join("permissions.ts");
+                if verbose {
+                    println!("Generating permissions: {}", permissions_path.display());
+                }
+                let content = graphql_rust::features::codegen::generate_permissions_content(
+                    &valid_schema,
+                    &cfg.scalars,
+                    &schema_import,
+                );
+                if let Err(e) = std::fs::write(&permissions_path, content) {
+                    eprintln!("Failed to write permissions: {}", e);
+                    success = false;
+                }
+            }
+        }
+
         match execute_project_codegen_entry(
             CodegenParams {
                 base_dir: &cfg.base_dir,
@@ -174,6 +195,7 @@ async fn execute_codegen(
                 global_metadata: &global_metadata,
                 generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                 workspace_documents: &workspace_metadata.documents,
+                generate_permissions: project.generate_permissions.unwrap_or(false),
             },
             verbose,
             clean,
@@ -359,7 +381,8 @@ async fn execute_project_codegen_entry(
             .project_files
             .par_iter()
             .map(|path| {
-                let out_path = graphql_rust::utils::get_output_path(path, params.base_dir, params.output_dir);
+                let out_path =
+                    graphql_rust::utils::get_output_path(path, params.base_dir, params.output_dir);
                 let mut ok = true;
                 if out_path.exists() {
                     if let Err(e) = std::fs::remove_file(&out_path) {
@@ -374,6 +397,7 @@ async fn execute_project_codegen_entry(
             .reduce(|| true, |a, b| a && b);
 
         let mut entrypoint_ok = true;
+        let mut permissions_ok = true;
         if let Some(out_dir) = params.output_dir {
             let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
             if entrypoint_path.exists() {
@@ -388,9 +412,25 @@ async fn execute_project_codegen_entry(
                     println!("Removed: {}", entrypoint_path.display());
                 }
             }
+
+            if params.generate_permissions {
+                let permissions_path = params.base_dir.join(out_dir).join("permissions.ts");
+                if permissions_path.exists() {
+                    if let Err(e) = std::fs::remove_file(&permissions_path) {
+                        eprintln!(
+                            "Failed to remove permissions {}: {}",
+                            permissions_path.display(),
+                            e
+                        );
+                        permissions_ok = false;
+                    } else if verbose {
+                        println!("Removed: {}", permissions_path.display());
+                    }
+                }
+            }
         }
 
-        if success && entrypoint_ok {
+        if success && entrypoint_ok && permissions_ok {
             Ok(Vec::new())
         } else {
             Err(())
@@ -406,8 +446,11 @@ fn execute_single_file_codegen(
     verbose: bool,
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, String> {
     let (ts_code, mut ops) = graphql_rust::features::codegen::generate_typescript(doc, ctx)?;
-    let out_path_raw =
-        graphql_rust::utils::get_output_path(doc.uri.to_file_path().unwrap().as_path(), base_dir, output_dir);
+    let out_path_raw = graphql_rust::utils::get_output_path(
+        doc.uri.to_file_path().unwrap().as_path(),
+        base_dir,
+        output_dir,
+    );
 
     let abs_out_path = if out_path_raw.is_absolute() {
         out_path_raw

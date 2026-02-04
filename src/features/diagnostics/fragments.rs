@@ -30,9 +30,12 @@ impl DocumentState {
 
         if let Some(name_node) = name_node {
             let name = self.get_node_text(name_node, offset);
-            
+
             // 1. Unused fragment check
-            let is_used = ctx.used_fragments.map(|u| u.contains(&name)).unwrap_or(true);
+            let is_used = ctx
+                .used_fragments
+                .map(|u| u.contains(&name))
+                .unwrap_or(true);
             if !is_used && ctx.workspace_loaded {
                 ctx.diagnostics.push(Diagnostic {
                     range: self.translate_to_file_range(node, offset),
@@ -53,7 +56,7 @@ impl DocumentState {
                 for other in ctx.all_fragments {
                     if other.name == name && other.uri != self.uri {
                         let other_package_root = &other.package_root;
-                        
+
                         if current_is_public && other.is_public {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(name_node, offset),
@@ -62,11 +65,17 @@ impl DocumentState {
                                 ..Default::default()
                             });
                             break;
-                        } else if !current_is_public && !other.is_public && current_package_root == other_package_root.as_ref() {
+                        } else if !current_is_public
+                            && !other.is_public
+                            && current_package_root == other_package_root.as_ref()
+                        {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(name_node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!("Duplicate fragment name: '{}' in the same project.", name),
+                                message: format!(
+                                    "Duplicate fragment name: '{}' in the same project.",
+                                    name
+                                ),
                                 ..Default::default()
                             });
                             break;

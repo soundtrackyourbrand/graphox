@@ -31,6 +31,7 @@ async fn test_fragment_references() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
         ..Config::new_empty()
@@ -161,6 +162,7 @@ async fn test_fragment_references_tsx() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
         ..Config::new_empty()
@@ -311,6 +313,7 @@ async fn test_fragment_references_exclude_declaration() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
         ..Config::new_empty()

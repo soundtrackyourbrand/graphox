@@ -1,6 +1,6 @@
-use apollo_compiler::Schema;
 use crate::queries::*;
 use crate::utils::{find_package_root, mask_interpolations};
+use apollo_compiler::Schema;
 use ropey::Rope;
 use std::fmt;
 use std::path::PathBuf;
@@ -279,7 +279,7 @@ impl DocumentState {
 
         let target_utf16_cu = line_start_utf16_cu + position.character as usize;
         let len_utf16_cu = self.rope.len_utf16_cu();
-        
+
         let target_char = if target_utf16_cu >= len_utf16_cu {
             self.rope.len_chars()
         } else {
@@ -393,9 +393,17 @@ impl DocumentState {
                         for child in container.children(&mut walker) {
                             if child.kind() == "description" {
                                 if let Some(sv) = child.child_by_field_name("content") {
-                                    description = Some(self.get_node_text(sv, offset).trim_matches('"').to_string());
+                                    description = Some(
+                                        self.get_node_text(sv, offset)
+                                            .trim_matches('"')
+                                            .to_string(),
+                                    );
                                 } else if let Some(sv) = child.child(0) {
-                                    description = Some(self.get_node_text(sv, offset).trim_matches('"').to_string());
+                                    description = Some(
+                                        self.get_node_text(sv, offset)
+                                            .trim_matches('"')
+                                            .to_string(),
+                                    );
                                 }
                             }
                         }
@@ -406,13 +414,14 @@ impl DocumentState {
                         });
                         let mut ref_cursor = tree_sitter::QueryCursor::new();
 
-                        let mut ref_matches = ref_cursor.matches(ref_query, container, |node: Node| {
-                            let start = node.start_byte();
-                            let end = node.end_byte();
-                            self.rope
-                                .byte_slice((start + offset)..(end + offset))
-                                .chunks()
-                        });
+                        let mut ref_matches =
+                            ref_cursor.matches(ref_query, container, |node: Node| {
+                                let start = node.start_byte();
+                                let end = node.end_byte();
+                                self.rope
+                                    .byte_slice((start + offset)..(end + offset))
+                                    .chunks()
+                            });
 
                         while let Some(rm) = ref_matches.next() {
                             let mut is_reference = false;
@@ -431,7 +440,8 @@ impl DocumentState {
                                     let mut v_cursor = nn.walk();
                                     for v_child in nn.children(&mut v_cursor) {
                                         if v_child.kind() == "name" {
-                                            used_variables.push(self.get_node_text(v_child, offset));
+                                            used_variables
+                                                .push(self.get_node_text(v_child, offset));
                                         }
                                     }
                                 } else if let Some(parent) = nn.parent() {
@@ -451,7 +461,8 @@ impl DocumentState {
                                 let line_text = self.rope.slice(line_start..line_end).to_string();
                                 let trimmed = line_text.trim();
                                 if trimmed.starts_with('#') {
-                                    description = Some(trimmed.trim_start_matches('#').trim().to_string());
+                                    description =
+                                        Some(trimmed.trim_start_matches('#').trim().to_string());
                                 }
                             }
                         }
@@ -788,9 +799,13 @@ impl DocumentState {
         }
     }
 
-    pub fn get_fragment_variable_types(&self, fragment_name: &str, schema: &Schema) -> std::collections::BTreeMap<String, String> {
+    pub fn get_fragment_variable_types(
+        &self,
+        fragment_name: &str,
+        schema: &Schema,
+    ) -> std::collections::BTreeMap<String, String> {
         let mut vars = std::collections::BTreeMap::new();
-        
+
         let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
@@ -825,17 +840,22 @@ impl DocumentState {
                 }
 
                 if is_fragment && let Some(n) = name {
-                    if n == fragment_name && let Some(container) = container_node {
-                        if let Some(type_name) = self.get_fragment_type_condition(container, offset) {
+                    if n == fragment_name
+                        && let Some(container) = container_node
+                    {
+                        if let Some(type_name) = self.get_fragment_type_condition(container, offset)
+                        {
                             if let Some(type_def) = schema.types.get(type_name.as_str()) {
-                                self.collect_variables_in_fragment(container, offset, type_def, schema, &mut vars);
+                                self.collect_variables_in_fragment(
+                                    container, offset, type_def, schema, &mut vars,
+                                );
                             }
                         }
                     }
                 }
             }
         }
-        
+
         vars
     }
 
@@ -851,13 +871,19 @@ impl DocumentState {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "selection_set" => {
-                    self.collect_variables_in_selection_set(child, offset, current_type, schema, vars);
+                    self.collect_variables_in_selection_set(
+                        child,
+                        offset,
+                        current_type,
+                        schema,
+                        vars,
+                    );
                 }
                 "directives" => {
                     self.collect_variables_in_directives(child, offset, schema, vars);
                 }
                 "directive" => {
-                     self.collect_variables_in_directives(node, offset, schema, vars);
+                    self.collect_variables_in_directives(node, offset, schema, vars);
                 }
                 _ => {
                     self.collect_variables_in_fragment(child, offset, current_type, schema, vars);
@@ -882,7 +908,7 @@ impl DocumentState {
                     let mut arguments = None;
                     let mut selection_set = None;
                     let mut directives = None;
-                    
+
                     let mut f_cursor = child.walk();
                     for f_child in child.children(&mut f_cursor) {
                         match f_child.kind() {
@@ -896,27 +922,41 @@ impl DocumentState {
                             _ => {}
                         }
                     }
-                    
+
                     if let Some(fname) = field_name {
                         let field_def = match current_type {
-                            apollo_compiler::schema::ExtendedType::Object(obj) => obj.fields.get(fname.as_str()),
-                            apollo_compiler::schema::ExtendedType::Interface(iface) => iface.fields.get(fname.as_str()),
+                            apollo_compiler::schema::ExtendedType::Object(obj) => {
+                                obj.fields.get(fname.as_str())
+                            }
+                            apollo_compiler::schema::ExtendedType::Interface(iface) => {
+                                iface.fields.get(fname.as_str())
+                            }
                             _ => None,
                         };
-                        
+
                         if let Some(fdef) = field_def {
                             if let Some(args_node) = arguments {
-                                self.collect_variables_in_arguments(args_node, offset, &fdef.arguments, schema, vars);
+                                self.collect_variables_in_arguments(
+                                    args_node,
+                                    offset,
+                                    &fdef.arguments,
+                                    schema,
+                                    vars,
+                                );
                             }
-                            
+
                             if let Some(dirs_node) = directives {
-                                self.collect_variables_in_directives(dirs_node, offset, schema, vars);
+                                self.collect_variables_in_directives(
+                                    dirs_node, offset, schema, vars,
+                                );
                             }
-                            
+
                             if let Some(sel_node) = selection_set {
                                 let next_type_name = fdef.ty.inner_named_type();
                                 if let Some(next_type) = schema.types.get(next_type_name.as_str()) {
-                                    self.collect_variables_in_selection_set(sel_node, offset, next_type, schema, vars);
+                                    self.collect_variables_in_selection_set(
+                                        sel_node, offset, next_type, schema, vars,
+                                    );
                                 }
                             }
                         }
@@ -929,13 +969,19 @@ impl DocumentState {
                     } else {
                         Some(current_type.clone())
                     };
-                    
+
                     if let Some(tty) = target_type {
                         self.collect_variables_in_fragment(child, offset, &tty, schema, vars);
                     }
                 }
                 "selection" => {
-                    self.collect_variables_in_selection_set(child, offset, current_type, schema, vars);
+                    self.collect_variables_in_selection_set(
+                        child,
+                        offset,
+                        current_type,
+                        schema,
+                        vars,
+                    );
                 }
                 _ => {}
             }
@@ -963,7 +1009,7 @@ impl DocumentState {
                         value_node = Some(a_child);
                     }
                 }
-                
+
                 if let (Some(aname), Some(vnode)) = (arg_name, value_node) {
                     if let Some(adef) = arg_defs.iter().find(|a| a.name.as_str() == aname) {
                         self.collect_variables_in_value(vnode, offset, &adef.ty, schema, vars);
@@ -993,11 +1039,17 @@ impl DocumentState {
                         arguments = Some(d_child);
                     }
                 }
-                
+
                 if let Some(dname) = dir_name {
                     if let Some(ddef) = schema.directive_definitions.get(dname.as_str()) {
                         if let Some(args_node) = arguments {
-                            self.collect_variables_in_arguments(args_node, offset, &ddef.arguments, schema, vars);
+                            self.collect_variables_in_arguments(
+                                args_node,
+                                offset,
+                                &ddef.arguments,
+                                schema,
+                                vars,
+                            );
                         }
                     }
                 }
@@ -1035,14 +1087,18 @@ impl DocumentState {
                                 for of_child in child.children(&mut of_cursor) {
                                     if of_child.kind() == "name" {
                                         field_name = Some(self.get_node_text(of_child, offset));
-                                    } else if of_child.kind() == "value" || of_child.kind().ends_with("_value") {
+                                    } else if of_child.kind() == "value"
+                                        || of_child.kind().ends_with("_value")
+                                    {
                                         value_node = Some(of_child);
                                     }
                                 }
-                                
+
                                 if let (Some(fname), Some(vnode)) = (field_name, value_node) {
                                     if let Some(fdef) = input_obj.fields.get(fname.as_str()) {
-                                        self.collect_variables_in_value(vnode, offset, &fdef.ty, schema, vars);
+                                        self.collect_variables_in_value(
+                                            vnode, offset, &fdef.ty, schema, vars,
+                                        );
                                     }
                                 }
                             }

@@ -31,6 +31,7 @@ async fn test_goto_definition_cross_file() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
         ..Config::new_empty()
@@ -157,6 +158,7 @@ async fn test_goto_definition_types() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
         ..Config::new_empty()
@@ -165,18 +167,41 @@ async fn test_goto_definition_types() {
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
 
     // Initialize
-    let _ = service.call(Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await;
-    let _ = service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await;
+    let _ = service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await;
+    let _ = service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await;
 
     // Open schema
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: schema_uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: fs::read_to_string(&schema_path).unwrap(),
-        },
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: schema_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&schema_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     // 1. From fragment type condition to type definition
     let frag_text = "fragment UserFields on Profile { bio }";
@@ -185,26 +210,51 @@ async fn test_goto_definition_types() {
     let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
 
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: frag_uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: frag_text.to_string(),
-        },
-    }).unwrap()).finish()).await.unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: frag_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: frag_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     // Click on "Profile" in "fragment UserFields on Profile"
-    let response = service.call(Request::build("textDocument/definition").id(1).params(serde_json::to_value(GotoDefinitionParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: frag_uri.clone() },
-            position: Position::new(0, 25),
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-    }).unwrap()).finish()).await.unwrap().unwrap();
-    
-    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let response = service
+        .call(
+            Request::build("textDocument/definition")
+                .id(1)
+                .params(
+                    serde_json::to_value(GotoDefinitionParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier {
+                                uri: frag_uri.clone(),
+                            },
+                            position: Position::new(0, 25),
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
         assert_eq!(loc.range.start.line, 3);
@@ -215,16 +265,31 @@ async fn test_goto_definition_types() {
 
     // 2. From field type to type definition (in schema)
     // Click on "Profile" in "type User { ... profile: Profile }"
-    let response = service.call(Request::build("textDocument/definition").id(2).params(serde_json::to_value(GotoDefinitionParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: schema_uri.clone() },
-            position: Position::new(2, 45), // profile: Pro|file
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-    }).unwrap()).finish()).await.unwrap().unwrap();
-    
-    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let response = service
+        .call(
+            Request::build("textDocument/definition")
+                .id(2)
+                .params(
+                    serde_json::to_value(GotoDefinitionParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier {
+                                uri: schema_uri.clone(),
+                            },
+                            position: Position::new(2, 45), // profile: Pro|file
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
         assert_eq!(loc.range.start.line, 3);
@@ -238,27 +303,52 @@ async fn test_goto_definition_types() {
     fs::write(&query_path, query_text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: query_uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: query_text.to_string(),
-        },
-    }).unwrap()).finish()).await.unwrap();
+
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: query_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: query_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
 
     // Click on "MyInput" in "query ($input: MyInput)"
-    let response = service.call(Request::build("textDocument/definition").id(3).params(serde_json::to_value(GotoDefinitionParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
-            position: Position::new(0, 18), // My|Input
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-    }).unwrap()).finish()).await.unwrap().unwrap();
-    
-    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let response = service
+        .call(
+            Request::build("textDocument/definition")
+                .id(3)
+                .params(
+                    serde_json::to_value(GotoDefinitionParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier {
+                                uri: query_uri.clone(),
+                            },
+                            position: Position::new(0, 18), // My|Input
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
         assert_eq!(loc.range.start.line, 1);
@@ -269,16 +359,31 @@ async fn test_goto_definition_types() {
 
     // 4. Variable definition from usage
     // Click on "$input" in "query ($input: MyInput)" or later usage (not here but let's test definition itself)
-    let response = service.call(Request::build("textDocument/definition").id(4).params(serde_json::to_value(GotoDefinitionParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
-            position: Position::new(0, 8), // $in|put
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-    }).unwrap()).finish()).await.unwrap().unwrap();
-    
-    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let response = service
+        .call(
+            Request::build("textDocument/definition")
+                .id(4)
+                .params(
+                    serde_json::to_value(GotoDefinitionParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier {
+                                uri: query_uri.clone(),
+                            },
+                            position: Position::new(0, 8), // $in|put
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, query_uri);
         assert_eq!(loc.range.start.line, 0);
@@ -289,16 +394,31 @@ async fn test_goto_definition_types() {
 
     // 5. Field definition from usage in fragment
     // Click on "bio" in "fragment UserFields on Profile { bio }"
-    let response = service.call(Request::build("textDocument/definition").id(5).params(serde_json::to_value(GotoDefinitionParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: frag_uri.clone() },
-            position: Position::new(0, 35), // bi|o
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-    }).unwrap()).finish()).await.unwrap().unwrap();
-    
-    let result: Option<GotoDefinitionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let response = service
+        .call(
+            Request::build("textDocument/definition")
+                .id(5)
+                .params(
+                    serde_json::to_value(GotoDefinitionParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier {
+                                uri: frag_uri.clone(),
+                            },
+                            position: Position::new(0, 35), // bi|o
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
         assert_eq!(loc.range.start.line, 3);

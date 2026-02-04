@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use graphql_rust::{
     Backend, Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
@@ -8,8 +8,8 @@ use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
-use tower_lsp::{LspService, LanguageServer};
 use tower_lsp::lsp_types::*;
+use tower_lsp::{LanguageServer, LspService};
 
 fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project: usize) -> Config {
     let mut projects = Vec::new();
@@ -40,6 +40,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         });
     }
 
@@ -244,4 +245,3 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
 criterion_group!(benches, bench_lsp_actions);
 criterion_main!(benches);
-

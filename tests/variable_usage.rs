@@ -227,6 +227,7 @@ async fn test_fragment_hover_requirements() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.clone(),
         ..Config::new_empty()
@@ -346,6 +347,7 @@ async fn test_fragment_completion_requirements() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.clone(),
         ..Config::new_empty()
@@ -495,6 +497,7 @@ async fn test_variable_references_including_fragments() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: base_dir.clone(),
         ..Config::new_empty()

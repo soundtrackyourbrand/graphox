@@ -18,7 +18,8 @@ pub struct Backend {
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub empty_schema: Arc<Schema>,
     pub valid_empty_schema: Arc<apollo_compiler::validation::Valid<Schema>>,
-    pub validated_schemas: Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
+    pub validated_schemas:
+        Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
     // Performance optimizations
     pub fragment_defs: Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
     pub fragment_spreads: Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
@@ -162,7 +163,11 @@ impl Backend {
             .collect()
     }
 
-    fn get_transitive_fragments(&self, initial_spreads: Vec<String>, package_root: Option<&std::path::PathBuf>) -> fnv::FnvHashSet<Url> {
+    fn get_transitive_fragments(
+        &self,
+        initial_spreads: Vec<String>,
+        package_root: Option<&std::path::PathBuf>,
+    ) -> fnv::FnvHashSet<Url> {
         let mut visited_names = fnv::FnvHashSet::default();
         let mut fragment_uris = fnv::FnvHashSet::default();
         let mut to_visit = initial_spreads;
@@ -179,7 +184,7 @@ impl Backend {
                 f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
             }) {
                 fragment_uris.insert(frag.uri.clone());
-                
+
                 // Add its nested spreads
                 if let Some(doc) = self.documents.get(&frag.uri) {
                     // Find the specific fragment def in the doc to get its spreads
@@ -203,7 +208,13 @@ impl Backend {
     ) -> std::collections::BTreeMap<String, String> {
         let mut requirements = std::collections::BTreeMap::new();
         let mut visited = fnv::FnvHashSet::default();
-        self.collect_fragment_requirements_recursive(name, schema, package_root, &mut requirements, &mut visited);
+        self.collect_fragment_requirements_recursive(
+            name,
+            schema,
+            package_root,
+            &mut requirements,
+            &mut visited,
+        );
         requirements
     }
 
@@ -220,9 +231,10 @@ impl Backend {
         }
 
         let all_fragments = self.get_all_fragments_info();
-        if let Some(frag) = all_fragments.iter().find(|f| {
-            f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
-        }) {
+        if let Some(frag) = all_fragments
+            .iter()
+            .find(|f| f.name == name && (f.is_public || f.package_root.as_ref() == package_root))
+        {
             if let Some(doc) = self.documents.get(&frag.uri) {
                 // Get variables from this fragment
                 let local_vars = doc.get_fragment_variable_types(name, schema);
@@ -233,7 +245,13 @@ impl Backend {
                 // Get nested fragments
                 if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
                     for nested in &def.used_fragments {
-                        self.collect_fragment_requirements_recursive(nested, schema, package_root, requirements, visited);
+                        self.collect_fragment_requirements_recursive(
+                            nested,
+                            schema,
+                            package_root,
+                            requirements,
+                            visited,
+                        );
                     }
                 }
             }
@@ -562,7 +580,11 @@ impl Backend {
         self.validate_uris(all_uris).await;
     }
 
-    fn get_affected_uris(&self, initial_uri: Url, affected_fragments: FnvHashSet<String>) -> Vec<Url> {
+    fn get_affected_uris(
+        &self,
+        initial_uri: Url,
+        affected_fragments: FnvHashSet<String>,
+    ) -> Vec<Url> {
         let mut uris_to_validate = FnvHashSet::default();
         uris_to_validate.insert(initial_uri);
 
@@ -740,21 +762,28 @@ impl LanguageServer for Backend {
                     }
                 },
                 |current, total| {
-                    if total == 0 { return; }
+                    if total == 0 {
+                        return;
+                    }
                     let percentage = (current * 100 / total) as u32;
                     let client = client.clone();
                     let token = token.clone();
                     tokio::spawn(async move {
-                        let _ = client.send_notification::<notification::Progress>(ProgressParams {
-                            token,
-                            value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
-                                WorkDoneProgressReport {
-                                    cancellable: Some(true),
-                                    message: Some(format!("Parsing GraphQL files... ({}/{})", current, total)),
-                                    percentage: Some(percentage),
-                                },
-                            )),
-                        }).await;
+                        let _ = client
+                            .send_notification::<notification::Progress>(ProgressParams {
+                                token,
+                                value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
+                                    WorkDoneProgressReport {
+                                        cancellable: Some(true),
+                                        message: Some(format!(
+                                            "Parsing GraphQL files... ({}/{})",
+                                            current, total
+                                        )),
+                                        percentage: Some(percentage),
+                                    },
+                                )),
+                            })
+                            .await;
                     });
                 },
                 cancelled.clone(),
@@ -789,29 +818,35 @@ impl LanguageServer for Backend {
                 .flat_map(|entry| {
                     let uri = entry.key();
                     let frags = entry.value();
-                    
-                    frags.iter().map(|frag| {
-                        let import_path = if let Ok(p) = uri.to_file_path() {
-                             config.get_project_for_path(&p).and_then(|proj| proj.import.clone())
-                        } else {
-                            None
-                        };
 
-                        let package_root = package_roots.get(uri).and_then(|r| r.value().clone());
+                    frags
+                        .iter()
+                        .map(|frag| {
+                            let import_path = if let Ok(p) = uri.to_file_path() {
+                                config
+                                    .get_project_for_path(&p)
+                                    .and_then(|proj| proj.import.clone())
+                            } else {
+                                None
+                            };
 
-                        FragmentCompletionInfo {
-                            name: frag.name.clone(),
-                            type_condition: frag.type_condition.clone(),
-                            description: frag.description.clone(),
-                            import_path,
-                            is_public: frag.is_public,
-                            uri: uri.clone(),
-                            package_root,
-                            used_variables: frag.used_variables.clone(),
-                            used_fragments: frag.used_fragments.clone(),
-                            requirements: std::collections::BTreeMap::new(),
-                        }
-                    }).collect::<Vec<_>>()
+                            let package_root =
+                                package_roots.get(uri).and_then(|r| r.value().clone());
+
+                            FragmentCompletionInfo {
+                                name: frag.name.clone(),
+                                type_condition: frag.type_condition.clone(),
+                                description: frag.description.clone(),
+                                import_path,
+                                is_public: frag.is_public,
+                                uri: uri.clone(),
+                                package_root,
+                                used_variables: frag.used_variables.clone(),
+                                used_fragments: frag.used_fragments.clone(),
+                                requirements: std::collections::BTreeMap::new(),
+                            }
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect();
 
@@ -945,7 +980,11 @@ impl LanguageServer for Backend {
                         {
                             let mut value = format!("```graphql\n{}\n```", info);
 
-                            let requirements = self.get_fragment_requirements(&symbol_name, &schema, doc.package_root.as_ref());
+                            let requirements = self.get_fragment_requirements(
+                                &symbol_name,
+                                &schema,
+                                doc.package_root.as_ref(),
+                            );
                             if !requirements.is_empty() {
                                 value.push_str("\n\n**Requires Variables:**\n");
                                 for (var, ty) in requirements {
@@ -994,11 +1033,8 @@ impl LanguageServer for Backend {
                 let mut fragments = self.get_fragments_for_doc(&doc);
 
                 for f in &mut fragments {
-                    f.requirements = self.get_fragment_requirements(
-                        &f.name,
-                        &schema,
-                        doc.package_root.as_ref(),
-                    );
+                    f.requirements =
+                        self.get_fragment_requirements(&f.name, &schema, doc.package_root.as_ref());
                 }
 
                 let items = doc.get_completion_items(position, &schema, fragments);
@@ -1239,7 +1275,9 @@ impl LanguageServer for Backend {
 
             if let Some(doc) = self.documents.get(&uri) {
                 let schema = self.get_schema_for_doc(&uri);
-                if let Some(loc) = doc.get_field_definition_location(position, &schema, &self.documents) {
+                if let Some(loc) =
+                    doc.get_field_definition_location(position, &schema, &self.documents)
+                {
                     return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
                 }
 
@@ -1292,12 +1330,17 @@ impl LanguageServer for Backend {
                     if let Some(doc) = self.documents.get(&uri) {
                         let mut all_refs =
                             doc.find_variable_references(&name, position, include_declaration);
-                        
+
                         // Find transitive references in fragments
-                        if let Some((op_node, offset)) = doc.find_containing_operation_node(position) {
+                        if let Some((op_node, offset)) =
+                            doc.find_containing_operation_node(position)
+                        {
                             let initial_spreads = doc.get_fragment_spreads_in_node(op_node, offset);
-                            let frag_uris = self.get_transitive_fragments(initial_spreads, doc.package_root.as_ref());
-                            
+                            let frag_uris = self.get_transitive_fragments(
+                                initial_spreads,
+                                doc.package_root.as_ref(),
+                            );
+
                             for f_uri in frag_uris {
                                 if let Some(f_doc) = self.documents.get(&f_uri) {
                                     let frag_refs = f_doc.find_references_in_tree(&name, false);
@@ -1306,7 +1349,11 @@ impl LanguageServer for Backend {
                             }
                         }
 
-                        return Ok(if all_refs.is_empty() { None } else { Some(all_refs) });
+                        return Ok(if all_refs.is_empty() {
+                            None
+                        } else {
+                            Some(all_refs)
+                        });
                     }
                     return Ok(None);
                 }
@@ -1568,7 +1615,7 @@ impl LanguageServer for Backend {
                 if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
                     let path = change.uri.to_file_path().unwrap();
                     let path_str = path.to_string_lossy().to_string();
-                    
+
                     // Check if this is a schema file
                     let mut is_schema = false;
                     for project in &self.config.projects {
@@ -1629,16 +1676,18 @@ impl LanguageServer for Backend {
                         }
 
                         // Re-validate all documents because this file might have changed fragments
-                        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+                        let all_uris: Vec<Url> =
+                            self.documents.iter().map(|e| e.key().clone()).collect();
                         for uri in all_uris {
                             if let Some(doc) = self.documents.get(&uri) {
                                 let schema = self.get_schema_for_doc(&uri);
-                                
+
                                 let target_package_root = doc.package_root.as_ref();
                                 let fragments: Vec<_> = all_fragments_info
                                     .iter()
                                     .filter(|f| {
-                                        let is_same_package = f.package_root.as_ref() == target_package_root;
+                                        let is_same_package =
+                                            f.package_root.as_ref() == target_package_root;
                                         is_same_package || f.is_public
                                     })
                                     .cloned()
@@ -1700,8 +1749,8 @@ impl LanguageServer for Backend {
 mod tests {
     use super::*;
     use crate::config::{Config, GlobPattern, ProjectConfig, SchemaSource};
+    use tokio::time::{Duration, timeout};
     use tower_lsp::LspService;
-    use tokio::time::{timeout, Duration};
 
     #[tokio::test]
     async fn test_validate_all_documents_performance() {
@@ -1713,6 +1762,7 @@ mod tests {
                 exclude: None,
                 output_dir: None,
                 import: None,
+                generate_permissions: None,
             }],
             output_dir: None,
             schema_types: None,
@@ -1723,10 +1773,17 @@ mod tests {
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
-        
+
         // This should complete very quickly even with multiple documents
-        let res = timeout(Duration::from_millis(500), service.inner().validate_all_documents()).await;
-        assert!(res.is_ok(), "validate_all_documents took too long or deadlocked");
+        let res = timeout(
+            Duration::from_millis(500),
+            service.inner().validate_all_documents(),
+        )
+        .await;
+        assert!(
+            res.is_ok(),
+            "validate_all_documents took too long or deadlocked"
+        );
     }
 
     #[tokio::test]
@@ -1751,7 +1808,8 @@ mod tests {
 
         let res = timeout(Duration::from_millis(100), async {
             backend.get_all_fragments_info()
-        }).await;
+        })
+        .await;
         assert!(res.is_ok(), "get_all_fragments_info deadlocked");
     }
 }

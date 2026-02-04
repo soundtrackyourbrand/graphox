@@ -43,6 +43,7 @@ async fn test_lsp_multi_schema_support() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         schema_types: None,
         scalars: None,
@@ -68,7 +69,6 @@ async fn test_lsp_multi_schema_support() {
         .params(serde_json::json!({}))
         .finish();
     service.call(request).await.unwrap();
-
 
     // Open document
     let params = DidOpenTextDocumentParams {

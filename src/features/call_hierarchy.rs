@@ -6,10 +6,10 @@ use tree_sitter::{QueryCursor, StreamingIterator};
 impl DocumentState {
     pub fn prepare_call_hierarchy(&self, position: Position) -> Option<Vec<CallHierarchyItem>> {
         let symbol_name = self.get_symbol_at_position(position)?;
-        
+
         // Find the definition to get the range for the item
         let location = self.find_definition_in_tree(&symbol_name)?;
-        
+
         Some(vec![CallHierarchyItem {
             name: symbol_name.clone(),
             kind: SymbolKind::FUNCTION, // fragments are like functions
@@ -35,13 +35,15 @@ impl DocumentState {
         for block in self.get_graphql_trees() {
             let offset = block.offset;
             let root = block.tree.root_node();
-            
+
             // Find the container (fragment or operation) for this symbol
             let mut container_node = None;
             let mut matches = cursor.matches(query, root, |node: tree_sitter::Node| {
                 let start = node.start_byte();
                 let end = node.end_byte();
-                self.rope.byte_slice((start + offset)..(end + offset)).chunks()
+                self.rope
+                    .byte_slice((start + offset)..(end + offset))
+                    .chunks()
             });
 
             while let Some(m) = matches.next() {
@@ -69,11 +71,14 @@ impl DocumentState {
             if let Some(container) = container_node {
                 // Now find all fragment spreads inside THIS container
                 let mut inner_cursor = QueryCursor::new();
-                let mut inner_matches = inner_cursor.matches(query, container, |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
-                    self.rope.byte_slice((start + offset)..(end + offset)).chunks()
-                });
+                let mut inner_matches =
+                    inner_cursor.matches(query, container, |node: tree_sitter::Node| {
+                        let start = node.start_byte();
+                        let end = node.end_byte();
+                        self.rope
+                            .byte_slice((start + offset)..(end + offset))
+                            .chunks()
+                    });
 
                 while let Some(m) = inner_matches.next() {
                     let mut is_reference = false;
@@ -90,20 +95,20 @@ impl DocumentState {
                     if is_reference && let Some(name_node) = name_node {
                         let callee_name = self.get_node_text(name_node, offset);
                         let range = self.translate_to_file_range(name_node, offset);
-                        
-                        // We don't have the URI of the callee easily here, 
+
+                        // We don't have the URI of the callee easily here,
                         // so we just return the name and let the backend resolve the item.
                         // Actually CallHierarchyOutgoingCall needs a CallHierarchyItem for the callee.
                         // This is tricky because we don't know where it's defined yet.
                         // We'll return a "partial" item and let the backend fill it.
-                        
+
                         calls.push(CallHierarchyOutgoingCall {
                             to: CallHierarchyItem {
                                 name: callee_name,
                                 kind: SymbolKind::FUNCTION,
                                 tags: None,
                                 detail: None,
-                                uri: self.uri.clone(), // Placeholder
+                                uri: self.uri.clone(),   // Placeholder
                                 range: Range::default(), // Placeholder
                                 selection_range: Range::default(), // Placeholder
                                 data: None,
@@ -130,7 +135,9 @@ impl DocumentState {
                 let mut node = root.descendant_for_byte_range(local_byte, local_byte);
 
                 while let Some(current) = node {
-                    if current.kind() == "fragment_definition" || current.kind() == "operation_definition" {
+                    if current.kind() == "fragment_definition"
+                        || current.kind() == "operation_definition"
+                    {
                         let mut cursor = current.walk();
                         for child in current.children(&mut cursor) {
                             if child.kind() == "fragment_name" || child.kind() == "name" {

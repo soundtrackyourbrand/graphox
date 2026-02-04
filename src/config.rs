@@ -81,6 +81,7 @@ pub struct ProjectConfig {
     pub exclude: Option<GlobPattern>,
     pub output_dir: Option<String>,
     pub import: Option<String>,
+    pub generate_permissions: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

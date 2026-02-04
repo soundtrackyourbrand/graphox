@@ -33,8 +33,12 @@ impl DocumentState {
                         )
                         .to_string();
 
-                    if node.kind() == "variable" || node.parent().map_or(false, |p| p.kind() == "variable") {
-                        if let Some(var_info) = self.get_variable_info(root, offset, byte_offset, schema) {
+                    if node.kind() == "variable"
+                        || node.parent().map_or(false, |p| p.kind() == "variable")
+                    {
+                        if let Some(var_info) =
+                            self.get_variable_info(root, offset, byte_offset, schema)
+                        {
                             return Some(Hover {
                                 contents: HoverContents::Markup(MarkupContent {
                                     kind: MarkupKind::Markdown,
@@ -141,7 +145,8 @@ impl DocumentState {
         cursor_offset: usize,
         _schema: &Schema,
     ) -> Option<String> {
-        let node = root.descendant_for_byte_range(cursor_offset - offset, cursor_offset - offset)?;
+        let node =
+            root.descendant_for_byte_range(cursor_offset - offset, cursor_offset - offset)?;
         let mut var_node = if node.kind() == "variable" {
             node
         } else if node.parent()?.kind() == "variable" {
@@ -522,7 +527,6 @@ impl DocumentState {
                 let container = node;
                 let mut name = None;
                 let mut description = None;
-
 
                 let mut cursor = container.walk();
                 for child in container.children(&mut cursor) {

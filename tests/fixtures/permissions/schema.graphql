@@ -1,0 +1,23 @@
+type Query {
+  me: User!
+}
+
+type User {
+  id: ID!
+  username: String!
+  permissions: UserPermissions!
+}
+
+enum UserPermissions {
+  READ
+}
+
+type Post {
+  id: ID!
+  permissions: PostPermissions
+}
+
+enum PostPermissions {
+  READ
+  WRITE
+}

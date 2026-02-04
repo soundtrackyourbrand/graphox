@@ -1,0 +1,8 @@
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+    generate_permissions: true
+schema_types:
+  - schema: "schema.graphql"
+    output: "schema.types.ts"
+    import: "./schema.types"

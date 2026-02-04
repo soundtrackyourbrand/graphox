@@ -102,8 +102,12 @@ async fn execute_project_check(
         }
     }
 
-    let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<graphql_rust::features::completion::FragmentCompletionInfo>> = HashMap::default();
-    let mut all_public_fragments: Vec<graphql_rust::features::completion::FragmentCompletionInfo> = Vec::new();
+    let mut fragments_per_package: HashMap<
+        Option<PathBuf>,
+        Vec<graphql_rust::features::completion::FragmentCompletionInfo>,
+    > = HashMap::default();
+    let mut all_public_fragments: Vec<graphql_rust::features::completion::FragmentCompletionInfo> =
+        Vec::new();
     let mut used_fragments = fnv::FnvHashSet::default();
     let package_roots = dashmap::DashMap::with_hasher(ahash::RandomState::default());
 
@@ -143,7 +147,10 @@ async fn execute_project_check(
             .unwrap_or_default();
 
         for pub_frag in &all_public_fragments {
-            if !package_fragments.iter().any(|f| f.name == pub_frag.name && f.uri == pub_frag.uri) {
+            if !package_fragments
+                .iter()
+                .any(|f| f.name == pub_frag.name && f.uri == pub_frag.uri)
+            {
                 package_fragments.push(pub_frag.clone());
             }
         }

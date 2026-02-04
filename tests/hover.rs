@@ -24,6 +24,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.to_path_buf(),
         ..Config::new_empty()
@@ -216,6 +217,7 @@ async fn test_hover_graphql_description() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
         ..Config::new_empty()
@@ -459,10 +461,19 @@ async fn test_hover_variable() {
     let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
-    assert!(result.is_some(), "Hover should return something for variable definition");
+    assert!(
+        result.is_some(),
+        "Hover should return something for variable definition"
+    );
     if let HoverContents::Markup(m) = result.unwrap().contents {
-        assert!(m.value.contains("variable $id"), "Should contain variable name");
-        assert!(m.value.contains("Type: `ID!`"), "Should contain variable type");
+        assert!(
+            m.value.contains("variable $id"),
+            "Should contain variable name"
+        );
+        assert!(
+            m.value.contains("Type: `ID!`"),
+            "Should contain variable type"
+        );
     } else {
         panic!("Expected Markup contents");
     }
@@ -476,7 +487,8 @@ async fn test_hover_variable() {
         }
     "#;
     fs::write(&dir.path().join("hover_var_usage.graphql"), text_with_usage).unwrap();
-    let query_path_usage = std::fs::canonicalize(dir.path().join("hover_var_usage.graphql")).unwrap();
+    let query_path_usage =
+        std::fs::canonicalize(dir.path().join("hover_var_usage.graphql")).unwrap();
     let uri_usage = Url::from_file_path(&query_path_usage).unwrap();
 
     let params = DidOpenTextDocumentParams {
@@ -495,7 +507,9 @@ async fn test_hover_variable() {
     let position = Position::new(2, 22); // $id in node(id: $id)
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri_usage.clone() },
+            text_document: TextDocumentIdentifier {
+                uri: uri_usage.clone(),
+            },
             position,
         },
         work_done_progress_params: Default::default(),
@@ -509,10 +523,19 @@ async fn test_hover_variable() {
     let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
-    assert!(result.is_some(), "Hover should return something for variable usage");
+    assert!(
+        result.is_some(),
+        "Hover should return something for variable usage"
+    );
     if let HoverContents::Markup(m) = result.unwrap().contents {
-        assert!(m.value.contains("variable $id"), "Should contain variable name");
-        assert!(m.value.contains("Type: `ID!`"), "Should contain variable type");
+        assert!(
+            m.value.contains("variable $id"),
+            "Should contain variable name"
+        );
+        assert!(
+            m.value.contains("Type: `ID!`"),
+            "Should contain variable type"
+        );
     } else {
         panic!("Expected Markup contents");
     }

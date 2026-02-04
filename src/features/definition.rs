@@ -39,7 +39,10 @@ impl DocumentState {
         None
     }
 
-    pub fn find_containing_operation_node(&self, position: Position) -> Option<(tree_sitter::Node<'_>, usize)> {
+    pub fn find_containing_operation_node(
+        &self,
+        position: Position,
+    ) -> Option<(tree_sitter::Node<'_>, usize)> {
         let byte_offset = self.position_to_byte(position);
 
         for block in self.get_graphql_trees() {
@@ -69,7 +72,11 @@ impl DocumentState {
         None
     }
 
-    pub fn find_variable_definition(&self, symbol_name: &str, position: Position) -> Option<Location> {
+    pub fn find_variable_definition(
+        &self,
+        symbol_name: &str,
+        position: Position,
+    ) -> Option<Location> {
         if !symbol_name.starts_with('$') {
             return None;
         }
@@ -179,41 +186,61 @@ impl DocumentState {
                 if node.kind() == "name" {
                     let mut curr = node;
                     while let Some(parent) = curr.parent() {
-                        if parent.kind() == "field" || parent.kind() == "argument" || parent.kind() == "object_field" {
+                        if parent.kind() == "field"
+                            || parent.kind() == "argument"
+                            || parent.kind() == "object_field"
+                        {
                             let field_name = self.get_node_text(node, offset);
-                            
-                            let mut search_type = self.find_parent_type_for_node(parent, offset, schema);
+
+                            let mut search_type =
+                                self.find_parent_type_for_node(parent, offset, schema);
 
                             if parent.kind() == "argument" {
                                 // For arguments, we need the type that defines the field this argument belongs to,
                                 // but then we look for the argument name within that field's definition.
                                 // Actually, find_field_definition_in_schema can handle this if we pass the field name?
                                 // No, find_field_definition_in_schema looks for a field in a type.
-                                // If we have user(id: 1), we look for 'user' in Query, get its type, then look for 'id'? 
+                                // If we have user(id: 1), we look for 'user' in Query, get its type, then look for 'id'?
                                 // No, 'id' is defined ON 'user'.
-                                
+
                                 if let Some(field_node) = parent.parent().and_then(|p| p.parent()) {
                                     if field_node.kind() == "field" {
-                                        if let Some(parent_type) = self.find_parent_type_for_node(field_node, offset, schema) {
-                                            let field_node_name = field_node.child_by_field_name("name")
+                                        if let Some(parent_type) = self
+                                            .find_parent_type_for_node(field_node, offset, schema)
+                                        {
+                                            let field_node_name = field_node
+                                                .child_by_field_name("name")
                                                 .map(|n| self.get_node_text(n, offset))
                                                 .unwrap_or_default();
-                                            
+
                                             for entry in documents.iter() {
                                                 let doc = entry.value();
-                                                if let Some(loc) = doc.find_argument_definition_in_schema(parent_type.name(), &field_node_name, &field_name) {
+                                                if let Some(loc) = doc
+                                                    .find_argument_definition_in_schema(
+                                                        parent_type.name(),
+                                                        &field_node_name,
+                                                        &field_name,
+                                                    )
+                                                {
                                                     return Some(loc);
                                                 }
                                             }
                                         }
                                     } else if field_node.kind() == "directive" {
-                                        let dir_name = field_node.child_by_field_name("name")
+                                        let dir_name = field_node
+                                            .child_by_field_name("name")
                                             .map(|n| self.get_node_text(n, offset))
                                             .unwrap_or_default();
-                                        
+
                                         for entry in documents.iter() {
                                             let doc = entry.value();
-                                            if let Some(loc) = doc.find_argument_definition_in_schema("Directive", &dir_name, &field_name) {
+                                            if let Some(loc) = doc
+                                                .find_argument_definition_in_schema(
+                                                    "Directive",
+                                                    &dir_name,
+                                                    &field_name,
+                                                )
+                                            {
                                                 return Some(loc);
                                             }
                                         }
@@ -223,7 +250,8 @@ impl DocumentState {
                                 // For object fields in input types, find the expected input type
                                 if let Some(obj_value) = parent.parent() {
                                     if let Some(val_node) = obj_value.parent() {
-                                        search_type = self.find_expected_type_for_value(val_node, offset, schema);
+                                        search_type = self
+                                            .find_expected_type_for_value(val_node, offset, schema);
                                     }
                                 }
                             }
@@ -303,7 +331,9 @@ impl DocumentState {
                                                 if f_name == field_name {
                                                     return Some(Location {
                                                         uri: self.uri.clone(),
-                                                        range: self.translate_to_file_range(fd_child, offset),
+                                                        range: self.translate_to_file_range(
+                                                            fd_child, offset,
+                                                        ),
                                                     });
                                                 }
                                             }
@@ -319,7 +349,8 @@ impl DocumentState {
                                         if f_name == field_name {
                                             return Some(Location {
                                                 uri: self.uri.clone(),
-                                                range: self.translate_to_file_range(f_child, offset),
+                                                range: self
+                                                    .translate_to_file_range(f_child, offset),
                                             });
                                         }
                                     }
@@ -335,11 +366,15 @@ impl DocumentState {
                                                 let mut v_walker = ev_child.walk();
                                                 for v_child in ev_child.children(&mut v_walker) {
                                                     if v_child.kind() == "name" {
-                                                        let f_name = self.get_node_text(v_child, offset);
+                                                        let f_name =
+                                                            self.get_node_text(v_child, offset);
                                                         if f_name == field_name {
                                                             return Some(Location {
                                                                 uri: self.uri.clone(),
-                                                                range: self.translate_to_file_range(v_child, offset),
+                                                                range: self
+                                                                    .translate_to_file_range(
+                                                                        v_child, offset,
+                                                                    ),
                                                             });
                                                         }
                                                     }
@@ -410,10 +445,13 @@ impl DocumentState {
                                         let mut iv_walker = a_child.walk();
                                         for iv_child in a_child.children(&mut iv_walker) {
                                             if iv_child.kind() == "name" {
-                                                if self.get_node_text(iv_child, offset) == arg_name {
+                                                if self.get_node_text(iv_child, offset) == arg_name
+                                                {
                                                     return Some(Location {
                                                         uri: self.uri.clone(),
-                                                        range: self.translate_to_file_range(iv_child, offset),
+                                                        range: self.translate_to_file_range(
+                                                            iv_child, offset,
+                                                        ),
                                                     });
                                                 }
                                             }
@@ -442,17 +480,25 @@ impl DocumentState {
                                             if self.get_node_text(fd_child, offset) == field_name {
                                                 found_field = true;
                                             }
-                                        } else if fd_child.kind() == "arguments_definition" && found_field {
+                                        } else if fd_child.kind() == "arguments_definition"
+                                            && found_field
+                                        {
                                             let mut a_walker = fd_child.walk();
                                             for a_child in fd_child.children(&mut a_walker) {
                                                 if a_child.kind() == "input_value_definition" {
                                                     let mut iv_walker = a_child.walk();
-                                                    for iv_child in a_child.children(&mut iv_walker) {
+                                                    for iv_child in a_child.children(&mut iv_walker)
+                                                    {
                                                         if iv_child.kind() == "name" {
-                                                            if self.get_node_text(iv_child, offset) == arg_name {
+                                                            if self.get_node_text(iv_child, offset)
+                                                                == arg_name
+                                                            {
                                                                 return Some(Location {
                                                                     uri: self.uri.clone(),
-                                                                    range: self.translate_to_file_range(iv_child, offset),
+                                                                    range: self
+                                                                        .translate_to_file_range(
+                                                                            iv_child, offset,
+                                                                        ),
                                                                 });
                                                             }
                                                         }
@@ -471,7 +517,12 @@ impl DocumentState {
         None
     }
 
-    pub fn find_expected_type_for_value(&self, _node: tree_sitter::Node, _offset: usize, _schema: &apollo_compiler::Schema) -> Option<apollo_compiler::schema::ExtendedType> {
+    pub fn find_expected_type_for_value(
+        &self,
+        _node: tree_sitter::Node,
+        _offset: usize,
+        _schema: &apollo_compiler::Schema,
+    ) -> Option<apollo_compiler::schema::ExtendedType> {
         // Placeholder for now as it's complex to implement correctly
         None
     }

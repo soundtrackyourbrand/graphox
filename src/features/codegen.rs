@@ -369,6 +369,113 @@ pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGen
     output
 }
 
+pub fn generate_permissions_content(
+    schema: &apollo_compiler::validation::Valid<Schema>,
+    scalars: &Option<HashMap<String, String>>,
+    schema_import: &Option<String>,
+) -> String {
+    let mut output = String::new();
+    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+
+    let mut types_with_permissions = Vec::new();
+    let mut names: Vec<_> = schema.types.keys().collect();
+    names.sort();
+
+    for name in names {
+        if name.starts_with("__") {
+            continue;
+        }
+        let ty = schema.types.get(name).unwrap();
+        let fields = match ty {
+            ExtendedType::Object(obj) => Some(&obj.fields),
+            ExtendedType::Interface(iface) => Some(&iface.fields),
+            _ => None,
+        };
+
+        if let Some(fields) = fields {
+            if let Some(permissions_field) = fields.get("permissions") {
+                let inner_name = permissions_field.ty.inner_named_type();
+                let inner_type = schema.types.get(inner_name.as_str());
+                if let Some(ExtendedType::Enum(_)) = inner_type {
+                    types_with_permissions.push((name, permissions_field));
+                } else {
+                    eprintln!(
+                        "Warning: Type '{}' has a 'permissions' field, but its type '{}' is not an enum. Skipping permissions generation for this type.",
+                        name, inner_name
+                    );
+                }
+            }
+        }
+    }
+
+    if types_with_permissions.is_empty() {
+        output.push_str("export interface PermissionsType {}\n\n");
+        output.push_str("export const permissionTypes = {};\n");
+        return output;
+    }
+
+    if let Some(import_path) = schema_import {
+        let mut types_to_import = HashSet::default();
+        for (_, field) in &types_with_permissions {
+            let inner_name = field.ty.inner_named_type();
+            types_to_import.insert(inner_name.to_string());
+        }
+        if !types_to_import.is_empty() {
+            let mut sorted_imports: Vec<_> = types_to_import.into_iter().collect();
+            sorted_imports.sort();
+            output.push_str(&format!(
+                "import type {{ {} }} from \"{}\";\n\n",
+                sorted_imports.join(", "),
+                import_path
+            ));
+        }
+    }
+
+    let empty_fragments = HashMap::default();
+    let dummy_ctx = CodegenContext {
+        schema,
+        fragment_to_path: &HashMap::default(),
+        fragment_to_import: &HashMap::default(),
+        all_fragments: &empty_fragments,
+        current_file_path: Path::new(""),
+        scalars,
+        schema_import,
+        generate_ast_for_fragments: false,
+    };
+    let mut used_schema_types = HashSet::default();
+
+    output.push_str("export interface PermissionsType {\n");
+    for (typename, field) in &types_with_permissions {
+        let ts_type = gql_type_to_ts_with_names(
+            &field.ty,
+            schema,
+            scalars,
+            &dummy_ctx,
+            &mut used_schema_types,
+        );
+        output.push_str(&format!("  {}: {};\n", typename, ts_type));
+    }
+    output.push_str("}\n\n");
+
+    output.push_str("export const permissionTypes = {\n");
+    for (typename, field) in &types_with_permissions {
+        let inner_name = field.ty.inner_named_type();
+        if let Some(ExtendedType::Enum(enm)) = schema.types.get(inner_name.as_str()) {
+            let mut values: Vec<_> = enm.values.keys().collect();
+            values.sort();
+            let values_str = values
+                .iter()
+                .map(|v| format!("'{}'", v))
+                .collect::<Vec<_>>()
+                .join(", ");
+            output.push_str(&format!("  {}: [{}],\n", typename, values_str));
+        }
+    }
+    output.push_str("}\n");
+
+    output
+}
+
 fn generate_selection_set(
     selection_set: &SelectionSet,
     parent_type: &ExtendedType,
@@ -624,7 +731,16 @@ fn gql_type_to_ts_internal(
                             "any".to_string()
                         }
                     }
-                    _ => "any".to_string(),
+                    ExtendedType::Object(_)
+                    | ExtendedType::Interface(_)
+                    | ExtendedType::Union(_) => {
+                        if ctx.schema_import.is_some() || use_names {
+                            used_schema_types.insert(other.to_string());
+                            other.to_string()
+                        } else {
+                            "any".to_string()
+                        }
+                    }
                 }
             } else {
                 "any".to_string()

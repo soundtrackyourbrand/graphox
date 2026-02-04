@@ -950,6 +950,16 @@ fn test_cli_aliases_baselines() {
     run_baseline_test("tests/fixtures/aliases", "tests/baselines/aliases", None);
 }
 
+#[test]
+#[ntest::timeout(250)]
+fn test_cli_permissions_baselines() {
+    run_baseline_test(
+        "tests/fixtures/permissions",
+        "tests/baselines/permissions",
+        None,
+    );
+}
+
 fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new(fixture_dir_str);
@@ -1026,6 +1036,31 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
                     println!("{}", expected);
                     panic!("Codegen mismatch for {:?} in {}", path, fixture_dir_str);
                 }
+            }
+        }
+    }
+
+    // Check for special files
+    for special in &["graphql", "permissions"] {
+        let expected_path = baseline_dir.join(format!("{}.expected.ts", special));
+        if expected_path.exists() {
+            let actual_path = temp_dir.join(format!("{}.ts", special));
+            assert!(
+                actual_path.exists(),
+                "{}.ts was not created in {}",
+                special,
+                fixture_dir_str
+            );
+
+            let actual = std::fs::read_to_string(&actual_path).unwrap();
+            let expected = std::fs::read_to_string(&expected_path).unwrap();
+
+            if actual.trim() != expected.trim() {
+                println!("--- ACTUAL ({}.ts) ---", special);
+                println!("{}", actual);
+                println!("--- EXPECTED ---");
+                println!("{}", expected);
+                panic!("{}.ts mismatch in {}", special, fixture_dir_str);
             }
         }
     }

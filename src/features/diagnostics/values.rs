@@ -87,7 +87,9 @@ impl DocumentState {
                                 range: self.translate_to_file_range(node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!("Undefined variable: ${}", name),
-                                code: Some(NumberOrString::String("undefined_variable".to_string())),
+                                code: Some(NumberOrString::String(
+                                    "undefined_variable".to_string(),
+                                )),
                                 ..Default::default()
                             });
                         }

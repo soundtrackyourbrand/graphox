@@ -26,6 +26,7 @@ async fn test_completion_fields() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
         ..Config::new_empty()
@@ -117,6 +118,7 @@ async fn test_completion_variables() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
         ..Config::new_empty()
@@ -212,6 +214,7 @@ async fn test_completion_fragment_spread() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
         ..Config::new_empty()
@@ -302,6 +305,7 @@ async fn test_completion_types_in_fragment() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
         ..Config::new_empty()
@@ -397,6 +401,7 @@ async fn test_completion_fragment_spread_acceptance() {
             exclude: None,
             output_dir: None,
             import: None,
+            generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
         ..Config::new_empty()
@@ -464,8 +469,11 @@ async fn test_completion_fragment_spread_acceptance() {
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     if let Some(CompletionResponse::Array(items)) = result {
-        let item = items.iter().find(|i| i.label == "MyFrag").expect("MyFrag completion not found");
-        
+        let item = items
+            .iter()
+            .find(|i| i.label == "MyFrag")
+            .expect("MyFrag completion not found");
+
         // Apply completion
         let mut final_text = text.to_string();
         if let Some(edit) = &item.text_edit {
@@ -498,10 +506,10 @@ async fn test_completion_fragment_spread_acceptance() {
                                 new_content.push('\n');
                             }
                         } else if i == end_line {
-                             new_content.push_str(&line[end_char..]);
-                             if i < lines.len() - 1 {
-                                 new_content.push('\n');
-                             }
+                            new_content.push_str(&line[end_char..]);
+                            if i < lines.len() - 1 {
+                                new_content.push('\n');
+                            }
                         }
                     }
                     final_text = new_content;
@@ -528,7 +536,10 @@ async fn test_completion_fragment_spread_acceptance() {
             final_text = new_content;
         }
 
-        assert_eq!(final_text, "fragment MyFrag on User { id }\nquery { users { ...MyFrag } }");
+        assert_eq!(
+            final_text,
+            "fragment MyFrag on User { id }\nquery { users { ...MyFrag } }"
+        );
     } else {
         panic!("Expected array of completions");
     }
