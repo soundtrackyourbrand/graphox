@@ -39,7 +39,6 @@ async fn test_completion_fragment_spread_filtering() {
     service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = r#"
         fragment UserFields on User { id }
         fragment PostFields on Post { id title }
@@ -50,6 +49,9 @@ async fn test_completion_fragment_spread_filtering() {
             }
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -119,7 +121,6 @@ async fn test_completion_fragment_spread_interface_filtering() {
     service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = r#"
         fragment NodeFields on Node { id }
         fragment UserFields on User { name }
@@ -130,6 +131,9 @@ async fn test_completion_fragment_spread_interface_filtering() {
             }
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -197,7 +201,6 @@ async fn test_completion_fragment_spread_union_filtering() {
     service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = r#"
         fragment UserFields on User { id }
         fragment ActorFields on Actor { __typename }
@@ -208,6 +211,9 @@ async fn test_completion_fragment_spread_union_filtering() {
             }
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {

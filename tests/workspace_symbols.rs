@@ -36,6 +36,7 @@ async fn test_workspace_symbols() {
     let path_a = base_dir.join("a.graphql");
     let text_a = "fragment UserFields on User { id }";
     fs::write(&path_a, text_a).unwrap();
+    let path_a = std::fs::canonicalize(path_a).unwrap();
     let uri_a = Url::from_file_path(&path_a).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -51,6 +52,7 @@ async fn test_workspace_symbols() {
     let path_b = base_dir.join("b.graphql");
     let text_b = "query GetMe { me }";
     fs::write(&path_b, text_b).unwrap();
+    let path_b = std::fs::canonicalize(path_b).unwrap();
     let uri_b = Url::from_file_path(&path_b).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {

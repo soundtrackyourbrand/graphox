@@ -57,6 +57,7 @@ async fn test_goto_definition_cross_file() {
     let frag_path = base_dir.join("user_fragment.graphql");
     let fragment_text = "fragment UserFields on User { id name }";
     fs::write(&frag_path, fragment_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let fragment_uri = Url::from_file_path(&frag_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
@@ -80,6 +81,7 @@ async fn test_goto_definition_cross_file() {
     let query_path = base_dir.join("query_with_fragment.graphql");
     let query_text = "query GetUser { user { ...UserFields } }";
     fs::write(&query_path, query_text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {

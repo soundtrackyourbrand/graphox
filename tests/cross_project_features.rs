@@ -53,6 +53,7 @@ async fn test_cross_project_references_and_rename() {
     let frag_path = p1_dir.join("fragments.graphql");
     let fragment_text = "fragment UserFields on User @public { id name }";
     fs::write(&frag_path, fragment_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let fragment_uri = Url::from_file_path(&frag_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -68,6 +69,7 @@ async fn test_cross_project_references_and_rename() {
     let query_path = p2_dir.join("query.graphql");
     let query_text = "query { user { ...UserFields } }";
     fs::write(&query_path, query_text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -171,6 +173,7 @@ async fn test_unrelated_projects_rename_isolation() {
     // Project 1: Private fragment
     let p1_frag = p1_dir.join("f1.graphql");
     fs::write(&p1_frag, "fragment LocalFields on User { id }").unwrap();
+    let p1_frag = std::fs::canonicalize(p1_frag).unwrap();
     let p1_uri = Url::from_file_path(&p1_frag).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -185,6 +188,7 @@ async fn test_unrelated_projects_rename_isolation() {
     // Project 2: Also has a fragment with the same name (coincidental)
     let p2_frag = p2_dir.join("f2.graphql");
     fs::write(&p2_frag, "fragment LocalFields on User { name }").unwrap();
+    let p2_frag = std::fs::canonicalize(p2_frag).unwrap();
     let p2_uri = Url::from_file_path(&p2_frag).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {

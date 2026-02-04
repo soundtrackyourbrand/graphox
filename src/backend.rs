@@ -24,7 +24,12 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(client: Client, config: Config) -> Self {
+    pub fn new(client: Client, mut config: Config) -> Self {
+        // Canonicalize base_dir to ensure consistency on macOS
+        if let Ok(canon) = std::fs::canonicalize(&config.base_dir) {
+            config.base_dir = canon;
+        }
+
         let schemas = DashMap::with_hasher(ahash::RandomState::default());
         let empty_schema =
             Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
@@ -70,6 +75,15 @@ impl Backend {
         Schema::parse(&combined_text, source.as_key())
             .ok()
             .map(Arc::new)
+    }
+
+    pub fn normalize_uri(&self, uri: Url) -> Url {
+        if let Ok(path) = uri.to_file_path() {
+            if let Ok(canon) = std::fs::canonicalize(&path) {
+                return Url::from_file_path(canon).unwrap_or(uri);
+            }
+        }
+        uri
     }
 
     pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<Schema> {
@@ -446,6 +460,24 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "LSP Started!")
             .await;
 
+        // Scan workspace to populate global metadata
+        let workspace_metadata = crate::engine::Engine::scan_workspace(&self.config);
+        for (_path, doc) in workspace_metadata.documents {
+            let uri = doc.uri.clone();
+            self.fragment_defs
+                .insert(uri.clone(), doc.fragments().to_vec());
+            self.fragment_spreads
+                .insert(uri.clone(), doc.fragment_spreads.clone());
+            self.package_roots.insert(uri.clone(), doc.package_root.clone());
+            self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
+
+            // If the document is not already open, we still might want to keep it in memory
+            // for fast definition/hover/etc.
+            if !self.documents.contains_key(&uri) {
+                self.documents.insert(uri, doc);
+            }
+        }
+
         let mut watchers = Vec::new();
         let mut schema_files = FnvHashSet::default();
         for project in &self.config.projects {
@@ -487,11 +519,11 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = &params.text_document_position_params.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
         let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(uri) {
-            let schema = self.get_schema_for_doc(uri);
+        if let Some(doc) = self.documents.get(&uri) {
+            let schema = self.get_schema_for_doc(&uri);
             if let Some(hover) = doc.get_hover_info(position, &schema) {
                 return Ok(Some(hover));
             }
@@ -542,11 +574,11 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = &params.text_document_position.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position.text_document.uri);
         let position = params.text_document_position.position;
 
-        if let Some(doc) = self.documents.get(uri) {
-            let schema = self.get_schema_for_doc(uri);
+        if let Some(doc) = self.documents.get(&uri) {
+            let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
 
             let items = doc.get_completion_items(position, &schema, fragments);
@@ -557,11 +589,11 @@ impl LanguageServer for Backend {
     }
 
     async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
-        let uri = &params.text_document_position_params.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
         let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(uri) {
-            let schema = self.get_schema_for_doc(uri);
+        if let Some(doc) = self.documents.get(&uri) {
+            let schema = self.get_schema_for_doc(&uri);
             return Ok(doc.get_signature_help(position, &schema));
         }
 
@@ -572,10 +604,10 @@ impl LanguageServer for Backend {
         &self,
         params: CallHierarchyPrepareParams,
     ) -> Result<Option<Vec<CallHierarchyItem>>> {
-        let uri = &params.text_document_position_params.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri.clone());
         let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(uri) {
+        if let Some(doc) = self.documents.get(&uri) {
             return Ok(doc.prepare_call_hierarchy(position));
         }
 
@@ -641,7 +673,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
         let item = params.item;
         let symbol_name = item.name;
-        let uri = item.uri;
+        let uri = self.normalize_uri(item.uri);
 
         if let Some(doc) = self.documents.get(&uri) {
             let mut calls = doc.get_outgoing_calls(&symbol_name);
@@ -668,19 +700,19 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let language = DocumentLanguage::from_uri(&params.text_document.uri);
+        let uri = self.normalize_uri(params.text_document.uri.clone());
+        let language = DocumentLanguage::from_uri(&uri);
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&language.get_parser_language())
             .unwrap();
 
         let doc = DocumentState::new(
-            params.text_document.uri.clone(),
+            uri.clone(),
             &params.text_document.text,
             parser,
         );
-        let uri = params.text_document.uri;
-        
+
         // Update performance indices
         self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
         self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
@@ -719,7 +751,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri;
+        let uri = self.normalize_uri(params.text_document.uri.clone());
 
         let mut modified_fragments = Vec::new();
 
@@ -803,7 +835,7 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let uri = params.text_document_position_params.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri.clone());
         let position = params.text_document_position_params.position;
 
         let symbol_name = if let Some(doc) = self.documents.get(&uri) {
@@ -835,7 +867,7 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let uri = params.text_document_position.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position.text_document.uri.clone());
         let position = params.text_document_position.position;
         let include_declaration = params.context.include_declaration;
 
@@ -866,7 +898,7 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let uri = params.text_document_position.text_document.uri;
+        let uri = self.normalize_uri(params.text_document_position.text_document.uri.clone());
         let position = params.text_document_position.position;
         let new_name = params.new_name;
 
@@ -909,7 +941,7 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let uri = params.text_document.uri;
+        let uri = self.normalize_uri(params.text_document.uri.clone());
         let position = params.position;
 
         if let Some(doc) = self.documents.get(&uri) {
@@ -927,7 +959,8 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        if let Some(doc) = self.documents.get(&params.text_document.uri) {
+        let uri = self.normalize_uri(params.text_document.uri.clone());
+        if let Some(doc) = self.documents.get(&uri) {
             let symbols = doc.get_symbols();
             return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
         }
@@ -939,7 +972,8 @@ impl LanguageServer for Backend {
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        if let Some(doc) = self.documents.get(&params.text_document.uri) {
+        let uri = self.normalize_uri(params.text_document.uri.clone());
+        if let Some(doc) = self.documents.get(&uri) {
             let tokens = doc.get_semantic_tokens();
             return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
                 result_id: None,

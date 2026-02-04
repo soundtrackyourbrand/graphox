@@ -35,6 +35,7 @@ async fn test_code_action_remove_unused_fragment() {
     let frag_path = base_dir.join("unused.graphql");
     let frag_text = "fragment Unused on Query { me }";
     fs::write(&frag_path, frag_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -115,6 +116,7 @@ async fn test_code_action_extract_to_fragment() {
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name } }";
     fs::write(&query_path, query_text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -193,6 +195,7 @@ async fn test_code_action_remove_unused_variable() {
     let query_path = base_dir.join("query.graphql");
     let query_text = "query GetMe($id: ID, $unused: String) { me(id: $id) }";
     fs::write(&query_path, query_text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -272,6 +275,7 @@ async fn test_code_action_extract_to_fragment_tsx() {
     let tsx_path = base_dir.join("Component.tsx");
     let tsx_text = "const q = gql`query { me { id name } }`;";
     fs::write(&tsx_path, tsx_text).unwrap();
+    let tsx_path = std::fs::canonicalize(tsx_path).unwrap();
     let tsx_uri = Url::from_file_path(&tsx_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {

@@ -38,6 +38,7 @@ async fn test_fragment_call_hierarchy() {
         fragment UserWithHome on User { ...UserFields }
     "#;
     fs::write(&frag_path, frag_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -140,6 +141,7 @@ async fn test_call_hierarchy_tsx() {
     let frag_path = base_dir.join("fragments.graphql");
     let frag_text = "fragment UserFields on User { id }";
     fs::write(&frag_path, frag_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
@@ -154,6 +156,7 @@ async fn test_call_hierarchy_tsx() {
     let tsx_path = base_dir.join("Component.tsx");
     let tsx_text = "const q = gql`query { me { ...UserFields } }`;";
     fs::write(&tsx_path, tsx_text).unwrap();
+    let tsx_path = std::fs::canonicalize(tsx_path).unwrap();
     let tsx_uri = Url::from_file_path(&tsx_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {

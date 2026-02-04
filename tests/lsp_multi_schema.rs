@@ -26,10 +26,11 @@ async fn test_lsp_multi_schema_support() {
     let ext_path = base_dir.join("ext.graphql");
     fs::write(&ext_path, "extend type User { email: String }").unwrap();
 
-    // 3. Create query.graphql
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name email } }";
     fs::write(&query_path, query_text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let query_uri = Url::from_file_path(&query_path).unwrap();
 
     // 4. Create Config
     let config = Config {
@@ -68,7 +69,6 @@ async fn test_lsp_multi_schema_support() {
         .finish();
     service.call(request).await.unwrap();
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
 
     // Open document
     let params = DidOpenTextDocumentParams {
@@ -175,6 +175,7 @@ async fn test_lsp_multi_schema_support() {
     let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFields on User { id name }";
     fs::write(&frag_path, frag_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
 
     service

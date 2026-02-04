@@ -52,7 +52,7 @@ async fn test_hover_fragment_spread() {
     service.call(request).await.unwrap();
 
     // 1. Open file with fragment and spread
-    let uri = Url::from_file_path(dir.path().join("hover.graphql")).unwrap();
+    let query_path = dir.path().join("hover.graphql");
     let text = r#"
         fragment UserFields on User {
             id
@@ -65,6 +65,9 @@ async fn test_hover_fragment_spread() {
             }
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -140,7 +143,7 @@ async fn test_hover_schema_type() {
     service.call(request).await.unwrap();
 
     // 1. Open file
-    let uri = Url::from_file_path(dir.path().join("hover_schema.graphql")).unwrap();
+    let query_path = dir.path().join("hover_schema.graphql");
     let text = r#"
         query {
             users {
@@ -148,6 +151,9 @@ async fn test_hover_schema_type() {
             }
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -232,12 +238,15 @@ async fn test_hover_graphql_description() {
         .finish();
     service.call(request).await.unwrap();
 
-    let uri = Url::from_file_path(dir.path().join("hover_desc.graphql")).unwrap();
+    let query_path = dir.path().join("hover_desc.graphql");
     let text = r#"
         query {
             someField(arg: { id: "1" }): ID
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -328,7 +337,7 @@ async fn test_hover_schema_field() {
     service.call(request).await.unwrap();
 
     // 1. Open file
-    let uri = Url::from_file_path(dir.path().join("hover_field.graphql")).unwrap();
+    let query_path = dir.path().join("hover_field.graphql");
     let text = r#"
         query {
             users {
@@ -336,6 +345,9 @@ async fn test_hover_schema_field() {
             }
         }
     "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {

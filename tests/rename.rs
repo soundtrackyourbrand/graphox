@@ -35,13 +35,15 @@ async fn test_fragment_rename() {
     service.call(Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish()).await.unwrap().unwrap();
     service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
 
-    // 1. Fragment file
+        // 1. Fragment file
     let frag_path = base_dir.join("user_fragment.graphql");
     let fragment_text = "fragment UserFields on User { id name }";
     fs::write(&frag_path, fragment_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let fragment_uri = Url::from_file_path(&frag_path).unwrap();
 
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams {
+    service.call(Request::build("textDocument/didOpen")
+.params(serde_json::to_value(&DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: fragment_uri.clone(),
             language_id: "graphql".to_string(),
@@ -54,6 +56,7 @@ async fn test_fragment_rename() {
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { user { ...UserFields } }";
     fs::write(&query_path, query_text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams {
@@ -125,13 +128,15 @@ async fn test_fragment_rename_tsx() {
     service.call(Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish()).await.unwrap().unwrap();
     service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
 
-    // 1. Fragment file
+        // 1. Fragment file
     let frag_path = base_dir.join("user_fragment.graphql");
     let fragment_text = "fragment UserFields on User { id name }";
     fs::write(&frag_path, fragment_text).unwrap();
+    let frag_path = std::fs::canonicalize(frag_path).unwrap();
     let fragment_uri = Url::from_file_path(&frag_path).unwrap();
 
-    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams {
+    service.call(Request::build("textDocument/didOpen")
+.params(serde_json::to_value(&DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: fragment_uri.clone(),
             language_id: "graphql".to_string(),
@@ -152,6 +157,7 @@ async fn test_fragment_rename_tsx() {
         `;
     "#;
     fs::write(&tsx_path, tsx_text).unwrap();
+    let tsx_path = std::fs::canonicalize(tsx_path).unwrap();
     let tsx_uri = Url::from_file_path(&tsx_path).unwrap();
 
     service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams {

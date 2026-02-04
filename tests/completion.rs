@@ -49,8 +49,10 @@ async fn test_completion_fields() {
     service.call(request).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "query { users {  } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -138,8 +140,10 @@ async fn test_completion_variables() {
     service.call(request).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "query GetUser($userId: ID!) { user(id: $) }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -231,8 +235,10 @@ async fn test_completion_fragment_spread() {
     service.call(request).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "fragment MyFrag on User { id } query { users { ... } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -319,8 +325,10 @@ async fn test_completion_types_in_fragment() {
     service.call(request).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let uri = Url::from_file_path(&query_path).unwrap();
     let text = "fragment MyFrag on  { id }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
