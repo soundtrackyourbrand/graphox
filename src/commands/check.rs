@@ -144,6 +144,7 @@ async fn execute_project_check(
             Some(config),
             verbose,
             Some(&package_roots),
+            true,
         );
         if !diagnostics.is_empty() {
             let mut file_header_printed = false;

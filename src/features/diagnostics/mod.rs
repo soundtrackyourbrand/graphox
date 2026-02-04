@@ -19,7 +19,9 @@ pub(super) struct ValidationContext<'a> {
     pub diagnostics: &'a mut Vec<Diagnostic>,
     pub config: Option<&'a Config>,
     pub include_ignored: bool,
-    pub package_roots: Option<&'a dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
+    pub package_roots:
+        Option<&'a dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
+    pub workspace_loaded: bool,
 }
 
 impl DocumentState {
@@ -31,6 +33,7 @@ impl DocumentState {
         config: Option<&Config>,
         verbose: bool,
         package_roots: Option<&dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
+        workspace_loaded: bool,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -81,6 +84,7 @@ impl DocumentState {
                 config,
                 include_ignored: verbose,
                 package_roots,
+                workspace_loaded,
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);

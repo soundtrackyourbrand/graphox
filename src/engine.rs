@@ -98,10 +98,13 @@ impl Engine {
         }
     }
     /// Step 1: Discover all fragments and operations across the entire workspace
-    pub fn scan_workspace(config: &Config) -> WorkspaceMetadata {
+    pub fn scan_workspace<F>(config: &Config, mut on_doc: F) -> WorkspaceMetadata
+    where
+        F: FnMut(PathBuf, DocumentState) + Send,
+    {
         let mut timings = WorkspaceScanTimings::default();
 
-        // 1. Glob Resolution: Find which files belong to which projects
+        // 1. Glob Resolution
         let start_glob = Instant::now();
         let project_info: Vec<_> = config
             .projects
@@ -137,9 +140,9 @@ impl Engine {
             }
         }
 
-        // 3. Parallel Document Parsing (Tree-sitter + Metadata)
+        // 3. Parallel Document Parsing
         let start_parse = Instant::now();
-        let path_to_doc: HashMap<PathBuf, DocumentState> = all_unique_paths
+        let docs_vec: Vec<(PathBuf, DocumentState)> = all_unique_paths
             .into_par_iter()
             .filter(|p| is_relevant_file(p))
             .filter_map(|p| {
@@ -164,6 +167,13 @@ impl Engine {
                 Some((p, doc))
             })
             .collect();
+
+        let mut path_to_doc = HashMap::default();
+        for (p, doc) in docs_vec {
+            on_doc(p.clone(), doc.clone());
+            path_to_doc.insert(p, doc);
+        }
+
         timings.doc_parsing = start_parse.elapsed();
 
         // 4. Metadata Extraction & Project Association

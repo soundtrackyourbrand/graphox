@@ -31,7 +31,7 @@ impl DocumentState {
             
             // 1. Unused fragment check
             let is_used = ctx.used_fragments.map(|u| u.contains(&name)).unwrap_or(true);
-            if !is_used {
+            if !is_used && ctx.workspace_loaded {
                 ctx.diagnostics.push(Diagnostic {
                     range: self.translate_to_file_range(node, offset),
                     severity: Some(DiagnosticSeverity::WARNING),
@@ -165,7 +165,7 @@ impl DocumentState {
                         let exists = ctx.all_fragments.iter().any(|f| f.name == name) 
                             || self.fragments.iter().any(|f| f.name == name);
 
-                        if !exists {
+                        if !exists && ctx.workspace_loaded {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(name_child, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),

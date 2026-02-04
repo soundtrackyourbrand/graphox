@@ -113,7 +113,7 @@ async fn execute_codegen(
 
     let cfg = config;
 
-    let workspace_metadata = Engine::scan_workspace(&cfg);
+    let workspace_metadata = Engine::scan_workspace(&cfg, |_, _| {});
     let global_metadata = &workspace_metadata.fragments;
 
     let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
