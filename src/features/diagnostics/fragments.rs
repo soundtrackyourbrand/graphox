@@ -28,6 +28,8 @@ impl DocumentState {
 
         if let Some(name_node) = name_node {
             let name = self.get_node_text(name_node, offset);
+            
+            // 1. Unused fragment check
             let is_used = ctx.used_fragments.map(|u| u.contains(&name)).unwrap_or(true);
             if !is_used {
                 ctx.diagnostics.push(Diagnostic {
@@ -38,6 +40,46 @@ impl DocumentState {
                     tags: Some(vec![DiagnosticTag::UNNECESSARY]),
                     ..Default::default()
                 });
+            }
+
+            // 2. Collision and shadowing checks
+            let current_frag_def = self.fragments.iter().find(|f| f.name == name);
+            if let Some(current_frag) = current_frag_def {
+                let current_is_public = current_frag.is_public;
+                let current_package_root = self.package_root.as_ref();
+
+                for other in ctx.all_fragments {
+                    if other.name == name && other.uri != self.uri {
+                        let other_package_root = ctx.package_roots
+                            .and_then(|roots| roots.get(&other.uri))
+                            .and_then(|r| r.clone());
+                        
+                        if current_is_public && other.is_public {
+                            ctx.diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(name_node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!("Duplicate public fragment name: '{}'. Public fragments must have unique names across the workspace.", name),
+                                ..Default::default()
+                            });
+                            break;
+                        } else if !current_is_public && !other.is_public && current_package_root == other_package_root.as_ref() {
+                            ctx.diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(name_node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!("Duplicate fragment name: '{}' in the same project.", name),
+                                ..Default::default()
+                            });
+                            break;
+                        } else if !current_is_public && other.is_public {
+                            ctx.diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(name_node, offset),
+                                severity: Some(DiagnosticSeverity::HINT),
+                                message: format!("Private fragment '{}' shadows a public fragment defined in {}.", name, other.uri),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -120,7 +162,10 @@ impl DocumentState {
                 for name_child in child.children(&mut name_cursor) {
                     if name_child.kind() == "name" {
                         let name = self.get_node_text(name_child, offset);
-                        if !ctx.all_fragments.contains(&name) {
+                        let exists = ctx.all_fragments.iter().any(|f| f.name == name) 
+                            || self.fragments.iter().any(|f| f.name == name);
+
+                        if !exists {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(name_child, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),

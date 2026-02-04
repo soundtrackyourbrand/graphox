@@ -13,22 +13,24 @@ mod values;
 
 pub(super) struct ValidationContext<'a> {
     pub schema: &'a Schema,
-    pub all_fragments: &'a [String],
+    pub all_fragments: &'a [crate::features::completion::FragmentCompletionInfo],
     pub used_fragments: Option<&'a fnv::FnvHashSet<String>>,
     pub used_variables: fnv::FnvHashSet<String>,
     pub diagnostics: &'a mut Vec<Diagnostic>,
     pub config: Option<&'a Config>,
     pub include_ignored: bool,
+    pub package_roots: Option<&'a dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
 }
 
 impl DocumentState {
     pub fn get_semantic_diagnostics(
         &self,
         schema: &Schema,
-        all_fragments: &[String],
+        all_fragments: &[crate::features::completion::FragmentCompletionInfo],
         used_fragments: Option<&fnv::FnvHashSet<String>>,
         config: Option<&Config>,
         verbose: bool,
+        package_roots: Option<&dashmap::DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -78,6 +80,7 @@ impl DocumentState {
                 diagnostics: &mut diagnostics,
                 config,
                 include_ignored: verbose,
+                package_roots,
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);

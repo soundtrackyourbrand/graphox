@@ -226,10 +226,9 @@ fn bench_lsp_actions(c: &mut Criterion) {
                 let doc = entry.value();
                 let schema = backend.get_schema_for_doc(uri);
                 let fragments = backend.get_fragments_for_doc(doc);
-                let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
                 let _diagnostics = doc.get_semantic_diagnostics(
                     &schema,
-                    &fragment_names,
+                    &fragments,
                     Some(&used_fragments),
                     Some(&backend.config),
                     false,

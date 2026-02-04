@@ -3,11 +3,14 @@ use apollo_compiler::{Schema, schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
+#[derive(Clone)]
 pub struct FragmentCompletionInfo {
     pub name: String,
     pub type_condition: String,
     pub description: Option<String>,
     pub import_path: Option<String>,
+    pub is_public: bool,
+    pub uri: Url,
 }
 
 impl DocumentState {

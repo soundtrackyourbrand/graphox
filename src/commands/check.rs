@@ -95,22 +95,32 @@ async fn execute_project_check(
         }
     }
 
-    let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<String>> = HashMap::default();
-    let mut all_public_fragments: Vec<String> = Vec::new();
+    let mut fragments_per_package: HashMap<Option<PathBuf>, Vec<graphql_rust::features::completion::FragmentCompletionInfo>> = HashMap::default();
+    let mut all_public_fragments: Vec<graphql_rust::features::completion::FragmentCompletionInfo> = Vec::new();
     let mut used_fragments = fnv::FnvHashSet::default();
+    let package_roots = dashmap::DashMap::with_hasher(ahash::RandomState::default());
 
     for (_, doc) in &docs {
+        package_roots.insert(doc.uri.clone(), doc.package_root.clone());
         for spread in &doc.fragment_spreads {
             used_fragments.insert(spread.clone());
         }
         for frag in doc.fragments() {
+            let info = graphql_rust::features::completion::FragmentCompletionInfo {
+                name: frag.name.clone(),
+                type_condition: frag.type_condition.clone(),
+                description: frag.description.clone(),
+                import_path: None,
+                is_public: frag.is_public,
+                uri: doc.uri.clone(),
+            };
             if frag.is_public {
-                all_public_fragments.push(frag.name.clone());
+                all_public_fragments.push(info.clone());
             }
             fragments_per_package
                 .entry(doc.package_root.clone())
                 .or_default()
-                .push(frag.name.clone());
+                .push(info);
         }
     }
 
@@ -122,7 +132,7 @@ async fn execute_project_check(
             .unwrap_or_default();
 
         for pub_frag in &all_public_fragments {
-            if !package_fragments.contains(pub_frag) {
+            if !package_fragments.iter().any(|f| f.name == pub_frag.name && f.uri == pub_frag.uri) {
                 package_fragments.push(pub_frag.clone());
             }
         }
@@ -133,6 +143,7 @@ async fn execute_project_check(
             Some(&used_fragments),
             Some(config),
             verbose,
+            Some(&package_roots),
         );
         if !diagnostics.is_empty() {
             let mut file_header_printed = false;

@@ -12,6 +12,118 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_fragment_collisions() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User }").unwrap();
+
+    let pkg_a = base_dir.join("pkg_a");
+    fs::create_dir_all(&pkg_a).unwrap();
+    let frag_a_path = pkg_a.join("frag.graphql");
+    fs::write(&frag_a_path, "fragment DuplicateFrag on User { id }").unwrap();
+
+    let frag_b_path = pkg_a.join("other.graphql");
+    fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
+
+    let pkg_b = base_dir.join("pkg_b");
+    fs::create_dir_all(&pkg_b).unwrap();
+    let frag_c_path = pkg_b.join("pub.graphql");
+    fs::write(&frag_c_path, "fragment PublicFrag on User @public { id }").unwrap();
+
+    let frag_d_path = pkg_a.join("shadow.graphql");
+    fs::write(&frag_d_path, "fragment PublicFrag on User { name }").unwrap();
+
+    let frag_e_path = pkg_b.join("pub_collision.graphql");
+    fs::write(&frag_e_path, "fragment PublicCollision on User @public { id }").unwrap();
+
+    let frag_f_path = pkg_a.join("pub_collision_2.graphql");
+    fs::write(&frag_f_path, "fragment PublicCollision on User @public { name }").unwrap();
+
+    let config = Config {
+        output_dir: None,
+        projects: vec![
+            ProjectConfig {
+                schema: SchemaSource::Single("schema.graphql".to_string()),
+                include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
+                exclude: None,
+                output_dir: None,
+                import: None,
+            },
+            ProjectConfig {
+                schema: SchemaSource::Single("schema.graphql".to_string()),
+                include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
+                exclude: None,
+                output_dir: None,
+                import: None,
+            },
+        ],
+        schema_types: None,
+        scalars: None,
+        ignore_deprecations: None,
+        generate_ast_for_fragments: None,
+        base_dir: base_dir.clone(),
+    };
+
+    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let received_diags = Arc::new(Mutex::new(std::collections::HashMap::<Url, Vec<Diagnostic>>::new()));
+    let received_diags_clone = received_diags.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.method() == "textDocument/publishDiagnostics" {
+                let params: PublishDiagnosticsParams = serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                received_diags_clone.lock().unwrap().insert(params.uri, params.diagnostics);
+            }
+        }
+    });
+
+    service.call(Request::build("initialize").params(serde_json::to_value(InitializeParams::default()).unwrap()).id(0).finish()).await.unwrap();
+
+    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
+    let uri_b = Url::from_file_path(&frag_b_path).unwrap();
+    let uri_c = Url::from_file_path(&frag_c_path).unwrap();
+    let uri_d = Url::from_file_path(&frag_d_path).unwrap();
+    let uri_e = Url::from_file_path(&frag_e_path).unwrap();
+    let uri_f = Url::from_file_path(&frag_f_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri_a.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_a_path).unwrap() },
+    }).unwrap()).finish()).await.unwrap();
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri_b.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_b_path).unwrap() },
+    }).unwrap()).finish()).await.unwrap();
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri_c.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_c_path).unwrap() },
+    }).unwrap()).finish()).await.unwrap();
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri_d.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_d_path).unwrap() },
+    }).unwrap()).finish()).await.unwrap();
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri_e.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_e_path).unwrap() },
+    }).unwrap()).finish()).await.unwrap();
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri_f.clone(), language_id: "graphql".to_string(), version: 1, text: fs::read_to_string(&frag_f_path).unwrap() },
+    }).unwrap()).finish()).await.unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
+    let diags = received_diags.lock().unwrap();
+    
+    // Check private collision in pkg_a
+    let d_a = diags.get(&uri_a).unwrap();
+    assert!(d_a.iter().any(|d| d.message.contains("Duplicate fragment name: 'DuplicateFrag'")));
+
+    // Check shadowing in shadow.graphql
+    let d_d = diags.get(&uri_d).unwrap();
+    assert!(d_d.iter().any(|d| d.message.contains("shadows a public fragment")));
+
+    // Check public collision
+    let d_e = diags.get(&uri_e).unwrap();
+    assert!(d_e.iter().any(|d| d.message.contains("Duplicate public fragment name: 'PublicCollision'")));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_diagnostics_on_schema_change() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();

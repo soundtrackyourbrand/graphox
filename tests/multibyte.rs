@@ -31,7 +31,7 @@ const q = gql`
 `;
 "#;
     let doc = create_ts_doc(text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
 
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
@@ -65,7 +65,7 @@ const q = gql`
 `;
 "#;
     let doc = create_ts_doc(text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
 
     let error = diagnostics
         .iter()

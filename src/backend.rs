@@ -1,6 +1,6 @@
 use crate::Config;
 use crate::config::SchemaSource;
-use crate::document::{DocumentLanguage, DocumentState};
+use crate::document::DocumentState;
 use crate::features::completion::FragmentCompletionInfo;
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use apollo_compiler::Schema;
@@ -108,6 +108,8 @@ impl Backend {
                         type_condition: frag.type_condition.clone(),
                         description: frag.description.clone(),
                         import_path: import_path.clone(),
+                        is_public: frag.is_public,
+                        uri: other_uri.clone(),
                     });
                 }
             }
@@ -183,13 +185,13 @@ impl Backend {
                             .is_some_and(|p| p.as_str() == key.as_str())
                         {
                             let fragments = self.get_fragments_for_doc(doc);
-                            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
                             let diagnostics = doc.get_semantic_diagnostics(
                                 &doc_schema,
-                                &fragment_names,
+                                &fragments,
                                 Some(&used_fragments),
                                 Some(&self.config),
                                 false,
+                                Some(&self.package_roots),
                             );
                             to_publish.push((uri.clone(), diagnostics));
                         }
@@ -225,13 +227,13 @@ impl Backend {
             let doc = entry.value();
             let schema = self.get_schema_for_doc(uri);
             let fragments = self.get_fragments_for_doc(doc);
-            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics = doc.get_semantic_diagnostics(
                 &schema,
-                &fragment_names,
+                &fragments,
                 Some(&used_fragments),
                 Some(&self.config),
                 false,
+                Some(&self.package_roots),
             );
             to_publish.push((uri.clone(), diagnostics));
         }
@@ -665,6 +667,57 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let language = DocumentLanguage::from_uri(&params.text_document.uri);
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&language.get_parser_language())
+            .unwrap();
+
+        let doc = DocumentState::new(
+            params.text_document.uri.clone(),
+            &params.text_document.text,
+            parser,
+        );
+        let uri = params.text_document.uri;
+        
+        // Update performance indices
+        self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+        self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
+        self.package_roots.insert(uri.clone(), doc.package_root.clone());
+        self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
+        
+        self.documents.insert(uri.clone(), doc);
+
+        let mut to_publish = Vec::new();
+        let used_fragments = self.get_used_fragments();
+        if let Some(doc) = self.documents.get(&uri) {
+            let schema = self.get_schema_for_doc(&uri);
+            let fragments = self.get_fragments_for_doc(&doc);
+            let diagnostics =
+                doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false, Some(&self.package_roots));
+            to_publish.push((uri.clone(), diagnostics));
+        }
+
+        // Also revalidate other documents because a new fragment might have been added
+        for entry in self.documents.iter() {
+            let other_uri = entry.key();
+            if other_uri == &uri {
+                continue;
+            }
+            let other_doc = entry.value();
+            let schema = self.get_schema_for_doc(other_uri);
+            let fragments = self.get_fragments_for_doc(other_doc);
+            let diagnostics =
+                other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false, Some(&self.package_roots));
+            to_publish.push((other_uri.clone(), diagnostics));
+        }
+
+        for (u, d) in to_publish {
+            self.client.publish_diagnostics(u, d, None).await;
+        }
+    }
+
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
 
@@ -720,198 +773,9 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri) {
             let schema = self.get_schema_for_doc(&uri);
             let fragments = self.get_fragments_for_doc(&doc);
-            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
             let diagnostics =
-                doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
-            to_publish.push((uri.clone(), diagnostics));
-        }
+                doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false, Some(&self.package_roots));
 
-        // 2. Re-validate dependent documents
-        let mut dependents_to_check = FnvHashSet::default();
-        for frag_name in modified_fragments {
-            if let Some(deps) = self.fragment_dependents.get(&frag_name) {
-                for dep_uri in deps.value() {
-                    dependents_to_check.insert(dep_uri.clone());
-                }
-            }
-        }
-
-        for dep_uri in dependents_to_check {
-            if dep_uri == uri {
-                continue;
-            }
-            if let Some(other_doc) = self.documents.get(&dep_uri) {
-                let schema = self.get_schema_for_doc(&dep_uri);
-                let fragments = self.get_fragments_for_doc(&other_doc);
-                let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
-                let diagnostics =
-                    other_doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
-                to_publish.push((dep_uri.clone(), diagnostics));
-            }
-        }
-
-        for (u, d) in to_publish {
-            self.client.publish_diagnostics(u, d, None).await;
-        }
-    }
-
-    async fn goto_definition(
-        &self,
-        params: GotoDefinitionParams,
-    ) -> Result<Option<GotoDefinitionResponse>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let position = params.text_document_position_params.position;
-
-        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-            doc.get_symbol_at_position(position)
-        } else {
-            None
-        };
-
-        if let Some(name) = symbol_name
-            && let Some(doc) = self.documents.get(&uri)
-        {
-            for entry in self.documents.iter() {
-                let other_doc = entry.value();
-                let is_same_package = other_doc.package_root == doc.package_root;
-                let is_public_fragment = other_doc
-                    .fragments()
-                    .iter()
-                    .any(|f| f.name == name && f.is_public);
-
-                if (is_same_package || is_public_fragment)
-                    && let Some(location) = other_doc.find_definition_in_tree(&name)
-                {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
-        let include_declaration = params.context.include_declaration;
-
-        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-            doc.get_symbol_at_position(position)
-        } else {
-            None
-        };
-
-        if let Some(name) = symbol_name {
-            let mut all_references = Vec::new();
-
-            for entry in self.documents.iter() {
-                let other_doc = entry.value();
-
-                let refs = other_doc.find_references_in_tree(&name, include_declaration);
-                all_references.extend(refs);
-            }
-
-            if all_references.is_empty() {
-                return Ok(None);
-            }
-
-            return Ok(Some(all_references));
-        }
-
-        Ok(None)
-    }
-
-    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
-        let new_name = params.new_name;
-
-        let symbol_name = if let Some(doc) = self.documents.get(&uri) {
-            doc.get_symbol_at_position(position)
-        } else {
-            None
-        };
-
-        if let Some(name) = symbol_name {
-            let mut changes = std::collections::HashMap::new();
-
-            for entry in self.documents.iter() {
-                let other_uri = entry.key();
-                let other_doc = entry.value();
-
-                let refs = other_doc.find_references_in_tree(&name, true);
-                if !refs.is_empty() {
-                    let edits: Vec<TextEdit> = refs
-                        .into_iter()
-                        .map(|loc| TextEdit {
-                            range: loc.range,
-                            new_text: new_name.clone(),
-                        })
-                        .collect();
-                    changes.insert(other_uri.clone(), edits);
-                }
-            }
-
-            return Ok(Some(WorkspaceEdit {
-                changes: Some(changes),
-                ..Default::default()
-            }));
-        }
-
-        Ok(None)
-    }
-
-    async fn prepare_rename(
-        &self,
-        params: TextDocumentPositionParams,
-    ) -> Result<Option<PrepareRenameResponse>> {
-        let uri = params.text_document.uri;
-        let position = params.position;
-
-        if let Some(doc) = self.documents.get(&uri) {
-            if let Some(_name) = doc.get_symbol_at_position(position) {
-                // For now, we don't return the exact range, but just confirm it's renameable
-                // You can improve this by returning the range of the symbol
-                return Ok(Some(PrepareRenameResponse::DefaultBehavior {
-                    default_behavior: true,
-                }));
-            }
-        }
-
-        Ok(None)
-    }
-
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let language = DocumentLanguage::from_uri(&params.text_document.uri);
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&language.get_parser_language())
-            .unwrap();
-
-        let doc = DocumentState::new(
-            params.text_document.uri.clone(),
-            &params.text_document.text,
-            parser,
-        );
-        let uri = params.text_document.uri;
-        
-        // Update performance indices
-        self.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-        self.fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
-        self.package_roots.insert(uri.clone(), doc.package_root.clone());
-        self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
-        
-        self.documents.insert(uri.clone(), doc);
-
-        let mut to_publish = Vec::new();
-        let used_fragments = self.get_used_fragments();
-        if let Some(doc) = self.documents.get(&uri) {
-            let schema = self.get_schema_for_doc(&uri);
-            let fragments = self.get_fragments_for_doc(&doc);
-            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
-            let diagnostics =
-                doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
-            drop(doc);
             to_publish.push((uri.clone(), diagnostics));
         }
 
@@ -924,9 +788,9 @@ impl LanguageServer for Backend {
             let other_doc = entry.value();
             let schema = self.get_schema_for_doc(other_uri);
             let fragments = self.get_fragments_for_doc(other_doc);
-            let fragment_names: Vec<_> = fragments.iter().map(|f| f.name.clone()).collect();
-            let diagnostics =
-                other_doc.get_semantic_diagnostics(&schema, &fragment_names, Some(&used_fragments), Some(&self.config), false);
+                let diagnostics =
+                    other_doc.get_semantic_diagnostics(&schema, &fragments, Some(&used_fragments), Some(&self.config), false, Some(&self.package_roots));
+
             to_publish.push((other_uri.clone(), diagnostics));
         }
 

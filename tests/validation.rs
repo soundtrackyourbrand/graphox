@@ -36,7 +36,7 @@ fn test_validation_valid_query() {
         }
     "#;
     let doc = create_doc("file:///valid.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     assert!(
         diagnostics.is_empty(),
@@ -57,7 +57,7 @@ fn test_validation_missing_field() {
         }
     "#;
     let doc = create_doc("file:///missing.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     let error = diagnostics.iter().find(|d| d.message.contains("not found"));
     assert!(error.is_some(), "Expected 'not found' error");
@@ -78,7 +78,7 @@ fn test_validation_deprecated_field() {
         }
     "#;
     let doc = create_doc("file:///deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     let warning = diagnostics
         .iter()
@@ -108,7 +108,7 @@ fn test_validation_nested_missing_field() {
         }
     "#;
     let doc = create_doc("file:///nested.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     let error = diagnostics
         .iter()
@@ -127,7 +127,7 @@ fn test_validation_fragment() {
         }
     "#;
     let doc = create_doc("file:///fragment.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     let error = diagnostics
         .iter()
@@ -150,7 +150,7 @@ fn test_validation_inline_fragment() {
         }
     "#;
     let doc = create_doc("file:///inline.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     let error = diagnostics
         .iter()
@@ -169,7 +169,7 @@ fn test_validation_unknown_fragment_spread() {
         }
     "#;
     let doc = create_doc("file:///spread.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
 
     let error = diagnostics
         .iter()
@@ -188,8 +188,15 @@ fn test_validation_known_fragment_spread() {
         }
     "#;
     let doc = create_doc("file:///known_spread.graphql", text);
-    let diagnostics =
-        doc.get_semantic_diagnostics(schema, &["KnownFrag".to_string()], None, None, false);
+    let fragments = vec![graphql_rust::features::completion::FragmentCompletionInfo {
+        name: "KnownFrag".to_string(),
+        type_condition: "User".to_string(),
+        description: None,
+        import_path: None,
+        is_public: false,
+        uri: Url::parse("file:///test.graphql").unwrap(),
+    }];
+    let diagnostics = doc.get_semantic_diagnostics(schema, &fragments, None, None, false, None);
 
     assert!(
         diagnostics.is_empty(),
@@ -217,7 +224,7 @@ fn test_validation_input_field_deprecation() {
         }
     "#;
     let doc = create_doc("file:///input_deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
 
     let warning = diagnostics
         .iter()
@@ -251,7 +258,7 @@ fn test_validation_input_type_deprecation() {
         }
     "#;
     let doc = create_doc("file:///input_type_deprecated.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
 
     let warning = diagnostics
         .iter()
@@ -296,7 +303,7 @@ fn test_validation_unions_and_interfaces() {
         }
     "#;
     let doc = create_doc("file:///valid_union.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
     assert!(
         diagnostics.is_empty(),
         "Valid union query failed: {:?}",
@@ -312,7 +319,7 @@ fn test_validation_unions_and_interfaces() {
         }
     "#;
     let doc = create_doc("file:///invalid_union.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
     assert!(diagnostics
         .iter()
         .any(|d| d.message.contains("not found on type 'SearchResult'")));
@@ -326,7 +333,7 @@ fn test_validation_unions_and_interfaces() {
         }
     "#;
     let doc = create_doc("file:///valid_interface.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, None);
     assert!(
         diagnostics.is_empty(),
         "Valid interface query failed: {:?}",
@@ -346,7 +353,7 @@ fn test_validation_block_strings_and_comments() {
         }
     "#;
     let doc = create_doc("file:///quirks.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, None);
     assert!(
         diagnostics.is_empty(),
         "Block strings or comments caused issues: {:?}",
