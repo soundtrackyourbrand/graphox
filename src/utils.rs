@@ -17,11 +17,28 @@ pub enum SemanticTokenKind {
 }
 
 pub fn is_relevant_file(path: &Path) -> bool {
+    if path.components().any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git") {
+        return false;
+    }
+
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    matches!(
+    let is_ext_relevant = matches!(
         ext,
         "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
-    )
+    );
+
+    if !is_ext_relevant {
+        return false;
+    }
+
+    // Exclude generated files
+    if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+        if file_name.ends_with(".codegen.ts") || file_name == "graphql.ts" || file_name == "manifest.json" || file_name == "permissions.ts" {
+            return false;
+        }
+    }
+
+    true
 }
 
 pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String]) -> Vec<PathBuf> {
@@ -178,6 +195,19 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
     files.sort();
     files.dedup();
     files
+}
+
+pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(base_dir);
+    let gitignore_path = base_dir.join(".gitignore");
+    if gitignore_path.exists() {
+        builder.add(gitignore_path);
+    }
+    builder.build().unwrap_or_else(|_| ignore::gitignore::Gitignore::empty())
+}
+
+pub fn is_path_ignored(path: &Path, matcher: &ignore::gitignore::Gitignore) -> bool {
+    matcher.matched(path, path.is_dir()).is_ignore()
 }
 
 pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
@@ -373,6 +403,23 @@ pub fn mask_interpolations(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_relevant_file() {
+        assert!(is_relevant_file(Path::new("test.graphql")));
+        assert!(is_relevant_file(Path::new("test.ts")));
+        assert!(is_relevant_file(Path::new("src/test.tsx")));
+        
+        // Should ignore generated files
+        assert!(!is_relevant_file(Path::new("test.codegen.ts")));
+        assert!(!is_relevant_file(Path::new("graphql.ts")));
+        assert!(!is_relevant_file(Path::new("manifest.json")));
+        assert!(!is_relevant_file(Path::new("permissions.ts")));
+        
+        // Should ignore common directories
+        assert!(!is_relevant_file(Path::new("node_modules/test.ts")));
+        assert!(!is_relevant_file(Path::new(".git/config")));
+    }
 
     #[test]
     #[ntest::timeout(100)]

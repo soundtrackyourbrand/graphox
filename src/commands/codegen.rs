@@ -38,11 +38,36 @@ pub async fn run_codegen(
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
+    let gitignore = graphql_rust::utils::get_gitignore_matcher(&config.base_dir);
+    let mut output_dirs = Vec::new();
+    if let Some(out) = &config.output_dir {
+        output_dirs.push(config.base_dir.join(out));
+    }
+    for p in &config.projects {
+        if let Some(out) = &p.output_dir {
+            output_dirs.push(config.base_dir.join(out));
+        }
+    }
+
     let mut debouncer = notify_debouncer_mini::new_debouncer(
         std::time::Duration::from_millis(200),
         move |res: notify_debouncer_mini::DebounceEventResult| match res {
-            Ok(_) => {
-                let _ = tx.blocking_send(());
+            Ok(events) => {
+                let has_relevant_change = events.iter().any(|e| {
+                    if !graphql_rust::utils::is_relevant_file(&e.path) {
+                        return false;
+                    }
+                    if graphql_rust::utils::is_path_ignored(&e.path, &gitignore) {
+                        return false;
+                    }
+                    if output_dirs.iter().any(|d| e.path.starts_with(d)) {
+                        return false;
+                    }
+                    true
+                });
+                if has_relevant_change {
+                    let _ = tx.blocking_send(());
+                }
             }
             Err(e) => eprintln!("{}: {:?}", "Watch error".red(), e),
         },

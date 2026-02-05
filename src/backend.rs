@@ -32,6 +32,7 @@ pub struct Backend {
     pub workspace_loaded: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
+    pub gitignore: Arc<ignore::gitignore::Gitignore>,
 }
 
 impl Backend {
@@ -64,6 +65,8 @@ impl Backend {
             }
         }
 
+        let gitignore = Arc::new(crate::utils::get_gitignore_matcher(&config.base_dir));
+
         Self {
             client,
             documents: Arc::new(documents),
@@ -81,6 +84,7 @@ impl Backend {
             workspace_loaded: Arc::new(AtomicBool::new(false)),
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
+            gitignore,
         }
     }
 
@@ -1843,7 +1847,7 @@ impl LanguageServer for Backend {
 
                     if is_schema {
                         self.reload_schema(&path_str).await;
-                    } else if is_relevant_file(&path) {
+                    } else if is_relevant_file(&path) && !crate::utils::is_path_ignored(&path, &self.gitignore) {
                         // Update document if it's already open
                         let uri = self.normalize_uri(change.uri);
 
