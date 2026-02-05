@@ -1,12 +1,12 @@
-use crate::config::{Config, SchemaSource};
+use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file};
-use apollo_compiler::{Node, Schema, executable};
+use apollo_compiler::{executable, Node, Schema};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_lsp::lsp_types::Url;
 
@@ -365,27 +365,5 @@ impl Engine {
         let doc = DocumentState::new(uri, &content, parser);
 
         Some(doc)
-    }
-
-    pub fn load_schema(base_dir: &Path, source: &SchemaSource) -> Result<Schema, String> {
-        let mut texts = Vec::new();
-        for file in source.files() {
-            let path = base_dir.join(file);
-            match std::fs::read_to_string(&path) {
-                Ok(text) => {
-                    texts.push(text);
-                }
-                Err(e) => {
-                    return Err(format!(
-                        "Failed to read schema file {}: {}",
-                        path.display(),
-                        e
-                    ));
-                }
-            }
-        }
-        let combined_text = crate::utils::merge_schema_texts(&texts);
-        Schema::parse(&combined_text, source.as_key())
-            .map_err(|e| format!("Failed to parse schema {}: {}", source.as_key(), e))
     }
 }

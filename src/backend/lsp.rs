@@ -3,6 +3,7 @@ use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::features::completion::FragmentCompletionInfo;
 use crate::utils::{SEMANTIC_TOKEN_LEGEND, is_relevant_file};
+use super::fragment_manager;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
@@ -92,20 +93,7 @@ impl Backend {
         base_dir: &std::path::Path,
         source: &SchemaSource,
     ) -> Option<Arc<Schema>> {
-        let mut texts = Vec::new();
-        for file in source.files() {
-            let path = base_dir.join(file);
-            match std::fs::read_to_string(&path) {
-                Ok(text) => {
-                    texts.push(text);
-                }
-                Err(_) => return None,
-            }
-        }
-        let combined_text = crate::utils::merge_schema_texts(&texts);
-        Schema::parse(&combined_text, source.as_key())
-            .ok()
-            .map(Arc::new)
+        crate::schema::load_schema_arc(base_dir, source)
     }
 
     pub fn normalize_uri(&self, uri: Url) -> Url {
@@ -129,45 +117,11 @@ impl Backend {
     }
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
-        let fragment_defs = self.fragment_defs.clone();
-        let config = self.config.clone();
-        let package_roots = self.package_roots.clone();
-
-        fragment_defs
-            .iter()
-            .flat_map(|entry| {
-                let uri = entry.key();
-                let frags = entry.value();
-
-                // Get project info once per file
-                let (import_path, package_root) = if let Ok(p) = uri.to_file_path() {
-                    let project = config.get_project_for_path(&p);
-                    (
-                        project.and_then(|proj| proj.import.clone()),
-                        package_roots.get(uri).and_then(|r| r.value().clone()),
-                    )
-                } else {
-                    (None, None)
-                };
-
-                frags
-                    .iter()
-                    .map(move |frag| FragmentCompletionInfo {
-                        name: frag.name.clone(),
-                        type_condition: frag.type_condition.clone(),
-                        description: frag.description.clone(),
-                        import_path: import_path.clone(),
-                        is_public: frag.is_public,
-                        is_type_only: frag.is_type_only,
-                        uri: uri.clone(),
-                        package_root: package_root.clone(),
-                        used_variables: frag.used_variables.clone(),
-                        used_fragments: frag.used_fragments.clone(),
-                        requirements: std::collections::BTreeMap::new(),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+        fragment_manager::collect_fragment_metadata(
+            &self.fragment_defs,
+            &self.config,
+            &self.package_roots,
+        )
     }
 
     pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
@@ -454,7 +408,7 @@ impl Backend {
                 matches.first().and_then(|st| st.import.clone())
             });
 
-            let schema = match crate::engine::Engine::load_schema(&config.base_dir, &project.schema)
+            let schema = match crate::schema::load_schema(&config.base_dir, &project.schema)
             {
                 Ok(s) => s,
                 Err(e) => {
@@ -554,22 +508,12 @@ impl Backend {
         old_spreads: Option<Vec<String>>,
         new_spreads: Vec<String>,
     ) {
-        if let Some(old) = old_spreads {
-            for spread in old {
-                if !new_spreads.contains(&spread)
-                    && let Some(mut entry) = self.fragment_dependents.get_mut(&spread)
-                {
-                    entry.remove(uri);
-                }
-            }
-        }
-
-        for spread in new_spreads {
-            self.fragment_dependents
-                .entry(spread)
-                .or_default()
-                .insert(uri.clone());
-        }
+        fragment_manager::update_fragment_dependents(
+            &self.fragment_dependents,
+            uri,
+            old_spreads,
+            new_spreads,
+        );
     }
 
     fn update_definition_indices(
@@ -578,22 +522,12 @@ impl Backend {
         old_fragments: Option<Vec<String>>,
         new_fragments: Vec<String>,
     ) {
-        if let Some(old) = old_fragments {
-            for name in old {
-                if !new_fragments.contains(&name)
-                    && let Some(mut entry) = self.fragment_definitions.get_mut(&name)
-                {
-                    entry.remove(uri);
-                }
-            }
-        }
-
-        for name in new_fragments {
-            self.fragment_definitions
-                .entry(name)
-                .or_default()
-                .insert(uri.clone());
-        }
+        fragment_manager::update_fragment_definitions(
+            &self.fragment_definitions,
+            uri,
+            old_fragments,
+            new_fragments,
+        );
     }
 
     pub async fn validate_uris(&self, uris: Vec<Url>) {

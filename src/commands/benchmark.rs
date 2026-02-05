@@ -43,22 +43,10 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
-        let schema = match Engine::load_schema(&config.base_dir, &project.schema) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                continue;
-            }
-        };
-        let valid_schema = match schema.clone().validate() {
+        let valid_schema = match graphql_rust::schema::load_and_validate_schema(&config.base_dir, &project.schema) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!(
-                    "{} {}: {}",
-                    "Schema validation failed for".red(),
-                    project.schema.as_key().blue(),
-                    e.to_string().red()
-                );
+                eprintln!("{}", e.to_string().red());
                 continue;
             }
         };
@@ -140,15 +128,13 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     if let Some(schema_types) = &config.schema_types {
         for st in schema_types {
             let st_start = Instant::now();
-            if let Ok(schema) = Engine::load_schema(&config.base_dir, &st.schema) {
-                if let Ok(valid_schema) = schema.validate() {
-                    let g_start = Instant::now();
-                    let _ts_code = graphql_rust::features::codegen::generate_schema_types(
-                        &valid_schema,
-                        &config.scalars,
-                    );
-                    ts_gen_time += g_start.elapsed();
-                }
+            if let Ok(valid_schema) = graphql_rust::schema::load_and_validate_schema(&config.base_dir, &st.schema) {
+                let g_start = Instant::now();
+                let _ts_code = graphql_rust::features::codegen::generate_schema_types(
+                    &valid_schema,
+                    &config.scalars,
+                );
+                ts_gen_time += g_start.elapsed();
             }
             schema_type_timings.push((st.output.clone(), st_start.elapsed()));
         }

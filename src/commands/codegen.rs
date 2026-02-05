@@ -168,23 +168,10 @@ async fn execute_codegen(
             matches.first().and_then(|st| st.import.clone())
         });
 
-        let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                success = false;
-                continue;
-            }
-        };
-        let valid_schema = match schema.clone().validate() {
+        let valid_schema = match graphql_rust::schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!(
-                    "{} project {}: {}",
-                    "Schema validation failed for".red(),
-                    project.include.as_key().blue(),
-                    e.to_string().red()
-                );
+                eprintln!("{}", e.to_string().red());
                 success = false;
                 continue;
             }
@@ -354,22 +341,10 @@ async fn execute_schema_codegen(
     scalars: &Option<HashMap<String, String>>,
     verbose: bool,
 ) -> bool {
-    let schema = match Engine::load_schema(base_dir, source) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{}", e.to_string().red());
-            return false;
-        }
-    };
-    let valid_schema = match schema.validate() {
+    let valid_schema = match graphql_rust::schema::load_and_validate_schema(base_dir, source) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!(
-                "{} {}: {}",
-                "Schema validation failed for".red(),
-                source.as_key().blue(),
-                e.to_string().red()
-            );
+            eprintln!("{}", e.to_string().red());
             return false;
         }
     };
@@ -405,21 +380,10 @@ async fn execute_project_codegen_entry(
     clean: bool,
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, ()> {
     if !clean {
-        let schema = match Engine::load_schema(params.base_dir, params.source) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                return Err(());
-            }
-        };
-        let valid_schema = match schema.validate() {
+        let valid_schema = match graphql_rust::schema::load_and_validate_schema(params.base_dir, params.source) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!(
-                    "{}: {}",
-                    "Schema validation failed".red(),
-                    e.to_string().red()
-                );
+                eprintln!("{}", e.to_string().red());
                 return Err(());
             }
         };
