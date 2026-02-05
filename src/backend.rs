@@ -40,6 +40,8 @@ impl Backend {
 
         let schemas = DashMap::with_hasher(ahash::RandomState::default());
         let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
+        let documents = DashMap::with_hasher(ahash::RandomState::default());
+
         let empty_schema =
             Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
         let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap());
@@ -53,13 +55,23 @@ impl Backend {
                 if let Ok(valid) = (*schema).clone().validate() {
                     validated_schemas.insert(key.clone(), Arc::new(valid));
                 }
+
+                // Pre-populate documents with schema files so they are available immediately
+                // for features like "Go to definition" without waiting for a full workspace scan.
+                for file in project.schema.files() {
+                    let path = config.base_dir.join(&file);
+                    if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                        documents.insert(doc.uri.clone(), doc);
+                    }
+                }
+
                 schemas.insert(key, schema);
             }
         }
 
         Self {
             client,
-            documents: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
+            documents: Arc::new(documents),
             config,
             schemas: Arc::new(schemas),
             validated_schemas: Arc::new(validated_schemas),
@@ -371,6 +383,15 @@ impl Backend {
                 if let Ok(valid) = (*schema).clone().validate() {
                     self.validated_schemas.insert(key.clone(), Arc::new(valid));
                 }
+                // Pre-populate documents with schema files so they are available immediately
+                // for features like "Go to definition" without waiting for a full workspace scan.
+                for file in project.schema.files() {
+                    let path = self.config.base_dir.join(&file);
+                    if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                        self.documents.insert(doc.uri.clone(), doc);
+                    }
+                }
+
                 self.schemas.insert(key, schema);
             }
         }

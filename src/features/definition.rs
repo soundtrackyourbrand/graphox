@@ -208,10 +208,14 @@ impl DocumentState {
                                         if let Some(parent_type) = self
                                             .find_parent_type_for_node(field_node, offset, schema)
                                         {
-                                            let field_node_name = field_node
-                                                .child_by_field_name("name")
-                                                .map(|n| self.get_node_text(n, offset))
-                                                .unwrap_or_default();
+                                            let mut field_node_name = String::new();
+                                            let mut f_walker = field_node.walk();
+                                            for child in field_node.children(&mut f_walker) {
+                                                if child.kind() == "name" {
+                                                    field_node_name = self.get_node_text(child, offset);
+                                                    break;
+                                                }
+                                            }
 
                                             for entry in documents.iter() {
                                                 let doc = entry.value();
@@ -227,10 +231,14 @@ impl DocumentState {
                                             }
                                         }
                                     } else if field_node.kind() == "directive" {
-                                        let dir_name = field_node
-                                            .child_by_field_name("name")
-                                            .map(|n| self.get_node_text(n, offset))
-                                            .unwrap_or_default();
+                                        let mut dir_name = String::new();
+                                        let mut f_walker = field_node.walk();
+                                        for child in field_node.children(&mut f_walker) {
+                                            if child.kind() == "name" {
+                                                dir_name = self.get_node_text(child, offset);
+                                                break;
+                                            }
+                                        }
 
                                         for entry in documents.iter() {
                                             let doc = entry.value();

@@ -41,6 +41,30 @@ pub const GQL_SYMBOL_QUERY: &str = r#"
 
     (directive_definition
         (name) @symbol.name) @symbol.container
+
+    (type_extension
+        (object_type_extension
+            (name) @symbol.name) @symbol.container)
+
+    (type_extension
+        (interface_type_extension
+            (name) @symbol.name) @symbol.container)
+
+    (type_extension
+        (enum_type_extension
+            (name) @symbol.name) @symbol.container)
+
+    (type_extension
+        (scalar_type_extension
+            (name) @symbol.name) @symbol.container)
+
+    (type_extension
+        (union_type_extension
+            (name) @symbol.name) @symbol.container)
+
+    (type_extension
+        (input_object_type_extension
+            (name) @symbol.name) @symbol.container)
 "#;
 
 pub const SEMANTIC_TOKEN_QUERY: &str = r#"
