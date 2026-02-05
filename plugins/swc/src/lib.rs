@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::visit::{VisitMut, VisitMutWith};
@@ -139,66 +139,70 @@ impl VisitMut for TransformVisitor {
             if current_file_normalized == entrypoint_abs_path {
                 n.body.clear();
                 // Add empty exports to satisfy build tools
-                n.body.push(ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-                    span: DUMMY_SP,
-                    decl: Decl::Var(Box::new(VarDecl {
+                n.body
+                    .push(ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
                         span: DUMMY_SP,
-                        ctxt: SyntaxContext::empty(),
-                        kind: VarDeclKind::Const,
-                        declare: false,
-                        decls: vec![VarDeclarator {
+                        decl: Decl::Var(Box::new(VarDecl {
                             span: DUMMY_SP,
-                            name: Pat::Ident(BindingIdent {
-                                id: Ident {
+                            ctxt: SyntaxContext::empty(),
+                            kind: VarDeclKind::Const,
+                            declare: false,
+                            decls: vec![VarDeclarator {
+                                span: DUMMY_SP,
+                                name: Pat::Ident(BindingIdent {
+                                    id: Ident {
+                                        sym: "graphql".into(),
+                                        span: DUMMY_SP,
+                                        ctxt: SyntaxContext::empty(),
+                                        optional: false,
+                                    },
+                                    type_ann: None,
+                                }),
+                                init: Some(Box::new(Expr::Arrow(ArrowExpr {
+                                    span: DUMMY_SP,
+                                    ctxt: SyntaxContext::empty(),
+                                    params: vec![],
+                                    body: Box::new(BlockStmtOrExpr::Expr(Box::new(Expr::Lit(
+                                        Lit::Null(Null { span: DUMMY_SP }),
+                                    )))),
+                                    is_async: false,
+                                    is_generator: false,
+                                    type_params: None,
+                                    return_type: None,
+                                }))),
+                                definite: false,
+                            }],
+                        })),
+                    })));
+                n.body
+                    .push(ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+                        span: DUMMY_SP,
+                        decl: Decl::Var(Box::new(VarDecl {
+                            span: DUMMY_SP,
+                            ctxt: SyntaxContext::empty(),
+                            kind: VarDeclKind::Const,
+                            declare: false,
+                            decls: vec![VarDeclarator {
+                                span: DUMMY_SP,
+                                name: Pat::Ident(BindingIdent {
+                                    id: Ident {
+                                        sym: "gql".into(),
+                                        span: DUMMY_SP,
+                                        ctxt: SyntaxContext::empty(),
+                                        optional: false,
+                                    },
+                                    type_ann: None,
+                                }),
+                                init: Some(Box::new(Expr::Ident(Ident {
                                     sym: "graphql".into(),
                                     span: DUMMY_SP,
                                     ctxt: SyntaxContext::empty(),
                                     optional: false,
-                                },
-                                type_ann: None,
-                            }),
-                            init: Some(Box::new(Expr::Arrow(ArrowExpr {
-                                span: DUMMY_SP,
-                                ctxt: SyntaxContext::empty(),
-                                params: vec![],
-                                body: Box::new(BlockStmtOrExpr::Expr(Box::new(Expr::Lit(Lit::Null(Null { span: DUMMY_SP }))))),
-                                is_async: false,
-                                is_generator: false,
-                                type_params: None,
-                                return_type: None,
-                            }))),
-                            definite: false,
-                        }],
-                    })),
-                })));
-                n.body.push(ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-                    span: DUMMY_SP,
-                    decl: Decl::Var(Box::new(VarDecl {
-                        span: DUMMY_SP,
-                        ctxt: SyntaxContext::empty(),
-                        kind: VarDeclKind::Const,
-                        declare: false,
-                        decls: vec![VarDeclarator {
-                            span: DUMMY_SP,
-                            name: Pat::Ident(BindingIdent {
-                                id: Ident {
-                                    sym: "gql".into(),
-                                    span: DUMMY_SP,
-                                    ctxt: SyntaxContext::empty(),
-                                    optional: false,
-                                },
-                                type_ann: None,
-                            }),
-                            init: Some(Box::new(Expr::Ident(Ident {
-                                sym: "graphql".into(),
-                                span: DUMMY_SP,
-                                ctxt: SyntaxContext::empty(),
-                                optional: false,
-                            }))),
-                            definite: false,
-                        }],
-                    })),
-                })));
+                                }))),
+                                definite: false,
+                            }],
+                        })),
+                    })));
                 return;
             }
         }
@@ -318,9 +322,9 @@ pub fn process_transform(
             graphql_import_paths: None,
         });
 
-    let current_file = _metadata.get_context(&swc_core::plugin::metadata::TransformPluginMetadataContextKind::Filename);
-    let mut visitor =
-        TransformVisitor::new(&config, current_file);
+    let current_file = _metadata
+        .get_context(&swc_core::plugin::metadata::TransformPluginMetadataContextKind::Filename);
+    let mut visitor = TransformVisitor::new(&config, current_file);
     program.visit_mut_with(&mut visitor);
     program
 }
@@ -330,7 +334,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use swc_core::common::{FileName, SourceMap};
-    use swc_core::ecma::codegen::{text_writer::JsWriter, Emitter};
+    use swc_core::ecma::codegen::{Emitter, text_writer::JsWriter};
     use swc_core::ecma::parser::{Parser, StringInput, Syntax, TsSyntax};
     use swc_core::ecma::visit::VisitMutWith;
 

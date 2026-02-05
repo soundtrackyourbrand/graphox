@@ -17,7 +17,10 @@ pub enum SemanticTokenKind {
 }
 
 pub fn is_relevant_file(path: &Path) -> bool {
-    if path.components().any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git") {
+    if path
+        .components()
+        .any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git")
+    {
         return false;
     }
 
@@ -33,7 +36,10 @@ pub fn is_relevant_file(path: &Path) -> bool {
 
     // Exclude generated files
     if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
-        if file_name.ends_with(".codegen.ts") || file_name == "manifest.json" || file_name == "permissions.ts" {
+        if file_name.ends_with(".codegen.ts")
+            || file_name == "manifest.json"
+            || file_name == "permissions.ts"
+        {
             return false;
         }
     }
@@ -163,16 +169,14 @@ pub fn get_project_files(
                 let path = entry.path();
                 if is_relevant_file(path) {
                     let mut matched = include_set.is_match(path);
-                    
+
                     if !matched {
                         if let Ok(abs_path) = std::fs::canonicalize(path) {
-                             matched = include_set.is_match(&abs_path);
+                            matched = include_set.is_match(&abs_path);
                         }
                     }
 
-                    if !matched
-                        && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
-                    {
+                    if !matched && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir) {
                         matched = include_set.is_match(&rel_to_base);
                     }
 
@@ -211,7 +215,9 @@ pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
     if gitignore_path.exists() {
         builder.add(gitignore_path);
     }
-    builder.build().unwrap_or_else(|_| ignore::gitignore::Gitignore::empty())
+    builder
+        .build()
+        .unwrap_or_else(|_| ignore::gitignore::Gitignore::empty())
 }
 
 pub fn is_path_ignored(path: &Path, matcher: &ignore::gitignore::Gitignore) -> bool {
@@ -418,12 +424,12 @@ mod tests {
         assert!(is_relevant_file(Path::new("test.ts")));
         assert!(is_relevant_file(Path::new("src/test.tsx")));
         assert!(is_relevant_file(Path::new("graphql.ts")));
-        
+
         // Should ignore generated files
         assert!(!is_relevant_file(Path::new("test.codegen.ts")));
         assert!(!is_relevant_file(Path::new("manifest.json")));
         assert!(!is_relevant_file(Path::new("permissions.ts")));
-        
+
         // Should ignore common directories
         assert!(!is_relevant_file(Path::new("node_modules/test.ts")));
         assert!(!is_relevant_file(Path::new(".git/config")));

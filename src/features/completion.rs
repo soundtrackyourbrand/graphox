@@ -1,5 +1,5 @@
 use crate::document::DocumentState;
-use apollo_compiler::{Schema, schema, ast};
+use apollo_compiler::{Schema, ast, schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
@@ -58,7 +58,6 @@ impl DocumentState {
         while let Some(current) = node {
             if self.is_after_at(cursor_offset) || current.kind() == "directive" {
                 let mut context_node = if current.kind() == "directive"
-
                     || (current.kind() == "name"
                         && current.parent().map(|p| p.kind()) == Some("directive"))
                 {
@@ -113,7 +112,9 @@ impl DocumentState {
 
                         let location = match p.kind() {
                             "field" => Some(ast::DirectiveLocation::Field),
-                            "fragment_definition" => Some(ast::DirectiveLocation::FragmentDefinition),
+                            "fragment_definition" => {
+                                Some(ast::DirectiveLocation::FragmentDefinition)
+                            }
                             "inline_fragment" => Some(ast::DirectiveLocation::InlineFragment),
                             "fragment_spread" => Some(ast::DirectiveLocation::FragmentSpread),
                             "operation_definition" => {
@@ -130,7 +131,9 @@ impl DocumentState {
                                     }
                                 }
                                 match op_type {
-                                    ast::OperationType::Query => Some(ast::DirectiveLocation::Query),
+                                    ast::OperationType::Query => {
+                                        Some(ast::DirectiveLocation::Query)
+                                    }
                                     ast::OperationType::Mutation => {
                                         Some(ast::DirectiveLocation::Mutation)
                                     }
@@ -145,9 +148,6 @@ impl DocumentState {
                         if let Some(loc) = location {
                             return Some(self.get_directive_completions(schema, loc));
                         }
-
-
-
 
                         if let Some(parent) = p.parent() {
                             p = parent;

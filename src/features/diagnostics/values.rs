@@ -31,10 +31,7 @@ impl DocumentState {
 
                 if let Some(name_node) = name_node {
                     let arg_name = self.get_node_text(name_node, offset);
-                    if let Some(arg_def) = arg_defs
-                        .iter()
-                        .find(|a| a.name.as_str() == arg_name)
-                    {
+                    if let Some(arg_def) = arg_defs.iter().find(|a| a.name.as_str() == arg_name) {
                         if let Some(directive) = arg_def.directives.get("deprecated") {
                             let reason = directive
                                 .argument_by_name("reason", ctx.schema)
@@ -85,12 +82,7 @@ impl DocumentState {
         }
     }
 
-    fn validate_directive_node(
-        &self,
-        node: Node,
-        offset: usize,
-        ctx: &mut ValidationContext,
-    ) {
+    fn validate_directive_node(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
         let mut dir_cursor = node.walk();
         let mut name_node = None;
         let mut arguments_node = None;
@@ -132,7 +124,10 @@ impl DocumentState {
                         let name = self.get_node_text(child, offset);
                         ctx.used_variables.insert(name.clone());
 
-                        if ctx.is_operation && !ctx.defined_variables.contains(&name) && ctx.workspace_loaded {
+                        if ctx.is_operation
+                            && !ctx.defined_variables.contains(&name)
+                            && ctx.workspace_loaded
+                        {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),

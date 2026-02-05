@@ -112,7 +112,11 @@ impl Config {
 
     pub fn load() -> Self {
         let mut curr = std::env::current_dir().unwrap_or_else(|e| {
-            eprintln!("{}: Failed to get current directory: {}", "Error".red(), e.to_string().red());
+            eprintln!(
+                "{}: Failed to get current directory: {}",
+                "Error".red(),
+                e.to_string().red()
+            );
             std::process::exit(1);
         });
         loop {

@@ -28,12 +28,16 @@ fn test_document_symbols() {
     let doc = create_doc("file:///test.graphql", text);
     let symbols = doc.get_symbols();
 
-    assert!(symbols
-        .iter()
-        .any(|s| s.name == "GetUser" && s.kind == SymbolKind::STRUCT));
-    assert!(symbols
-        .iter()
-        .any(|s| s.name == "UserFields" && s.kind == SymbolKind::STRUCT));
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "GetUser" && s.kind == SymbolKind::STRUCT)
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "UserFields" && s.kind == SymbolKind::STRUCT)
+    );
 
     // Check that we have fields too (if implemented as children or flat)
     // Current implementation is flat STRUCTs for operations and fragments

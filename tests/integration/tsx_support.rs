@@ -193,9 +193,11 @@ fn test_multiple_graphql_blocks_variables_fragment_interaction() {
     let fragments = doc.fragments();
     assert_eq!(fragments.len(), 1);
     assert_eq!(fragments[0].name, "PlaylistPage");
-    assert!(fragments[0]
-        .used_variables
-        .contains(&"showPermissions".to_string()));
+    assert!(
+        fragments[0]
+            .used_variables
+            .contains(&"showPermissions".to_string())
+    );
 
     // 2. Check full diagnostic flow (LSP context)
     let schema_content = "type Playlist { id: ID! permissions: [String] } type Query { playlist(id: ID!): Playlist }";

@@ -145,7 +145,13 @@ impl DocumentState {
                             if let Some(type_def) = ctx.schema.types.get(type_name.as_str())
                                 && let Some(sel_set) = selection_set_node
                             {
-                                self.validate_selection_set(sel_set, offset, type_def, ctx, depth + 1);
+                                self.validate_selection_set(
+                                    sel_set,
+                                    offset,
+                                    type_def,
+                                    ctx,
+                                    depth + 1,
+                                );
                             }
                         }
                     }
@@ -295,7 +301,9 @@ impl DocumentState {
                                     "Undefined variable: ${} (required by fragment '{}')",
                                     var, name
                                 ),
-                                code: Some(NumberOrString::String("undefined_variable".to_string())),
+                                code: Some(NumberOrString::String(
+                                    "undefined_variable".to_string(),
+                                )),
                                 ..Default::default()
                             });
                         }

@@ -153,7 +153,10 @@ async fn test_goto_definition_fields_and_extensions() {
     let result: Option<GotoDefinitionResponse> =
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
-    assert!(result.is_some(), "Should find definition for 'username' in extension");
+    assert!(
+        result.is_some(),
+        "Should find definition for 'username' in extension"
+    );
 }
 
 fn get_position(text: &str, pos: usize) -> Position {

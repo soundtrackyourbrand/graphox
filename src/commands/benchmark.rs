@@ -157,14 +157,26 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let total_duration = total_start.elapsed();
 
     println!("\n{}", "--- Benchmark Results ---".bold());
-    println!("{:<30} {}", "Files with GraphQL:".bright_black(), total_graphql_files);
+    println!(
+        "{:<30} {}",
+        "Files with GraphQL:".bright_black(),
+        total_graphql_files
+    );
     println!(
         "{:<30} {}",
         "Total Fragments Found:".bright_black(),
         fragment_to_path_global.len()
     );
-    println!("{:<30} {}", "Total Operations processed:".bright_black(), total_operations);
-    println!("{:<30} {}", "Total Fragments processed:".bright_black(), total_fragments_processed);
+    println!(
+        "{:<30} {}",
+        "Total Operations processed:".bright_black(),
+        total_operations
+    );
+    println!(
+        "{:<30} {}",
+        "Total Fragments processed:".bright_black(),
+        total_fragments_processed
+    );
     println!();
     if !project_timings.is_empty() {
         println!("{}", "Project Breakdown:".bold());
@@ -196,7 +208,11 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         "Workspace Metadata Extr:".bright_black(),
         scan_timings.metadata_extraction
     );
-    println!("  {:<26} {:>10?}", "Schema Parsing:".bright_black(), schema_parse_time);
+    println!(
+        "  {:<26} {:>10?}",
+        "Schema Parsing:".bright_black(),
+        schema_parse_time
+    );
     println!(
         "  {:<26} {:>10?}",
         "Fragment Resolution:".bright_black(),
@@ -207,8 +223,16 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         "Metadata Mapping:".bright_black(),
         metadata_mapping_time
     );
-    println!("  {:<26} {:>10?}", "Document Parsing:".bright_black(), doc_parse_time);
-    println!("  {:<26} {:>10?}", "TS Generation:".bright_black(), ts_gen_time);
+    println!(
+        "  {:<26} {:>10?}",
+        "Document Parsing:".bright_black(),
+        doc_parse_time
+    );
+    println!(
+        "  {:<26} {:>10?}",
+        "TS Generation:".bright_black(),
+        ts_gen_time
+    );
     println!("{}", "--------------------------".bright_black());
     println!("{:<30} {:>10?}", "Total Wall Time:".bold(), total_duration);
 }

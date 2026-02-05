@@ -330,9 +330,14 @@ impl DocumentState {
                         }
                     }
                 } else if kind == "field" {
-                    if let Some(info) =
-                        self.find_field_info(child, offset, cursor_offset, parent_type, schema, depth + 1)
-                    {
+                    if let Some(info) = self.find_field_info(
+                        child,
+                        offset,
+                        cursor_offset,
+                        parent_type,
+                        schema,
+                        depth + 1,
+                    ) {
                         return Some(info);
                     }
                 } else if kind == "inline_fragment" {
@@ -454,7 +459,14 @@ impl DocumentState {
         if let Some(ss) = selection_set_node {
             let ss_range = (ss.start_byte() + offset)..(ss.end_byte() + offset);
             if cursor_offset >= ss_range.start && cursor_offset <= ss_range.end {
-                return self.find_field_recursive(ss, offset, cursor_offset, target_type, schema, depth + 1);
+                return self.find_field_recursive(
+                    ss,
+                    offset,
+                    cursor_offset,
+                    target_type,
+                    schema,
+                    depth + 1,
+                );
             }
         }
         None

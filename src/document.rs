@@ -1,7 +1,7 @@
 use crate::queries::*;
 use crate::utils::{find_package_root, mask_interpolations};
-use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::Schema;
+use apollo_compiler::schema::ExtendedType;
 use ropey::Rope;
 use std::fmt;
 use std::path::PathBuf;

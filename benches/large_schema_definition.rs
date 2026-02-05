@@ -10,7 +10,12 @@ use tokio::runtime::Runtime;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{LanguageServer, LspService};
 
-fn generate_complex_workspace(base_dir: &std::path::Path, project_count: usize, fields_per_schema: usize, files_per_project: usize) -> Config {
+fn generate_complex_workspace(
+    base_dir: &std::path::Path,
+    project_count: usize,
+    fields_per_schema: usize,
+    files_per_project: usize,
+) -> Config {
     let mut projects = Vec::new();
 
     for i in 0..project_count {
@@ -32,7 +37,12 @@ fn generate_complex_workspace(base_dir: &std::path::Path, project_count: usize, 
             let file_path = project_dir.join(format!("file_{}.graphql", j));
             let content = format!(
                 "query GetField{}_{} {{ field_{} }}\nfragment Frag{}_{} on Query_{} {{ field_0 }}",
-                i, j, fields_per_schema - 1, i, j, i
+                i,
+                j,
+                fields_per_schema - 1,
+                i,
+                j,
+                i
             );
             fs::write(file_path, content).unwrap();
         }
@@ -64,8 +74,13 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
     let project_count = 10;
     let fields_per_schema = 10000;
     let files_per_project = 200;
-    
-    let config = generate_complex_workspace(&base_dir, project_count, fields_per_schema, files_per_project);
+
+    let config = generate_complex_workspace(
+        &base_dir,
+        project_count,
+        fields_per_schema,
+        files_per_project,
+    );
 
     let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
     let backend = service.inner();
@@ -78,7 +93,9 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
                 let uri = Url::from_file_path(fs::canonicalize(&path).unwrap()).unwrap();
                 let content = fs::read_to_string(&path).unwrap();
                 let mut parser = tree_sitter::Parser::new();
-                parser.set_language(&tree_sitter_graphql::LANGUAGE.into()).unwrap();
+                parser
+                    .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                    .unwrap();
                 let doc = DocumentState::new(uri.clone(), &content, parser);
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
@@ -87,13 +104,14 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
 
     // Target a field in the FIRST project to see if it's faster
     let target_project = 0;
-    let target_uri = Url::from_file_path(base_dir.join(format!("project_{}/file_0.graphql", target_project))).unwrap();
+    let target_uri =
+        Url::from_file_path(base_dir.join(format!("project_{}/file_0.graphql", target_project)))
+            .unwrap();
 
     let mut group = c.benchmark_group("Complex Workspace Definition");
     group.sample_size(10);
 
     group.bench_function("Definition: First Project Field in 2000 docs", |b| {
-
         b.to_async(&rt).iter(|| {
             backend.goto_definition(GotoDefinitionParams {
                 text_document_position_params: TextDocumentPositionParams {

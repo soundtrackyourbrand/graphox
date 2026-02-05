@@ -49,7 +49,7 @@ async fn test_lsp_automatic_codegen() {
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-    
+
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "window/logMessage" {
@@ -114,7 +114,11 @@ async fn test_lsp_automatic_codegen() {
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("GetMe"));
     // Use a more specific check to avoid matching schema types or comments if any
-    assert!(!content.contains("name: string"), "Generated content should not contain 'name' field: {}", content);
+    assert!(
+        !content.contains("name: string"),
+        "Generated content should not contain 'name' field: {}",
+        content
+    );
 
     // 2. Test didChange triggers codegen
     let query_text_new = "query GetMe { me { id name } }";

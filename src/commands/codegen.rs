@@ -124,7 +124,10 @@ pub async fn run_codegen(
     }
 
     while rx.recv().await.is_some() {
-        println!("{}", "\nChange detected, re-running codegen...".bright_black());
+        println!(
+            "{}",
+            "\nChange detected, re-running codegen...".bright_black()
+        );
         let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
     }
 }
@@ -196,7 +199,11 @@ async fn execute_codegen(
                 std::fs::create_dir_all(&out_dir_path).ok();
                 let permissions_path = out_dir_path.join("permissions.ts");
                 if verbose {
-                    println!("{}: {}", "Generating permissions".bright_black(), permissions_path.display().to_string().bright_black());
+                    println!(
+                        "{}: {}",
+                        "Generating permissions".bright_black(),
+                        permissions_path.display().to_string().bright_black()
+                    );
                 }
                 let content = graphql_rust::features::codegen::generate_permissions_content(
                     &valid_schema,
@@ -242,10 +249,19 @@ async fn execute_codegen(
             if clean {
                 if abs_output.exists() {
                     if let Err(e) = std::fs::remove_file(&abs_output) {
-                        eprintln!("{}: {} - {}", "Failed to remove".red(), abs_output.display().to_string().red(), e);
+                        eprintln!(
+                            "{}: {} - {}",
+                            "Failed to remove".red(),
+                            abs_output.display().to_string().red(),
+                            e
+                        );
                         success = false;
                     } else if verbose {
-                        println!("{}: {}", "Removed".bright_black(), abs_output.display().to_string().bright_black());
+                        println!(
+                            "{}: {}",
+                            "Removed".bright_black(),
+                            abs_output.display().to_string().bright_black()
+                        );
                     }
                 }
             } else {
@@ -271,7 +287,11 @@ async fn execute_codegen(
             let entrypoint_path = out_dir_path.join("graphql.ts");
             if !all_generated_operations.is_empty() {
                 if verbose {
-                    println!("{}: {}", "Generating entrypoint".bright_black(), entrypoint_path.display().to_string().bright_black());
+                    println!(
+                        "{}: {}",
+                        "Generating entrypoint".bright_black(),
+                        entrypoint_path.display().to_string().bright_black()
+                    );
                 }
                 let content = graphql_rust::features::codegen::generate_entrypoint_content(
                     &out_dir_path,
@@ -285,7 +305,11 @@ async fn execute_codegen(
                 // Generate manifest for SWC plugin
                 let manifest_path = out_dir_path.join("manifest.json");
                 if verbose {
-                    println!("{}: {}", "Generating manifest".bright_black(), manifest_path.display().to_string().bright_black());
+                    println!(
+                        "{}: {}",
+                        "Generating manifest".bright_black(),
+                        manifest_path.display().to_string().bright_black()
+                    );
                 }
                 let manifest_entries: Vec<_> = all_generated_operations
                     .iter()
@@ -340,7 +364,12 @@ async fn execute_schema_codegen(
     let valid_schema = match schema.validate() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("{} {}: {}", "Schema validation failed for".red(), source.as_key().blue(), e.to_string().red());
+            eprintln!(
+                "{} {}: {}",
+                "Schema validation failed for".red(),
+                source.as_key().blue(),
+                e.to_string().red()
+            );
             return false;
         }
     };
@@ -352,11 +381,20 @@ async fn execute_schema_codegen(
         std::fs::create_dir_all(parent).ok();
     }
     if let Err(e) = std::fs::write(out_path, ts_code) {
-        eprintln!("{} {}: {}", "Failed to write schema types file".red(), output_path.red(), e);
+        eprintln!(
+            "{} {}: {}",
+            "Failed to write schema types file".red(),
+            output_path.red(),
+            e
+        );
         return false;
     }
     if verbose {
-        println!("{}: {}", "Generated".bright_black(), out_path.display().to_string().bright_black());
+        println!(
+            "{}: {}",
+            "Generated".bright_black(),
+            out_path.display().to_string().bright_black()
+        );
     }
     true
 }
@@ -377,7 +415,11 @@ async fn execute_project_codegen_entry(
         let valid_schema = match schema.validate() {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("{}: {}", "Schema validation failed".red(), e.to_string().red());
+                eprintln!(
+                    "{}: {}",
+                    "Schema validation failed".red(),
+                    e.to_string().red()
+                );
                 return Err(());
             }
         };
@@ -463,10 +505,19 @@ async fn execute_project_codegen_entry(
                 let mut ok = true;
                 if out_path.exists() {
                     if let Err(e) = std::fs::remove_file(&out_path) {
-                        eprintln!("{}: {} - {}", "Failed to remove".red(), out_path.display().to_string().red(), e);
+                        eprintln!(
+                            "{}: {} - {}",
+                            "Failed to remove".red(),
+                            out_path.display().to_string().red(),
+                            e
+                        );
                         ok = false;
                     } else if verbose {
-                        println!("{}: {}", "Removed".bright_black(), out_path.display().to_string().bright_black());
+                        println!(
+                            "{}: {}",
+                            "Removed".bright_black(),
+                            out_path.display().to_string().bright_black()
+                        );
                     }
                 }
                 ok
@@ -488,7 +539,11 @@ async fn execute_project_codegen_entry(
                     );
                     entrypoint_ok = false;
                 } else if verbose {
-                    println!("{}: {}", "Removed".bright_black(), entrypoint_path.display().to_string().bright_black());
+                    println!(
+                        "{}: {}",
+                        "Removed".bright_black(),
+                        entrypoint_path.display().to_string().bright_black()
+                    );
                 }
             }
 
@@ -503,7 +558,11 @@ async fn execute_project_codegen_entry(
                     );
                     manifest_ok = false;
                 } else if verbose {
-                    println!("{}: {}", "Removed".bright_black(), manifest_path.display().to_string().bright_black());
+                    println!(
+                        "{}: {}",
+                        "Removed".bright_black(),
+                        manifest_path.display().to_string().bright_black()
+                    );
                 }
             }
 
@@ -519,7 +578,11 @@ async fn execute_project_codegen_entry(
                         );
                         permissions_ok = false;
                     } else if verbose {
-                        println!("{}: {}", "Removed".bright_black(), permissions_path.display().to_string().bright_black());
+                        println!(
+                            "{}: {}",
+                            "Removed".bright_black(),
+                            permissions_path.display().to_string().bright_black()
+                        );
                     }
                 }
             }
@@ -562,7 +625,11 @@ fn execute_single_file_codegen(
     }
     std::fs::write(&abs_out_path, ts_code).map_err(|e| e.to_string())?;
     if verbose {
-        println!("{}: {}", "Generated".bright_black(), abs_out_path.display().to_string().bright_black());
+        println!(
+            "{}: {}",
+            "Generated".bright_black(),
+            abs_out_path.display().to_string().bright_black()
+        );
     }
     Ok(ops)
 }

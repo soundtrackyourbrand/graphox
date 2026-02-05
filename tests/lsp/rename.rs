@@ -3,14 +3,13 @@ use graphql_rust::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 use tempfile::tempdir;
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
-
 
 #[tokio::test]
 async fn test_fragment_rename() {

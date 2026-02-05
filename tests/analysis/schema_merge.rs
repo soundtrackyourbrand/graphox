@@ -409,7 +409,11 @@ async fn test_lsp_multi_schema_triple_overlap() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(&schema1_path, "type User { id: ID! } type Query { me: User }").unwrap();
+    fs::write(
+        &schema1_path,
+        "type User { id: ID! } type Query { me: User }",
+    )
+    .unwrap();
 
     let schema2_path = base_dir.join("schema2.graphql");
     fs::write(&schema2_path, "type User { name: String }").unwrap();

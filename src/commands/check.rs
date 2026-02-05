@@ -20,8 +20,9 @@ pub async fn run_check(config: Config, verbose: bool) {
         }
     }
 
-    let mut global_public_fragments: Vec<graphql_rust::features::completion::FragmentCompletionInfo> =
-        Vec::new();
+    let mut global_public_fragments: Vec<
+        graphql_rust::features::completion::FragmentCompletionInfo,
+    > = Vec::new();
 
     for doc in workspace_metadata.documents.values() {
         let package_root = doc.package_root.clone();
@@ -31,19 +32,21 @@ pub async fn run_check(config: Config, verbose: bool) {
 
         for frag in doc.fragments() {
             if frag.is_public {
-                global_public_fragments.push(graphql_rust::features::completion::FragmentCompletionInfo {
-                    name: frag.name.clone(),
-                    type_condition: frag.type_condition.clone(),
-                    description: frag.description.clone(),
-                    import_path: project_import.clone(),
-                    is_public: frag.is_public,
-                    is_type_only: frag.is_type_only,
-                    uri: doc.uri.clone(),
-                    package_root: package_root.clone(),
-                    used_variables: frag.used_variables.clone(),
-                    used_fragments: frag.used_fragments.clone(),
-                    requirements: std::collections::BTreeMap::new(),
-                });
+                global_public_fragments.push(
+                    graphql_rust::features::completion::FragmentCompletionInfo {
+                        name: frag.name.clone(),
+                        type_condition: frag.type_condition.clone(),
+                        description: frag.description.clone(),
+                        import_path: project_import.clone(),
+                        is_public: frag.is_public,
+                        is_type_only: frag.is_type_only,
+                        uri: doc.uri.clone(),
+                        package_root: package_root.clone(),
+                        used_variables: frag.used_variables.clone(),
+                        used_fragments: frag.used_fragments.clone(),
+                        requirements: std::collections::BTreeMap::new(),
+                    },
+                );
             }
         }
     }
@@ -135,24 +138,29 @@ async fn execute_project_check(
     for path in project_files {
         if let Some(doc) = all_documents.get(path) {
             for frag in doc.fragments() {
-                project_fragments.push(graphql_rust::features::completion::FragmentCompletionInfo {
-                    name: frag.name.clone(),
-                    type_condition: frag.type_condition.clone(),
-                    description: frag.description.clone(),
-                    import_path: None,
-                    is_public: frag.is_public,
-                    is_type_only: frag.is_type_only,
-                    uri: doc.uri.clone(),
-                    package_root: doc.package_root.clone(),
-                    used_variables: frag.used_variables.clone(),
-                    used_fragments: frag.used_fragments.clone(),
-                    requirements: std::collections::BTreeMap::new(),
-                });
+                project_fragments.push(
+                    graphql_rust::features::completion::FragmentCompletionInfo {
+                        name: frag.name.clone(),
+                        type_condition: frag.type_condition.clone(),
+                        description: frag.description.clone(),
+                        import_path: None,
+                        is_public: frag.is_public,
+                        is_type_only: frag.is_type_only,
+                        uri: doc.uri.clone(),
+                        package_root: doc.package_root.clone(),
+                        used_variables: frag.used_variables.clone(),
+                        used_fragments: frag.used_fragments.clone(),
+                        requirements: std::collections::BTreeMap::new(),
+                    },
+                );
             }
         }
     }
 
-    for (path, doc) in project_files.iter().zip(project_files.iter().filter_map(|p| all_documents.get(p))) {
+    for (path, doc) in project_files
+        .iter()
+        .zip(project_files.iter().filter_map(|p| all_documents.get(p)))
+    {
         let mut available_fragments = project_fragments.clone();
 
         for pub_frag in global_public_fragments {
@@ -168,8 +176,8 @@ async fn execute_project_check(
         // Note: we already have all project fragments in available_fragments.
         // We still might want to prioritize the ones in the same package if there are name collisions,
         // but for now let's just make them all available.
-        
-        // If there are duplicate fragment names in the project, we should probably 
+
+        // If there are duplicate fragment names in the project, we should probably
         // prefer the one in the same package.
         available_fragments.sort_by(|a, b| {
             let a_same_pkg = a.package_root == doc.package_root;
@@ -185,57 +193,56 @@ async fn execute_project_check(
             verbose,
             true,
         );
-            if !diagnostics.is_empty() {
-                let mut file_header_printed = false;
-                let display_path = if let Some(root) = &doc.package_root {
-                    path.strip_prefix(root).unwrap_or(path)
-                } else {
-                    path
-                };
+        if !diagnostics.is_empty() {
+            let mut file_header_printed = false;
+            let display_path = if let Some(root) = &doc.package_root {
+                path.strip_prefix(root).unwrap_or(path)
+            } else {
+                path
+            };
 
-                for d in diagnostics {
-                    let is_issue = matches!(
-                        d.severity,
-                        Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
-                    );
+            for d in diagnostics {
+                let is_issue = matches!(
+                    d.severity,
+                    Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
+                );
 
-                    if is_issue || verbose {
-                        if is_issue {
-                            found_any = true;
-                        }
-
-                        if !file_header_printed {
-                            println!("\nFile: {}", display_path.display().to_string().blue());
-                            file_header_printed = true;
-                        }
-
-                        let (severity_label, colored_msg) = match d.severity {
-                            Some(DiagnosticSeverity::ERROR) => ("Error".red(), d.message.red()),
-                            Some(DiagnosticSeverity::WARNING) => {
-                                ("Warning".yellow(), d.message.yellow())
-                            }
-                            Some(DiagnosticSeverity::INFORMATION) => {
-                                ("Info".bright_black(), d.message.bright_black())
-                            }
-                            Some(DiagnosticSeverity::HINT) => {
-                                ("Hint".bright_black(), d.message.bright_black())
-                            }
-                            _ => ("Diagnostic".normal(), d.message.normal()),
-                        };
-                        println!(
-                            "  [{}:{}] {}: {}",
-                            (d.range.start.line + 1).to_string().bright_black(),
-                            (d.range.start.character + 1).to_string().bright_black(),
-                            severity_label,
-                            colored_msg
-                        );
+                if is_issue || verbose {
+                    if is_issue {
+                        found_any = true;
                     }
+
+                    if !file_header_printed {
+                        println!("\nFile: {}", display_path.display().to_string().blue());
+                        file_header_printed = true;
+                    }
+
+                    let (severity_label, colored_msg) = match d.severity {
+                        Some(DiagnosticSeverity::ERROR) => ("Error".red(), d.message.red()),
+                        Some(DiagnosticSeverity::WARNING) => {
+                            ("Warning".yellow(), d.message.yellow())
+                        }
+                        Some(DiagnosticSeverity::INFORMATION) => {
+                            ("Info".bright_black(), d.message.bright_black())
+                        }
+                        Some(DiagnosticSeverity::HINT) => {
+                            ("Hint".bright_black(), d.message.bright_black())
+                        }
+                        _ => ("Diagnostic".normal(), d.message.normal()),
+                    };
+                    println!(
+                        "  [{}:{}] {}: {}",
+                        (d.range.start.line + 1).to_string().bright_black(),
+                        (d.range.start.character + 1).to_string().bright_black(),
+                        severity_label,
+                        colored_msg
+                    );
+                }
             }
         }
     }
 
     if !found_any {
-
         if verbose {
             println!("\n{}", "Scan complete.".bright_black());
         } else {

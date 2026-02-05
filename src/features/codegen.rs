@@ -1,4 +1,3 @@
-use colored::*;
 use crate::features::apollo_ast::{
     get_fragment_fragment_dependencies, get_operation_fragment_dependencies,
     serialize_fragment_definition, serialize_operation_definition,
@@ -7,6 +6,7 @@ use apollo_compiler::ast::{OperationType, Type};
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
+use colored::*;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::path::{Path, PathBuf};
 
@@ -128,17 +128,17 @@ pub fn generate_typescript(
 
                 let mut definitions_parts = vec![op_def.to_string()];
                 for dep in deps_list {
-                    let is_type_only = ctx
-                        .fragment_to_type_only
-                        .get(&dep)
-                        .copied()
-                        .unwrap_or_else(|| {
-                            doc.fragments()
-                                .iter()
-                                .find(|f| f.name == dep)
-                                .map(|f| f.is_type_only)
-                                .unwrap_or(false)
-                        });
+                    let is_type_only =
+                        ctx.fragment_to_type_only
+                            .get(&dep)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                doc.fragments()
+                                    .iter()
+                                    .find(|f| f.name == dep)
+                                    .map(|f| f.is_type_only)
+                                    .unwrap_or(false)
+                            });
 
                     if !is_type_only {
                         definitions_parts.push(format!("...{}Document.definitions", dep));
@@ -313,17 +313,17 @@ pub fn generate_typescript(
         if ctx.generate_ast_for_fragments {
             let mut doc_names = Vec::new();
             for name in names {
-                let is_type_only = ctx
-                    .fragment_to_type_only
-                    .get(name)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        doc.fragments()
-                            .iter()
-                            .find(|f| &f.name == name)
-                            .map(|f| f.is_type_only)
-                            .unwrap_or(false)
-                    });
+                let is_type_only =
+                    ctx.fragment_to_type_only
+                        .get(name)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            doc.fragments()
+                                .iter()
+                                .find(|f| &f.name == name)
+                                .map(|f| f.is_type_only)
+                                .unwrap_or(false)
+                        });
 
                 if !is_type_only {
                     doc_names.push(format!("{}Document", name));
@@ -464,7 +464,9 @@ pub fn generate_permissions_content(
                 } else {
                     eprintln!(
                         "{}: Type '{}' has a 'permissions' field, but its type '{}' is not an enum. Skipping permissions generation for this type.",
-                        "Warning".yellow(), name.blue(), inner_name.blue()
+                        "Warning".yellow(),
+                        name.blue(),
+                        inner_name.blue()
                     );
                 }
             }

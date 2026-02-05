@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use graphql_rust::utils::merge_schema_texts;
 
 fn generate_large_schema(start_idx: usize, count: usize) -> String {
