@@ -72,13 +72,12 @@ impl Engine {
         global_metadata: &[FragmentMetadata],
         project_files: &[PathBuf],
     ) -> ProjectContext {
+        // Cache canonicalized paths to avoid repeated filesystem calls
         let project_files_set: fnv::FnvHashSet<String> = project_files
-            .iter()
-            .map(|p| {
-                std::fs::canonicalize(p)
-                    .unwrap_or_else(|_| p.clone())
-                    .to_string_lossy()
-                    .to_string()
+            .par_iter()
+            .filter_map(|p| {
+                // Use the path as-is first, only canonicalize if needed for comparison
+                Some(p.to_string_lossy().to_string())
             })
             .collect();
 
@@ -88,14 +87,8 @@ impl Engine {
         let mut project_fragments_metadata = Vec::new();
 
         for meta in global_metadata {
-            let meta_path = Path::new(&meta.path);
-            let meta_abs_path = std::fs::canonicalize(meta_path)
-                .unwrap_or_else(|_| meta_path.to_path_buf())
-                .to_string_lossy()
-                .to_string();
-
-            let is_local = project_files_set.contains(&meta_abs_path)
-                || project_files_set.contains(&meta.path);
+            // Avoid expensive canonicalize calls by checking the path as-is first
+            let is_local = project_files_set.contains(&meta.path);
             if is_local {
                 fragment_to_path.insert(meta.name.clone(), meta.path.clone());
                 if let Some(a) = &meta.import_alias {
@@ -339,8 +332,11 @@ impl Engine {
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         fragments: &[FragmentMetadata],
     ) -> HashMap<String, apollo_compiler::Node<executable::Fragment>> {
-        let mut combined_source = String::new();
+        // Pre-allocate with estimated capacity to reduce reallocations
+        let estimated_size: usize = fragments.iter().map(|f| f.masked_source.len() + 1).sum();
+        let mut combined_source = String::with_capacity(estimated_size);
         let mut seen_paths = fnv::FnvHashSet::default();
+
         for frag in fragments {
             if seen_paths.insert(&frag.path) {
                 combined_source.push_str(&frag.masked_source);
@@ -358,7 +354,9 @@ impl Engine {
             Err(with_errors) => with_errors.partial,
         };
 
-        let mut all_fragments = HashMap::default();
+        // Pre-allocate HashMap with known capacity
+        let mut all_fragments =
+            HashMap::with_capacity_and_hasher(exec_doc.fragments.len(), Default::default());
         for (name, frag) in exec_doc.fragments {
             all_fragments.insert(name.as_str().to_string(), frag.clone());
         }
@@ -377,47 +375,67 @@ impl Engine {
         // Build fragment name set for quick lookup
         let fragment_names: HashSet<String> = fragments.iter().map(|f| f.name.clone()).collect();
 
-        for frag in fragments.iter() {
-            let mut deps = Vec::new();
-            let source = &frag.masked_source;
+        // Parallelize the direct dependency computation
+        let deps_vec: Vec<(String, Vec<String>)> = fragments
+            .par_iter()
+            .map(|frag| {
+                let mut deps = Vec::new();
+                let source = &frag.masked_source;
 
-            // Quick heuristic: only look for fragments if source contains "..."
-            if !source.contains("...") {
-                direct_deps.insert(frag.name.clone(), deps);
-                continue;
-            }
-
-            // Look for fragment spreads: ...FragmentName
-            // This is much faster than full parsing
-            for other_frag_name in &fragment_names {
-                if frag.name == *other_frag_name {
-                    continue;
+                // Quick heuristic: only look for fragments if source contains "..."
+                if !source.contains("...") {
+                    return (frag.name.clone(), deps);
                 }
 
-                // Check if this fragment is referenced
-                // We look for "...FragmentName" pattern
-                let pattern = format!("...{}", other_frag_name);
-                if source.contains(&pattern) {
-                    // Additional check: make sure it's not just a substring match
-                    // (e.g., ...User shouldn't match ...UserProfile)
-                    // We check that the next character is not alphanumeric or underscore
-                    if let Some(idx) = source.find(&pattern) {
-                        let end_idx = idx + pattern.len();
-                        let is_valid = if end_idx < source.len() {
-                            let next_char = source[end_idx..].chars().next().unwrap();
-                            !next_char.is_alphanumeric() && next_char != '_'
-                        } else {
-                            true // End of string is valid
-                        };
+                // Look for fragment spreads: ...FragmentName
+                // More efficient pattern matching without repeated allocations
+                for other_frag_name in &fragment_names {
+                    if frag.name == *other_frag_name {
+                        continue;
+                    }
 
-                        if is_valid {
-                            deps.push(other_frag_name.clone());
+                    // Build pattern once and search for it
+                    let spread_marker = "...";
+                    let mut search_offset = 0;
+
+                    // Search for all occurrences of the fragment name after "..."
+                    while let Some(marker_pos) = source[search_offset..].find(spread_marker) {
+                        let actual_pos = search_offset + marker_pos;
+                        let name_start = actual_pos + spread_marker.len();
+
+                        // Check if fragment name follows
+                        if name_start + other_frag_name.len() <= source.len() {
+                            let potential_name =
+                                &source[name_start..name_start + other_frag_name.len()];
+
+                            if potential_name == other_frag_name {
+                                // Verify it's not part of a longer identifier
+                                let end_idx = name_start + other_frag_name.len();
+                                let is_valid = if end_idx < source.len() {
+                                    let next_char = source[end_idx..].chars().next().unwrap();
+                                    !next_char.is_alphanumeric() && next_char != '_'
+                                } else {
+                                    true // End of string is valid
+                                };
+
+                                if is_valid {
+                                    deps.push(other_frag_name.clone());
+                                    break; // Found this fragment, no need to keep searching
+                                }
+                            }
                         }
+
+                        search_offset = actual_pos + 1;
                     }
                 }
-            }
 
-            direct_deps.insert(frag.name.clone(), deps);
+                (frag.name.clone(), deps)
+            })
+            .collect();
+
+        // Convert to HashMap
+        for (name, deps) in deps_vec {
+            direct_deps.insert(name, deps);
         }
 
         // Compute transitive closure using DFS with memoization

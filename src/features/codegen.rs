@@ -36,17 +36,20 @@ pub fn generate_typescript(
     doc: &crate::DocumentState,
     ctx: &CodegenContext,
 ) -> Result<(String, Vec<OperationGenerated>), String> {
-    let mut output = String::new();
+    // Pre-allocate output with estimated capacity
+    let mut output = String::with_capacity(4096);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
     let mut used_fragments = HashMap::default();
     let mut generated_operations = Vec::new();
 
-    let mut bodies = String::new();
+    // Pre-allocate bodies string
+    let mut bodies = String::with_capacity(2048);
     let mut has_operations = false;
     let mut used_schema_types = HashSet::default();
 
     for block in doc.get_graphql_trees() {
+        // Avoid intermediate string allocation by using byte_slice directly
         let block_text = doc
             .rope
             .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
@@ -242,7 +245,11 @@ pub fn generate_typescript(
     let mut used_frag_names: Vec<_> = used_fragments.keys().cloned().collect();
     used_frag_names.sort();
 
-    let mut imports: HashMap<String, Vec<String>> = HashMap::default();
+    // Pre-allocate imports map with estimated capacity
+    let mut imports: HashMap<String, Vec<String>> = HashMap::with_capacity_and_hasher(
+        used_frag_names.len(),
+        Default::default(),
+    );
     let current_path = doc.uri.path();
     for frag_name in used_frag_names {
         if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name) {
@@ -368,13 +375,15 @@ pub fn generate_typescript(
 }
 
 pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGenerated]) -> String {
-    let mut output = String::new();
+    // Pre-allocate with estimated capacity based on number of operations
+    let estimated_size = operations.len() * 200 + 500; // ~200 chars per operation + overhead
+    let mut output = String::with_capacity(estimated_size);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
-    let mut import_lines = Vec::new();
-    let mut overloads = Vec::new();
-    let mut map_entries = Vec::new();
+    let mut import_lines = Vec::with_capacity(operations.len());
+    let mut overloads = Vec::with_capacity(operations.len());
+    let mut map_entries = Vec::with_capacity(operations.len());
 
     for op in operations {
         let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
@@ -443,7 +452,7 @@ pub fn generate_permissions_content(
     scalars: &Option<HashMap<String, String>>,
     schema_import: &Option<String>,
 ) -> String {
-    let mut output = String::new();
+    let mut output = String::with_capacity(2048);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
     let mut types_with_permissions = Vec::new();
@@ -828,7 +837,8 @@ pub fn generate_schema_types(
     schema: &apollo_compiler::validation::Valid<Schema>,
     scalars: &Option<HashMap<String, String>>,
 ) -> String {
-    let mut output = String::new();
+    // Pre-allocate with larger capacity for schema types
+    let mut output = String::with_capacity(8192);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
     let empty_fragments = HashMap::default();
