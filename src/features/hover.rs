@@ -192,9 +192,9 @@ impl DocumentState {
                                     if self.get_node_text(v, offset) == var_name {
                                         if let Some(ty_node) = ty {
                                             let ty_text = self.get_node_text(ty_node, offset);
-                                            return Some(format!(
-                                                "### variable {}\n---\nType: `{}`",
-                                                var_name, ty_text
+                                            return Some(Self::describe_variable_markdown(
+                                                &var_name,
+                                                &ty_text,
                                             ));
                                         }
                                     }
@@ -406,14 +406,12 @@ impl DocumentState {
 
             if let Some(field_def) = field_def {
                 if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
-                    let mut info =
-                        format!("### field {}.{}\n---\n", parent_type.name(), field_name);
-                    info.push_str(&format!("Type: `{}`\n", field_def.ty));
-                    if let Some(desc) = &field_def.description {
-                        info.push('\n');
-                        info.push_str(desc);
-                    }
-                    return Some(info);
+                    return Some(Self::describe_field_markdown(
+                        parent_type.name(),
+                        field_name.as_str(),
+                        field_def.ty.to_string().as_str(),
+                        field_def.description.as_deref(),
+                    ));
                 }
 
                 if let Some(args_node) = arguments_node {
@@ -500,17 +498,12 @@ impl DocumentState {
                 if let Some((schema_type, description)) =
                     Self::schema_field_strings(parent_type, field_name, schema)
                 {
-                    info = format!(
-                        "### field {}.{}\n---\nType: `{}`\n",
-                        parent_type.name(), field_name, schema_type
-                    );
-                    if let Some(desc) = description {
-                        if !desc.trim().is_empty() {
-                            info.push('\n');
-                            info.push_str(&desc);
-                        }
-                    }
-                    return Some(info);
+                    return Some(Self::describe_field_markdown(
+                        parent_type.name(),
+                        field_name,
+                        schema_type.as_str(),
+                        description.as_deref(),
+                    ));
                 }
 
                 info.push('\n');
@@ -525,17 +518,12 @@ impl DocumentState {
         if let Some((field_type, description)) =
             Self::schema_field_strings(parent_type, "__typename", schema)
         {
-            let mut info = format!(
-                "### field {}.__typename\n---\nType: `{}`\n",
-                parent_type.name(), field_type
+            return Self::describe_field_markdown(
+                parent_type.name(),
+                "__typename",
+                field_type.as_str(),
+                description.as_deref(),
             );
-            if let Some(desc) = description {
-                if !desc.trim().is_empty() {
-                    info.push('\n');
-                    info.push_str(&desc);
-                }
-            }
-            return info;
         }
 
         format!(
@@ -577,6 +565,54 @@ impl DocumentState {
             .map(|d| d.as_ref().to_string());
 
         Some((ty, description))
+    }
+
+    fn describe_field_markdown(
+        parent_name: &str,
+        field_name: &str,
+        field_type: &str,
+        description: Option<&str>,
+    ) -> String {
+        let mut info = format!(
+            "### field {}.{}\n---\nType: `{}`\n",
+            parent_name, field_name, field_type
+        );
+        if let Some(desc) = description {
+            if !desc.trim().is_empty() {
+                info.push('\n');
+                info.push_str(desc);
+            }
+        }
+        info
+    }
+
+    fn describe_argument_markdown(
+        arg_name: &str,
+        arg_type: &str,
+        description: Option<&str>,
+    ) -> String {
+        let mut info = format!("### argument {}\n---\nType: `{}`\n", arg_name, arg_type);
+        if let Some(desc) = description {
+            if !desc.trim().is_empty() {
+                info.push('\n');
+                info.push_str(desc);
+            }
+        }
+        info
+    }
+
+    fn describe_directive_markdown(dir_name: &str, description: Option<&str>) -> String {
+        let mut info = format!("### directive @{}\n---\n", dir_name);
+        if let Some(desc) = description {
+            if !desc.trim().is_empty() {
+                info.push_str(desc);
+            }
+        }
+        info
+    }
+
+    fn describe_variable_markdown(var_name: &str, var_type: &str) -> String {
+        format!("### variable {}\n---\nType: `{}`", var_name, var_type)
     }
 
     fn find_field_in_inline_fragment(
@@ -665,13 +701,11 @@ impl DocumentState {
                             if let Some(arg_def) =
                                 arg_defs.iter().find(|a| a.name.as_str() == arg_name)
                             {
-                                let mut info = format!("### argument {}\n---\n", arg_name);
-                                info.push_str(&format!("Type: `{}`\n", arg_def.ty));
-                                if let Some(desc) = &arg_def.description {
-                                    info.push('\n');
-                                    info.push_str(desc);
-                                }
-                                return Some(info);
+                                return Some(Self::describe_argument_markdown(
+                                    &arg_name,
+                                    &arg_def.ty.to_string(),
+                                    arg_def.description.as_deref(),
+                                ));
                             }
                         }
                     }
@@ -751,11 +785,10 @@ impl DocumentState {
                         let dir_name = self.get_node_text(name_node, offset);
                         if let Some(dir_def) = schema.directive_definitions.get(dir_name.as_str()) {
                             if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
-                                let mut info = format!("### directive @{}\n---\n", dir_name);
-                                if let Some(desc) = &dir_def.description {
-                                    info.push_str(desc);
-                                }
-                                return Some(info);
+                                return Some(Self::describe_directive_markdown(
+                                    &dir_name,
+                                    dir_def.description.as_deref(),
+                                ));
                             }
 
                             if let Some(args_node) = args_node {
@@ -841,14 +874,12 @@ impl DocumentState {
                         if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
                             let field_name = self.get_node_text(name_node, offset);
                             if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
-                                let mut info =
-                                    format!("### field {}.{}\n---\n", type_name, field_name);
-                                info.push_str(&format!("Type: `{}`\n", field_def.ty));
-                                if let Some(desc) = &field_def.description {
-                                    info.push('\n');
-                                    info.push_str(desc);
-                                }
-                                return Some(info);
+                                return Some(Self::describe_field_markdown(
+                                    type_name.as_str(),
+                                    field_name.as_str(),
+                                    field_def.ty.to_string().as_str(),
+                                    field_def.description.as_deref(),
+                                ));
                             }
                         }
                     }

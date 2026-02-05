@@ -509,7 +509,7 @@ impl DocumentState {
             }
         }
 
-        Some(self.get_field_completions(parent_type))
+        Some(self.get_field_completions(parent_type, schema))
     }
 
     fn complete_field(
@@ -683,7 +683,11 @@ impl DocumentState {
             .collect()
     }
 
-    fn get_field_completions(&self, parent_type: &schema::ExtendedType) -> Vec<CompletionItem> {
+    fn get_field_completions(
+        &self,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Vec<CompletionItem> {
         let mut items = Vec::new();
         match parent_type {
             schema::ExtendedType::Object(obj) => {
@@ -726,7 +730,38 @@ impl DocumentState {
             detail: Some("String!".to_string()),
             ..Default::default()
         });
+
+        // Add __schema and __type if this is the Query root
+        if Self::is_query_root(parent_type, schema) {
+            items.push(CompletionItem {
+                label: "__schema".to_string(),
+                kind: Some(CompletionItemKind::FIELD),
+                detail: Some("__Schema!".to_string()),
+                documentation: Some(Documentation::String(
+                    "Access the current schema introspection object.".to_string(),
+                )),
+                ..Default::default()
+            });
+            items.push(CompletionItem {
+                label: "__type".to_string(),
+                kind: Some(CompletionItemKind::FIELD),
+                detail: Some("__Type".to_string()),
+                documentation: Some(Documentation::String(
+                    "Look up a type definition by its name.".to_string(),
+                )),
+                ..Default::default()
+            });
+        }
+
         items
+    }
+
+    fn is_query_root(ty: &schema::ExtendedType, schema: &Schema) -> bool {
+        schema
+            .root_operation(ast::OperationType::Query)
+            .and_then(|root_name| schema.types.get(root_name.as_str()))
+            .map(|root_type| root_type.name() == ty.name())
+            .unwrap_or(false)
     }
 
     fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
