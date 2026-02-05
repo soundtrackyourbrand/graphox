@@ -41,6 +41,7 @@ async fn test_lsp_smart_extract_fragment() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: None,
     };
@@ -163,6 +164,7 @@ async fn test_lsp_smart_extract_field() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: None,
     };

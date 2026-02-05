@@ -16,6 +16,7 @@ pub struct Config {
     pub tracing: Option<TracingConfig>,
     pub watch_all_files: Option<bool>,
     pub lsp_automatic_codegen: Option<bool>,
+    pub enable_schema_cache: Option<bool>,
     #[serde(skip)]
     pub base_dir: PathBuf,
 }
@@ -106,6 +107,7 @@ impl Config {
             tracing: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
+            enable_schema_cache: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -242,6 +244,10 @@ impl Config {
 
     pub fn lsp_automatic_codegen(&self) -> bool {
         self.lsp_automatic_codegen.unwrap_or(true)
+    }
+
+    pub fn enable_schema_cache(&self) -> bool {
+        self.enable_schema_cache.unwrap_or(true)
     }
 }
 

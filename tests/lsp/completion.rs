@@ -28,6 +28,7 @@ async fn test_completion_fields() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -121,6 +122,7 @@ async fn test_completion_variables() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -218,6 +220,7 @@ async fn test_completion_fragment_spread() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -310,6 +313,7 @@ async fn test_completion_types_in_fragment() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -407,6 +411,7 @@ async fn test_completion_fragment_spread_acceptance() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -569,6 +574,7 @@ async fn test_completion_directives_on_field() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -661,6 +667,7 @@ async fn test_completion_directives_on_fragment() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -754,6 +761,7 @@ async fn test_completion_introspection_fields() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()

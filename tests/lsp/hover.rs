@@ -26,6 +26,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -220,6 +221,7 @@ async fn test_hover_graphql_description() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -562,6 +564,7 @@ async fn test_hover_argument() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -667,6 +670,7 @@ async fn test_hover_input_object_field() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()

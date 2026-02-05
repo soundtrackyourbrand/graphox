@@ -1317,6 +1317,7 @@ mod tests {
             tracing: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
+            enable_schema_cache: None,
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
@@ -1346,6 +1347,7 @@ mod tests {
             tracing: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
+            enable_schema_cache: None,
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));

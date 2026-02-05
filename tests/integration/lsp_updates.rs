@@ -80,6 +80,7 @@ async fn test_lsp_fragment_collisions() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
     };
@@ -307,6 +308,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
     };
@@ -491,6 +493,7 @@ async fn test_lsp_fragment_rename_same_project() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
     };
@@ -717,6 +720,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
     };

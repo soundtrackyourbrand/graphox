@@ -33,6 +33,7 @@ async fn test_fragment_references() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -165,6 +166,7 @@ async fn test_fragment_references_tsx() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -317,6 +319,7 @@ async fn test_fragment_references_exclude_declaration() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()

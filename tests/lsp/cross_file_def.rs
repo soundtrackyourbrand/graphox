@@ -33,6 +33,7 @@ async fn test_goto_definition_cross_file() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -161,6 +162,7 @@ async fn test_goto_definition_types() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()

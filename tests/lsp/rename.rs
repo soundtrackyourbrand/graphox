@@ -34,6 +34,7 @@ async fn test_fragment_rename() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -176,6 +177,7 @@ async fn test_fragment_rename_tsx() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -341,6 +343,7 @@ async fn test_rename_unopened_file() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()

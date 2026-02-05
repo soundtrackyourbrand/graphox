@@ -51,6 +51,7 @@ async fn test_lsp_multi_schema_support() {
         generate_ast_for_fragments: None,
         tracing: None,
         watch_all_files: None,
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
     };

@@ -48,6 +48,7 @@ async fn test_cross_project_references_and_rename() {
                 generate_permissions: None,
             },
         ],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -227,6 +228,7 @@ async fn test_unrelated_projects_rename_isolation() {
                 generate_permissions: None,
             },
         ],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()

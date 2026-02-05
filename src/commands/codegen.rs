@@ -143,6 +143,16 @@ async fn execute_codegen(
 
     let cfg = config;
 
+    // Clear schema cache if --clean flag is used
+    if clean {
+        if let Err(e) = graphql_rust::schema_cache::clear_cache() {
+            eprintln!("{}: {}", "Failed to clear schema cache".red(), e);
+            success = false;
+        } else if verbose {
+            println!("{}", "Cleared schema cache".bright_black());
+        }
+    }
+
     let workspace_metadata = Engine::scan_workspace(&cfg, |_, _| {});
     let global_metadata = &workspace_metadata.fragments;
 

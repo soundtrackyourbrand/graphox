@@ -229,6 +229,7 @@ async fn test_fragment_hover_requirements() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -350,6 +351,7 @@ async fn test_fragment_completion_requirements() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
@@ -501,6 +503,7 @@ async fn test_variable_references_including_fragments() {
             import: None,
             generate_permissions: None,
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: None,
         ..Config::new_empty()
