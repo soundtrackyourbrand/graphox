@@ -1,5 +1,6 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use graphql_rust::utils::merge_schema_texts;
+use std::time::Duration;
 
 fn generate_large_schema(start_idx: usize, count: usize) -> String {
     let mut schema = String::new();
@@ -29,5 +30,9 @@ fn bench_merge_schema_texts(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_merge_schema_texts);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().warm_up_time(Duration::from_millis(800)).measurement_time(Duration::from_millis(1000));
+    targets = bench_merge_schema_texts
+);
 criterion_main!(benches);

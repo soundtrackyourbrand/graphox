@@ -1,6 +1,7 @@
 use apollo_compiler::Schema;
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use graphql_rust::DocumentState;
+use std::time::Duration;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 
 fn generate_large_schema(types_count: usize) -> String {
@@ -217,11 +218,13 @@ fn bench_fragment_heavy_document(c: &mut Criterion) {
 }
 
 criterion_group!(
-    benches,
-    bench_document_processing,
-    bench_multi_file_update,
-    bench_large_file_simulation,
-    bench_large_schema_parsing,
-    bench_fragment_heavy_document
+    name = benches;
+    config = Criterion::default().warm_up_time(Duration::from_millis(800)).measurement_time(Duration::from_millis(1000));
+    targets =
+        bench_document_processing,
+        bench_multi_file_update,
+        bench_large_file_simulation,
+        bench_large_schema_parsing,
+        bench_fragment_heavy_document
 );
 criterion_main!(benches);

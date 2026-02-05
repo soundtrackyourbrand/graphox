@@ -4,8 +4,8 @@ use graphql_rust::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
     document::DocumentState,
 };
-use std::fs;
 use std::path::Path;
+use std::{fs, time::Duration};
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
 use tower_lsp::lsp_types::*;
@@ -245,5 +245,9 @@ fn bench_lsp_actions(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_lsp_actions);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().warm_up_time(Duration::from_millis(800)).measurement_time(Duration::from_millis(1000));
+    targets = bench_lsp_actions
+);
 criterion_main!(benches);
