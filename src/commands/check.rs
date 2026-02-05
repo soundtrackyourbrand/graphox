@@ -79,6 +79,7 @@ pub async fn run_check(config: Config, verbose: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_project_check(
     base_dir: &std::path::Path,
     source: &graphql_rust::config::SchemaSource,

@@ -488,7 +488,7 @@ async fn test_hover_variable() {
             }
         }
     "#;
-    fs::write(&dir.path().join("hover_var_usage.graphql"), text_with_usage).unwrap();
+    fs::write(dir.path().join("hover_var_usage.graphql"), text_with_usage).unwrap();
     let query_path_usage =
         std::fs::canonicalize(dir.path().join("hover_var_usage.graphql")).unwrap();
     let uri_usage = Url::from_file_path(&query_path_usage).unwrap();

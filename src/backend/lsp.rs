@@ -750,16 +750,16 @@ impl LanguageServer for Backend {
         let uri = self.normalize_uri(params.text_document.uri.clone());
 
         // Process document changes and update indices
-        if let Some(result) = super::document_changes::process_document_change(
-            &uri,
-            params.content_changes,
-            &self.documents,
-            &self.fragment_defs,
-            &self.fragment_spreads,
-            &self.package_roots,
-            &self.fragment_dependents,
-            &self.fragment_definitions,
-        ) {
+        let change_params = super::document_changes::DocumentChangeParams {
+            documents: &self.documents,
+            fragment_defs: &self.fragment_defs,
+            fragment_spreads: &self.fragment_spreads,
+            package_roots: &self.package_roots,
+            fragment_dependents: &self.fragment_dependents,
+            fragment_definitions: &self.fragment_definitions,
+        };
+
+        if let Some(result) = super::document_changes::process_document_change(&uri, params.content_changes, &change_params) {
             // Validate affected documents
             self.validate_uris(result.uris_to_validate).await;
 

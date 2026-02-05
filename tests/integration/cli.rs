@@ -682,13 +682,11 @@ fn test_cli_config_file() {
     let config_file = temp_dir.join("graphql.yaml");
     std::fs::write(
         &config_file,
-        format!(
-            r#"
+        r#"
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
-"#
-        ),
+"#,
     )
     .unwrap();
 

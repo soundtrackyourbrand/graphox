@@ -150,11 +150,10 @@ async fn test_lsp_automatic_codegen() {
     // Wait for updated codegen
     let mut updated = false;
     for _ in 0..20 {
-        if let Ok(c) = fs::read_to_string(&gen_path) {
-            if c.contains("name: string | null") {
-                updated = true;
-                break;
-            }
+        if let Ok(c) = fs::read_to_string(&gen_path)
+            && c.contains("name: string | null") {
+            updated = true;
+            break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

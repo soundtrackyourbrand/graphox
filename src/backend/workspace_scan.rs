@@ -40,7 +40,7 @@ pub struct WorkspaceScanParams {
 pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
     tokio::spawn(async move {
         let token = NumberOrString::String("workspace-scan".to_string());
-        let cancelled = params.workspace_scan_cancelled;
+        let cancelled = params.workspace_scan_cancelled.clone();
 
         // Create progress in a separate task so it doesn't block the scan
         let client_clone = params.client.clone();
@@ -69,34 +69,13 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
         });
 
         // Scan workspace and index all fragments/spreads
-        let workspace_metadata = scan_and_index_workspace(
-            &params.config,
-            &params.fragment_defs,
-            &params.fragment_spreads,
-            &params.package_roots,
-            &params.fragment_dependents,
-            &params.fragment_definitions,
-            &params.documents,
-            &params.client,
-            &token,
-            &cancelled,
-        );
+        let workspace_metadata = scan_and_index_workspace(&params, &token, &cancelled);
 
         let total_docs = workspace_metadata.documents.len();
         params.workspace_loaded.store(true, Ordering::SeqCst);
 
         // Validate all documents with proper schemas and fragments
-        validate_all_documents(
-            &params.documents,
-            &params.config,
-            &params.fragment_defs,
-            &params.fragment_spreads,
-            &params.package_roots,
-            &params.schemas,
-            &params.empty_schema,
-            &params.client,
-        )
-        .await;
+        validate_all_documents(&params).await;
 
         // End progress
         let _ = params.client
@@ -118,31 +97,27 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
 
 /// Scans workspace and indexes all fragments and spreads
 fn scan_and_index_workspace(
-    config: &Config,
-    fragment_defs: &Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    fragment_spreads: &Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-    fragment_dependents: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    fragment_definitions: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    client: &Client,
+    params: &WorkspaceScanParams,
     token: &NumberOrString,
     cancelled: &Arc<AtomicBool>,
 ) -> crate::engine::WorkspaceMetadata {
     crate::engine::Engine::scan_workspace_cancellable(
-        config,
+        &params.config,
         |_, doc| {
             if cancelled.load(Ordering::Relaxed) {
                 return;
             }
             let uri = doc.uri.clone();
 
-            fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
-            fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
-            package_roots.insert(uri.clone(), doc.package_root.clone());
+            params.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+            params
+                .fragment_spreads
+                .insert(uri.clone(), doc.fragment_spreads.clone());
+            params.package_roots.insert(uri.clone(), doc.package_root.clone());
 
             for frag in doc.fragments() {
-                fragment_definitions
+                params
+                    .fragment_definitions
                     .entry(frag.name.clone())
                     .or_default()
                     .insert(uri.clone());
@@ -170,7 +145,8 @@ fn scan_and_index_workspace(
                 while let Some(m) = matches.next() {
                     let name_node = m.captures[0].node;
                     let name = doc.get_node_text(name_node, block.offset);
-                    fragment_definitions
+                    params
+                        .fragment_definitions
                         .entry(name)
                         .or_default()
                         .insert(uri.clone());
@@ -178,7 +154,8 @@ fn scan_and_index_workspace(
             }
 
             for spread in &doc.fragment_spreads {
-                fragment_dependents
+                params
+                    .fragment_dependents
                     .entry(spread.clone())
                     .or_default()
                     .insert(uri.clone());
@@ -186,8 +163,8 @@ fn scan_and_index_workspace(
 
             // If the document is not already open, we still might want to keep it in memory
             // for fast definition/hover/etc.
-            if !documents.contains_key(&uri) {
-                documents.insert(uri, Arc::new(doc));
+            if !params.documents.contains_key(&uri) {
+                params.documents.insert(uri, Arc::new(doc));
             }
         },
         |current, total| {
@@ -195,7 +172,7 @@ fn scan_and_index_workspace(
                 return;
             }
             let percentage = (current * 100 / total) as u32;
-            let client = client.clone();
+            let client = params.client.clone();
             let token = token.clone();
             tokio::spawn(async move {
                 let _ = client
@@ -220,16 +197,15 @@ fn scan_and_index_workspace(
 }
 
 /// Validates all documents in the workspace
-async fn validate_all_documents(
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    config: &Config,
-    fragment_defs: &Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    fragment_spreads: &Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-    schemas: &Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
-    empty_schema: &Arc<Schema>,
-    client: &Client,
-) {
+async fn validate_all_documents(params: &WorkspaceScanParams) {
+    let documents = &params.documents;
+    let config = &params.config;
+    let fragment_defs = &params.fragment_defs;
+    let fragment_spreads = &params.fragment_spreads;
+    let package_roots = &params.package_roots;
+    let schemas = &params.schemas;
+    let empty_schema = &params.empty_schema;
+    let client = &params.client;
     // Collect all used fragments
     let used_fragments = {
         let mut used = FnvHashSet::default();

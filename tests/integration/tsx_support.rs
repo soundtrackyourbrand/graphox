@@ -58,7 +58,7 @@ fn test_print_ts_tree() {
         .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
         .unwrap();
     let tree = parser.parse(text, None).unwrap();
-    println!("TS TREE: {}", tree.root_node().to_string());
+    println!("TS TREE: {}", tree.root_node());
 }
 
 #[test]
@@ -71,11 +71,11 @@ fn test_print_gql_completion_trees() {
 
     let text1 = "query GetUser($userId: ID!) { user(id: $) }";
     let tree1 = parser.parse(text1, None).unwrap();
-    println!("VAR TREE: {}", tree1.root_node().to_string());
+    println!("VAR TREE: {}", tree1.root_node());
 
     let text2 = "fragment MyFrag on  { id }";
     let tree2 = parser.parse(text2, None).unwrap();
-    println!("TYPE COND TREE: {}", tree2.root_node().to_string());
+    println!("TYPE COND TREE: {}", tree2.root_node());
 }
 
 #[test]
@@ -193,11 +193,9 @@ fn test_multiple_graphql_blocks_variables_fragment_interaction() {
     let fragments = doc.fragments();
     assert_eq!(fragments.len(), 1);
     assert_eq!(fragments[0].name, "PlaylistPage");
-    assert!(
-        fragments[0]
-            .used_variables
-            .contains(&"showPermissions".to_string())
-    );
+    assert!(fragments[0]
+        .used_variables
+        .contains(&"showPermissions".to_string()));
 
     // 2. Check full diagnostic flow (LSP context)
     let schema_content = "type Playlist { id: ID! permissions: [String] } type Query { playlist(id: ID!): Playlist }";

@@ -30,7 +30,7 @@ async fn test_lsp_fragment_scoping() {
     ))
     .unwrap();
     let pkg_a_uri = Url::from_file_path(pkg_a_frag_path).unwrap();
-    let pkg_a_text = std::fs::read_to_string(&pkg_a_uri.to_file_path().unwrap()).unwrap();
+    let pkg_a_text = std::fs::read_to_string(pkg_a_uri.to_file_path().unwrap()).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {

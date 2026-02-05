@@ -16,16 +16,21 @@ pub struct ChangeResult {
     pub uris_to_validate: Vec<Url>,
 }
 
+/// Parameters for processing document changes
+pub struct DocumentChangeParams<'a> {
+    pub documents: &'a Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    pub fragment_defs: &'a Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
+    pub fragment_spreads: &'a Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
+    pub package_roots: &'a Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
+    pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+}
+
 /// Processes document content changes and updates indices
 pub fn process_document_change(
     uri: &Url,
     changes: Vec<TextDocumentContentChangeEvent>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    fragment_defs: &Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    fragment_spreads: &Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-    fragment_dependents: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    fragment_definitions: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    params: &DocumentChangeParams<'_>,
 ) -> Option<ChangeResult> {
     let mut affected_fragment_names = FnvHashSet::default();
     let mut old_fragment_names = Vec::new();
@@ -38,7 +43,7 @@ pub fn process_document_change(
     let affected_spread_names: FnvHashSet<String>;
 
     // Get document and apply changes
-    if let Some(doc_arc) = documents.get(uri).map(|r| r.value().clone()) {
+    if let Some(doc_arc) = params.documents.get(uri).map(|r| r.value().clone()) {
         let mut doc = (*doc_arc).clone();
 
         // Collect fragments before change
@@ -83,39 +88,41 @@ pub fn process_document_change(
         package_root = doc.package_root.clone();
         new_fragment_names = doc.fragments().iter().map(|f| f.name.clone()).collect();
 
-        documents.insert(uri.clone(), Arc::new(doc));
+        params.documents.insert(uri.clone(), Arc::new(doc));
     } else {
         return None;
     }
 
     // Update indices
-    fragment_defs.insert(uri.clone(), new_fragments);
-    fragment_spreads.insert(uri.clone(), new_spreads.clone());
+    params.fragment_defs.insert(uri.clone(), new_fragments);
+    params
+        .fragment_spreads
+        .insert(uri.clone(), new_spreads.clone());
 
     super::fragment_manager::update_fragment_dependents(
-        fragment_dependents,
+        params.fragment_dependents,
         uri,
         Some(old_spreads),
         new_spreads,
     );
 
     super::fragment_manager::update_fragment_definitions(
-        fragment_definitions,
+        params.fragment_definitions,
         uri,
         Some(old_fragment_names),
         new_fragment_names,
     );
 
-    package_roots.insert(uri.clone(), package_root);
+    params.package_roots.insert(uri.clone(), package_root);
 
     // Compute affected URIs
     let uris_to_validate = super::validation::get_affected_uris(
         uri.clone(),
         affected_fragment_names,
         affected_spread_names,
-        documents,
-        fragment_dependents,
-        fragment_definitions,
+        params.documents,
+        params.fragment_dependents,
+        params.fragment_definitions,
     );
 
     Some(ChangeResult { uris_to_validate })

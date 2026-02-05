@@ -36,6 +36,8 @@ fn test_codegen_watch_mode() {
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to spawn codegen watcher");
+    // Ensure we wait on the child in case of early return to avoid zombies
+    let _child_pid = child.id();
 
     let gen_file = base_dir.join("query.codegen.ts");
 
@@ -56,16 +58,16 @@ fn test_codegen_watch_mode() {
     let mut updated = false;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(1) {
-        if let Ok(content) = fs::read_to_string(&gen_file) {
-            if content.contains("name: string | null") {
-                updated = true;
-                break;
-            }
+        if let Ok(content) = fs::read_to_string(&gen_file)
+            && content.contains("name: string | null") {
+            updated = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    child.kill().ok();
+    let _ = child.kill();
+    let _ = child.wait();
 
     assert!(
         updated,
@@ -105,6 +107,7 @@ fn test_codegen_watch_schema_changes() {
         .current_dir(base_dir)
         .spawn()
         .expect("Failed to spawn codegen watcher");
+    let _child_pid2 = child.id();
 
     let gen_file = base_dir.join("query.codegen.ts");
 
@@ -131,16 +134,16 @@ fn test_codegen_watch_schema_changes() {
     let mut updated = false;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(1) {
-        if let Ok(content) = fs::read_to_string(&gen_file) {
-            if content.contains("email: string") {
-                updated = true;
-                break;
-            }
+        if let Ok(content) = fs::read_to_string(&gen_file)
+            && content.contains("email: string") {
+            updated = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    child.kill().ok();
+    let _ = child.kill();
+    let _ = child.wait();
 
     assert!(
         updated,
