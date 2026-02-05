@@ -81,6 +81,7 @@ pub async fn run_codegen(client: Client, config: Config) {
                     scalars: &config.scalars,
                     schema_import: &schema_import,
                     generate_ast_for_fragments: config.generate_ast_for_fragments.unwrap_or(false),
+                    fragment_dependencies: &project_context.fragment_dependencies,
                 };
 
                 if let Ok((ts_code, mut ops)) =

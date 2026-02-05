@@ -1,5 +1,5 @@
 use crate::features::apollo_ast::{
-    get_fragment_fragment_dependencies, get_operation_fragment_dependencies,
+    get_fragment_fragment_dependencies,
     serialize_fragment_definition, serialize_operation_definition,
 };
 use apollo_compiler::ast::{OperationType, Type};
@@ -20,6 +20,8 @@ pub struct CodegenContext<'a> {
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
     pub generate_ast_for_fragments: bool,
+    /// Cached fragment dependencies from workspace scan
+    pub fragment_dependencies: &'a HashMap<String, Vec<String>>,
 }
 
 pub struct OperationGenerated {
@@ -122,7 +124,9 @@ pub fn generate_typescript(
 
             let ast_content = if ctx.generate_ast_for_fragments {
                 let op_def = serialize_operation_definition(op);
-                let deps = get_operation_fragment_dependencies(op, ctx.all_fragments);
+                
+                // Use cached dependencies when possible to avoid expensive tree traversal
+                let deps = get_operation_deps_cached(op, ctx, doc);
                 let mut deps_list: Vec<_> = deps.into_iter().collect();
                 deps_list.sort();
 
@@ -198,7 +202,9 @@ pub fn generate_typescript(
 
                 if !is_type_only {
                     let frag_def = serialize_fragment_definition(frag);
-                    let deps = get_fragment_fragment_dependencies(frag, ctx.all_fragments);
+                    
+                    // Use cached dependencies to avoid tree traversal
+                    let deps = get_fragment_deps_cached(&frag.name, ctx);
                     let mut deps_list: Vec<_> = deps.into_iter().collect();
                     deps_list.sort();
 
@@ -496,6 +502,7 @@ pub fn generate_permissions_content(
     }
 
     let empty_fragments = HashMap::default();
+    let empty_deps = HashMap::default();
     let dummy_ctx = CodegenContext {
         schema,
         fragment_to_path: &HashMap::default(),
@@ -506,6 +513,7 @@ pub fn generate_permissions_content(
         scalars,
         schema_import,
         generate_ast_for_fragments: false,
+        fragment_dependencies: &empty_deps,
     };
     let mut used_schema_types = HashSet::default();
 
@@ -824,6 +832,7 @@ pub fn generate_schema_types(
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
     let empty_fragments = HashMap::default();
+    let empty_deps = HashMap::default();
     let dummy_ctx = CodegenContext {
         schema,
         fragment_to_path: &HashMap::default(),
@@ -834,6 +843,7 @@ pub fn generate_schema_types(
         scalars,
         schema_import: &None,
         generate_ast_for_fragments: false,
+        fragment_dependencies: &empty_deps,
     };
     let mut used_schema_types = HashSet::default();
 
@@ -983,4 +993,75 @@ fn generate_ts_type(ty: &Type, base: &str) -> String {
         result = format!("{} | null", result);
     }
     result
+}
+
+/// Get operation dependencies using cached fragment dependencies when available
+/// Falls back to tree traversal if cache is empty (shouldn't happen in normal flow)
+fn get_operation_deps_cached(
+    operation: &executable::Operation,
+    ctx: &CodegenContext,
+    doc: &crate::DocumentState,
+) -> HashSet<String> {
+    let mut all_deps = HashSet::default();
+    
+    // Collect direct fragment spreads from the operation
+    collect_direct_fragment_spreads(&operation.selection_set, &mut all_deps);
+    
+    // For each direct dependency, add its transitive dependencies from cache
+    let direct_deps: Vec<_> = all_deps.iter().cloned().collect();
+    for frag_name in direct_deps {
+        if let Some(transitive) = ctx.fragment_dependencies.get(&frag_name) {
+            // Use cached transitive dependencies
+            for dep in transitive {
+                all_deps.insert(dep.clone());
+            }
+        } else {
+            // Fallback: compute manually (only for fragments defined in current file)
+            if let Some(local_frag) = doc.fragments().iter().find(|f| f.name == frag_name) {
+                // This fragment is local, compute its deps on the fly
+                if let Some(parsed_frag) = ctx.all_fragments.get(&local_frag.name) {
+                    let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
+                    for dep in frag_deps {
+                        all_deps.insert(dep);
+                    }
+                }
+            }
+        }
+    }
+    
+    all_deps
+}
+
+/// Get fragment dependencies using cache
+fn get_fragment_deps_cached(
+    fragment_name: &str,
+    ctx: &CodegenContext,
+) -> HashSet<String> {
+    if let Some(cached_deps) = ctx.fragment_dependencies.get(fragment_name) {
+        // Use cached dependencies
+        cached_deps.iter().cloned().collect()
+    } else {
+        // Fallback: shouldn't happen in normal flow
+        HashSet::default()
+    }
+}
+
+/// Collect direct fragment spreads from a selection set (non-recursive)
+fn collect_direct_fragment_spreads(
+    selection_set: &executable::SelectionSet,
+    spreads: &mut HashSet<String>,
+) {
+    for selection in &selection_set.selections {
+        match selection {
+            Selection::Field(field) => {
+                collect_direct_fragment_spreads(&field.selection_set, spreads);
+            }
+            Selection::InlineFragment(inline) => {
+                collect_direct_fragment_spreads(&inline.selection_set, spreads);
+            }
+            Selection::FragmentSpread(spread) => {
+                spreads.insert(spread.fragment_name.as_str().to_string());
+            }
+        }
+    }
 }

@@ -404,6 +404,7 @@ async fn execute_project_codegen_entry(
                     scalars: params.scalars,
                     schema_import: params.schema_import,
                     generate_ast_for_fragments: params.generate_ast_for_fragments,
+                    fragment_dependencies: &params.project_context.fragment_dependencies,
                 };
 
                 execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)

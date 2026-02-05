@@ -18,6 +18,9 @@ pub struct FragmentMetadata {
     pub is_public: bool,
     pub is_type_only: bool,
     pub masked_source: String,
+    /// Cached transitive fragment dependencies (computed during workspace scan)
+    /// Contains all fragment names that this fragment depends on, directly or transitively
+    pub transitive_deps: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +36,7 @@ pub struct WorkspaceScanTimings {
     pub glob_resolution: Duration,
     pub doc_parsing: Duration,
     pub metadata_extraction: Duration,
+    pub fragment_deps_computation: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +60,8 @@ pub struct ProjectContext {
     pub fragment_to_import: HashMap<String, String>,
     pub fragment_to_type_only: HashMap<String, bool>,
     pub all_fragments: HashMap<String, Node<executable::Fragment>>,
+    /// Cached fragment dependencies: fragment name -> list of transitive dependencies
+    pub fragment_dependencies: HashMap<String, Vec<String>>,
 }
 
 pub struct Engine;
@@ -118,11 +124,18 @@ impl Engine {
 
         let all_fragments = Self::resolve_fragments(valid_schema, &project_fragments_metadata);
 
+        // Build fragment dependency cache from the metadata
+        let mut fragment_dependencies: HashMap<String, Vec<String>> = HashMap::default();
+        for meta in &project_fragments_metadata {
+            fragment_dependencies.insert(meta.name.clone(), meta.transitive_deps.clone());
+        }
+
         ProjectContext {
             fragment_to_path,
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
+            fragment_dependencies,
         }
     }
     /// Step 1: Discover all fragments and operations across the entire workspace
@@ -254,6 +267,7 @@ impl Engine {
                             is_public: frag.is_public,
                             is_type_only: frag.is_type_only,
                             masked_source: doc.masked_source.clone(),
+                            transitive_deps: Vec::new(), // Will be populated after all fragments are collected
                         });
                     }
 
@@ -269,6 +283,12 @@ impl Engine {
             }
         }
         timings.metadata_extraction = start_metadata.elapsed();
+
+        // 5. Compute transitive fragment dependencies
+        // This is done once during workspace scan to avoid repeated computation during codegen
+        let start_deps = Instant::now();
+        Self::compute_fragment_dependencies(&mut all_fragments);
+        timings.fragment_deps_computation = start_deps.elapsed();
 
         WorkspaceMetadata {
             fragments: all_fragments,
@@ -343,6 +363,108 @@ impl Engine {
             all_fragments.insert(name.as_str().to_string(), frag.clone());
         }
         all_fragments
+    }
+
+    /// Compute transitive fragment dependencies for all fragments
+    /// This is called once during workspace scan to cache dependencies
+    fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
+        use fnv::FnvHashSet as HashSet;
+
+        // Build a map of fragment name -> direct dependencies
+        // We use a simple pattern matching approach that's faster than full parsing
+        let mut direct_deps: HashMap<String, Vec<String>> = HashMap::default();
+
+        // Build fragment name set for quick lookup
+        let fragment_names: HashSet<String> = fragments.iter().map(|f| f.name.clone()).collect();
+
+        for frag in fragments.iter() {
+            let mut deps = Vec::new();
+            let source = &frag.masked_source;
+
+            // Quick heuristic: only look for fragments if source contains "..."
+            if !source.contains("...") {
+                direct_deps.insert(frag.name.clone(), deps);
+                continue;
+            }
+
+            // Look for fragment spreads: ...FragmentName
+            // This is much faster than full parsing
+            for other_frag_name in &fragment_names {
+                if frag.name == *other_frag_name {
+                    continue;
+                }
+
+                // Check if this fragment is referenced
+                // We look for "...FragmentName" pattern
+                let pattern = format!("...{}", other_frag_name);
+                if source.contains(&pattern) {
+                    // Additional check: make sure it's not just a substring match
+                    // (e.g., ...User shouldn't match ...UserProfile)
+                    // We check that the next character is not alphanumeric or underscore
+                    if let Some(idx) = source.find(&pattern) {
+                        let end_idx = idx + pattern.len();
+                        let is_valid = if end_idx < source.len() {
+                            let next_char = source[end_idx..].chars().next().unwrap();
+                            !next_char.is_alphanumeric() && next_char != '_'
+                        } else {
+                            true // End of string is valid
+                        };
+
+                        if is_valid {
+                            deps.push(other_frag_name.clone());
+                        }
+                    }
+                }
+            }
+
+            direct_deps.insert(frag.name.clone(), deps);
+        }
+
+        // Compute transitive closure using DFS with memoization
+        fn get_transitive_deps(
+            frag_name: &str,
+            direct_deps: &HashMap<String, Vec<String>>,
+            memo: &mut HashMap<String, Vec<String>>,
+            visited: &mut HashSet<String>,
+        ) -> Vec<String> {
+            // Check memo first
+            if let Some(cached) = memo.get(frag_name) {
+                return cached.clone();
+            }
+
+            // Cycle detection
+            if visited.contains(frag_name) {
+                return Vec::new();
+            }
+            visited.insert(frag_name.to_string());
+
+            let mut all_deps = HashSet::default();
+            if let Some(deps) = direct_deps.get(frag_name) {
+                for dep in deps {
+                    all_deps.insert(dep.clone());
+                    // Recursively get transitive deps
+                    for transitive_dep in get_transitive_deps(dep, direct_deps, memo, visited) {
+                        all_deps.insert(transitive_dep);
+                    }
+                }
+            }
+
+            visited.remove(frag_name);
+            let mut result: Vec<_> = all_deps.into_iter().collect();
+            result.sort(); // Keep consistent ordering
+
+            // Cache the result
+            memo.insert(frag_name.to_string(), result.clone());
+            result
+        }
+
+        // Populate the transitive_deps field for each fragment with memoization
+        let mut memo: HashMap<String, Vec<String>> = HashMap::default();
+        for frag in fragments.iter_mut() {
+            let mut visited = HashSet::default();
+            frag.transitive_deps =
+                get_transitive_deps(&frag.name, &direct_deps, &mut memo, &mut visited);
+        }
     }
 
     pub fn parse_doc(path: &Path) -> Option<DocumentState> {

@@ -93,6 +93,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                             generate_ast_for_fragments: config
                                 .generate_ast_for_fragments
                                 .unwrap_or(false),
+                            fragment_dependencies: &project_context.fragment_dependencies,
                         };
                         let g_start = Instant::now();
                         if let Ok(_ts_code) =
@@ -193,6 +194,11 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         "  {:<26} {:>10?}",
         "Workspace Metadata Extr:".bright_black(),
         scan_timings.metadata_extraction
+    );
+    println!(
+        "  {:<26} {:>10?}",
+        "Fragment Deps Cache:".bright_black(),
+        scan_timings.fragment_deps_computation
     );
     println!(
         "  {:<26} {:>10?}",
