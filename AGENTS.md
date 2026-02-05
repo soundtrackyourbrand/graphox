@@ -45,13 +45,36 @@ The core logic relies on **Tree-sitter** for incremental parsing and **apollo-co
 
 - `src/main.rs`: CLI entry point using `clap`. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
 - `src/lib.rs`: Library exports and module definitions.
-- `src/backend.rs`: Core LSP implementation. Manages workspace state using `DashMap` and handles concurrency.
+- `src/backend/`: Core LSP implementation, organized into submodules:
+    - `lsp.rs`: Main `Backend` struct and LSP protocol implementation.
+    - `codegen_runner.rs`: Automatic codegen execution on file changes.
+    - `document_changes.rs`: Handles document synchronization from LSP.
+    - `file_change_handler.rs`: Processes file system changes and updates state.
+    - `file_watchers.rs`: File system watching setup and management.
+    - `fragment_manager.rs`: Fragment definition tracking and indexing.
+    - `schema_management.rs`: Schema loading and reloading logic.
+    - `validation.rs`: Validation orchestration for documents.
+    - `workspace_scan.rs`: Parallel workspace scanning for GraphQL files.
 - `src/document.rs`: `DocumentState` manages a file's content (via `ropey`), its Tree-sitter tree, and embedded GraphQL blocks.
 - `src/engine.rs`: High-level operations like workspace scanning, fragment resolution, and validation.
+- `src/schema.rs`: Consolidated schema loading utilities with caching support.
+- `src/schema_cache.rs`: Two-tier (memory + disk) schema cache for performance optimization.
+- `src/config.rs`: Configuration file (`graphql.yaml`) parsing and project settings.
 - `src/queries.rs`: Contains Tree-sitter query strings and cached `Query` objects.
 - `src/utils.rs`: Shared utilities for file handling, URI normalization, and schema merging.
-- `src/commands/`: CLI subcommand implementations.
-- `src/features/`: LSP feature implementations (hover, completion, definition, code actions, etc.).
+- `src/commands/`: CLI subcommand implementations (`lsp`, `check`, `codegen`, `benchmark`).
+- `src/features/`: LSP feature implementations:
+    - `apollo_ast.rs`: Apollo compiler AST utilities.
+    - `call_hierarchy.rs`: Call hierarchy provider (incoming/outgoing calls).
+    - `code_actions.rs`: Quick fixes and refactorings.
+    - `codegen.rs`: TypeScript type generation logic.
+    - `completion.rs`: Autocomplete suggestions.
+    - `definition.rs`: Go-to-definition support.
+    - `hover.rs`: Hover information and documentation.
+    - `references.rs`: Find all references.
+    - `semantic_tokens.rs`: Semantic token provider for syntax highlighting.
+    - `signature_help.rs`: Function signature help.
+    - `symbols.rs`: Document and workspace symbols.
 - `src/features/diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
 
 ## Key Patterns
@@ -78,6 +101,14 @@ Queries are defined as constants in `src/queries.rs` and lazily initialized in `
 1. Define the S-expression string.
 2. Add a `OnceLock<Query>` for it.
 3. Use it in `document.rs` or features via `TS_QUERY_CACHE.get_or_init(...)`.
+
+### Schema Caching
+The schema cache (`src/schema_cache.rs`) provides two-tier caching for performance:
+- **Memory cache (L1):** Holds fully parsed and validated `Schema` objects. Fastest, no I/O. Lifetime is process duration. Invalidation checks file mtimes.
+- **Disk cache (L2):** Holds merged schema text in OS-specific cache directory. Skips file I/O and merging but still requires parsing. Persistent across runs.
+- Cache keys are based on schema source paths and file modification times.
+- Use `load_schema_with_cache()` to leverage caching (95-99% faster for L1, 10-80% faster for L2).
+- Disable caching in `graphql.yaml` with `enable_schema_cache: false` if needed.
 
 ### Codegen & Baselines
 The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/`.
