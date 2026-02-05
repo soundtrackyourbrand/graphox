@@ -455,8 +455,8 @@ pub fn generate_permissions_content(
             _ => None,
         };
 
-        if let Some(fields) = fields {
-            if let Some(permissions_field) = fields.get("permissions") {
+        if let Some(fields) = fields
+            && let Some(permissions_field) = fields.get("permissions") {
                 let inner_name = permissions_field.ty.inner_named_type();
                 let inner_type = schema.types.get(inner_name.as_str());
                 if let Some(ExtendedType::Enum(_)) = inner_type {
@@ -470,7 +470,6 @@ pub fn generate_permissions_content(
                     );
                 }
             }
-        }
     }
 
     if types_with_permissions.is_empty() {

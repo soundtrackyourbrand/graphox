@@ -96,11 +96,10 @@ impl DocumentState {
 
         if let Some(name_node) = name_node {
             let dir_name = self.get_node_text(name_node, offset);
-            if let Some(dir_def) = ctx.schema.directive_definitions.get(dir_name.as_str()) {
-                if let Some(args_node) = arguments_node {
+            if let Some(dir_def) = ctx.schema.directive_definitions.get(dir_name.as_str())
+                && let Some(args_node) = arguments_node {
                     self.validate_arguments(args_node, offset, &dir_def.arguments, ctx);
                 }
-            }
         }
     }
 

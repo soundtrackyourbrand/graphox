@@ -167,8 +167,8 @@ impl DocumentState {
                 | "fragment_definition"
                 | "inline_fragment" => {
                     // Check if we are right after dots
-                    if self.is_after_dots(offset, local_byte) {
-                        if let Some(items) = self.complete_selection_set_at_node(
+                    if self.is_after_dots(offset, local_byte)
+                        && let Some(items) = self.complete_selection_set_at_node(
                             current,
                             offset,
                             cursor_offset,
@@ -183,7 +183,6 @@ impl DocumentState {
                                     .collect(),
                             );
                         }
-                    }
                 }
                 _ => {}
             }
@@ -893,11 +892,7 @@ impl DocumentState {
                 } else {
                     return false;
                 }
-            } else if c == 'o' || c == 'O' {
-                return true;
-            } else {
-                return false;
-            }
+            } else { return c == 'o' || c == 'O' }
         }
         false
     }

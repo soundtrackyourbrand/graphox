@@ -292,8 +292,8 @@ impl DocumentState {
                     ctx.used_variables.insert(var.clone());
 
                     // Only report undefined variables if we are in an operation context
-                    if !ctx.defined_variables.is_empty() {
-                        if !ctx.defined_variables.contains(var) {
+                    if !ctx.defined_variables.is_empty()
+                        && !ctx.defined_variables.contains(var) {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(trigger_node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),
@@ -307,7 +307,6 @@ impl DocumentState {
                                 ..Default::default()
                             });
                         }
-                    }
                 }
             }
 

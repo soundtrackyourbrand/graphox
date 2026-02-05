@@ -202,8 +202,8 @@ impl Backend {
 
             if let Some(frag) = all_fragments.iter().find(|f| {
                 f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
-            }) {
-                if let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone()) {
+            })
+                && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone()) {
                     // Get variables from this fragment
                     let local_vars = doc.get_fragment_variable_types(&name, schema);
                     for (var, ty) in local_vars {
@@ -217,7 +217,6 @@ impl Backend {
                         }
                     }
                 }
-            }
         }
     }
 
@@ -511,14 +510,12 @@ impl LanguageServer for Backend {
                                 value.push_str(&desc);
                             }
 
-                            if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path() {
-                                if let Some(proj) = self.config.get_project_for_path(&other_p) {
-                                    if let Some(import) = &proj.import {
+                            if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path()
+                                && let Some(proj) = self.config.get_project_for_path(&other_p)
+                                    && let Some(import) = &proj.import {
                                         value.push_str("\n\n---\n");
                                         value.push_str(&format!("Import: `{}`", import));
                                     }
-                                }
-                            }
 
                             return Ok(Some(Hover {
                                 contents: HoverContents::Markup(MarkupContent {
@@ -799,8 +796,8 @@ impl LanguageServer for Backend {
                 }
 
                 let mut preferred_uris = Vec::new();
-                if let Ok(path) = uri.to_file_path() {
-                    if let Some(project) = self.config.get_project_for_path(&path) {
+                if let Ok(path) = uri.to_file_path()
+                    && let Some(project) = self.config.get_project_for_path(&path) {
                         for schema_file in project.schema.files() {
                             let schema_path = self.config.base_dir.join(schema_file);
                             if let Ok(schema_uri) = Url::from_file_path(schema_path) {
@@ -808,7 +805,6 @@ impl LanguageServer for Backend {
                             }
                         }
                     }
-                }
 
                 if let Some(loc) = doc_arc.get_field_definition_location(
                     position,
@@ -825,7 +821,7 @@ impl LanguageServer for Backend {
                     if let Some(uris) = self.fragment_definitions.get(&name) {
                         for other_uri in uris.iter() {
                             if let Some(other_doc) =
-                                self.documents.get(&*other_uri).map(|r| r.value().clone())
+                                self.documents.get(other_uri).map(|r| r.value().clone())
                             {
                                 let is_same_package =
                                     other_doc.package_root == doc_arc.package_root;
@@ -1237,11 +1233,10 @@ impl LanguageServer for Backend {
                 };
 
                 if let Some(result) = result {
-                    if result.should_reload_schema {
-                        if let Some(schema_path) = result.schema_path {
+                    if result.should_reload_schema
+                        && let Some(schema_path) = result.schema_path {
                             self.reload_schema(&schema_path).await;
                         }
-                    }
 
                     if !result.uris_to_validate.is_empty() {
                         self.validate_uris(result.uris_to_validate).await;

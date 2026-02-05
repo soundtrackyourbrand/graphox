@@ -249,7 +249,7 @@ async fn validate_all_documents(
         }
     }
     let valid_empty_schema = Arc::new(
-        <apollo_compiler::Schema as Clone>::clone(&*empty_schema)
+        <apollo_compiler::Schema as Clone>::clone(empty_schema)
             .validate()
             .unwrap(),
     );

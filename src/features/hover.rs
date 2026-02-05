@@ -18,11 +18,10 @@ impl DocumentState {
                 let mut node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
                 // If we are on a symbol that's part of a larger construct, move up
-                if node.kind() == "$" {
-                    if let Some(parent) = node.parent() {
+                if node.kind() == "$"
+                    && let Some(parent) = node.parent() {
                         node = parent;
                     }
-                }
 
                 if node.kind() == "name" || node.kind() == "variable" {
                     let symbol_name = self
@@ -33,10 +32,9 @@ impl DocumentState {
                         )
                         .to_string();
 
-                    if node.kind() == "variable"
-                        || node.parent().map_or(false, |p| p.kind() == "variable")
-                    {
-                        if let Some(var_info) =
+                    if (node.kind() == "variable"
+                        || node.parent().is_some_and(|p| p.kind() == "variable"))
+                        && let Some(var_info) =
                             self.get_variable_info(root, offset, byte_offset, schema)
                         {
                             return Some(Hover {
@@ -47,7 +45,6 @@ impl DocumentState {
                                 range: Some(self.translate_to_file_range(node, offset)),
                             });
                         }
-                    }
 
                     if let Some(schema_info) = self.get_type_info_from_schema(&symbol_name, schema)
                     {
@@ -156,13 +153,11 @@ impl DocumentState {
             return None;
         };
 
-        if var_node.kind() == "$" {
-            if let Some(p) = var_node.parent() {
-                if p.kind() == "variable" {
+        if var_node.kind() == "$"
+            && let Some(p) = var_node.parent()
+                && p.kind() == "variable" {
                     var_node = p;
                 }
-            }
-        }
 
         let var_name = self.get_node_text(var_node, offset);
 
@@ -188,17 +183,15 @@ impl DocumentState {
                                     }
                                 }
 
-                                if let Some(v) = v {
-                                    if self.get_node_text(v, offset) == var_name {
-                                        if let Some(ty_node) = ty {
+                                if let Some(v) = v
+                                    && self.get_node_text(v, offset) == var_name
+                                        && let Some(ty_node) = ty {
                                             let ty_text = self.get_node_text(ty_node, offset);
                                             return Some(Self::describe_variable_markdown(
                                                 &var_name,
                                                 &ty_text,
                                             ));
                                         }
-                                    }
-                                }
                             }
                         }
                     }
@@ -325,8 +318,8 @@ impl DocumentState {
                             ) {
                                 return Some(info);
                             }
-                        } else if inner_child.kind() == "inline_fragment" {
-                            if let Some(info) = self.find_field_in_inline_fragment(
+                        } else if inner_child.kind() == "inline_fragment"
+                            && let Some(info) = self.find_field_in_inline_fragment(
                                 inner_child,
                                 offset,
                                 cursor_offset,
@@ -336,7 +329,6 @@ impl DocumentState {
                             ) {
                                 return Some(info);
                             }
-                        }
                     }
                 } else if kind == "field" {
                     if let Some(info) = self.find_field_info(
@@ -349,8 +341,8 @@ impl DocumentState {
                     ) {
                         return Some(info);
                     }
-                } else if kind == "inline_fragment" {
-                    if let Some(info) = self.find_field_in_inline_fragment(
+                } else if kind == "inline_fragment"
+                    && let Some(info) = self.find_field_in_inline_fragment(
                         child,
                         offset,
                         cursor_offset,
@@ -360,7 +352,6 @@ impl DocumentState {
                     ) {
                         return Some(info);
                     }
-                }
             }
         }
         None
@@ -417,8 +408,8 @@ impl DocumentState {
                 if let Some(args_node) = arguments_node {
                     let args_range =
                         (args_node.start_byte() + offset)..(args_node.end_byte() + offset);
-                    if cursor_offset >= args_range.start && cursor_offset <= args_range.end {
-                        if let Some(info) = self.find_argument_info(
+                    if cursor_offset >= args_range.start && cursor_offset <= args_range.end
+                        && let Some(info) = self.find_argument_info(
                             args_node,
                             offset,
                             cursor_offset,
@@ -427,19 +418,17 @@ impl DocumentState {
                         ) {
                             return Some(info);
                         }
-                    }
                 }
 
                 if let Some(dirs_node) = directives_node {
                     let dirs_range =
                         (dirs_node.start_byte() + offset)..(dirs_node.end_byte() + offset);
-                    if cursor_offset >= dirs_range.start && cursor_offset <= dirs_range.end {
-                        if let Some(info) =
+                    if cursor_offset >= dirs_range.start && cursor_offset <= dirs_range.end
+                        && let Some(info) =
                             self.find_directive_info(dirs_node, offset, cursor_offset, schema)
                         {
                             return Some(info);
                         }
-                    }
                 }
 
                 if let Some(sss) = selection_set_node {
@@ -458,11 +447,10 @@ impl DocumentState {
                         }
                     }
                 }
-            } else if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
-                if let Some(info) = self.get_builtin_field_info(&field_name, parent_type, schema) {
+            } else if cursor_offset >= name_range.start && cursor_offset <= name_range.end
+                && let Some(info) = self.get_builtin_field_info(&field_name, parent_type, schema) {
                     return Some(info);
                 }
-            }
         }
         None
     }
@@ -577,12 +565,11 @@ impl DocumentState {
             "### field {}.{}\n---\nType: `{}`\n",
             parent_name, field_name, field_type
         );
-        if let Some(desc) = description {
-            if !desc.trim().is_empty() {
+        if let Some(desc) = description
+            && !desc.trim().is_empty() {
                 info.push('\n');
                 info.push_str(desc);
             }
-        }
         info
     }
 
@@ -592,22 +579,20 @@ impl DocumentState {
         description: Option<&str>,
     ) -> String {
         let mut info = format!("### argument {}\n---\nType: `{}`\n", arg_name, arg_type);
-        if let Some(desc) = description {
-            if !desc.trim().is_empty() {
+        if let Some(desc) = description
+            && !desc.trim().is_empty() {
                 info.push('\n');
                 info.push_str(desc);
             }
-        }
         info
     }
 
     fn describe_directive_markdown(dir_name: &str, description: Option<&str>) -> String {
         let mut info = format!("### directive @{}\n---\n", dir_name);
-        if let Some(desc) = description {
-            if !desc.trim().is_empty() {
+        if let Some(desc) = description
+            && !desc.trim().is_empty() {
                 info.push_str(desc);
             }
-        }
         info
     }
 
@@ -639,11 +624,10 @@ impl DocumentState {
         for child in node.children(&mut cursor) {
             match child.kind() {
                 "type_condition" => {
-                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
-                        if let Some(new_type) = schema.types.get(type_name.as_str()) {
+                    if let Some(type_name) = self.get_fragment_type_condition(node, offset)
+                        && let Some(new_type) = schema.types.get(type_name.as_str()) {
                             target_type = new_type;
                         }
-                    }
                 }
                 "selection_set" => {
                     selection_set_node = Some(child);
@@ -1032,11 +1016,10 @@ impl DocumentState {
                     }
                 }
 
-                if let Some(n) = name {
-                    if n == target_name {
+                if let Some(n) = name
+                    && n == target_name {
                         return description.map(|d| d.trim_matches('"').to_string());
                     }
-                }
             }
         }
         None

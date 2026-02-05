@@ -208,8 +208,8 @@ impl Config {
                 }
             }
 
-            if matched {
-                if let Some(exclude) = &project.exclude
+            if matched
+                && let Some(exclude) = &project.exclude
                     && let Some(rel_path) = relative_path
                 {
                     let mut builder = GlobSetBuilder::new();
@@ -224,7 +224,6 @@ impl Config {
                         matched = false;
                     }
                 }
-            }
 
             if matched {
                 return Some(project);

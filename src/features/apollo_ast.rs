@@ -73,12 +73,10 @@ fn collect_fragments(
             }
             Selection::FragmentSpread(spread) => {
                 let name = spread.fragment_name.as_str().to_string();
-                if used.insert(name.clone()) {
-                    if let Some(frag) = all_fragments.get(&name) {
+                if used.insert(name.clone())
+                    && let Some(frag) = all_fragments.get(&name) {
                         collect_fragments(&frag.selection_set, all_fragments, used);
-                    } else {
                     }
-                }
             }
         }
     }

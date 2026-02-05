@@ -177,7 +177,7 @@ impl DocumentState {
         let byte_offset = self.position_to_byte(position);
 
         // Targeted lookup: only check the block that contains the position
-        let block = self.get_graphql_trees().into_iter().find(|b| {
+        let block = self.get_graphql_trees().iter().find(|b| {
             let root = b.tree.root_node();
             let tree_len = root.end_byte();
             byte_offset >= b.offset && byte_offset < b.offset + tree_len
@@ -235,11 +235,10 @@ impl DocumentState {
                                                 found_loc = Some(loc);
                                                 break;
                                             }
-                                        } else if let Ok(path) = p_uri.to_file_path() {
-                                            if let Some(doc) =
+                                        } else if let Ok(path) = p_uri.to_file_path()
+                                            && let Some(doc) =
                                                 crate::engine::Engine::parse_doc(&path)
-                                            {
-                                                if let Some(loc) = doc
+                                                && let Some(loc) = doc
                                                     .find_argument_definition_in_schema(
                                                         parent_type.name().as_str(),
                                                         &field_node_name,
@@ -250,20 +249,18 @@ impl DocumentState {
                                                     found_loc = Some(loc);
                                                     break;
                                                 }
-                                            }
-                                        }
                                     }
 
-                                    if found_loc.is_none() {
-                                        if let Some(uris) =
+                                    if found_loc.is_none()
+                                        && let Some(uris) =
                                             fragment_definitions.get(parent_type.name().as_str())
                                         {
                                             for uri in uris.iter() {
-                                                if preferred_uris.contains(&*uri) {
+                                                if preferred_uris.contains(uri) {
                                                     continue;
                                                 }
                                                 if let Some(doc) =
-                                                    documents.get(&*uri).map(|r| r.value().clone())
+                                                    documents.get(uri).map(|r| r.value().clone())
                                                 {
                                                     if let Some(loc) = doc
                                                         .find_argument_definition_in_schema(
@@ -276,11 +273,10 @@ impl DocumentState {
                                                         found_loc = Some(loc);
                                                         break;
                                                     }
-                                                } else if let Ok(path) = uri.to_file_path() {
-                                                    if let Some(doc) =
+                                                } else if let Ok(path) = uri.to_file_path()
+                                                    && let Some(doc) =
                                                         crate::engine::Engine::parse_doc(&path)
-                                                    {
-                                                        if let Some(loc) = doc
+                                                        && let Some(loc) = doc
                                                             .find_argument_definition_in_schema(
                                                                 parent_type.name().as_str(),
                                                                 &field_node_name,
@@ -291,11 +287,8 @@ impl DocumentState {
                                                             found_loc = Some(loc);
                                                             break;
                                                         }
-                                                    }
-                                                }
                                             }
                                         }
-                                    }
 
                                     if let Some(loc) = found_loc {
                                         return Some(loc);
@@ -325,9 +318,9 @@ impl DocumentState {
                                             found_loc = Some(loc);
                                             break;
                                         }
-                                    } else if let Ok(path) = p_uri.to_file_path() {
-                                        if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
-                                            if let Some(loc) = doc
+                                    } else if let Ok(path) = p_uri.to_file_path()
+                                        && let Some(doc) = crate::engine::Engine::parse_doc(&path)
+                                            && let Some(loc) = doc
                                                 .find_argument_definition_in_schema(
                                                     "Directive",
                                                     &dir_name,
@@ -338,18 +331,16 @@ impl DocumentState {
                                                 found_loc = Some(loc);
                                                 break;
                                             }
-                                        }
-                                    }
                                 }
 
-                                if found_loc.is_none() {
-                                    if let Some(uris) = fragment_definitions.get(&dir_name) {
+                                if found_loc.is_none()
+                                    && let Some(uris) = fragment_definitions.get(&dir_name) {
                                         for uri in uris.iter() {
-                                            if preferred_uris.contains(&*uri) {
+                                            if preferred_uris.contains(uri) {
                                                 continue;
                                             }
                                             if let Some(doc) =
-                                                documents.get(&*uri).map(|r| r.value().clone())
+                                                documents.get(uri).map(|r| r.value().clone())
                                             {
                                                 if let Some(loc) = doc
                                                     .find_argument_definition_in_schema(
@@ -362,11 +353,10 @@ impl DocumentState {
                                                     found_loc = Some(loc);
                                                     break;
                                                 }
-                                            } else if let Ok(path) = uri.to_file_path() {
-                                                if let Some(doc) =
+                                            } else if let Ok(path) = uri.to_file_path()
+                                                && let Some(doc) =
                                                     crate::engine::Engine::parse_doc(&path)
-                                                {
-                                                    if let Some(loc) = doc
+                                                    && let Some(loc) = doc
                                                         .find_argument_definition_in_schema(
                                                             "Directive",
                                                             &dir_name,
@@ -377,28 +367,22 @@ impl DocumentState {
                                                         found_loc = Some(loc);
                                                         break;
                                                     }
-                                                }
-                                            }
                                         }
                                     }
-                                }
 
                                 if let Some(loc) = found_loc {
                                     return Some(loc);
                                 }
                             }
                         }
-                    } else if parent.kind() == "object_field" {
-                        if let Some(obj_value) = parent.parent() {
-                            if let Some(val_node) = obj_value.parent() {
-                                if let Some(pt) =
+                    } else if parent.kind() == "object_field"
+                        && let Some(obj_value) = parent.parent()
+                            && let Some(val_node) = obj_value.parent()
+                                && let Some(pt) =
                                     self.find_expected_type_for_value(val_node, offset, schema)
                                 {
                                     search_type = Some(pt);
                                 }
-                            }
-                        }
-                    }
 
                     if let Some(pt) = search_type {
                         let mut found_loc = None;
@@ -412,9 +396,9 @@ impl DocumentState {
                                     found_loc = Some(loc);
                                     break;
                                 }
-                            } else if let Ok(path) = p_uri.to_file_path() {
-                                if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
-                                    if let Some(loc) = doc.find_field_definition_in_schema(
+                            } else if let Ok(path) = p_uri.to_file_path()
+                                && let Some(doc) = crate::engine::Engine::parse_doc(&path)
+                                    && let Some(loc) = doc.find_field_definition_in_schema(
                                         pt.name().as_str(),
                                         &field_name,
                                         symbol_query,
@@ -422,18 +406,16 @@ impl DocumentState {
                                         found_loc = Some(loc);
                                         break;
                                     }
-                                }
-                            }
                         }
 
-                        if found_loc.is_none() {
-                            if let Some(uris) = fragment_definitions.get(pt.name().as_str()) {
+                        if found_loc.is_none()
+                            && let Some(uris) = fragment_definitions.get(pt.name().as_str()) {
                                 for uri in uris.iter() {
-                                    if preferred_uris.contains(&*uri) {
+                                    if preferred_uris.contains(uri) {
                                         continue;
                                     }
                                     if let Some(doc) =
-                                        documents.get(&*uri).map(|r| r.value().clone())
+                                        documents.get(uri).map(|r| r.value().clone())
                                     {
                                         if let Some(loc) = doc.find_field_definition_in_schema(
                                             pt.name().as_str(),
@@ -443,9 +425,9 @@ impl DocumentState {
                                             found_loc = Some(loc);
                                             break;
                                         }
-                                    } else if let Ok(path) = uri.to_file_path() {
-                                        if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
-                                            if let Some(loc) = doc.find_field_definition_in_schema(
+                                    } else if let Ok(path) = uri.to_file_path()
+                                        && let Some(doc) = crate::engine::Engine::parse_doc(&path)
+                                            && let Some(loc) = doc.find_field_definition_in_schema(
                                                 pt.name().as_str(),
                                                 &field_name,
                                                 symbol_query,
@@ -453,11 +435,8 @@ impl DocumentState {
                                                 found_loc = Some(loc);
                                                 break;
                                             }
-                                        }
-                                    }
                                 }
                             }
-                        }
 
                         if let Some(loc) = found_loc {
                             return Some(loc);
@@ -476,45 +455,40 @@ impl DocumentState {
                                 found_loc = Some(loc);
                                 break;
                             }
-                        } else if let Ok(path) = p_uri.to_file_path() {
-                            if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
-                                if let Some(loc) =
+                        } else if let Ok(path) = p_uri.to_file_path()
+                            && let Some(doc) = crate::engine::Engine::parse_doc(&path)
+                                && let Some(loc) =
                                     doc.find_type_definition_in_schema(&type_name, symbol_query)
                                 {
                                     found_loc = Some(loc);
                                     break;
                                 }
-                            }
-                        }
                     }
 
-                    if found_loc.is_none() {
-                        if let Some(uris) = fragment_definitions.get(&type_name) {
+                    if found_loc.is_none()
+                        && let Some(uris) = fragment_definitions.get(&type_name) {
                             for uri in uris.iter() {
-                                if preferred_uris.contains(&*uri) {
+                                if preferred_uris.contains(uri) {
                                     continue;
                                 }
-                                if let Some(doc) = documents.get(&*uri).map(|r| r.value().clone()) {
+                                if let Some(doc) = documents.get(uri).map(|r| r.value().clone()) {
                                     if let Some(loc) =
                                         doc.find_type_definition_in_schema(&type_name, symbol_query)
                                     {
                                         found_loc = Some(loc);
                                         break;
                                     }
-                                } else if let Ok(path) = uri.to_file_path() {
-                                    if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
-                                        if let Some(loc) = doc.find_type_definition_in_schema(
+                                } else if let Ok(path) = uri.to_file_path()
+                                    && let Some(doc) = crate::engine::Engine::parse_doc(&path)
+                                        && let Some(loc) = doc.find_type_definition_in_schema(
                                             &type_name,
                                             symbol_query,
                                         ) {
                                             found_loc = Some(loc);
                                             break;
                                         }
-                                    }
-                                }
                             }
                         }
-                    }
 
                     if let Some(loc) = found_loc {
                         return Some(loc);
@@ -565,18 +539,16 @@ impl DocumentState {
                     && let Some(container) = container_node
                 {
                     let kind = container.kind();
-                    if kind.ends_with("_type_definition")
+                    if (kind.ends_with("_type_definition")
                         || kind.ends_with("_type_extension")
                         || kind == "scalar_type_definition"
-                        || kind == "directive_definition"
-                    {
-                        if let Some(node) = name_node {
+                        || kind == "directive_definition")
+                        && let Some(node) = name_node {
                             return Some(Location {
                                 uri: self.uri.clone(),
                                 range: self.translate_to_file_range(node, offset),
                             });
                         }
-                    }
                 }
             }
         }
@@ -732,8 +704,8 @@ impl DocumentState {
                     }
                 }
 
-                if is_directive && type_name == "Directive" && name.as_deref() == Some(field_name) {
-                    if let Some(container) = container_node {
+                if is_directive && type_name == "Directive" && name.as_deref() == Some(field_name)
+                    && let Some(container) = container_node {
                         let mut walker = container.walk();
                         for child in container.children(&mut walker) {
                             if child.kind() == "arguments_definition" {
@@ -742,8 +714,8 @@ impl DocumentState {
                                     if a_child.kind() == "input_value_definition" {
                                         let mut iv_walker = a_child.walk();
                                         for iv_child in a_child.children(&mut iv_walker) {
-                                            if iv_child.kind() == "name" {
-                                                if self.get_node_text(iv_child, offset) == arg_name
+                                            if iv_child.kind() == "name"
+                                                && self.get_node_text(iv_child, offset) == arg_name
                                                 {
                                                     return Some(Location {
                                                         uri: self.uri.clone(),
@@ -752,14 +724,12 @@ impl DocumentState {
                                                         ),
                                                     });
                                                 }
-                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
                 if let Some(n) = name
                     && n == type_name
@@ -787,8 +757,8 @@ impl DocumentState {
                                                     let mut iv_walker = a_child.walk();
                                                     for iv_child in a_child.children(&mut iv_walker)
                                                     {
-                                                        if iv_child.kind() == "name" {
-                                                            if self.get_node_text(iv_child, offset)
+                                                        if iv_child.kind() == "name"
+                                                            && self.get_node_text(iv_child, offset)
                                                                 == arg_name
                                                             {
                                                                 return Some(Location {
@@ -799,7 +769,6 @@ impl DocumentState {
                                                                         ),
                                                                 });
                                                             }
-                                                        }
                                                     }
                                                 }
                                             }

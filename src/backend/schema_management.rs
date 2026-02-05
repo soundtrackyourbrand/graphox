@@ -75,14 +75,13 @@ pub async fn clear_cache(
     // Reload project schemas from config
     for project in &config.projects {
         let key = project.schema.as_key();
-        if !schemas.contains_key(&key) {
-            if let Some(schema) = crate::schema::load_schema_arc(&config.base_dir, &project.schema) {
+        if !schemas.contains_key(&key)
+            && let Some(schema) = crate::schema::load_schema_arc(&config.base_dir, &project.schema) {
                 if let Ok(valid) = <apollo_compiler::Schema as Clone>::clone(&*schema).validate() {
                     validated_schemas.insert(key.clone(), Arc::new(valid));
                 }
                 schemas.insert(key, schema);
             }
-        }
     }
 
     client

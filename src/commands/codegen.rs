@@ -180,8 +180,8 @@ async fn execute_codegen(
         let project_context =
             Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
 
-        if !clean && project.generate_permissions.unwrap_or(false) {
-            if let Some(out_dir) = project_output_dir {
+        if !clean && project.generate_permissions.unwrap_or(false)
+            && let Some(out_dir) = project_output_dir {
                 let out_dir_path = cfg.base_dir.join(out_dir);
                 std::fs::create_dir_all(&out_dir_path).ok();
                 let permissions_path = out_dir_path.join("permissions.ts");
@@ -202,7 +202,6 @@ async fn execute_codegen(
                     success = false;
                 }
             }
-        }
 
         match execute_project_codegen_entry(
             CodegenParams {
@@ -213,7 +212,7 @@ async fn execute_codegen(
                 scalars: &cfg.scalars,
                 schema_import: &schema_import,
                 project_context: &project_context,
-                global_metadata: &global_metadata,
+                global_metadata,
                 generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                 workspace_documents: &workspace_metadata.documents,
                 generate_permissions: project.generate_permissions.unwrap_or(false),
@@ -268,8 +267,8 @@ async fn execute_codegen(
         }
     }
 
-    if !clean {
-        if let Some(out_dir) = global_output_dir {
+    if !clean
+        && let Some(out_dir) = global_output_dir {
             let out_dir_path = cfg.base_dir.join(out_dir);
             let entrypoint_path = out_dir_path.join("graphql.ts");
             if !all_generated_operations.is_empty() {
@@ -329,7 +328,6 @@ async fn execute_codegen(
                 }
             }
         }
-    }
 
     success
 }

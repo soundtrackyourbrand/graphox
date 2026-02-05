@@ -46,15 +46,13 @@ pub async fn validate_uris(params: ValidationParams<'_>, uris: Vec<Url>) {
     for uri in uris {
         if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
             // Skip validating schema files as executable documents
-            if let Ok(path) = uri.to_file_path() {
-                if let Some(schema_key) = params.config.get_schema_for_path(&path) {
-                    if schema_key.contains(&path.to_string_lossy().to_string())
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = params.config.get_schema_for_path(&path)
+                    && schema_key.contains(&path.to_string_lossy().to_string())
                         && !params.open_documents.contains(&uri)
                     {
                         continue;
                     }
-                }
-            }
 
             let schema = get_schema_for_doc(&uri, params.config, params.validated_schemas, params.valid_empty_schema);
             let filtered_fragments = get_fragments_for_doc(
@@ -109,13 +107,12 @@ pub fn get_affected_uris(
 
         if let Some(dependents) = fragment_dependents.get(&frag_name) {
             for dep_uri in dependents.value() {
-                if uris_to_validate.insert(dep_uri.clone()) {
-                    if let Some(doc) = documents.get(dep_uri).map(|r| r.value().clone()) {
+                if uris_to_validate.insert(dep_uri.clone())
+                    && let Some(doc) = documents.get(dep_uri).map(|r| r.value().clone()) {
                         for f in doc.fragments() {
                             to_process.push(f.name.clone());
                         }
                     }
-                }
             }
         }
     }
@@ -188,7 +185,7 @@ pub fn get_fragments_for_doc(
                 return true;
             }
 
-            if let Some(f_path) = f.uri.to_file_path().ok() {
+            if let Ok(f_path) = f.uri.to_file_path() {
                 let f_schema_key = config.get_schema_for_path(&f_path);
                 return f_schema_key.is_some() && f_schema_key == schema_key;
             }
