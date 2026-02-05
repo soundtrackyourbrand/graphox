@@ -26,6 +26,8 @@ impl DocumentState {
                 type_condition_node = Some(child);
             } else if child.kind() == "selection_set" {
                 selection_set_node = Some(child);
+            } else if child.kind() == "directives" || child.kind() == "directive" {
+                self.validate_directives(child, offset, ctx);
             }
         }
 
@@ -129,6 +131,8 @@ impl DocumentState {
                 type_condition_node = Some(child);
             } else if child.kind() == "selection_set" {
                 selection_set_node = Some(child);
+            } else if child.kind() == "directives" || child.kind() == "directive" {
+                self.validate_directives(child, offset, ctx);
             }
         }
 
@@ -191,6 +195,8 @@ impl DocumentState {
                         }
                     }
                 }
+            } else if child.kind() == "directives" || child.kind() == "directive" {
+                self.validate_directives(child, offset, ctx);
             }
         }
     }

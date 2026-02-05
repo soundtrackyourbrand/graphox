@@ -619,3 +619,44 @@ fn test_fragment_variables_not_undefined_in_isolation() {
         errors
     );
 }
+
+#[test]
+fn test_variable_used_only_in_directive() {
+    let schema_content = r#"
+        type User {
+            id: ID!
+            name: String
+        }
+        type Query {
+            me: User
+        }
+        directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .expect("Failed to parse schema")
+        .validate()
+        .expect("Schema validation failed");
+
+    let query_text = r#"
+        query GetMe($skipName: Boolean!) {
+            me {
+                id
+                name @skip(if: $skipName)
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", query_text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    let unused_vars: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("Unused variable: $skipName"))
+        .collect();
+
+    assert!(
+        unused_vars.is_empty(),
+        "Expected no unused variables, but found: {:?}",
+        unused_vars
+    );
+}

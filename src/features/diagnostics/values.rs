@@ -1,6 +1,6 @@
 use super::ValidationContext;
 use crate::document::DocumentState;
-use apollo_compiler::schema::{ExtendedType, FieldDefinition};
+use apollo_compiler::schema::{ExtendedType, InputValueDefinition};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
@@ -9,7 +9,7 @@ impl DocumentState {
         &self,
         node: Node,
         offset: usize,
-        field_def: &FieldDefinition,
+        arg_defs: &[apollo_compiler::Node<InputValueDefinition>],
         ctx: &mut ValidationContext,
     ) {
         let mut cursor = node.walk();
@@ -21,15 +21,17 @@ impl DocumentState {
                 for arg_child in child.children(&mut arg_cursor) {
                     if arg_child.kind() == "name" {
                         name_node = Some(arg_child);
-                    } else if arg_child.kind().ends_with("_value") || arg_child.kind() == "value" {
+                    } else if arg_child.kind().ends_with("_value")
+                        || arg_child.kind() == "value"
+                        || arg_child.kind() == "variable"
+                    {
                         value_node = Some(arg_child);
                     }
                 }
 
                 if let Some(name_node) = name_node {
                     let arg_name = self.get_node_text(name_node, offset);
-                    if let Some(arg_def) = field_def
-                        .arguments
+                    if let Some(arg_def) = arg_defs
                         .iter()
                         .find(|a| a.name.as_str() == arg_name)
                     {
@@ -57,6 +59,54 @@ impl DocumentState {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    pub(super) fn validate_directives(
+        &self,
+        node: Node,
+        offset: usize,
+        ctx: &mut ValidationContext,
+    ) {
+        if node.kind() == "directive" {
+            self.validate_directive_node(node, offset, ctx);
+            return;
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "directives" {
+                self.validate_directives(child, offset, ctx);
+            } else if child.kind() == "directive" {
+                self.validate_directive_node(child, offset, ctx);
+            }
+        }
+    }
+
+    fn validate_directive_node(
+        &self,
+        node: Node,
+        offset: usize,
+        ctx: &mut ValidationContext,
+    ) {
+        let mut dir_cursor = node.walk();
+        let mut name_node = None;
+        let mut arguments_node = None;
+        for dir_child in node.children(&mut dir_cursor) {
+            if dir_child.kind() == "name" {
+                name_node = Some(dir_child);
+            } else if dir_child.kind() == "arguments" {
+                arguments_node = Some(dir_child);
+            }
+        }
+
+        if let Some(name_node) = name_node {
+            let dir_name = self.get_node_text(name_node, offset);
+            if let Some(dir_def) = ctx.schema.directive_definitions.get(dir_name.as_str()) {
+                if let Some(args_node) = arguments_node {
+                    self.validate_arguments(args_node, offset, &dir_def.arguments, ctx);
                 }
             }
         }
@@ -109,6 +159,7 @@ impl DocumentState {
                                     name_node = Some(field_child);
                                 } else if field_child.kind().ends_with("_value")
                                     || field_child.kind() == "value"
+                                    || field_child.kind() == "variable"
                                 {
                                     value_node = Some(field_child);
                                 }

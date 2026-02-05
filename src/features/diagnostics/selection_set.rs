@@ -48,6 +48,7 @@ impl DocumentState {
         let mut name_node = None;
         let mut selection_set_node = None;
         let mut arguments_node = None;
+        let mut directives_node = None;
 
         let mut cursor = field_node.walk();
         for child in field_node.children(&mut cursor) {
@@ -57,6 +58,8 @@ impl DocumentState {
                 selection_set_node = Some(child);
             } else if child.kind() == "arguments" {
                 arguments_node = Some(child);
+            } else if child.kind() == "directives" || child.kind() == "directive" {
+                directives_node = Some(child);
             }
         }
 
@@ -91,7 +94,11 @@ impl DocumentState {
                 }
 
                 if let Some(args_node) = arguments_node {
-                    self.validate_arguments(args_node, offset, field_def, ctx);
+                    self.validate_arguments(args_node, offset, &field_def.arguments, ctx);
+                }
+
+                if let Some(dirs_node) = directives_node {
+                    self.validate_directives(dirs_node, offset, ctx);
                 }
 
                 if let Some(sel_set) = selection_set_node {
