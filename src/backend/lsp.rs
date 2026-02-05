@@ -13,6 +13,17 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
 
+/// Client capabilities extracted from initialization
+#[derive(Debug, Clone, Default)]
+pub struct ClientCapabilities {
+    pub supports_pull_diagnostics: bool,
+    pub supports_workspace_folders: bool,
+    pub supports_configuration: bool,
+    pub supports_progress: bool,
+    pub supports_semantic_tokens: bool,
+    pub supports_inlay_hints: bool,
+}
+
 pub struct Backend {
     pub client: Client,
     pub documents: Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
@@ -35,6 +46,10 @@ pub struct Backend {
     /// Persistent type cache per schema (keyed by schema key)
     /// Shared across all codegen runs for the same schema to maximize cache hits
     pub type_caches: Arc<DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>,
+    /// Client capabilities for conditional feature enablement
+    pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
+    /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
+    pub diagnostic_cache: Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>,
 }
 
 impl Backend {
@@ -88,6 +103,8 @@ impl Backend {
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
             gitignore,
             type_caches: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
+            client_capabilities: Arc::new(std::sync::RwLock::new(ClientCapabilities::default())),
+            diagnostic_cache: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
         }
     }
 
@@ -317,6 +334,12 @@ impl Backend {
     }
 
     pub async fn validate_uris(&self, uris: Vec<Url>) {
+        let use_push = if let Ok(caps) = self.client_capabilities.read() {
+            !caps.supports_pull_diagnostics
+        } else {
+            true // Default to push if can't read capabilities
+        };
+        
         let params = super::validation::ValidationParams {
             client: &self.client,
             documents: &self.documents,
@@ -331,10 +354,22 @@ impl Backend {
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
         };
-        super::validation::validate_uris(params, uris).await;
+        super::validation::validate_uris(
+            params,
+            uris,
+            use_push,
+            Some(&self.diagnostic_cache),
+        )
+        .await;
     }
 
     pub async fn validate_all_documents(&self) {
+        let use_push = if let Ok(caps) = self.client_capabilities.read() {
+            !caps.supports_pull_diagnostics
+        } else {
+            true // Default to push if can't read capabilities
+        };
+        
         let params = super::validation::ValidationParams {
             client: &self.client,
             documents: &self.documents,
@@ -349,7 +384,8 @@ impl Backend {
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
         };
-        super::validation::validate_all_documents(params).await;
+        super::validation::validate_all_documents(params, use_push, Some(&self.diagnostic_cache))
+            .await;
     }
 
     fn get_affected_uris(
@@ -371,7 +407,58 @@ impl Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        // Extract and store client capabilities
+        let client_caps = &params.capabilities;
+        
+        let mut caps = ClientCapabilities::default();
+        
+        // Check for pull diagnostics support (LSP 3.17+)
+        if let Some(text_document) = &client_caps.text_document {
+            caps.supports_pull_diagnostics = text_document.diagnostic.is_some();
+        }
+        
+        // Check for workspace folder support
+        if let Some(workspace) = &client_caps.workspace {
+            caps.supports_workspace_folders = workspace.workspace_folders.unwrap_or(false);
+            caps.supports_configuration = workspace.configuration.unwrap_or(false);
+        }
+        
+        // Check for progress support
+        if let Some(window) = &client_caps.window {
+            caps.supports_progress = window.work_done_progress.unwrap_or(false);
+        }
+        
+        // Check for semantic tokens support
+        if let Some(text_document) = &client_caps.text_document {
+            caps.supports_semantic_tokens = text_document.semantic_tokens.is_some();
+        }
+        
+        // Check for inlay hints support (for future implementation)
+        if let Some(text_document) = &client_caps.text_document {
+            caps.supports_inlay_hints = text_document.inlay_hint.is_some();
+        }
+        
+        // Store capabilities
+        if let Ok(mut stored_caps) = self.client_capabilities.write() {
+            *stored_caps = caps.clone();
+        }
+        
+        // Log detected capabilities
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!(
+                    "Client capabilities: pull_diagnostics={}, workspace_folders={}, progress={}, semantic_tokens={}, inlay_hints={}",
+                    caps.supports_pull_diagnostics,
+                    caps.supports_workspace_folders,
+                    caps.supports_progress,
+                    caps.supports_semantic_tokens,
+                    caps.supports_inlay_hints,
+                ),
+            )
+            .await;
+        
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -390,21 +477,25 @@ impl LanguageServer for Backend {
                     workspace_folders: None,
                     file_operations: None,
                 }),
-                semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(
-                        SemanticTokensOptions {
-                            work_done_progress_options: WorkDoneProgressOptions {
-                                work_done_progress: None,
+                semantic_tokens_provider: if caps.supports_semantic_tokens {
+                    Some(
+                        SemanticTokensServerCapabilities::SemanticTokensOptions(
+                            SemanticTokensOptions {
+                                work_done_progress_options: WorkDoneProgressOptions {
+                                    work_done_progress: None,
+                                },
+                                legend: SemanticTokensLegend {
+                                    token_types: SEMANTIC_TOKEN_LEGEND.to_vec(),
+                                    token_modifiers: vec![],
+                                },
+                                range: Some(false),
+                                full: Some(SemanticTokensFullOptions::Bool(true)),
                             },
-                            legend: SemanticTokensLegend {
-                                token_types: SEMANTIC_TOKEN_LEGEND.to_vec(),
-                                token_modifiers: vec![],
-                            },
-                            range: Some(false),
-                            full: Some(SemanticTokensFullOptions::Bool(true)),
-                        },
-                    ),
-                ),
+                        ),
+                    )
+                } else {
+                    None
+                },
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string()]),
@@ -424,6 +515,16 @@ impl LanguageServer for Backend {
                     ],
                     ..Default::default()
                 }),
+                diagnostic_provider: if caps.supports_pull_diagnostics {
+                    Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                        identifier: Some("graphql-rust".to_string()),
+                        inter_file_dependencies: true,
+                        workspace_diagnostics: true,
+                        work_done_progress_options: Default::default(),
+                    }))
+                } else {
+                    None
+                },
                 ..Default::default()
             },
             ..Default::default()
@@ -748,6 +849,7 @@ impl LanguageServer for Backend {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = self.normalize_uri(params.text_document.uri.clone());
+        let version = params.text_document.version;
 
         // Process document changes and update indices
         let change_params = super::document_changes::DocumentChangeParams {
@@ -759,7 +861,7 @@ impl LanguageServer for Backend {
             fragment_definitions: &self.fragment_definitions,
         };
 
-        if let Some(result) = super::document_changes::process_document_change(&uri, params.content_changes, &change_params) {
+        if let Some(result) = super::document_changes::process_document_change(&uri, params.content_changes, version, &change_params) {
             // Validate affected documents
             self.validate_uris(result.uris_to_validate).await;
 
@@ -1287,6 +1389,148 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn diagnostic(
+        &self,
+        params: DocumentDiagnosticParams,
+    ) -> Result<DocumentDiagnosticReportResult> {
+        let uri = self.normalize_uri(params.text_document.uri.clone());
+        
+        // Get the current document version
+        let doc_version = if let Some(doc) = self.documents.get(&uri) {
+            doc.version
+        } else {
+            // Document not found
+            return Ok(DocumentDiagnosticReportResult::Report(
+                DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                    related_documents: None,
+                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                        result_id: None,
+                        items: vec![],
+                    },
+                }),
+            ));
+        };
+        
+        // Check if we have cached diagnostics
+        if let Some(cached) = self.diagnostic_cache.get(&uri) {
+            let (cached_version, cached_diagnostics) = cached.value();
+            
+            // If the cached version matches the previous result ID, return unchanged
+            if let Some(prev_result_id) = &params.previous_result_id {
+                if let Ok(prev_version) = prev_result_id.parse::<i32>() {
+                    if prev_version == *cached_version && prev_version == doc_version {
+                        return Ok(DocumentDiagnosticReportResult::Report(
+                            DocumentDiagnosticReport::Unchanged(
+                                RelatedUnchangedDocumentDiagnosticReport {
+                                    related_documents: None,
+                                    unchanged_document_diagnostic_report:
+                                        UnchangedDocumentDiagnosticReport {
+                                            result_id: cached_version.to_string(),
+                                        },
+                                },
+                            ),
+                        ));
+                    }
+                }
+            }
+            
+            // Return cached diagnostics if version matches
+            if *cached_version == doc_version {
+                return Ok(DocumentDiagnosticReportResult::Report(
+                    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                        related_documents: None,
+                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                            result_id: Some(cached_version.to_string()),
+                            items: cached_diagnostics.clone(),
+                        },
+                    }),
+                ));
+            }
+        }
+        
+        // No cache or outdated cache - compute diagnostics
+        // Force validation with caching but no push
+        self.validate_uris(vec![uri.clone()]).await;
+        
+        // Retrieve from cache
+        if let Some(cached) = self.diagnostic_cache.get(&uri) {
+            let (version, diagnostics) = cached.value();
+            return Ok(DocumentDiagnosticReportResult::Report(
+                DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                    related_documents: None,
+                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                        result_id: Some(version.to_string()),
+                        items: diagnostics.clone(),
+                    },
+                }),
+            ));
+        }
+        
+        // Fallback: return empty diagnostics
+        Ok(DocumentDiagnosticReportResult::Report(
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id: Some(doc_version.to_string()),
+                    items: vec![],
+                },
+            }),
+        ))
+    }
+
+    async fn workspace_diagnostic(
+        &self,
+        params: WorkspaceDiagnosticParams,
+    ) -> Result<WorkspaceDiagnosticReportResult> {
+        let mut items = Vec::new();
+        
+        // Get all document URIs
+        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+        
+        // Validate all documents (this will cache diagnostics)
+        self.validate_all_documents().await;
+        
+        // Collect diagnostics from cache
+        for uri in all_uris {
+            if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                let (version, diagnostics) = cached.value();
+                
+                // Check if this URI was in the previous result
+                let unchanged = params.previous_result_ids.iter().any(|prev| {
+                    prev.uri == uri && prev.value == version.to_string()
+                });
+                
+                if unchanged {
+                    items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
+                        WorkspaceUnchangedDocumentDiagnosticReport {
+                            uri: uri.clone(),
+                            version: Some((*version) as i64),
+                            unchanged_document_diagnostic_report:
+                                UnchangedDocumentDiagnosticReport {
+                                    result_id: version.to_string(),
+                                },
+                        },
+                    ));
+                } else {
+                    items.push(WorkspaceDocumentDiagnosticReport::Full(
+                        WorkspaceFullDocumentDiagnosticReport {
+                            uri: uri.clone(),
+                            version: Some((*version) as i64),
+                            full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                result_id: Some(version.to_string()),
+                                items: diagnostics.clone(),
+                            },
+                        },
+                    ));
+                }
+            }
+        }
+        
+        Ok(WorkspaceDiagnosticReportResult::Report(
+            WorkspaceDiagnosticReport { items },
+        ))
     }
 }
 

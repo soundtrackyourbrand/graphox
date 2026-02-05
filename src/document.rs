@@ -92,6 +92,7 @@ pub struct DocumentState {
     pub operations: Vec<OperationDef>,
     pub package_root: Option<PathBuf>,
     pub masked_source: String,
+    pub version: i32,
 }
 
 impl fmt::Debug for DocumentState {
@@ -131,6 +132,7 @@ impl DocumentState {
             operations: Vec::new(),
             package_root,
             masked_source,
+            version: 0,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();
         doc.fragments = doc.extract_fragment_names();
@@ -653,8 +655,12 @@ impl DocumentState {
     pub fn apply_change(
         &mut self,
         change: &TextDocumentContentChangeEvent,
-        parser: &mut tree_sitter::Parser,
+        parser: &mut Parser,
+        version: i32,
     ) {
+        // Update version
+        self.version = version;
+        
         if let Some(range) = change.range {
             let start_byte = self.position_to_byte(range.start);
             let old_end_byte = self.position_to_byte(range.end);

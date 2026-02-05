@@ -30,6 +30,7 @@ pub struct DocumentChangeParams<'a> {
 pub fn process_document_change(
     uri: &Url,
     changes: Vec<TextDocumentContentChangeEvent>,
+    version: i32,
     params: &DocumentChangeParams<'_>,
 ) -> Option<ChangeResult> {
     let mut affected_fragment_names = FnvHashSet::default();
@@ -61,7 +62,7 @@ pub fn process_document_change(
             .unwrap();
 
         for change in changes {
-            doc.apply_change(&change, &mut parser);
+            doc.apply_change(&change, &mut parser, version);
         }
 
         // Collect fragments after change

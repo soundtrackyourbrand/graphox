@@ -34,7 +34,15 @@ pub struct ValidationParams<'a> {
 }
 
 /// Validates a list of document URIs and publishes diagnostics
-pub async fn validate_uris(params: ValidationParams<'_>, uris: Vec<Url>) {
+/// 
+/// If `use_push` is true, diagnostics are pushed via `publishDiagnostics`.
+/// If false, diagnostics are only cached for pull-based retrieval.
+pub async fn validate_uris(
+    params: ValidationParams<'_>,
+    uris: Vec<Url>,
+    use_push: bool,
+    diagnostic_cache: Option<&Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>>,
+) {
     if uris.is_empty() {
         return;
     }
@@ -70,19 +78,34 @@ pub async fn validate_uris(params: ValidationParams<'_>, uris: Vec<Url>) {
                 false,
                 workspace_loaded,
             );
-            to_publish.push((uri.clone(), diagnostics));
+            
+            // Cache diagnostics for pull-based diagnostics
+            if let Some(cache) = diagnostic_cache {
+                cache.insert(uri.clone(), (doc.version, diagnostics.clone()));
+            }
+            
+            if use_push {
+                to_publish.push((uri.clone(), diagnostics));
+            }
         }
     }
 
-    for (u, d) in to_publish {
-        params.client.publish_diagnostics(u, d, None).await;
+    // Only publish if using push-based diagnostics
+    if use_push {
+        for (u, d) in to_publish {
+            params.client.publish_diagnostics(u, d, None).await;
+        }
     }
 }
 
 /// Validates all documents in the workspace
-pub async fn validate_all_documents(params: ValidationParams<'_>) {
+pub async fn validate_all_documents(
+    params: ValidationParams<'_>,
+    use_push: bool,
+    diagnostic_cache: Option<&Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>>,
+) {
     let all_uris: Vec<Url> = params.documents.iter().map(|e| e.key().clone()).collect();
-    validate_uris(params, all_uris).await;
+    validate_uris(params, all_uris, use_push, diagnostic_cache).await;
 }
 
 /// Computes the set of URIs that need validation based on affected fragments
