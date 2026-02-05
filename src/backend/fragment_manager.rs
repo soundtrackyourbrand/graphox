@@ -22,6 +22,11 @@ pub fn collect_fragment_metadata(
     config: &Config,
     package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
 ) -> Vec<FragmentCompletionInfo> {
+    // Clone Arc references to avoid holding locks during iteration
+    // This prevents lock contention when accessing multiple DashMaps concurrently
+    let fragment_defs = fragment_defs.clone();
+    let package_roots = package_roots.clone();
+
     fragment_defs
         .iter()
         .flat_map(|entry| {
@@ -68,6 +73,11 @@ pub fn collect_fragment_metadata_with_schema(
     config: &Config,
     package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
 ) -> Vec<(FragmentCompletionInfo, Option<String>)> {
+    // Clone Arc references to avoid holding locks during iteration
+    // This prevents lock contention when accessing multiple DashMaps concurrently
+    let fragment_defs = fragment_defs.clone();
+    let package_roots = package_roots.clone();
+
     fragment_defs
         .iter()
         .flat_map(|entry| {

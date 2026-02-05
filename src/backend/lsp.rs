@@ -478,8 +478,11 @@ impl LanguageServer for Backend {
                 }
 
                 if let Some(symbol_name) = doc.get_symbol_at_position(position) {
-                    for entry in self.documents.iter() {
-                        let other_doc = entry.value();
+                    // Collect documents first to avoid holding DashMap locks during processing
+                    let doc_arcs: Vec<Arc<DocumentState>> =
+                        self.documents.iter().map(|e| e.value().clone()).collect();
+
+                    for other_doc in doc_arcs {
                         let is_same_package = other_doc.package_root == doc.package_root;
                         let is_public_fragment = other_doc
                             .fragments()
@@ -597,8 +600,11 @@ impl LanguageServer for Backend {
         let symbol_name = item.name;
         let mut incoming = Vec::new();
 
-        for entry in self.documents.iter() {
-            let doc = entry.value();
+        // Collect documents first to avoid holding DashMap locks during processing
+        let doc_arcs: Vec<Arc<DocumentState>> =
+            self.documents.iter().map(|e| e.value().clone()).collect();
+
+        for doc in doc_arcs {
             let refs = doc.find_references_in_tree(&symbol_name, false);
 
             if !refs.is_empty() {
@@ -660,12 +666,15 @@ impl LanguageServer for Backend {
         if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
             let mut calls = doc.get_outgoing_calls(&symbol_name);
 
+            // Collect documents first to avoid holding DashMap locks during processing
+            let doc_arcs: Vec<Arc<DocumentState>> =
+                self.documents.iter().map(|e| e.value().clone()).collect();
+
             // Resolve the 'to' items
             for call in &mut calls {
                 let callee_name = &call.to.name;
                 // Find where it's defined
-                for entry in self.documents.iter() {
-                    let other_doc = entry.value();
+                for other_doc in &doc_arcs {
                     if let Some(loc) = other_doc.find_definition_in_tree(callee_name) {
                         call.to.uri = loc.uri;
                         call.to.range = loc.range;
