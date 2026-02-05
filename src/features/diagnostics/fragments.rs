@@ -229,20 +229,23 @@ impl DocumentState {
 
             let mut used_variables = None;
             let mut used_fragments = None;
-            let mut exists = false;
-
+            let mut fragment_exists = false;
             if let Some(f) = ctx.all_fragments.iter().find(|f| f.name == name) {
-                exists = true;
+                fragment_exists = true;
                 used_variables = Some(&f.used_variables);
                 used_fragments = Some(&f.used_fragments);
             } else if let Some(f) = self.fragments.iter().find(|f| f.name == name) {
-                exists = true;
+                fragment_exists = true;
                 used_variables = Some(&f.used_variables);
                 used_fragments = Some(&f.used_fragments);
             }
 
             if name == initial_name {
-                initial_exists = exists;
+                initial_exists = fragment_exists;
+            }
+
+            if !fragment_exists {
+                continue;
             }
 
             if let Some(vars) = used_variables {

@@ -897,11 +897,11 @@ impl LanguageServer for Backend {
                 used
             };
 
-            // Pre-calculate validated schemas
-            let mut validated_schemas = fnv::FnvHashMap::default();
+            // Pre-calculate validated schemas to avoid repeated validation
+            let mut validated_schemas_map = fnv::FnvHashMap::default();
             for entry in schemas.iter() {
                 if let Ok(valid) = (**entry.value()).clone().validate() {
-                    validated_schemas.insert(entry.key().clone(), Arc::new(valid));
+                    validated_schemas_map.insert(entry.key().clone(), Arc::new(valid));
                 }
             }
             let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap());
@@ -913,28 +913,28 @@ impl LanguageServer for Backend {
                     let uri = entry.key();
                     let frags = entry.value();
 
+                    let import_path = if let Ok(p) = uri.to_file_path() {
+                        config
+                            .get_project_for_path(&p)
+                            .and_then(|proj| proj.import.clone())
+                    } else {
+                        None
+                    };
+
+                    let package_root =
+                        package_roots.get(uri).and_then(|r| r.value().clone());
+
                     frags
                         .iter()
-                        .map(|frag| {
-                            let import_path = if let Ok(p) = uri.to_file_path() {
-                                config
-                                    .get_project_for_path(&p)
-                                    .and_then(|proj| proj.import.clone())
-                            } else {
-                                None
-                            };
-
-                            let package_root =
-                                package_roots.get(uri).and_then(|r| r.value().clone());
-
+                        .map(move |frag| {
                             FragmentCompletionInfo {
                                 name: frag.name.clone(),
                                 type_condition: frag.type_condition.clone(),
                                 description: frag.description.clone(),
-                                import_path,
+                                import_path: import_path.clone(),
                                 is_public: frag.is_public,
                                 uri: uri.clone(),
-                                package_root,
+                                package_root: package_root.clone(),
                                 used_variables: frag.used_variables.clone(),
                                 used_fragments: frag.used_fragments.clone(),
                                 requirements: std::collections::BTreeMap::new(),
@@ -944,7 +944,6 @@ impl LanguageServer for Backend {
                 })
                 .collect();
 
-            use rayon::prelude::*;
             let to_publish: Vec<(Url, Vec<Diagnostic>)> = documents
                 .as_ref()
                 .par_iter()
@@ -953,9 +952,9 @@ impl LanguageServer for Backend {
                     let doc = entry.value();
 
                     // Get schema for doc
-                    let schema = if let Ok(path) = uri.to_file_path()
+                    let schema: Arc<apollo_compiler::validation::Valid<Schema>> = if let Ok(path) = uri.to_file_path()
                         && let Some(schema_path) = config.get_schema_for_path(&path)
-                        && let Some(schema) = validated_schemas.get(&schema_path)
+                        && let Some(schema) = validated_schemas_map.get(&schema_path)
                     {
                         schema.clone()
                     } else {
