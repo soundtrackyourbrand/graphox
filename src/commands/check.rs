@@ -54,23 +54,33 @@ async fn execute_project_check(
     config: &Config,
     verbose: bool,
 ) -> bool {
-    let mut combined_text = String::new();
+    let mut texts = Vec::new();
     for file in source.files() {
         match std::fs::read_to_string(base_dir.join(file)) {
             Ok(t) => {
-                combined_text.push_str(&t);
-                combined_text.push('\n');
+                texts.push(t);
             }
             Err(e) => {
-                eprintln!("{} {}: {}", "Failed to read schema".red(), source.as_key().blue(), e.to_string().red());
+                eprintln!(
+                    "{} {}: {}",
+                    "Failed to read schema".red(),
+                    source.as_key().blue(),
+                    e.to_string().red()
+                );
                 return false;
             }
         }
     }
+    let combined_text = graphql_rust::utils::merge_schema_texts(&texts);
     let schema = match Schema::parse(&combined_text, source.as_key()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("{} {}: {}", "Failed to parse schema".red(), source.as_key().blue(), e.to_string().red());
+            eprintln!(
+                "{} {}: {}",
+                "Failed to parse schema".red(),
+                source.as_key().blue(),
+                e.to_string().red()
+            );
             return false;
         }
     };
