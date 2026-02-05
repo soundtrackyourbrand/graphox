@@ -1,0 +1,10 @@
+mod cli;
+mod cross_project_docs;
+mod cross_project_features;
+mod lsp_multi_schema;
+mod lsp_updates;
+mod multibyte;
+mod swc_cli;
+mod template_tags;
+mod tsx_support;
+mod workspace_scan_concurrency;
