@@ -10,5 +10,7 @@ mod lsp_code_actions;
 mod lsp_commands;
 mod references;
 mod rename;
+mod semantic_tokens;
 mod signature_help;
+mod symbols;
 mod workspace_symbols;
