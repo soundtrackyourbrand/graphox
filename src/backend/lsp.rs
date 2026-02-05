@@ -2,16 +2,15 @@ use crate::Config;
 use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::features::completion::FragmentCompletionInfo;
-use crate::utils::{SEMANTIC_TOKEN_LEGEND, is_relevant_file};
+use crate::utils::SEMANTIC_TOKEN_LEGEND;
 use super::fragment_manager;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
 use rayon::prelude::*;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
 
 pub struct Backend {
@@ -105,14 +104,12 @@ impl Backend {
     }
 
     pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<apollo_compiler::validation::Valid<Schema>> {
-        if let Ok(path) = uri.to_file_path()
-            && let Some(schema_path) = self.config.get_schema_for_path(&path)
-            && let Some(schema) = self.validated_schemas.get(&schema_path)
-        {
-            return schema.value().clone();
-        }
-
-        self.valid_empty_schema.clone()
+        super::validation::get_schema_for_doc(
+            uri,
+            &self.config,
+            &self.validated_schemas,
+            &self.valid_empty_schema,
+        )
     }
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
@@ -124,42 +121,12 @@ impl Backend {
     }
 
     pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
-        let all_fragments = self.get_all_fragments_info();
-        let target_package_root = doc.package_root.as_ref();
-        let doc_path = doc.uri.to_file_path().ok();
-        let schema_key = doc_path
-            .as_ref()
-            .and_then(|p| self.config.get_schema_for_path(p));
-
-        let mut filtered: Vec<_> = all_fragments
-            .into_iter()
-            .filter(|f| {
-                let is_same_package = f.package_root.as_ref() == target_package_root;
-                if is_same_package || f.is_public {
-                    return true;
-                }
-
-                if let Some(f_path) = f.uri.to_file_path().ok() {
-                    let f_schema_key = self.config.get_schema_for_path(&f_path);
-                    return f_schema_key.is_some() && f_schema_key == schema_key;
-                }
-                false
-            })
-            .collect();
-
-        // Prioritize: same package > same project > public
-        filtered.sort_by(|a, b| {
-            let a_same_pkg = a.package_root.as_ref() == target_package_root;
-            let b_same_pkg = b.package_root.as_ref() == target_package_root;
-
-            if a_same_pkg != b_same_pkg {
-                return b_same_pkg.cmp(&a_same_pkg);
-            }
-
-            b.is_public.cmp(&a.is_public).reverse() // prefer non-public
-        });
-
-        filtered
+        super::validation::get_fragments_for_doc(
+            doc,
+            &self.config,
+            &self.fragment_defs,
+            &self.package_roots,
+        )
     }
 
     fn get_transitive_fragments(
@@ -255,13 +222,7 @@ impl Backend {
     }
 
     pub fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
-        let mut used = fnv::FnvHashSet::default();
-        for entry in self.fragment_spreads.iter() {
-            for spread in entry.value() {
-                used.insert(spread.clone());
-            }
-        }
-        used
+        super::validation::get_used_fragments(&self.fragment_spreads)
     }
 
     async fn with_tracing<T, Fut>(&self, name: &str, fut: Fut) -> Fut::Output
@@ -287,218 +248,41 @@ impl Backend {
     }
 
     async fn reload_schema(&self, changed_path: &str) {
-        let mut sources_to_reload = Vec::new();
-        for project in &self.config.projects {
-            if project.schema.files().iter().any(|f| {
-                let abs = self.config.base_dir.join(f);
-                abs.to_string_lossy() == changed_path
-                    || abs
-                        .canonicalize()
-                        .ok()
-                        .map(|p| p.to_string_lossy().to_string())
-                        == Some(changed_path.to_string())
-            }) {
-                sources_to_reload.push(project.schema.clone());
-            }
-        }
-        if let Some(schema_types) = &self.config.schema_types {
-            for st in schema_types {
-                if st.schema.files().iter().any(|f| {
-                    let abs = self.config.base_dir.join(f);
-                    abs.to_string_lossy() == changed_path
-                        || abs
-                            .canonicalize()
-                            .ok()
-                            .map(|p| p.to_string_lossy().to_string())
-                            == Some(changed_path.to_string())
-                }) {
-                    sources_to_reload.push(st.schema.clone());
-                }
-            }
-        }
+        let reloaded_keys = super::schema_management::reload_schema(
+            changed_path,
+            &self.config,
+            &self.schemas,
+            &self.validated_schemas,
+            &self.client,
+        )
+        .await;
 
-        for source in sources_to_reload {
-            let key = source.as_key();
-            let new_schema = Self::load_schema_source(&self.config.base_dir, &source);
-
-            if let Some(new_schema) = new_schema {
-                if let Ok(valid) = (*new_schema).clone().validate() {
-                    self.validated_schemas.insert(key.clone(), Arc::new(valid));
-                }
-                self.schemas.insert(key.clone(), new_schema.clone());
-                self.client
-                    .log_message(
-                        MessageType::INFO,
-                        format!("Schema set {} successfully reloaded!", key),
-                    )
-                    .await;
-
-                let mut affected_by_schema = Vec::new();
-                let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
-                for uri in all_uris {
-                    if let Ok(doc_path) = uri.to_file_path() {
-                        if self
-                            .config
-                            .get_schema_for_path(&doc_path)
-                            .is_some_and(|p| p.as_str() == key.as_str())
-                        {
-                            affected_by_schema.push(uri);
-                        }
-                    }
-                }
-                self.validate_uris(affected_by_schema).await;
-            }
+        // Validate documents affected by reloaded schemas
+        for key in reloaded_keys {
+            let affected = super::schema_management::get_uris_affected_by_schema(
+                &key,
+                &self.config,
+                || self.documents.iter().map(|e| e.key().clone()).collect(),
+            );
+            self.validate_uris(affected).await;
         }
     }
 
     async fn clear_cache(&self) {
-        self.schemas.clear();
-        self.validated_schemas.clear();
-
-        // Reload project schemas from config
-        for project in &self.config.projects {
-            let key = project.schema.as_key();
-            if !self.schemas.contains_key(&key)
-                && let Some(schema) =
-                    Self::load_schema_source(&self.config.base_dir, &project.schema)
-            {
-                if let Ok(valid) = (*schema).clone().validate() {
-                    self.validated_schemas.insert(key.clone(), Arc::new(valid));
-                }
-                self.schemas.insert(key, schema);
-            }
-        }
+        super::schema_management::clear_cache(
+            &self.config,
+            &self.schemas,
+            &self.validated_schemas,
+            &self.client,
+        )
+        .await;
 
         // Re-validate all open documents
         self.validate_all_documents().await;
-
-        self.client
-            .log_message(MessageType::INFO, "Cache cleared and schemas reloaded!")
-            .await;
     }
 
     pub async fn run_codegen(&self) {
-        Self::run_codegen_internal(self.client.clone(), self.config.clone()).await;
-    }
-
-    async fn run_codegen_internal(client: Client, config: Config) {
-        let workspace_metadata = crate::engine::Engine::scan_workspace(&config, |_, _| {});
-
-        let global_metadata = &workspace_metadata.fragments;
-        let global_output_dir = config.output_dir.as_deref();
-        let mut all_generated_operations = Vec::new();
-
-        for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
-            let project_files = &project_meta.files;
-            let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
-
-            let project_schema_files: fnv::FnvHashSet<_> =
-                project.schema.files().into_iter().collect();
-            let schema_import = config.schema_types.as_ref().and_then(|sts| {
-                let mut matches: Vec<_> = sts
-                    .iter()
-                    .filter(|st| {
-                        let st_files = st.schema.files();
-                        st_files.iter().all(|f| project_schema_files.contains(f))
-                    })
-                    .collect();
-
-                matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
-                matches.first().and_then(|st| st.import.clone())
-            });
-
-            let schema = match crate::schema::load_schema(&config.base_dir, &project.schema)
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = client.log_message(MessageType::ERROR, e).await;
-                    continue;
-                }
-            };
-
-            let valid_schema = match schema.validate() {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = client
-                        .log_message(
-                            MessageType::ERROR,
-                            format!(
-                                "Schema validation failed for project {}: {}",
-                                project.include.as_key(),
-                                e
-                            ),
-                        )
-                        .await;
-                    continue;
-                }
-            };
-
-            let project_context = crate::engine::Engine::resolve_project_context(
-                &valid_schema,
-                global_metadata,
-                project_files,
-            );
-
-            for path in project_files {
-                if let Some(doc) = workspace_metadata.documents.get(path) {
-                    if doc.get_graphql_trees().is_empty() {
-                        continue;
-                    }
-
-                    let ctx = crate::features::codegen::CodegenContext {
-                        schema: &valid_schema,
-                        fragment_to_path: &project_context.fragment_to_path,
-                        fragment_to_import: &project_context.fragment_to_import,
-                        fragment_to_type_only: &project_context.fragment_to_type_only,
-                        all_fragments: &project_context.all_fragments,
-                        current_file_path: path,
-                        scalars: &config.scalars,
-                        schema_import: &schema_import,
-                        generate_ast_for_fragments: config
-                            .generate_ast_for_fragments
-                            .unwrap_or(false),
-                    };
-
-                    if let Ok((ts_code, mut ops)) =
-                        crate::features::codegen::generate_typescript(doc, &ctx)
-                    {
-                        let out_path = crate::utils::get_output_path(
-                            path,
-                            &config.base_dir,
-                            project_output_dir,
-                        );
-                        let abs_out_path = if out_path.is_absolute() {
-                            out_path
-                        } else {
-                            config.base_dir.join(out_path)
-                        };
-
-                        if let Some(parent) = abs_out_path.parent() {
-                            std::fs::create_dir_all(parent).ok();
-                        }
-
-                        if std::fs::write(&abs_out_path, ts_code).is_ok() {
-                            for op in &mut ops {
-                                op.codegen_path = abs_out_path.clone();
-                            }
-                            all_generated_operations.extend(ops);
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(out_dir) = global_output_dir {
-            let out_dir_path = config.base_dir.join(out_dir);
-            let entrypoint_path = out_dir_path.join("graphql.ts");
-            if !all_generated_operations.is_empty() {
-                let content = crate::features::codegen::generate_entrypoint_content(
-                    &out_dir_path,
-                    &all_generated_operations,
-                );
-                let _ = std::fs::write(entrypoint_path, content);
-            }
-        }
+        super::codegen_runner::run_codegen(self.client.clone(), self.config.clone()).await;
     }
 
     fn update_dependency_indices(
@@ -530,50 +314,39 @@ impl Backend {
     }
 
     pub async fn validate_uris(&self, uris: Vec<Url>) {
-        if uris.is_empty() {
-            return;
-        }
-
-        let mut to_publish = Vec::new();
-        let used_fragments = self.get_used_fragments();
-        let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
-
-        for uri in uris {
-            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-                // Skip validating schema files as executable documents
-                if let Ok(path) = uri.to_file_path() {
-                    if let Some(schema_key) = self.config.get_schema_for_path(&path) {
-                        if schema_key.contains(&path.to_string_lossy().to_string())
-                            && !self.open_documents.contains(&uri)
-                        {
-                            continue;
-                        }
-                    }
-                }
-
-                let schema = self.get_schema_for_doc(&uri);
-                let filtered_fragments = self.get_fragments_for_doc(&doc);
-
-                let diagnostics = doc.get_semantic_diagnostics(
-                    &schema,
-                    &filtered_fragments,
-                    Some(&used_fragments),
-                    Some(&self.config),
-                    false,
-                    workspace_loaded,
-                );
-                to_publish.push((uri.clone(), diagnostics));
-            }
-        }
-
-        for (u, d) in to_publish {
-            self.client.publish_diagnostics(u, d, None).await;
-        }
+        let params = super::validation::ValidationParams {
+            client: &self.client,
+            documents: &self.documents,
+            config: &self.config,
+            fragment_defs: &self.fragment_defs,
+            fragment_spreads: &self.fragment_spreads,
+            package_roots: &self.package_roots,
+            validated_schemas: &self.validated_schemas,
+            valid_empty_schema: &self.valid_empty_schema,
+            workspace_loaded: &self.workspace_loaded,
+            open_documents: &self.open_documents,
+            fragment_dependents: &self.fragment_dependents,
+            fragment_definitions: &self.fragment_definitions,
+        };
+        super::validation::validate_uris(params, uris).await;
     }
 
     pub async fn validate_all_documents(&self) {
-        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
-        self.validate_uris(all_uris).await;
+        let params = super::validation::ValidationParams {
+            client: &self.client,
+            documents: &self.documents,
+            config: &self.config,
+            fragment_defs: &self.fragment_defs,
+            fragment_spreads: &self.fragment_spreads,
+            package_roots: &self.package_roots,
+            validated_schemas: &self.validated_schemas,
+            valid_empty_schema: &self.valid_empty_schema,
+            workspace_loaded: &self.workspace_loaded,
+            open_documents: &self.open_documents,
+            fragment_dependents: &self.fragment_dependents,
+            fragment_definitions: &self.fragment_definitions,
+        };
+        super::validation::validate_all_documents(params).await;
     }
 
     fn get_affected_uris(
@@ -582,39 +355,14 @@ impl Backend {
         affected_fragment_names: FnvHashSet<String>,
         affected_spread_names: FnvHashSet<String>,
     ) -> Vec<Url> {
-        let mut uris_to_validate = FnvHashSet::default();
-        uris_to_validate.insert(initial_uri);
-
-        let mut to_process: Vec<String> = affected_fragment_names.into_iter().collect();
-        let mut processed_fragments = FnvHashSet::default();
-
-        while let Some(frag_name) = to_process.pop() {
-            if !processed_fragments.insert(frag_name.clone()) {
-                continue;
-            }
-
-            if let Some(dependents) = self.fragment_dependents.get(&frag_name) {
-                for dep_uri in dependents.value() {
-                    if uris_to_validate.insert(dep_uri.clone()) {
-                        if let Some(doc) = self.documents.get(dep_uri).map(|r| r.value().clone()) {
-                            for f in doc.fragments() {
-                                to_process.push(f.name.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for spread_name in affected_spread_names {
-            if let Some(definitions) = self.fragment_definitions.get(&spread_name) {
-                for def_uri in definitions.value() {
-                    uris_to_validate.insert(def_uri.clone());
-                }
-            }
-        }
-
-        uris_to_validate.into_iter().collect()
+        super::validation::get_affected_uris(
+            initial_uri,
+            affected_fragment_names,
+            affected_spread_names,
+            &self.documents,
+            &self.fragment_dependents,
+            &self.fragment_definitions,
+        )
     }
 }
 
@@ -978,7 +726,7 @@ impl LanguageServer for Backend {
             let client = self.client.clone();
             let config = self.config.clone();
             tokio::spawn(async move {
-                Self::run_codegen_internal(client, config).await;
+                super::codegen_runner::run_codegen(client, config).await;
             });
         }
     }
@@ -990,81 +738,28 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = self.normalize_uri(params.text_document.uri.clone());
 
-        let mut affected_fragment_names = FnvHashSet::default();
-        let mut old_fragment_names = Vec::new();
-        let old_spreads: Vec<String>;
+        // Process document changes and update indices
+        if let Some(result) = super::document_changes::process_document_change(
+            &uri,
+            params.content_changes,
+            &self.documents,
+            &self.fragment_defs,
+            &self.fragment_spreads,
+            &self.package_roots,
+            &self.fragment_dependents,
+            &self.fragment_definitions,
+        ) {
+            // Validate affected documents
+            self.validate_uris(result.uris_to_validate).await;
 
-        let new_fragments: Vec<crate::document::FragmentDef>;
-        let new_spreads: Vec<String>;
-        let package_root: Option<PathBuf>;
-        let new_fragment_names: Vec<String>;
-        let affected_spread_names: FnvHashSet<String>;
-
-        if let Some(doc_arc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let mut doc = (*doc_arc).clone();
-
-            // Collect fragments before change
-            for f in doc.fragments() {
-                affected_fragment_names.insert(f.name.clone());
-                old_fragment_names.push(f.name.clone());
+            // Run codegen if enabled
+            if self.config.lsp_automatic_codegen() {
+                let client = self.client.clone();
+                let config = self.config.clone();
+                tokio::spawn(async move {
+                    super::codegen_runner::run_codegen(client, config).await;
+                });
             }
-
-            old_spreads = doc.fragment_spreads.clone();
-
-            let mut parser = tree_sitter::Parser::new();
-            parser
-                .set_language(&doc.language.get_parser_language())
-                .unwrap();
-
-            for change in params.content_changes {
-                doc.apply_change(&change, &mut parser);
-            }
-
-            // Collect fragments after change
-            for f in doc.fragments() {
-                affected_fragment_names.insert(f.name.clone());
-            }
-
-            new_fragments = doc.fragments().to_vec();
-            new_spreads = doc.fragment_spreads.clone();
-
-            let mut aff_spreads = FnvHashSet::default();
-            for s in &old_spreads {
-                if !new_spreads.contains(s) {
-                    aff_spreads.insert(s.clone());
-                }
-            }
-            for s in &new_spreads {
-                if !old_spreads.contains(s) {
-                    aff_spreads.insert(s.clone());
-                }
-            }
-            affected_spread_names = aff_spreads;
-            package_root = doc.package_root.clone();
-            new_fragment_names = doc.fragments().iter().map(|f| f.name.clone()).collect();
-
-            self.documents.insert(uri.clone(), Arc::new(doc));
-        } else {
-            return;
-        }
-
-        self.fragment_defs.insert(uri.clone(), new_fragments);
-        self.fragment_spreads
-            .insert(uri.clone(), new_spreads.clone());
-        self.update_dependency_indices(&uri, Some(old_spreads), new_spreads);
-        self.update_definition_indices(&uri, Some(old_fragment_names), new_fragment_names);
-        self.package_roots.insert(uri.clone(), package_root);
-
-        let uris_to_validate =
-            self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
-        self.validate_uris(uris_to_validate).await;
-
-        if self.config.lsp_automatic_codegen() {
-            let client = self.client.clone();
-            let config = self.config.clone();
-            tokio::spawn(async move {
-                Self::run_codegen_internal(client, config).await;
-            });
         }
     }
 
@@ -1502,166 +1197,54 @@ impl LanguageServer for Backend {
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         self.with_tracing("did_change_watched_files", async move {
             for change in params.changes {
-                if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
-                    let path = change.uri.to_file_path().unwrap();
-                    let path_str = path.to_string_lossy().to_string();
+                let change_params = super::file_change_handler::FileChangeParams {
+                    client: &self.client,
+                    config: &self.config,
+                    documents: &self.documents,
+                    fragment_defs: &self.fragment_defs,
+                    fragment_spreads: &self.fragment_spreads,
+                    package_roots: &self.package_roots,
+                    fragment_dependents: &self.fragment_dependents,
+                    fragment_definitions: &self.fragment_definitions,
+                    gitignore: &self.gitignore,
+                };
 
-                    // Check if this is a schema file
-                    let mut is_schema = false;
-                    for project in &self.config.projects {
-                        if project.schema.files().iter().any(|f| {
-                            let abs = self.config.base_dir.join(f);
-                            abs.to_string_lossy() == path_str
-                                || abs
-                                    .canonicalize()
-                                    .ok()
-                                    .map(|p| p.to_string_lossy().to_string())
-                                    == Some(path_str.clone())
-                        }) {
-                            is_schema = true;
-                            break;
-                        }
-                    }
-
-                    if !is_schema && let Some(schema_types) = &self.config.schema_types {
-                        for st in schema_types {
-                            if st.schema.files().iter().any(|f| {
-                                let abs = self.config.base_dir.join(f);
-                                abs.to_string_lossy() == path_str
-                                    || abs
-                                        .canonicalize()
-                                        .ok()
-                                        .map(|p| p.to_string_lossy().to_string())
-                                        == Some(path_str.clone())
-                            }) {
-                                is_schema = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if is_schema {
-                        self.reload_schema(&path_str).await;
-                    } else if is_relevant_file(&path)
-                        && !crate::utils::is_path_ignored(&path, &self.gitignore)
-                    {
-                        // Update document if it's already open
-                        let uri = self.normalize_uri(change.uri);
-
-                        let mut affected_fragment_names = FnvHashSet::default();
-                        let mut affected_spread_names = FnvHashSet::default();
-
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            let language = DocumentLanguage::from_uri(&uri);
-                            let mut parser = tree_sitter::Parser::new();
-                            parser
-                                .set_language(&language.get_parser_language())
-                                .unwrap();
-                            let new_doc = DocumentState::new(uri.clone(), &content, parser);
-
-                            let old_fragments = self
-                                .fragment_defs
-                                .get(&uri)
-                                .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
-                            let old_spreads = self.fragment_spreads.get(&uri).map(|s| s.clone());
-
-                            let new_fragment_defs = new_doc.fragments().to_vec();
-                            let new_fragment_names: Vec<_> =
-                                new_fragment_defs.iter().map(|f| f.name.clone()).collect();
-                            let new_spreads = new_doc.fragment_spreads.clone();
-
-                            // Track changes to fragment definitions
-                            if let Some(old) = &old_fragments {
-                                for name in old {
-                                    if !new_fragment_names.contains(name) {
-                                        affected_fragment_names.insert(name.clone());
-                                    }
-                                }
-                            }
-                            for name in &new_fragment_names {
-                                if old_fragments.as_ref().is_none_or(|old| !old.contains(name)) {
-                                    affected_fragment_names.insert(name.clone());
-                                }
-                            }
-
-                            // Track changes to fragment spreads
-                            if let Some(old) = &old_spreads {
-                                for name in old {
-                                    if !new_spreads.contains(name) {
-                                        affected_spread_names.insert(name.clone());
-                                    }
-                                }
-                            }
-                            for name in &new_spreads {
-                                if old_spreads.as_ref().is_none_or(|old| !old.contains(name)) {
-                                    affected_spread_names.insert(name.clone());
-                                }
-                            }
-
-                            // Update metadata
-                            self.fragment_defs.insert(uri.clone(), new_fragment_defs);
-                            self.fragment_spreads
-                                .insert(uri.clone(), new_spreads.clone());
-                            self.package_roots
-                                .insert(uri.clone(), new_doc.package_root.clone());
-
-                            self.update_definition_indices(&uri, old_fragments, new_fragment_names);
-                            self.update_dependency_indices(&uri, old_spreads, new_spreads);
-
-                            // Update documents map if we have it
-                            if self.documents.contains_key(&uri) {
-                                self.documents.insert(uri.clone(), Arc::new(new_doc));
-                            }
-
-                            let uris_to_validate = self.get_affected_uris(
-                                uri,
-                                affected_fragment_names,
-                                affected_spread_names,
-                            );
-                            self.validate_uris(uris_to_validate).await;
-
-                            if self.config.lsp_automatic_codegen() {
-                                let client = self.client.clone();
-                                let config = self.config.clone();
-                                tokio::spawn(async move {
-                                    Self::run_codegen_internal(client, config).await;
-                                });
-                            }
-                        }
-                    }
+                let result = if change.typ == FileChangeType::CREATED
+                    || change.typ == FileChangeType::CHANGED
+                {
+                    super::file_change_handler::process_file_created_or_changed(
+                        change.uri,
+                        &change_params,
+                        |uri| self.normalize_uri(uri),
+                    )
                 } else if change.typ == FileChangeType::DELETED {
-                    let uri = self.normalize_uri(change.uri);
-                    let mut affected_fragment_names = FnvHashSet::default();
-                    let mut affected_spread_names = FnvHashSet::default();
+                    super::file_change_handler::process_file_deleted(
+                        change.uri,
+                        &change_params,
+                        |uri| self.normalize_uri(uri),
+                    )
+                } else {
+                    None
+                };
 
-                    let old_fragments = self
-                        .fragment_defs
-                        .get(&uri)
-                        .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
-                    let old_spreads = self.fragment_spreads.get(&uri).map(|s| s.clone());
-
-                    if let Some(old) = &old_fragments {
-                        for name in old {
-                            affected_fragment_names.insert(name.clone());
-                        }
-                    }
-                    if let Some(old) = &old_spreads {
-                        for name in old {
-                            affected_spread_names.insert(name.clone());
+                if let Some(result) = result {
+                    if result.should_reload_schema {
+                        if let Some(schema_path) = result.schema_path {
+                            self.reload_schema(&schema_path).await;
                         }
                     }
 
-                    // Clean up metadata
-                    self.documents.remove(&uri);
-                    self.fragment_defs.remove(&uri);
-                    self.fragment_spreads.remove(&uri);
-                    self.package_roots.remove(&uri);
-                    self.update_definition_indices(&uri, old_fragments, vec![]);
-                    self.update_dependency_indices(&uri, old_spreads, vec![]);
+                    if !result.uris_to_validate.is_empty() {
+                        self.validate_uris(result.uris_to_validate).await;
+                    }
 
-                    let uris_to_validate =
-                        self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
-                    self.validate_uris(uris_to_validate).await;
+                    if result.should_run_codegen {
+                        let client = self.client.clone();
+                        let config = self.config.clone();
+                        tokio::spawn(async move {
+                            super::codegen_runner::run_codegen(client, config).await;
+                        });
+                    }
                 }
             }
         })
