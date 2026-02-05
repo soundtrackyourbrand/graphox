@@ -6,8 +6,8 @@ use crate::utils::{SEMANTIC_TOKEN_LEGEND, is_relevant_file};
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
-use serde_json::Value;
 use rayon::prelude::*;
+use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -150,19 +150,22 @@ impl Backend {
                     (None, None)
                 };
 
-                frags.iter().map(move |frag| FragmentCompletionInfo {
-                    name: frag.name.clone(),
-                    type_condition: frag.type_condition.clone(),
-                    description: frag.description.clone(),
-                    import_path: import_path.clone(),
-                    is_public: frag.is_public,
-                    is_type_only: frag.is_type_only,
-                    uri: uri.clone(),
-                    package_root: package_root.clone(),
-                    used_variables: frag.used_variables.clone(),
-                    used_fragments: frag.used_fragments.clone(),
-                    requirements: std::collections::BTreeMap::new(),
-                }).collect::<Vec<_>>()
+                frags
+                    .iter()
+                    .map(move |frag| FragmentCompletionInfo {
+                        name: frag.name.clone(),
+                        type_condition: frag.type_condition.clone(),
+                        description: frag.description.clone(),
+                        import_path: import_path.clone(),
+                        is_public: frag.is_public,
+                        is_type_only: frag.is_type_only,
+                        uri: uri.clone(),
+                        package_root: package_root.clone(),
+                        used_variables: frag.used_variables.clone(),
+                        used_fragments: frag.used_fragments.clone(),
+                        requirements: std::collections::BTreeMap::new(),
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect()
     }
@@ -171,7 +174,9 @@ impl Backend {
         let all_fragments = self.get_all_fragments_info();
         let target_package_root = doc.package_root.as_ref();
         let doc_path = doc.uri.to_file_path().ok();
-        let schema_key = doc_path.as_ref().and_then(|p| self.config.get_schema_for_path(p));
+        let schema_key = doc_path
+            .as_ref()
+            .and_then(|p| self.config.get_schema_for_path(p));
 
         let mut filtered: Vec<_> = all_fragments
             .into_iter()
@@ -180,7 +185,7 @@ impl Backend {
                 if is_same_package || f.is_public {
                     return true;
                 }
-                
+
                 if let Some(f_path) = f.uri.to_file_path().ok() {
                     let f_schema_key = self.config.get_schema_for_path(&f_path);
                     return f_schema_key.is_some() && f_schema_key == schema_key;
@@ -193,11 +198,11 @@ impl Backend {
         filtered.sort_by(|a, b| {
             let a_same_pkg = a.package_root.as_ref() == target_package_root;
             let b_same_pkg = b.package_root.as_ref() == target_package_root;
-            
+
             if a_same_pkg != b_same_pkg {
                 return b_same_pkg.cmp(&a_same_pkg);
             }
-            
+
             b.is_public.cmp(&a.is_public).reverse() // prefer non-public
         });
 
@@ -430,11 +435,7 @@ impl Backend {
         let global_output_dir = config.output_dir.as_deref();
         let mut all_generated_operations = Vec::new();
 
-        for (project, project_meta) in config
-            .projects
-            .iter()
-            .zip(&workspace_metadata.projects)
-        {
+        for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
             let project_files = &project_meta.files;
             let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
@@ -453,14 +454,14 @@ impl Backend {
                 matches.first().and_then(|st| st.import.clone())
             });
 
-            let schema =
-                match crate::engine::Engine::load_schema(&config.base_dir, &project.schema) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        let _ = client.log_message(MessageType::ERROR, e).await;
-                        continue;
-                    }
-                };
+            let schema = match crate::engine::Engine::load_schema(&config.base_dir, &project.schema)
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = client.log_message(MessageType::ERROR, e).await;
+                    continue;
+                }
+            };
 
             let valid_schema = match schema.validate() {
                 Ok(v) => v,
@@ -831,7 +832,8 @@ impl LanguageServer for Backend {
                     // Also index type definitions (for Go to Definition)
                     let query = crate::queries::GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
                         let lang = tree_sitter_graphql::LANGUAGE.into();
-                        tree_sitter::Query::new(&lang, crate::queries::GQL_DEFINITION_QUERY).unwrap()
+                        tree_sitter::Query::new(&lang, crate::queries::GQL_DEFINITION_QUERY)
+                            .unwrap()
                     });
                     let mut cursor = tree_sitter::QueryCursor::new();
                     for block in doc.get_graphql_trees() {
@@ -938,8 +940,7 @@ impl LanguageServer for Backend {
                         (None, None)
                     };
 
-                    let package_root =
-                        package_roots.get(uri).and_then(|r| r.value().clone());
+                    let package_root = package_roots.get(uri).and_then(|r| r.value().clone());
 
                     frags
                         .iter()
@@ -974,7 +975,10 @@ impl LanguageServer for Backend {
                     let doc = entry.value();
 
                     // Get schema for doc
-                    let (schema_key, schema): (Option<String>, Arc<apollo_compiler::validation::Valid<Schema>>) = if let Ok(path) = uri.to_file_path()
+                    let (schema_key, schema): (
+                        Option<String>,
+                        Arc<apollo_compiler::validation::Valid<Schema>>,
+                    ) = if let Ok(path) = uri.to_file_path()
                         && let Some(schema_path) = config.get_schema_for_path(&path)
                         && let Some(schema) = validated_schemas_map.get(&schema_path)
                     {
@@ -988,28 +992,29 @@ impl LanguageServer for Backend {
                     let filtered_fragments: Vec<FragmentCompletionInfo> = all_fragments_info
                         .iter()
                         .filter(|(f, f_schema_key)| {
-                            let is_same_project = f_schema_key.is_some() && f_schema_key == &schema_key;
+                            let is_same_project =
+                                f_schema_key.is_some() && f_schema_key == &schema_key;
                             let is_same_package = f.package_root.as_ref() == target_package_root;
                             is_same_project || is_same_package || f.is_public
                         })
                         .map(|(f, _)| f.clone())
                         .collect();
-                    
+
                     // If there are duplicate fragment names, prioritize the one in the same package,
                     // then same project, then public.
                     let mut sorted_fragments = filtered_fragments;
                     sorted_fragments.sort_by(|a, b| {
                         let a_same_pkg = a.package_root.as_ref() == target_package_root;
                         let b_same_pkg = b.package_root.as_ref() == target_package_root;
-                        
+
                         if a_same_pkg != b_same_pkg {
                             return b_same_pkg.cmp(&a_same_pkg);
                         }
-                        
+
                         // If both (or neither) are same package, prefer same project (already filtered)
                         b.is_public.cmp(&a.is_public).reverse() // prefer non-public (local)
                     });
-                    
+
                     let diagnostics = doc.get_semantic_diagnostics(
                         &schema,
                         &sorted_fragments,
@@ -1068,7 +1073,9 @@ impl LanguageServer for Backend {
         if self.config.watch_all_files() {
             // Watch all relevant files in the workspace
             watchers.push(FileSystemWatcher {
-                glob_pattern: GlobPattern::String("**/*.{graphql,gql,ts,tsx,mts,cts,js,jsx,mjs,cjs}".to_string()),
+                glob_pattern: GlobPattern::String(
+                    "**/*.{graphql,gql,ts,tsx,mts,cts,js,jsx,mjs,cjs}".to_string(),
+                ),
                 kind: Some(WatchKind::all()),
             });
         }
@@ -1461,6 +1468,15 @@ impl LanguageServer for Backend {
             if let Some(doc_arc) = self.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = self.get_schema_for_doc(&uri);
 
+                let symbol_name = doc_arc.get_symbol_at_position(position);
+
+                if let Some(ref name) = symbol_name
+                    && name.starts_with('$')
+                    && let Some(location) = doc_arc.find_variable_definition(name, position)
+                {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                }
+
                 let mut preferred_uris = Vec::new();
                 if let Ok(path) = uri.to_file_path() {
                     if let Some(project) = self.config.get_project_for_path(&path) {
@@ -1483,21 +1499,15 @@ impl LanguageServer for Backend {
                     return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
                 }
 
-                let symbol_name = doc_arc.get_symbol_at_position(position);
-
                 if let Some(name) = symbol_name {
-                    if name.starts_with('$') {
-                        if let Some(location) = doc_arc.find_variable_definition(&name, position) {
-                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                        }
-                        return Ok(None);
-                    }
-
                     // Targeted lookup using the index
                     if let Some(uris) = self.fragment_definitions.get(&name) {
                         for other_uri in uris.iter() {
-                            if let Some(other_doc) = self.documents.get(&*other_uri).map(|r| r.value().clone()) {
-                                let is_same_package = other_doc.package_root == doc_arc.package_root;
+                            if let Some(other_doc) =
+                                self.documents.get(&*other_uri).map(|r| r.value().clone())
+                            {
+                                let is_same_package =
+                                    other_doc.package_root == doc_arc.package_root;
                                 let is_public_fragment = other_doc
                                     .fragments()
                                     .iter()
@@ -1516,7 +1526,7 @@ impl LanguageServer for Backend {
                     if !self.fragment_definitions.contains_key(&name) {
                         let doc_arcs: Vec<Arc<DocumentState>> =
                             self.documents.iter().map(|e| e.value().clone()).collect();
-                        
+
                         let result = doc_arcs.par_iter().find_map_any(|other_doc| {
                             let is_same_package = other_doc.package_root == doc_arc.package_root;
                             let is_public_fragment = other_doc
@@ -1540,7 +1550,6 @@ impl LanguageServer for Backend {
                 }
             }
 
-
             Ok(None)
         })
         .await
@@ -1552,7 +1561,8 @@ impl LanguageServer for Backend {
             let position = params.text_document_position.position;
             let include_declaration = params.context.include_declaration;
 
-            let symbol_name = if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+            let symbol_name = if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone())
+            {
                 doc.get_symbol_at_position(position)
             } else {
                 None
@@ -1575,7 +1585,9 @@ impl LanguageServer for Backend {
                             );
 
                             for f_uri in frag_uris {
-                                if let Some(f_doc) = self.documents.get(&f_uri).map(|r| r.value().clone()) {
+                                if let Some(f_doc) =
+                                    self.documents.get(&f_uri).map(|r| r.value().clone())
+                                {
                                     let frag_refs = f_doc.find_references_in_tree(&name, false);
                                     all_refs.extend(frag_refs);
                                 }
@@ -1619,7 +1631,8 @@ impl LanguageServer for Backend {
             let position = params.text_document_position.position;
             let new_name = params.new_name;
 
-            let symbol_name = if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+            let symbol_name = if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone())
+            {
                 doc.get_symbol_at_position(position)
             } else {
                 None
@@ -1652,8 +1665,11 @@ impl LanguageServer for Backend {
                     });
                 }
 
-                let doc_arcs: Vec<(Url, Arc<DocumentState>)> =
-                    self.documents.iter().map(|e| (e.key().clone(), e.value().clone())).collect();
+                let doc_arcs: Vec<(Url, Arc<DocumentState>)> = self
+                    .documents
+                    .iter()
+                    .map(|e| (e.key().clone(), e.value().clone()))
+                    .collect();
 
                 for (other_uri, other_doc) in doc_arcs {
                     let refs = other_doc.find_references_in_tree(&name, true);
@@ -1845,8 +1861,7 @@ impl LanguageServer for Backend {
         }
 
         // 2. Refactoring actions
-        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone())
- {
+        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
             let schema = self.get_schema_for_doc(uri);
             let refactor_actions = doc.get_extraction_actions(params.range, &schema);
             for action in refactor_actions {
@@ -1891,9 +1906,7 @@ impl LanguageServer for Backend {
                         }
                     }
 
-                    if !is_schema
-                        && let Some(schema_types) = &self.config.schema_types
-                    {
+                    if !is_schema && let Some(schema_types) = &self.config.schema_types {
                         for st in schema_types {
                             if st.schema.files().iter().any(|f| {
                                 let abs = self.config.base_dir.join(f);
@@ -1912,7 +1925,9 @@ impl LanguageServer for Backend {
 
                     if is_schema {
                         self.reload_schema(&path_str).await;
-                    } else if is_relevant_file(&path) && !crate::utils::is_path_ignored(&path, &self.gitignore) {
+                    } else if is_relevant_file(&path)
+                        && !crate::utils::is_path_ignored(&path, &self.gitignore)
+                    {
                         // Update document if it's already open
                         let uri = self.normalize_uri(change.uri);
 
@@ -1973,17 +1988,13 @@ impl LanguageServer for Backend {
                             self.package_roots
                                 .insert(uri.clone(), new_doc.package_root.clone());
 
-                            self.update_definition_indices(
-                                &uri,
-                                old_fragments,
-                                new_fragment_names,
-                            );
+                            self.update_definition_indices(&uri, old_fragments, new_fragment_names);
                             self.update_dependency_indices(&uri, old_spreads, new_spreads);
 
-                    // Update documents map if we have it
-                    if self.documents.contains_key(&uri) {
-                        self.documents.insert(uri.clone(), Arc::new(new_doc));
-                    }
+                            // Update documents map if we have it
+                            if self.documents.contains_key(&uri) {
+                                self.documents.insert(uri.clone(), Arc::new(new_doc));
+                            }
 
                             let uris_to_validate = self.get_affected_uris(
                                 uri,
