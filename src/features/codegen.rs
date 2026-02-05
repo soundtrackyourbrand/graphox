@@ -122,10 +122,28 @@ pub struct OperationGenerated {
     pub codegen_path: PathBuf,       // Path to the .codegen.ts file
 }
 
+#[derive(Debug, Default)]
+pub struct CodegenProfile {
+    pub parse_time: std::time::Duration,
+    pub selection_set_time: std::time::Duration,
+    pub ast_serialization_time: std::time::Duration,
+    pub import_generation_time: std::time::Duration,
+}
+
 pub fn generate_typescript(
     doc: &crate::DocumentState,
     ctx: &CodegenContext,
 ) -> Result<(String, Vec<OperationGenerated>), String> {
+    generate_typescript_with_profile(doc, ctx).map(|(s, ops, _)| (s, ops))
+}
+
+pub fn generate_typescript_with_profile(
+    doc: &crate::DocumentState,
+    ctx: &CodegenContext,
+) -> Result<(String, Vec<OperationGenerated>, CodegenProfile), String> {
+    use std::time::Instant;
+    let mut profile = CodegenProfile::default();
+    
     // Pre-allocate output with estimated capacity
     let mut output = String::with_capacity(4096);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
@@ -145,6 +163,7 @@ pub fn generate_typescript(
             .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
             .to_string();
 
+        let parse_start = Instant::now();
         let exec_doc =
             match executable::ExecutableDocument::parse(ctx.schema, &block_text, "doc.graphql") {
                 Ok(d) => d,
@@ -158,6 +177,7 @@ pub fn generate_typescript(
                     return Err(format!("Failed to parse GraphQL block: {}", e));
                 }
             };
+        profile.parse_time += parse_start.elapsed();
 
         if !exec_doc.operations.is_empty() {
             has_operations = true;
@@ -181,6 +201,7 @@ pub fn generate_typescript(
                 .and_then(|n| ctx.schema.types.get(n.as_str()))
                 .ok_or_else(|| format!("Root type for {:?} not found", op.operation_type))?;
 
+            let sel_start = Instant::now();
             let ts_type = generate_selection_set(
                 &op.selection_set,
                 root_type,
@@ -189,6 +210,7 @@ pub fn generate_typescript(
                 &mut used_fragments,
                 &mut used_schema_types,
             );
+            profile.selection_set_time += sel_start.elapsed();
 
             // Avoid format! macro overhead
             bodies.push_str("export interface ");
@@ -225,6 +247,7 @@ pub fn generate_typescript(
                 "{ [key: string]: never; }".to_string()
             };
 
+            let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
                 let op_def = serialize_operation_definition(op);
                 
@@ -274,6 +297,7 @@ pub fn generate_typescript(
             } else {
                 crate::features::apollo_ast::serialize_operation(op, ctx.all_fragments).to_string()
             };
+            profile.ast_serialization_time += ast_start.elapsed();
 
             let doc_name = format!("{}{}", name, suffix);
             bodies.push_str("export const ");
@@ -304,6 +328,7 @@ pub fn generate_typescript(
                 .get(type_name)
                 .ok_or_else(|| format!("Type {} not found in schema", type_name))?;
 
+            let sel_start = Instant::now();
             let ts_type = generate_selection_set(
                 &frag.selection_set,
                 type_def,
@@ -312,6 +337,8 @@ pub fn generate_typescript(
                 &mut used_fragments,
                 &mut used_schema_types,
             );
+            profile.selection_set_time += sel_start.elapsed();
+            
             bodies.push_str("export interface ");
             bodies.push_str(&frag.name);
             bodies.push(' ');
@@ -319,6 +346,7 @@ pub fn generate_typescript(
             bodies.push_str("\n\n");
 
             if ctx.generate_ast_for_fragments {
+                let ast_start = Instant::now();
                 let is_type_only = doc
                     .fragments()
                     .iter()
@@ -378,11 +406,13 @@ pub fn generate_typescript(
                     bodies.push_str(&definitions);
                     bodies.push_str(" } as unknown as DocumentNode<any, any>;\n\n");
                 }
+                profile.ast_serialization_time += ast_start.elapsed();
             }
         }
     }
 
     // Add imports for fragments used from other files
+    let import_start = Instant::now();
     let mut used_frag_names: Vec<_> = used_fragments.keys().cloned().collect();
     used_frag_names.sort_unstable();
 
@@ -519,12 +549,13 @@ pub fn generate_typescript(
     }
 
     output.push_str(&bodies);
+    profile.import_generation_time = import_start.elapsed();
 
     if bodies.is_empty() {
         return Err("No executable operations or fragments found in this file".to_string());
     }
 
-    Ok((output, generated_operations))
+    Ok((output, generated_operations, profile))
 }
 
 pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGenerated]) -> String {
