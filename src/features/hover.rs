@@ -1,6 +1,6 @@
 use crate::document::DocumentState;
 use crate::queries::*;
-use apollo_compiler::{schema, Schema};
+use apollo_compiler::{ast::OperationType, schema, Schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, StreamingIterator};
 
@@ -70,7 +70,8 @@ impl DocumentState {
                         });
                     }
 
-                    if let Some(field_info) = self.get_field_info(root, offset, byte_offset, schema)
+                    if let Some(field_info) =
+                        self.get_field_info(root, offset, byte_offset, schema)
                     {
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
@@ -230,9 +231,9 @@ impl DocumentState {
         }
 
         let op_type = match operation_type_string.as_str() {
-            "query" => Some(apollo_compiler::ast::OperationType::Query),
-            "mutation" => Some(apollo_compiler::ast::OperationType::Mutation),
-            "subscription" => Some(apollo_compiler::ast::OperationType::Subscription),
+            "query" => Some(OperationType::Query),
+            "mutation" => Some(OperationType::Mutation),
+            "subscription" => Some(OperationType::Subscription),
             _ => None,
         };
 
@@ -459,9 +460,123 @@ impl DocumentState {
                         }
                     }
                 }
+            } else if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                if let Some(info) = self.get_builtin_field_info(&field_name, parent_type, schema) {
+                    return Some(info);
+                }
             }
         }
         None
+    }
+
+    fn get_builtin_field_info(
+        &self,
+        field_name: &str,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Option<String> {
+        match field_name {
+            "__typename" => Some(self.describe_typename(parent_type, schema)),
+            "__schema" | "__type" => {
+                if !Self::is_schema_query_root(parent_type, schema) {
+                    return None;
+                }
+
+                let fallback_desc = if field_name == "__schema" {
+                    "Access the current schema introspection object."
+                } else {
+                    "Look up a type definition by its name."
+                };
+
+                let fallback_type = if field_name == "__schema" {
+                    "`__Schema!`"
+                } else {
+                    "`__Type`"
+                };
+
+                let title = format!("### field {}.{}\n---\n", parent_type.name(), field_name);
+                let mut info = format!("{title}Type: {fallback_type}\n");
+
+                if let Some((schema_type, description)) =
+                    Self::schema_field_strings(parent_type, field_name, schema)
+                {
+                    info = format!(
+                        "### field {}.{}\n---\nType: `{}`\n",
+                        parent_type.name(), field_name, schema_type
+                    );
+                    if let Some(desc) = description {
+                        if !desc.trim().is_empty() {
+                            info.push('\n');
+                            info.push_str(&desc);
+                        }
+                    }
+                    return Some(info);
+                }
+
+                info.push('\n');
+                info.push_str(fallback_desc);
+                Some(info)
+            }
+            _ => None,
+        }
+    }
+
+    fn describe_typename(&self, parent_type: &schema::ExtendedType, schema: &Schema) -> String {
+        if let Some((field_type, description)) =
+            Self::schema_field_strings(parent_type, "__typename", schema)
+        {
+            let mut info = format!(
+                "### field {}.__typename\n---\nType: `{}`\n",
+                parent_type.name(), field_type
+            );
+            if let Some(desc) = description {
+                if !desc.trim().is_empty() {
+                    info.push('\n');
+                    info.push_str(&desc);
+                }
+            }
+            return info;
+        }
+
+        format!(
+            "### field {}.__typename\n---\nType: `String!`\n\nThe GraphQL type name of the current selection.",
+            parent_type.name()
+        )
+    }
+
+    fn is_schema_query_root(ty: &schema::ExtendedType, schema: &Schema) -> bool {
+        schema
+            .root_operation(OperationType::Query)
+            .and_then(|root_name| schema.types.get(root_name.as_str()))
+            .map(|root_type| root_type.name() == ty.name())
+            .unwrap_or(false)
+    }
+
+    fn schema_field_strings(
+        parent_type: &schema::ExtendedType,
+        field_name: &str,
+        schema: &Schema,
+    ) -> Option<(String, Option<String>)> {
+        let candidate = match parent_type {
+            schema::ExtendedType::Object(obj) => obj.fields.get(field_name),
+            schema::ExtendedType::Interface(iface) => iface.fields.get(field_name),
+            _ => schema
+                .types
+                .get(parent_type.name().as_str())
+                .and_then(|ty| match ty {
+                    schema::ExtendedType::Object(obj) => obj.fields.get(field_name),
+                    schema::ExtendedType::Interface(iface) => iface.fields.get(field_name),
+                    _ => None,
+                }),
+        }?;
+
+        let ty = candidate.ty.to_string();
+        let description = candidate
+            .description
+            .as_ref()
+            .map(|d| d.as_ref().to_string());
+
+        Some((ty, description))
     }
 
     fn find_field_in_inline_fragment(
