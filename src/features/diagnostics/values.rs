@@ -82,7 +82,7 @@ impl DocumentState {
                         let name = self.get_node_text(child, offset);
                         ctx.used_variables.insert(name.clone());
 
-                        if !ctx.defined_variables.contains(&name) && ctx.workspace_loaded {
+                        if ctx.is_operation && !ctx.defined_variables.contains(&name) && ctx.workspace_loaded {
                             ctx.diagnostics.push(Diagnostic {
                                 range: self.translate_to_file_range(node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),

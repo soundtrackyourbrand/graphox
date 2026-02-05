@@ -6,6 +6,7 @@ use tree_sitter::Node;
 
 impl DocumentState {
     pub(super) fn validate_fragment(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
+        ctx.is_operation = false;
         ctx.defined_variables.clear(); // Fragments don't have operation context variables
 
         let mut cursor = node.walk();

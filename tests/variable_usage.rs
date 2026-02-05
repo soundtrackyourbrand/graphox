@@ -590,3 +590,29 @@ async fn test_variable_references_including_fragments() {
         "Expected reference in frag.graphql"
     );
 }
+
+#[test]
+fn test_fragment_variables_not_undefined_in_isolation() {
+    let schema = get_valid_schema();
+
+    let frag_text = r#"
+        fragment UserFields on User {
+            id
+            username @include(if: $admin)
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", frag_text);
+    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
+
+    let errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("Undefined variable: $admin"))
+        .collect();
+
+    assert!(
+        errors.is_empty(),
+        "Expected no undefined variable error for fragment in isolation, but found: {:?}",
+        errors
+    );
+}

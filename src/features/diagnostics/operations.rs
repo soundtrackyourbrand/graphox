@@ -11,6 +11,7 @@ impl DocumentState {
         offset: usize,
         ctx: &mut ValidationContext,
     ) {
+        ctx.is_operation = true;
         ctx.used_variables.clear();
         ctx.defined_variables.clear();
 

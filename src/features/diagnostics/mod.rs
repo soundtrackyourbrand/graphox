@@ -21,6 +21,7 @@ pub(super) struct ValidationContext<'a> {
     pub config: Option<&'a Config>,
     pub include_ignored: bool,
     pub workspace_loaded: bool,
+    pub is_operation: bool,
 }
 
 impl DocumentState {
@@ -81,6 +82,7 @@ impl DocumentState {
                 config,
                 include_ignored: verbose,
                 workspace_loaded,
+                is_operation: false,
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);
