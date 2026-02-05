@@ -10,6 +10,7 @@ pub struct FragmentCompletionInfo {
     pub description: Option<String>,
     pub import_path: Option<String>,
     pub is_public: bool,
+    pub is_type_only: bool,
     pub uri: Url,
     pub package_root: Option<std::path::PathBuf>,
     pub used_variables: Vec<String>,

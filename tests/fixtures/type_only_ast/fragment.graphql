@@ -1,0 +1,1 @@
+fragment TypeOnlyFields on User @type_only { id name }

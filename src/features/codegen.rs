@@ -14,6 +14,7 @@ pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub fragment_to_path: &'a HashMap<String, String>,
     pub fragment_to_import: &'a HashMap<String, String>,
+    pub fragment_to_type_only: &'a HashMap<String, bool>,
     pub all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
@@ -127,7 +128,21 @@ pub fn generate_typescript(
 
                 let mut definitions_parts = vec![op_def.to_string()];
                 for dep in deps_list {
-                    definitions_parts.push(format!("...{}Document.definitions", dep));
+                    let is_type_only = ctx
+                        .fragment_to_type_only
+                        .get(&dep)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            doc.fragments()
+                                .iter()
+                                .find(|f| f.name == dep)
+                                .map(|f| f.is_type_only)
+                                .unwrap_or(false)
+                        });
+
+                    if !is_type_only {
+                        definitions_parts.push(format!("...{}Document.definitions", dep));
+                    }
                 }
 
                 let definitions = format!("[{}]", definitions_parts.join(", "));
@@ -174,22 +189,45 @@ pub fn generate_typescript(
             bodies.push_str(&format!("export interface {} {}\n\n", frag.name, ts_type));
 
             if ctx.generate_ast_for_fragments {
-                let frag_def = serialize_fragment_definition(frag);
-                let deps = get_fragment_fragment_dependencies(frag, ctx.all_fragments);
-                let mut deps_list: Vec<_> = deps.into_iter().collect();
-                deps_list.sort();
+                let is_type_only = doc
+                    .fragments()
+                    .iter()
+                    .find(|f| f.name == frag.name.as_str())
+                    .map(|f| f.is_type_only)
+                    .unwrap_or(false);
 
-                let mut definitions_parts = vec![frag_def.to_string()];
-                for dep in deps_list {
-                    definitions_parts.push(format!("...{}Document.definitions", dep));
+                if !is_type_only {
+                    let frag_def = serialize_fragment_definition(frag);
+                    let deps = get_fragment_fragment_dependencies(frag, ctx.all_fragments);
+                    let mut deps_list: Vec<_> = deps.into_iter().collect();
+                    deps_list.sort();
+
+                    let mut definitions_parts = vec![frag_def.to_string()];
+                    for dep in deps_list {
+                        let is_dep_type_only = ctx
+                            .fragment_to_type_only
+                            .get(&dep)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                doc.fragments()
+                                    .iter()
+                                    .find(|f| f.name == dep)
+                                    .map(|f| f.is_type_only)
+                                    .unwrap_or(false)
+                            });
+
+                        if !is_dep_type_only {
+                            definitions_parts.push(format!("...{}Document.definitions", dep));
+                        }
+                    }
+
+                    let definitions = format!("[{}]", definitions_parts.join(", "));
+
+                    bodies.push_str(&format!(
+                        "export const {}Document = {{ kind: 'Document', definitions: {} }} as unknown as DocumentNode<any, any>;\n\n",
+                        frag.name, definitions
+                    ));
                 }
-
-                let definitions = format!("[{}]", definitions_parts.join(", "));
-
-                bodies.push_str(&format!(
-                    "export const {}Document = {{ kind: 'Document', definitions: {} }} as unknown as DocumentNode<any, any>;\n\n",
-                    frag.name, definitions
-                ));
             }
         }
     }
@@ -273,12 +311,32 @@ pub fn generate_typescript(
         ));
 
         if ctx.generate_ast_for_fragments {
-            let doc_names: Vec<_> = names.iter().map(|n| format!("{}Document", n)).collect();
-            import_section.push_str(&format!(
-                "import {{ {} }} from \"{}\";\n",
-                doc_names.join(", "),
-                final_import_path
-            ));
+            let mut doc_names = Vec::new();
+            for name in names {
+                let is_type_only = ctx
+                    .fragment_to_type_only
+                    .get(name)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        doc.fragments()
+                            .iter()
+                            .find(|f| &f.name == name)
+                            .map(|f| f.is_type_only)
+                            .unwrap_or(false)
+                    });
+
+                if !is_type_only {
+                    doc_names.push(format!("{}Document", name));
+                }
+            }
+
+            if !doc_names.is_empty() {
+                import_section.push_str(&format!(
+                    "import {{ {} }} from \"{}\";\n",
+                    doc_names.join(", "),
+                    final_import_path
+                ));
+            }
         }
     }
 
@@ -441,6 +499,7 @@ pub fn generate_permissions_content(
         schema,
         fragment_to_path: &HashMap::default(),
         fragment_to_import: &HashMap::default(),
+        fragment_to_type_only: &HashMap::default(),
         all_fragments: &empty_fragments,
         current_file_path: Path::new(""),
         scalars,
@@ -768,6 +827,7 @@ pub fn generate_schema_types(
         schema,
         fragment_to_path: &HashMap::default(),
         fragment_to_import: &HashMap::default(),
+        fragment_to_type_only: &HashMap::default(),
         all_fragments: &empty_fragments,
         current_file_path: Path::new(""),
         scalars,

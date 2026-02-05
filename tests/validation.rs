@@ -211,6 +211,7 @@ fn test_validation_known_fragment_spread() {
         description: None,
         import_path: None,
         is_public: false,
+        is_type_only: false,
         uri: Url::parse("file:///test.graphql").unwrap(),
         package_root: None,
         used_variables: Vec::new(),
@@ -224,6 +225,71 @@ fn test_validation_known_fragment_spread() {
         diagnostics.is_empty(),
         "Expected no error for known fragment spread"
     );
+}
+
+#[test]
+fn test_type_only_fragment_unused() {
+    let schema_content = "type User { id: ID! } type Query { me: User }";
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        fragment UserFrag on User @type_only {
+            id
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    // Should NOT have diagnostics for unused fragment
+    let used_fragments = fnv::FnvHashSet::default();
+    let diagnostics =
+        doc.get_semantic_diagnostics(&schema, &[], Some(&used_fragments), None, false, true);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics for @type_only unused fragment, got: {:?}",
+        diagnostics
+    );
+}
+
+#[test]
+fn test_type_only_fragment_used() {
+    let schema_content = "type User { id: ID! } type Query { me: User }";
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        fragment UserFrag on User @type_only {
+            id
+        }
+        
+        query {
+            me {
+                ...UserFrag
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    // Should HAVE a warning because it's used but marked @type_only
+    let mut used_fragments = fnv::FnvHashSet::default();
+    used_fragments.insert("UserFrag".to_string());
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&schema, &[], Some(&used_fragments), None, false, true);
+
+    let warning = diagnostics
+        .iter()
+        .find(|d| d.code == Some(NumberOrString::String("type_only_used".to_string())));
+    assert!(
+        warning.is_some(),
+        "Expected warning for @type_only fragment being used"
+    );
+    assert!(warning.unwrap().message.contains("Remove @type_only"));
 }
 
 #[test]
@@ -316,11 +382,9 @@ fn test_validation_unions_and_interfaces() {
     "#;
     let doc = create_doc("file:///invalid_union.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.message.contains("not found on type 'SearchResult'"))
-    );
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.message.contains("not found on type 'SearchResult'")));
 
     // Valid: field on interface
     let text = r#"

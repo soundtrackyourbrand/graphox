@@ -156,6 +156,7 @@ impl Backend {
                     description: frag.description.clone(),
                     import_path: import_path.clone(),
                     is_public: frag.is_public,
+                    is_type_only: frag.is_type_only,
                     uri: uri.clone(),
                     package_root: package_root.clone(),
                     used_variables: frag.used_variables.clone(),
@@ -494,6 +495,7 @@ impl Backend {
                         schema: &valid_schema,
                         fragment_to_path: &project_context.fragment_to_path,
                         fragment_to_import: &project_context.fragment_to_import,
+                        fragment_to_type_only: &project_context.fragment_to_type_only,
                         all_fragments: &project_context.all_fragments,
                         current_file_path: path,
                         scalars: &config.scalars,
@@ -949,6 +951,7 @@ impl LanguageServer for Backend {
                                     description: frag.description.clone(),
                                     import_path: import_path.clone(),
                                     is_public: frag.is_public,
+                                    is_type_only: frag.is_type_only,
                                     uri: uri.clone(),
                                     package_root: package_root.clone(),
                                     used_variables: frag.used_variables.clone(),
@@ -1788,6 +1791,13 @@ impl LanguageServer for Backend {
                         is_preferred: Some(true),
                         ..Default::default()
                     }));
+
+                    if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+                        let type_only_actions = doc.get_unused_fragment_actions(&diagnostic);
+                        for action in type_only_actions {
+                            actions.push(CodeActionOrCommand::CodeAction(action));
+                        }
+                    }
                 } else if code == "unused_variable" {
                     let mut changes = std::collections::HashMap::new();
                     changes.insert(
@@ -1800,6 +1810,27 @@ impl LanguageServer for Backend {
 
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                         title: "Remove unused variable".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        diagnostics: Some(vec![diagnostic.clone()]),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    }));
+                } else if code == "type_only_used" {
+                    let mut changes = std::collections::HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range: diagnostic.range,
+                            new_text: String::new(),
+                        }],
+                    );
+
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Remove @type_only directive".to_string(),
                         kind: Some(CodeActionKind::QUICKFIX),
                         edit: Some(WorkspaceEdit {
                             changes: Some(changes),

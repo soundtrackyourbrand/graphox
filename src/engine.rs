@@ -16,6 +16,7 @@ pub struct FragmentMetadata {
     pub path: String,
     pub import_alias: Option<String>,
     pub is_public: bool,
+    pub is_type_only: bool,
     pub masked_source: String,
 }
 
@@ -53,6 +54,7 @@ pub struct WorkspaceMetadata {
 pub struct ProjectContext {
     pub fragment_to_path: HashMap<String, String>,
     pub fragment_to_import: HashMap<String, String>,
+    pub fragment_to_type_only: HashMap<String, bool>,
     pub all_fragments: HashMap<String, Node<executable::Fragment>>,
 }
 
@@ -76,6 +78,7 @@ impl Engine {
 
         let mut fragment_to_path: HashMap<String, String> = HashMap::default();
         let mut fragment_to_import: HashMap<String, String> = HashMap::default();
+        let mut fragment_to_type_only: HashMap<String, bool> = HashMap::default();
         let mut project_fragments_metadata = Vec::new();
 
         for meta in global_metadata {
@@ -92,6 +95,7 @@ impl Engine {
                 if let Some(a) = &meta.import_alias {
                     fragment_to_import.insert(meta.name.clone(), a.clone());
                 }
+                fragment_to_type_only.insert(meta.name.clone(), meta.is_type_only);
                 project_fragments_metadata.push(meta.clone());
             } else if meta.is_public {
                 let existing_local = fragment_to_path.contains_key(&meta.name)
@@ -106,6 +110,7 @@ impl Engine {
                             .entry(meta.name.clone())
                             .or_insert_with(|| a.clone());
                     }
+                    fragment_to_type_only.insert(meta.name.clone(), meta.is_type_only);
                     project_fragments_metadata.push(meta.clone());
                 }
             }
@@ -116,6 +121,7 @@ impl Engine {
         ProjectContext {
             fragment_to_path,
             fragment_to_import,
+            fragment_to_type_only,
             all_fragments,
         }
     }
@@ -246,6 +252,7 @@ impl Engine {
                             path: path_str.clone(),
                             import_alias: import_alias.clone(),
                             is_public: frag.is_public,
+                            is_type_only: frag.is_type_only,
                             masked_source: doc.masked_source.clone(),
                         });
                     }

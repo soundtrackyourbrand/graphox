@@ -1206,16 +1206,84 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
                 "{} mismatch in {}",
                 actual_name, fixture_dir_str
             );
-        } else {
-            if actual.trim() != expected.trim() {
-                println!("--- ACTUAL ({}) ---", actual_name);
-                println!("{}", actual);
-                println!("--- EXPECTED ---");
-                println!("{}", expected);
-                panic!("{} mismatch in {}", actual_name, fixture_dir_str);
-            }
+        } else if actual.trim() != expected.trim() {
+            println!("--- ACTUAL ({}) ---", actual_name);
+            println!("{}", actual);
+            println!("--- EXPECTED ---");
+            println!("{}", expected);
+            panic!("{} mismatch in {}", actual_name, fixture_dir_str);
         }
     }
 
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
+fn test_cli_type_only_ast_generation() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_type_only_ast_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // Create fragment file with @type_only
+    let fragment_file = temp_dir.join("fragment.graphql");
+    std::fs::write(
+        &fragment_file,
+        "fragment TypeOnlyFields on User @type_only { id name }",
+    )
+    .unwrap();
+
+    // Create operation file
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(&query_file, "query GetMe { me { ...TypeOnlyFields } }").unwrap();
+
+    // Create config
+    let config_file = temp_dir.join("graphql.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+generate_ast_for_fragments: true
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("codegen")
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify fragment codegen - should NOT have TypeOnlyFieldsDocument
+    let frag_gen = temp_dir.join("fragment.codegen.ts");
+    assert!(frag_gen.exists());
+    let frag_content = std::fs::read_to_string(&frag_gen).unwrap();
+    assert!(!frag_content.contains("export const TypeOnlyFieldsDocument"));
+
+    // Verify query codegen - should NOT import or use TypeOnlyFieldsDocument
+    let query_gen = temp_dir.join("query.codegen.ts");
+    assert!(query_gen.exists());
+    let query_content = std::fs::read_to_string(&query_gen).unwrap();
+    assert!(!query_content.contains("TypeOnlyFieldsDocument"));
+
+    // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }

@@ -394,6 +394,7 @@ async fn execute_project_codegen_entry(
                     schema: &valid_schema,
                     fragment_to_path: &params.project_context.fragment_to_path,
                     fragment_to_import: &params.project_context.fragment_to_import,
+                    fragment_to_type_only: &params.project_context.fragment_to_type_only,
                     all_fragments: &params.project_context.all_fragments,
                     current_file_path: path,
                     scalars: params.scalars,

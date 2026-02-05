@@ -39,13 +39,16 @@ impl DocumentState {
 
         if let Some(name_node) = name_node {
             let name = self.get_node_text(name_node, offset);
+            let current_frag_def = self.fragments.iter().find(|f| f.name == name);
+            let is_type_only = current_frag_def.map(|f| f.is_type_only).unwrap_or(false);
 
             // 1. Unused fragment check
             let is_used = ctx
                 .used_fragments
                 .map(|u| u.contains(&name))
                 .unwrap_or(true);
-            if !is_used && ctx.workspace_loaded {
+
+            if !is_used && ctx.workspace_loaded && !is_type_only {
                 ctx.diagnostics.push(Diagnostic {
                     range: self.translate_to_file_range(node, offset),
                     severity: Some(DiagnosticSeverity::WARNING),
@@ -56,8 +59,38 @@ impl DocumentState {
                 });
             }
 
-            // 2. Collision and shadowing checks
-            let current_frag_def = self.fragments.iter().find(|f| f.name == name);
+            // 2. Used but marked as @type_only
+            if is_used && is_type_only {
+                let mut directive_range = self.translate_to_file_range(node, offset);
+
+                // Try to find the specific directive node for a better range and easier removal
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "directives" {
+                        let mut dir_cursor = child.walk();
+                        for dir_child in child.children(&mut dir_cursor) {
+                            if dir_child.kind() == "directive" {
+                                let dir_text = self.get_node_text(dir_child, offset);
+                                if dir_text.contains("@type_only") {
+                                    directive_range =
+                                        self.translate_to_file_range(dir_child, offset);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ctx.diagnostics.push(Diagnostic {
+                    range: directive_range,
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!("Fragment '{}' is used but marked with @type_only. Remove @type_only to resolve this warning.", name),
+                    code: Some(NumberOrString::String("type_only_used".to_string())),
+                    ..Default::default()
+                });
+            }
+
+            // 3. Collision and shadowing checks
             if let Some(current_frag) = current_frag_def {
                 let current_is_public = current_frag.is_public;
                 let current_package_root = self.package_root.as_ref();

@@ -66,6 +66,7 @@ pub struct FragmentDef {
     pub name: String,
     pub type_condition: String,
     pub is_public: bool,
+    pub is_type_only: bool,
     pub description: Option<String>,
     pub source_hash: u64,
     pub used_variables: Vec<String>,
@@ -254,7 +255,7 @@ impl DocumentState {
         }
     }
 
-    fn byte_to_position(&self, byte_offset: usize) -> Position {
+    pub fn byte_to_position(&self, byte_offset: usize) -> Position {
         let line = self.rope.byte_to_line(byte_offset);
         let line_start_byte = self.rope.line_to_byte(line);
 
@@ -358,6 +359,7 @@ impl DocumentState {
                 let mut type_condition = None;
                 let mut is_fragment = false;
                 let mut is_public = false;
+                let mut is_type_only = false;
                 let mut description = None;
                 let mut container_node = None;
 
@@ -376,6 +378,9 @@ impl DocumentState {
                         let directives_text = self.get_node_text(cap.node, offset);
                         if directives_text.contains("@public") {
                             is_public = true;
+                        }
+                        if directives_text.contains("@type_only") {
+                            is_type_only = true;
                         }
                     }
                 }
@@ -473,6 +478,7 @@ impl DocumentState {
                         name: n,
                         type_condition: type_condition.unwrap_or_default(),
                         is_public,
+                        is_type_only,
                         description,
                         source_hash,
                         used_variables,

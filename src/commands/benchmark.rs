@@ -97,6 +97,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                             schema: &valid_schema,
                             fragment_to_path: project_fragment_to_path,
                             fragment_to_import: project_fragment_to_import,
+                            fragment_to_type_only: &project_context.fragment_to_type_only,
                             all_fragments: all_fragments,
                             current_file_path: path,
                             scalars: &config.scalars,

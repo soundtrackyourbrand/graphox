@@ -122,6 +122,28 @@ async fn test_code_action_remove_unused_fragment() {
     } else {
         panic!("Expected CodeAction");
     }
+
+    let mark_type_only_action = actions
+        .iter()
+        .find(|a| {
+            if let CodeActionOrCommand::CodeAction(ca) = a {
+                ca.title.starts_with("Mark fragment as @type_only")
+            } else {
+                false
+            }
+        })
+        .expect("Should find 'Mark fragment as @type_only' action");
+
+    if let CodeActionOrCommand::CodeAction(action) = mark_type_only_action {
+        let edit = action.edit.as_ref().unwrap();
+        let changes = edit.changes.as_ref().unwrap();
+        let edits = &changes[&frag_uri];
+        assert_eq!(edits[0].new_text, " @type_only");
+        assert_eq!(
+            edits[0].range,
+            Range::new(Position::new(0, 24), Position::new(0, 24))
+        );
+    }
 }
 
 #[tokio::test]
@@ -362,6 +384,92 @@ async fn test_code_action_remove_unused_variable() {
         let edit = action.edit.as_ref().unwrap();
         let changes = edit.changes.as_ref().unwrap();
         assert!(changes.contains_key(&query_uri));
+    }
+}
+
+#[tokio::test]
+async fn test_code_action_remove_type_only() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path();
+
+    fs::write(base_dir.join("package.json"), "{}").unwrap();
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type Query { me: String }").unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+        }],
+        base_dir: base_dir.to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let frag_uri = Url::parse("file:///test.graphql").unwrap();
+    let diagnostic = Diagnostic {
+        range: Range::new(Position::new(0, 25), Position::new(0, 35)), // "@type_only"
+        message: "Fragment 'F' is used but marked with @type_only".to_string(),
+        code: Some(NumberOrString::String("type_only_used".to_string())),
+        ..Default::default()
+    };
+
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: frag_uri.clone(),
+        },
+        range: diagnostic.range,
+        context: CodeActionContext {
+            diagnostics: vec![diagnostic],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/codeAction")
+        .id(1)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CodeActionResponse> =
+        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    let actions = result.expect("Expected actions");
+    let action = actions
+        .iter()
+        .find(|a| {
+            if let CodeActionOrCommand::CodeAction(ca) = a {
+                ca.title == "Remove @type_only directive"
+            } else {
+                false
+            }
+        })
+        .expect("Should find 'Remove @type_only directive' action");
+
+    if let CodeActionOrCommand::CodeAction(action) = action {
+        let edit = action.edit.as_ref().unwrap();
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&frag_uri));
+        let edits = &changes[&frag_uri];
+        assert_eq!(edits[0].new_text, "");
     }
 }
 
