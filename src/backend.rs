@@ -7,6 +7,7 @@ use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
 use serde_json::Value;
+use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -229,38 +230,35 @@ impl Backend {
 
     fn collect_fragment_requirements_recursive(
         &self,
-        name: &str,
+        initial_name: &str,
         schema: &Schema,
         package_root: Option<&std::path::PathBuf>,
         requirements: &mut std::collections::BTreeMap<String, String>,
         visited: &mut fnv::FnvHashSet<String>,
     ) {
-        if !visited.insert(name.to_string()) {
-            return;
-        }
-
+        let mut stack = vec![initial_name.to_string()];
         let all_fragments = self.get_all_fragments_info();
-        if let Some(frag) = all_fragments
-            .iter()
-            .find(|f| f.name == name && (f.is_public || f.package_root.as_ref() == package_root))
-        {
-            if let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone()) {
-                // Get variables from this fragment
-                let local_vars = doc.get_fragment_variable_types(name, schema);
-                for (var, ty) in local_vars {
-                    requirements.insert(var, ty);
-                }
 
-                // Get nested fragments
-                if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
-                    for nested in &def.used_fragments {
-                        self.collect_fragment_requirements_recursive(
-                            nested,
-                            schema,
-                            package_root,
-                            requirements,
-                            visited,
-                        );
+        while let Some(name) = stack.pop() {
+            if !visited.insert(name.clone()) {
+                continue;
+            }
+
+            if let Some(frag) = all_fragments.iter().find(|f| {
+                f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
+            }) {
+                if let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone()) {
+                    // Get variables from this fragment
+                    let local_vars = doc.get_fragment_variable_types(&name, schema);
+                    for (var, ty) in local_vars {
+                        requirements.insert(var, ty);
+                    }
+
+                    // Get nested fragments
+                    if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
+                        for nested in &def.used_fragments {
+                            stack.push(nested.clone());
+                        }
                     }
                 }
             }
@@ -1477,7 +1475,8 @@ impl LanguageServer for Backend {
                     if !self.fragment_definitions.contains_key(&name) {
                         let doc_arcs: Vec<Arc<DocumentState>> =
                             self.documents.iter().map(|e| e.value().clone()).collect();
-                        for other_doc in doc_arcs {
+                        
+                        let result = doc_arcs.par_iter().find_map_any(|other_doc| {
                             let is_same_package = other_doc.package_root == doc_arc.package_root;
                             let is_public_fragment = other_doc
                                 .fragments()
@@ -1487,8 +1486,14 @@ impl LanguageServer for Backend {
                             if (is_same_package || is_public_fragment)
                                 && let Some(location) = other_doc.find_definition_in_tree(&name)
                             {
-                                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                                Some(location)
+                            } else {
+                                None
                             }
+                        });
+
+                        if let Some(location) = result {
+                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
                         }
                     }
                 }

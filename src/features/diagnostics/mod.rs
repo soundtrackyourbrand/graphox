@@ -111,7 +111,7 @@ impl DocumentState {
                 if capture_name == "operation" {
                     self.validate_operation(cap.node, offset, ctx);
                 } else if capture_name == "fragment" {
-                    self.validate_fragment(cap.node, offset, ctx);
+                    self.validate_fragment(cap.node, offset, ctx, 0);
                 }
             }
         }
@@ -159,24 +159,27 @@ impl DocumentState {
 
     fn collect_gql_errors(
         &self,
-        node: tree_sitter::Node,
+        root: tree_sitter::Node,
         offset_byte: usize,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        if node.is_error() || node.is_missing() {
-            let range = self.translate_to_file_range(node, offset_byte);
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if node.is_error() || node.is_missing() {
+                let range = self.translate_to_file_range(node, offset_byte);
 
-            diagnostics.push(Diagnostic {
-                range,
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: format!("GraphQL Syntax Error: unexpected '{}'", node.kind()),
-                ..Default::default()
-            });
-        }
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("GraphQL Syntax Error: unexpected '{}'", node.kind()),
+                    ..Default::default()
+                });
+            }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.collect_gql_errors(child, offset_byte, diagnostics);
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
         }
     }
 }

@@ -5,7 +5,13 @@ use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
 impl DocumentState {
-    pub(super) fn validate_fragment(&self, node: Node, offset: usize, ctx: &mut ValidationContext) {
+    pub(super) fn validate_fragment(
+        &self,
+        node: Node,
+        offset: usize,
+        ctx: &mut ValidationContext,
+        depth: usize,
+    ) {
         ctx.is_operation = false;
         ctx.defined_variables.clear(); // Fragments don't have operation context variables
 
@@ -106,7 +112,7 @@ impl DocumentState {
                             if let Some(type_def) = ctx.schema.types.get(type_name.as_str())
                                 && let Some(sel_set) = selection_set_node
                             {
-                                self.validate_selection_set(sel_set, offset, type_def, ctx);
+                                self.validate_selection_set(sel_set, offset, type_def, ctx, depth + 1);
                             }
                         }
                     }
@@ -121,7 +127,11 @@ impl DocumentState {
         offset: usize,
         parent_type: &ExtendedType,
         ctx: &mut ValidationContext,
+        depth: usize,
     ) {
+        if depth > 100 {
+            return;
+        }
         let mut cursor = node.walk();
         let mut type_condition_node = None;
         let mut selection_set_node = None;
@@ -159,7 +169,7 @@ impl DocumentState {
         if let Some(t_type) = target_type
             && let Some(sel_set) = selection_set_node
         {
-            self.validate_selection_set(sel_set, offset, t_type, ctx);
+            self.validate_selection_set(sel_set, offset, t_type, ctx, depth + 1);
         }
     }
 
@@ -203,58 +213,67 @@ impl DocumentState {
 
     fn mark_used_variables_recursive(
         &self,
-        name: &str,
+        initial_name: &str,
         ctx: &mut ValidationContext,
         visited: &mut fnv::FnvHashSet<String>,
         trigger_node: Node,
         offset: usize,
     ) -> bool {
-        if !visited.insert(name.to_string()) {
-            return true;
-        }
+        let mut stack = vec![initial_name.to_string()];
+        let mut initial_exists = false;
 
-        let mut used_variables = None;
-        let mut used_fragments = None;
-        let mut exists = false;
+        while let Some(name) = stack.pop() {
+            if !visited.insert(name.clone()) {
+                continue;
+            }
 
-        if let Some(f) = ctx.all_fragments.iter().find(|f| f.name == name) {
-            exists = true;
-            used_variables = Some(&f.used_variables);
-            used_fragments = Some(&f.used_fragments);
-        } else if let Some(f) = self.fragments.iter().find(|f| f.name == name) {
-            exists = true;
-            used_variables = Some(&f.used_variables);
-            used_fragments = Some(&f.used_fragments);
-        }
+            let mut used_variables = None;
+            let mut used_fragments = None;
+            let mut exists = false;
 
-        if let Some(vars) = used_variables {
-            for var in vars {
-                ctx.used_variables.insert(var.clone());
+            if let Some(f) = ctx.all_fragments.iter().find(|f| f.name == name) {
+                exists = true;
+                used_variables = Some(&f.used_variables);
+                used_fragments = Some(&f.used_fragments);
+            } else if let Some(f) = self.fragments.iter().find(|f| f.name == name) {
+                exists = true;
+                used_variables = Some(&f.used_variables);
+                used_fragments = Some(&f.used_fragments);
+            }
 
-                // Only report undefined variables if we are in an operation context
-                if !ctx.defined_variables.is_empty() {
-                    if !ctx.defined_variables.contains(var) {
-                        ctx.diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(trigger_node, offset),
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            message: format!(
-                                "Undefined variable: ${} (required by fragment '{}')",
-                                var, name
-                            ),
-                            code: Some(NumberOrString::String("undefined_variable".to_string())),
-                            ..Default::default()
-                        });
+            if name == initial_name {
+                initial_exists = exists;
+            }
+
+            if let Some(vars) = used_variables {
+                for var in vars {
+                    ctx.used_variables.insert(var.clone());
+
+                    // Only report undefined variables if we are in an operation context
+                    if !ctx.defined_variables.is_empty() {
+                        if !ctx.defined_variables.contains(var) {
+                            ctx.diagnostics.push(Diagnostic {
+                                range: self.translate_to_file_range(trigger_node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!(
+                                    "Undefined variable: ${} (required by fragment '{}')",
+                                    var, name
+                                ),
+                                code: Some(NumberOrString::String("undefined_variable".to_string())),
+                                ..Default::default()
+                            });
+                        }
                     }
+                }
+            }
+
+            if let Some(frags) = used_fragments {
+                for frag in frags {
+                    stack.push(frag.clone());
                 }
             }
         }
 
-        if let Some(frags) = used_fragments {
-            for frag in frags {
-                self.mark_used_variables_recursive(frag, ctx, visited, trigger_node, offset);
-            }
-        }
-
-        exists
+        initial_exists
     }
 }

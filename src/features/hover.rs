@@ -236,7 +236,7 @@ impl DocumentState {
             && let Some(root_def_name) = schema.root_operation(op)
             && let Some(root_type) = schema.types.get(root_def_name.as_str())
         {
-            return self.find_field_recursive(node, offset, cursor_offset, root_type, schema);
+            return self.find_field_recursive(node, offset, cursor_offset, root_type, schema, 0);
         }
         None
     }
@@ -263,6 +263,7 @@ impl DocumentState {
                         cursor_offset,
                         type_def,
                         schema,
+                        0,
                     );
                 }
             }
@@ -277,7 +278,11 @@ impl DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        depth: usize,
     ) -> Option<String> {
+        if depth > 100 {
+            return None;
+        }
         let target_node = if node.kind() == "selection_set" {
             node
         } else {
@@ -307,6 +312,7 @@ impl DocumentState {
                                 cursor_offset,
                                 parent_type,
                                 schema,
+                                depth + 1,
                             ) {
                                 return Some(info);
                             }
@@ -317,6 +323,7 @@ impl DocumentState {
                                 cursor_offset,
                                 parent_type,
                                 schema,
+                                depth + 1,
                             ) {
                                 return Some(info);
                             }
@@ -324,7 +331,7 @@ impl DocumentState {
                     }
                 } else if kind == "field" {
                     if let Some(info) =
-                        self.find_field_info(child, offset, cursor_offset, parent_type, schema)
+                        self.find_field_info(child, offset, cursor_offset, parent_type, schema, depth + 1)
                     {
                         return Some(info);
                     }
@@ -335,6 +342,7 @@ impl DocumentState {
                         cursor_offset,
                         parent_type,
                         schema,
+                        depth + 1,
                     ) {
                         return Some(info);
                     }
@@ -351,7 +359,11 @@ impl DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        depth: usize,
     ) -> Option<String> {
+        if depth > 100 {
+            return None;
+        }
         let mut name_node = None;
         let mut selection_set_node = None;
 
@@ -397,6 +409,7 @@ impl DocumentState {
                                 cursor_offset,
                                 field_type_def,
                                 schema,
+                                depth + 1,
                             );
                         }
                     }
@@ -413,7 +426,11 @@ impl DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        depth: usize,
     ) -> Option<String> {
+        if depth > 100 {
+            return None;
+        }
         let mut target_type = parent_type;
         let mut selection_set_node = None;
 
@@ -437,7 +454,7 @@ impl DocumentState {
         if let Some(ss) = selection_set_node {
             let ss_range = (ss.start_byte() + offset)..(ss.end_byte() + offset);
             if cursor_offset >= ss_range.start && cursor_offset <= ss_range.end {
-                return self.find_field_recursive(ss, offset, cursor_offset, target_type, schema);
+                return self.find_field_recursive(ss, offset, cursor_offset, target_type, schema, depth + 1);
             }
         }
         None

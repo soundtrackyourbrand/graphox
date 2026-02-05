@@ -68,7 +68,7 @@ impl DocumentState {
         {
             for child in node.children(&mut cursor) {
                 if child.kind() == "selection_set" {
-                    self.validate_selection_set(child, offset, root_type, ctx);
+                    self.validate_selection_set(child, offset, root_type, ctx, 0);
                 }
             }
         }
@@ -112,39 +112,42 @@ impl DocumentState {
 
     pub(super) fn validate_type_node(
         &self,
-        node: Node,
+        root: Node,
         offset: usize,
         ctx: &mut ValidationContext,
     ) {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "named_type" => {
-                    let type_name = self.get_node_text(child, offset);
-                    if let Some(type_def) = ctx.schema.types.get(type_name.as_str()) {
-                        let directives = type_def.directives();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                match child.kind() {
+                    "named_type" => {
+                        let type_name = self.get_node_text(child, offset);
+                        if let Some(type_def) = ctx.schema.types.get(type_name.as_str()) {
+                            let directives = type_def.directives();
 
-                        if let Some(directive) = directives.get("deprecated") {
-                            let reason = directive
-                                .argument_by_name("reason", ctx.schema)
-                                .ok()
-                                .and_then(|arg| arg.as_str())
-                                .unwrap_or("No reason provided");
+                            if let Some(directive) = directives.get("deprecated") {
+                                let reason = directive
+                                    .argument_by_name("reason", ctx.schema)
+                                    .ok()
+                                    .and_then(|arg| arg.as_str())
+                                    .unwrap_or("No reason provided");
 
-                            self.add_deprecation_diagnostic(
-                                ctx,
-                                child,
-                                offset,
-                                format!("Type '{}' is deprecated: {}", type_name, reason),
-                                reason,
-                            );
+                                self.add_deprecation_diagnostic(
+                                    ctx,
+                                    child,
+                                    offset,
+                                    format!("Type '{}' is deprecated: {}", type_name, reason),
+                                    reason,
+                                );
+                            }
                         }
                     }
+                    "list_type" | "non_null_type" => {
+                        stack.push(child);
+                    }
+                    _ => {}
                 }
-                "list_type" | "non_null_type" => {
-                    self.validate_type_node(child, offset, ctx);
-                }
-                _ => {}
             }
         }
     }

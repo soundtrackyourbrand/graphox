@@ -449,11 +449,6 @@ impl DocumentState {
         field_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location> {
-        // Fast path: check if the type name exists anywhere in the file
-        if !self.rope.to_string().contains(type_name) {
-            return None;
-        }
-
         let mut cursor = QueryCursor::new();
 
         for block in self.get_graphql_trees() {

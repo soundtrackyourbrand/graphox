@@ -11,7 +11,11 @@ impl DocumentState {
         offset: usize,
         parent_type: &ExtendedType,
         ctx: &mut ValidationContext,
+        depth: usize,
     ) {
+        if depth > 100 {
+            return;
+        }
         let mut cursor = selection_set.walk();
         for child in selection_set.children(&mut cursor) {
             let kind = child.kind();
@@ -21,19 +25,19 @@ impl DocumentState {
                 for inner in child.children(&mut inner_cursor) {
                     let k = inner.kind();
                     if k == "field" {
-                        self.validate_field(inner, offset, parent_type, ctx);
+                        self.validate_field(inner, offset, parent_type, ctx, depth + 1);
                     } else if k == "inline_fragment" {
-                        self.validate_inline_fragment(inner, offset, parent_type, ctx);
+                        self.validate_inline_fragment(inner, offset, parent_type, ctx, depth + 1);
                     } else if k == "fragment_spread" {
                         self.validate_fragment_spread(inner, offset, ctx);
                     }
                 }
             } else if kind == "field" {
-                self.validate_field(child, offset, parent_type, ctx);
+                self.validate_field(child, offset, parent_type, ctx, depth + 1);
             } else if kind == "fragment_spread" {
                 self.validate_fragment_spread(child, offset, ctx);
             } else if kind == "inline_fragment" {
-                self.validate_inline_fragment(child, offset, parent_type, ctx);
+                self.validate_inline_fragment(child, offset, parent_type, ctx, depth + 1);
             }
         }
     }
@@ -44,7 +48,11 @@ impl DocumentState {
         offset: usize,
         parent_type: &ExtendedType,
         ctx: &mut ValidationContext,
+        depth: usize,
     ) {
+        if depth > 100 {
+            return;
+        }
         let mut name_node = None;
         let mut selection_set_node = None;
         let mut arguments_node = None;
@@ -104,7 +112,13 @@ impl DocumentState {
                 if let Some(sel_set) = selection_set_node {
                     let field_type_name = field_def.ty.inner_named_type();
                     if let Some(field_type_def) = ctx.schema.types.get(field_type_name.as_str()) {
-                        self.validate_selection_set(sel_set, offset, field_type_def, ctx);
+                        self.validate_selection_set(
+                            sel_set,
+                            offset,
+                            field_type_def,
+                            ctx,
+                            depth + 1,
+                        );
                     }
                 }
             } else {

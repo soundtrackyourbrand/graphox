@@ -1,5 +1,6 @@
 use crate::queries::*;
 use crate::utils::{find_package_root, mask_interpolations};
+use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::Schema;
 use ropey::Rope;
 use std::fmt;
@@ -727,80 +728,87 @@ impl DocumentState {
         offset: usize,
         schema: &Schema,
     ) -> Option<apollo_compiler::schema::ExtendedType> {
-        let mut current = node;
-        while current.kind() != "selection_set" {
-            if let Some(parent) = current.parent() {
-                current = parent;
-            } else {
-                return None;
+        let mut path = Vec::new();
+        let mut curr = node;
+
+        // Collect ancestors that define or change the current type
+        while let Some(parent) = curr.parent() {
+            match parent.kind() {
+                "field" | "inline_fragment" | "operation_definition" | "fragment_definition" => {
+                    path.push((parent.kind(), parent));
+                }
+                _ => {}
+            }
+            curr = parent;
+        }
+
+        path.reverse();
+
+        let mut current_type = None;
+
+        for (kind, node) in path {
+            match kind {
+                "operation_definition" => {
+                    let mut op_type_str = "query";
+                    let mut walker = node.walk();
+                    for child in node.children(&mut walker) {
+                        if child.kind() == "operation_type" {
+                            let text = self.get_node_text(child, offset);
+                            if text == "mutation" {
+                                op_type_str = "mutation";
+                            } else if text == "subscription" {
+                                op_type_str = "subscription";
+                            }
+                            break;
+                        }
+                    }
+                    let op = match op_type_str {
+                        "mutation" => apollo_compiler::ast::OperationType::Mutation,
+                        "subscription" => apollo_compiler::ast::OperationType::Subscription,
+                        _ => apollo_compiler::ast::OperationType::Query,
+                    };
+                    let root_name = schema
+                        .root_operation(op)
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "Query".to_string());
+                    current_type = schema.types.get(root_name.as_str()).cloned();
+                }
+                "fragment_definition" => {
+                    let type_name = self.get_fragment_type_condition(node, offset)?;
+                    current_type = schema.types.get(type_name.as_str()).cloned();
+                }
+                "field" => {
+                    let parent_type = current_type?;
+                    let mut f_name = None;
+                    let mut f_walker = node.walk();
+                    for child in node.children(&mut f_walker) {
+                        if child.kind() == "name" {
+                            f_name = Some(self.get_node_text(child, offset));
+                            break;
+                        }
+                    }
+                    let field_name = f_name?;
+                    let field_def = match &parent_type {
+                        ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                        ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                        _ => None,
+                    }?;
+                    current_type = schema
+                        .types
+                        .get(field_def.ty.inner_named_type().as_str())
+                        .cloned();
+                }
+                "inline_fragment" => {
+                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
+                        current_type = schema.types.get(type_name.as_str()).cloned();
+                    }
+                    // if no type condition, current_type remains unchanged (inherited)
+                }
+                _ => {}
             }
         }
 
-        let container = current.parent()?;
-        match container.kind() {
-            "operation_definition" => {
-                let mut op_type_str = "query";
-                let mut walker = container.walk();
-                for child in container.children(&mut walker) {
-                    if child.kind() == "operation_type" {
-                        let text = self.get_node_text(child, offset);
-                        if text == "mutation" {
-                            op_type_str = "mutation";
-                        } else if text == "subscription" {
-                            op_type_str = "subscription";
-                        }
-                        break;
-                    }
-                }
-                let op = match op_type_str {
-                    "mutation" => apollo_compiler::ast::OperationType::Mutation,
-                    "subscription" => apollo_compiler::ast::OperationType::Subscription,
-                    _ => apollo_compiler::ast::OperationType::Query,
-                };
-                let root_name = schema
-                    .root_operation(op)
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| "Query".to_string());
-                schema.types.get(root_name.as_str()).cloned()
-            }
-            "fragment_definition" => {
-                let type_name = self.get_fragment_type_condition(container, offset)?;
-                schema.types.get(type_name.as_str()).cloned()
-            }
-            "field" => {
-                let parent_of_field = self.find_parent_type_for_node(container, offset, schema)?;
-                let mut f_name = None;
-                let mut f_walker = container.walk();
-                for child in container.children(&mut f_walker) {
-                    if child.kind() == "name" {
-                        f_name = Some(self.get_node_text(child, offset));
-                        break;
-                    }
-                }
-                let field_name = f_name?;
-                let field_def = match &parent_of_field {
-                    apollo_compiler::schema::ExtendedType::Object(obj) => {
-                        obj.fields.get(field_name.as_str())
-                    }
-                    apollo_compiler::schema::ExtendedType::Interface(iface) => {
-                        iface.fields.get(field_name.as_str())
-                    }
-                    _ => None,
-                }?;
-                schema
-                    .types
-                    .get(field_def.ty.inner_named_type().as_str())
-                    .cloned()
-            }
-            "inline_fragment" => {
-                if let Some(type_name) = self.get_fragment_type_condition(container, offset) {
-                    schema.types.get(type_name.as_str()).cloned()
-                } else {
-                    self.find_parent_type_for_node(container, offset, schema)
-                }
-            }
-            _ => None,
-        }
+        current_type
     }
 
     pub fn get_fragment_variable_types(
