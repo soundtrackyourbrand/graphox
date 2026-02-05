@@ -80,7 +80,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
                     .set_language(&tree_sitter_graphql::LANGUAGE.into())
                     .unwrap();
                 let doc = DocumentState::new(uri.clone(), &content, parser);
-                backend.documents.insert(uri, doc);
+                backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }
     });

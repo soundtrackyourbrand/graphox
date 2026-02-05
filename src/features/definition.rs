@@ -170,115 +170,274 @@ impl DocumentState {
         &self,
         position: Position,
         schema: &apollo_compiler::Schema,
-        documents: &dashmap::DashMap<Url, DocumentState, ahash::RandomState>,
+        documents: &dashmap::DashMap<Url, std::sync::Arc<DocumentState>, ahash::RandomState>,
+        preferred_uris: &[Url],
+        fragment_definitions: &dashmap::DashMap<String, fnv::FnvHashSet<Url>, ahash::RandomState>,
     ) -> Option<Location> {
         let byte_offset = self.position_to_byte(position);
 
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let root = block.tree.root_node();
+        // Targeted lookup: only check the block that contains the position
+        let block = self.get_graphql_trees().into_iter().find(|b| {
+            let root = b.tree.root_node();
             let tree_len = root.end_byte();
+            byte_offset >= b.offset && byte_offset < b.offset + tree_len
+        })?;
 
-            if byte_offset >= offset && byte_offset < offset + tree_len {
-                let local_byte = byte_offset - offset;
-                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+        let offset = block.offset;
+        let root = block.tree.root_node();
+        let local_byte = byte_offset - offset;
+        let node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
-                if node.kind() == "name" {
-                    let mut curr = node;
-                    while let Some(parent) = curr.parent() {
-                        if parent.kind() == "field"
-                            || parent.kind() == "argument"
-                            || parent.kind() == "object_field"
-                        {
-                            let field_name = self.get_node_text(node, offset);
+        let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
 
-                            let mut search_type =
-                                self.find_parent_type_for_node(parent, offset, schema);
+        if node.kind() == "name" {
+            let mut curr = node;
+            while let Some(parent) = curr.parent() {
+                if parent.kind() == "field"
+                    || parent.kind() == "argument"
+                    || parent.kind() == "object_field"
+                {
+                    let field_name = self.get_node_text(node, offset);
 
-                            if parent.kind() == "argument" {
-                                // For arguments, we need the type that defines the field this argument belongs to,
-                                // but then we look for the argument name within that field's definition.
-                                // Actually, find_field_definition_in_schema can handle this if we pass the field name?
-                                // No, find_field_definition_in_schema looks for a field in a type.
-                                // If we have user(id: 1), we look for 'user' in Query, get its type, then look for 'id'?
-                                // No, 'id' is defined ON 'user'.
+                    let mut search_type = self.find_parent_type_for_node(parent, offset, schema);
 
-                                if let Some(field_node) = parent.parent().and_then(|p| p.parent()) {
-                                    if field_node.kind() == "field" {
-                                        if let Some(parent_type) = self
-                                            .find_parent_type_for_node(field_node, offset, schema)
-                                        {
-                                            let mut field_node_name = String::new();
-                                            let mut f_walker = field_node.walk();
-                                            for child in field_node.children(&mut f_walker) {
-                                                if child.kind() == "name" {
-                                                    field_node_name = self.get_node_text(child, offset);
+                    if parent.kind() == "argument" {
+                        if let Some(field_node) = parent.parent().and_then(|p| p.parent()) {
+                            if field_node.kind() == "field" {
+                                if let Some(parent_type) =
+                                    self.find_parent_type_for_node(field_node, offset, schema)
+                                {
+                                    let mut field_node_name = String::new();
+                                    let mut f_walker = field_node.walk();
+                                    for child in field_node.children(&mut f_walker) {
+                                        if child.kind() == "name" {
+                                            field_node_name = self.get_node_text(child, offset);
+                                            break;
+                                        }
+                                    }
+
+                                    let mut found_loc = None;
+                                    for p_uri in preferred_uris {
+                                        if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone()) {
+                                            if let Some(loc) = doc.find_argument_definition_in_schema(
+                                                parent_type.name().as_str(),
+                                                &field_node_name,
+                                                &field_name,
+                                                symbol_query,
+                                            ) {
+                                                found_loc = Some(loc);
+                                                break;
+                                            }
+                                        } else if let Ok(path) = p_uri.to_file_path() {
+                                            if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                                if let Some(loc) = doc.find_argument_definition_in_schema(
+                                                    parent_type.name().as_str(),
+                                                    &field_node_name,
+                                                    &field_name,
+                                                    symbol_query,
+                                                ) {
+                                                    found_loc = Some(loc);
                                                     break;
                                                 }
                                             }
+                                        }
+                                    }
 
-                                            for entry in documents.iter() {
-                                                let doc = entry.value();
-                                                if let Some(loc) = doc
-                                                    .find_argument_definition_in_schema(
-                                                        parent_type.name(),
-                                                        &field_node_name,
-                                                        &field_name,
-                                                    )
-                                                {
-                                                    return Some(loc);
+                                    if found_loc.is_none() {
+                                        if let Some(uris) =
+                                            fragment_definitions.get(parent_type.name().as_str())
+                                        {
+                                            for uri in uris.iter() {
+                                                if preferred_uris.contains(&*uri) {
+                                                    continue;
+                                                }
+                                                if let Some(doc) = documents.get(&*uri).map(|r| r.value().clone()) {
+                                                    if let Some(loc) = doc
+                                                        .find_argument_definition_in_schema(
+                                                            parent_type.name().as_str(),
+                                                            &field_node_name,
+                                                            &field_name,
+                                                            symbol_query,
+                                                        )
+                                                    {
+                                                        found_loc = Some(loc);
+                                                        break;
+                                                    }
+                                                } else if let Ok(path) = uri.to_file_path() {
+                                                    if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                                        if let Some(loc) = doc.find_argument_definition_in_schema(
+                                                            parent_type.name().as_str(),
+                                                            &field_node_name,
+                                                            &field_name,
+                                                            symbol_query,
+                                                        ) {
+                                                            found_loc = Some(loc);
+                                                            break;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
-                                    } else if field_node.kind() == "directive" {
-                                        let mut dir_name = String::new();
-                                        let mut f_walker = field_node.walk();
-                                        for child in field_node.children(&mut f_walker) {
-                                            if child.kind() == "name" {
-                                                dir_name = self.get_node_text(child, offset);
-                                                break;
-                                            }
-                                        }
-
-                                        for entry in documents.iter() {
-                                            let doc = entry.value();
-                                            if let Some(loc) = doc
-                                                .find_argument_definition_in_schema(
-                                                    "Directive",
-                                                    &dir_name,
-                                                    &field_name,
-                                                )
-                                            {
-                                                return Some(loc);
-                                            }
-                                        }
                                     }
-                                }
-                            } else if parent.kind() == "object_field" {
-                                // For object fields in input types, find the expected input type
-                                if let Some(obj_value) = parent.parent() {
-                                    if let Some(val_node) = obj_value.parent() {
-                                        search_type = self
-                                            .find_expected_type_for_value(val_node, offset, schema);
-                                    }
-                                }
-                            }
 
-                            if let Some(pt) = search_type {
-                                for entry in documents.iter() {
-                                    let doc = entry.value();
-                                    if let Some(loc) =
-                                        doc.find_field_definition_in_schema(pt.name(), &field_name)
-                                    {
+                                    if let Some(loc) = found_loc {
                                         return Some(loc);
                                     }
                                 }
+                            } else if field_node.kind() == "directive" {
+                                let mut dir_name = String::new();
+                                let mut f_walker = field_node.walk();
+                                for child in field_node.children(&mut f_walker) {
+                                    if child.kind() == "name" {
+                                        dir_name = self.get_node_text(child, offset);
+                                        break;
+                                    }
+                                }
+
+                                let mut found_loc = None;
+                                for p_uri in preferred_uris {
+                                    if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone()) {
+                                        if let Some(loc) = doc.find_argument_definition_in_schema(
+                                            "Directive",
+                                            &dir_name,
+                                            &field_name,
+                                            symbol_query,
+                                        ) {
+                                            found_loc = Some(loc);
+                                            break;
+                                        }
+                                    } else if let Ok(path) = p_uri.to_file_path() {
+                                        if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                            if let Some(loc) = doc.find_argument_definition_in_schema(
+                                                "Directive",
+                                                &dir_name,
+                                                &field_name,
+                                                symbol_query,
+                                            ) {
+                                                found_loc = Some(loc);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if found_loc.is_none() {
+                                    if let Some(uris) = fragment_definitions.get(&dir_name) {
+                                        for uri in uris.iter() {
+                                            if preferred_uris.contains(&*uri) {
+                                                continue;
+                                            }
+                                            if let Some(doc) = documents.get(&*uri).map(|r| r.value().clone()) {
+                                                if let Some(loc) = doc
+                                                    .find_argument_definition_in_schema(
+                                                        "Directive",
+                                                        &dir_name,
+                                                        &field_name,
+                                                        symbol_query,
+                                                    )
+                                                {
+                                                    found_loc = Some(loc);
+                                                    break;
+                                                }
+                                            } else if let Ok(path) = uri.to_file_path() {
+                                                if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                                    if let Some(loc) = doc.find_argument_definition_in_schema(
+                                                        "Directive",
+                                                        &dir_name,
+                                                        &field_name,
+                                                        symbol_query,
+                                                    ) {
+                                                        found_loc = Some(loc);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if let Some(loc) = found_loc {
+                                    return Some(loc);
+                                }
                             }
-                            break;
                         }
-                        curr = parent;
+                    } else if parent.kind() == "object_field" {
+                        if let Some(obj_value) = parent.parent() {
+                            if let Some(val_node) = obj_value.parent() {
+                                if let Some(pt) = self.find_expected_type_for_value(val_node, offset, schema) {
+                                     search_type = Some(pt);
+                                }
+                            }
+                        }
                     }
+
+                    if let Some(pt) = search_type {
+                        let mut found_loc = None;
+                        for p_uri in preferred_uris {
+                            if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone()) {
+                                if let Some(loc) = doc.find_field_definition_in_schema(
+                                    pt.name().as_str(),
+                                    &field_name,
+                                    symbol_query,
+                                ) {
+                                    found_loc = Some(loc);
+                                    break;
+                                }
+                            } else if let Ok(path) = p_uri.to_file_path() {
+                                if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                    if let Some(loc) = doc.find_field_definition_in_schema(
+                                        pt.name().as_str(),
+                                        &field_name,
+                                        symbol_query,
+                                    ) {
+                                        found_loc = Some(loc);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if found_loc.is_none() {
+                            if let Some(uris) = fragment_definitions.get(pt.name().as_str()) {
+                                for uri in uris.iter() {
+                                    if preferred_uris.contains(&*uri) {
+                                        continue;
+                                    }
+                                    if let Some(doc) = documents.get(&*uri).map(|r| r.value().clone()) {
+                                        if let Some(loc) = doc.find_field_definition_in_schema(
+                                            pt.name().as_str(),
+                                            &field_name,
+                                            symbol_query,
+                                        ) {
+                                            found_loc = Some(loc);
+                                            break;
+                                        }
+                                    } else if let Ok(path) = uri.to_file_path() {
+                                        if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                            if let Some(loc) = doc.find_field_definition_in_schema(
+                                                pt.name().as_str(),
+                                                &field_name,
+                                                symbol_query,
+                                            ) {
+                                                found_loc = Some(loc);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(loc) = found_loc {
+                            return Some(loc);
+                        }
+                    }
+                    break;
                 }
+                curr = parent;
             }
         }
         None
@@ -288,11 +447,12 @@ impl DocumentState {
         &self,
         type_name: &str,
         field_name: &str,
+        query: &tree_sitter::Query,
     ) -> Option<Location> {
-        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-            let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
-        });
+        // Fast path: check if the type name exists anywhere in the file
+        if !self.rope.to_string().contains(type_name) {
+            return None;
+        }
 
         let mut cursor = QueryCursor::new();
 
@@ -324,7 +484,6 @@ impl DocumentState {
                     && n == type_name
                     && let Some(container) = container_node
                 {
-                    // Found the type, now look for the field inside its selection set or field definitions
                     let mut walker = container.walk();
                     for child in container.children(&mut walker) {
                         match child.kind() {
@@ -406,12 +565,8 @@ impl DocumentState {
         type_name: &str,
         field_name: &str,
         arg_name: &str,
+        query: &tree_sitter::Query,
     ) -> Option<Location> {
-        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-            let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
-        });
-
         let mut cursor = QueryCursor::new();
 
         for block in self.get_graphql_trees() {

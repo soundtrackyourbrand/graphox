@@ -50,7 +50,7 @@ impl DocumentState {
             let doc_res = apollo_compiler::executable::ExecutableDocument::parse(
                 valid_schema,
                 &masked,
-                "doc.graphql",
+                self.uri.as_str(),
             );
             if let Err(with_errors) = doc_res {
                 // Only report parser errors if they are not about schema definitions in executable docs
