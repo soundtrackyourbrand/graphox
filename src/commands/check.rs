@@ -1,4 +1,5 @@
 use apollo_compiler::Schema;
+use colored::*;
 use fnv::FnvHashMap as HashMap;
 use graphql_rust::utils::{get_project_files, is_relevant_file};
 use graphql_rust::{Config, DocumentLanguage, DocumentState};
@@ -24,7 +25,7 @@ pub async fn run_check(config: Config, verbose: bool) {
             .map(|p| cfg.base_dir.join(p).to_string_lossy().to_string())
             .collect();
 
-        println!("Checking project: {}", project.include.as_key());
+        println!("Checking project: {}", project.include.as_key().blue());
         if !execute_project_check(
             &cfg.base_dir,
             &project.schema,
@@ -40,6 +41,7 @@ pub async fn run_check(config: Config, verbose: bool) {
     }
 
     if !success {
+        println!("{}", "\nCheck failed.".red());
         std::process::exit(1);
     }
 }
@@ -60,7 +62,7 @@ async fn execute_project_check(
                 combined_text.push('\n');
             }
             Err(e) => {
-                eprintln!("Failed to read schema {}: {}", source.as_key(), e);
+                eprintln!("{} {}: {}", "Failed to read schema".red(), source.as_key().blue(), e.to_string().red());
                 return false;
             }
         }
@@ -68,14 +70,14 @@ async fn execute_project_check(
     let schema = match Schema::parse(&combined_text, source.as_key()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to parse schema {}: {}", source.as_key(), e);
+            eprintln!("{} {}: {}", "Failed to parse schema".red(), source.as_key().blue(), e.to_string().red());
             return false;
         }
     };
     let valid_schema = match schema.validate() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Schema validation failed {}: {}", source.as_key(), e);
+            eprintln!("{} {}: {}", "Schema validation failed".red(), source.as_key().blue(), e.to_string().red());
             return false;
         }
     };
@@ -183,23 +185,23 @@ async fn execute_project_check(
                     }
 
                     if !file_header_printed {
-                        println!("\nFile: {}", display_path.display());
+                        println!("\nFile: {}", display_path.display().to_string().blue());
                         file_header_printed = true;
                     }
 
-                    let severity = match d.severity {
-                        Some(DiagnosticSeverity::ERROR) => "Error",
-                        Some(DiagnosticSeverity::WARNING) => "Warning",
-                        Some(DiagnosticSeverity::INFORMATION) => "Info",
-                        Some(DiagnosticSeverity::HINT) => "Hint",
-                        _ => "Diagnostic",
+                    let (severity_label, colored_msg) = match d.severity {
+                        Some(DiagnosticSeverity::ERROR) => ("Error".red(), d.message.red()),
+                        Some(DiagnosticSeverity::WARNING) => ("Warning".yellow(), d.message.yellow()),
+                        Some(DiagnosticSeverity::INFORMATION) => ("Info".bright_black(), d.message.bright_black()),
+                        Some(DiagnosticSeverity::HINT) => ("Hint".bright_black(), d.message.bright_black()),
+                        _ => ("Diagnostic".normal(), d.message.normal()),
                     };
                     println!(
                         "  [{}:{}] {}: {}",
-                        d.range.start.line + 1,
-                        d.range.start.character + 1,
-                        severity,
-                        d.message
+                        (d.range.start.line + 1).to_string().bright_black(),
+                        (d.range.start.character + 1).to_string().bright_black(),
+                        severity_label,
+                        colored_msg
                     );
                 }
             }
@@ -208,9 +210,9 @@ async fn execute_project_check(
 
     if !found_any {
         if verbose {
-            println!("\nScan complete.");
+            println!("\n{}", "Scan complete.".bright_black());
         } else {
-            println!("No issues found.");
+            println!("{}", "No issues found.".green());
         }
         true
     } else {

@@ -1,3 +1,4 @@
+use colored::*;
 use crate::features::apollo_ast::{
     get_fragment_fragment_dependencies, get_operation_fragment_dependencies,
     serialize_fragment_definition, serialize_operation_definition,
@@ -404,8 +405,8 @@ pub fn generate_permissions_content(
                     types_with_permissions.push((name, permissions_field));
                 } else {
                     eprintln!(
-                        "Warning: Type '{}' has a 'permissions' field, but its type '{}' is not an enum. Skipping permissions generation for this type.",
-                        name, inner_name
+                        "{}: Type '{}' has a 'permissions' field, but its type '{}' is not an enum. Skipping permissions generation for this type.",
+                        "Warning".yellow(), name.blue(), inner_name.blue()
                     );
                 }
             }

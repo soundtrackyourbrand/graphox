@@ -1,8 +1,8 @@
-use apollo_compiler::Node;
 use apollo_compiler::ast::{self, OperationType, Type, Value as GqlValue};
 use apollo_compiler::executable::{self, Selection};
+use apollo_compiler::Node;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub fn serialize_operation(
     operation: &executable::Operation,
@@ -77,7 +77,6 @@ fn collect_fragments(
                     if let Some(frag) = all_fragments.get(&name) {
                         collect_fragments(&frag.selection_set, all_fragments, used);
                     } else {
-                        // eprintln!("DEBUG: Fragment {} not found", name);
                     }
                 }
             }

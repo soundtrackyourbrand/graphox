@@ -1,3 +1,4 @@
+use colored::*;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::SemanticTokenType;
 use tree_sitter::StreamingIterator;
@@ -222,7 +223,7 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
     for text in texts {
         let mut parser = tree_sitter::Parser::new();
         if let Err(e) = parser.set_language(&tree_sitter_graphql::LANGUAGE.into()) {
-            eprintln!("ERROR: Failed to set GraphQL language: {}", e);
+            eprintln!("{}: Failed to set GraphQL language: {}", "ERROR".red(), e.to_string().red());
             merged.push_str(text);
             merged.push('\n');
             continue;

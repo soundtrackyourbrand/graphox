@@ -1,12 +1,12 @@
 use crate::config::{Config, SchemaSource};
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file};
-use apollo_compiler::{Node, Schema, executable};
+use apollo_compiler::{executable, Node, Schema};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_lsp::lsp_types::Url;
 
@@ -215,7 +215,6 @@ impl Engine {
                     let path_str = path.to_string_lossy().to_string();
 
                     for frag in doc.fragments() {
-                        // eprintln!("DEBUG: Found fragment {} in {}", frag.name, path_str);
                         all_fragments.push(FragmentMetadata {
                             name: frag.name.clone(),
                             path: path_str.clone(),

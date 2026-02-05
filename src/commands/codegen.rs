@@ -1,3 +1,4 @@
+use colored::*;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use graphql_rust::config::{Config, SchemaSource};
 use graphql_rust::engine::{Engine, FragmentMetadata, ProjectContext};
@@ -32,7 +33,7 @@ pub async fn run_codegen(
         return;
     }
 
-    println!("Watching for changes...");
+    println!("{}", "Watching for changes...".bright_black());
     let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
@@ -43,7 +44,7 @@ pub async fn run_codegen(
             Ok(_) => {
                 let _ = tx.blocking_send(());
             }
-            Err(e) => eprintln!("Watch error: {:?}", e),
+            Err(e) => eprintln!("{}: {:?}", "Watch error".red(), e),
         },
     )
     .expect("Failed to create debouncer");
@@ -98,7 +99,7 @@ pub async fn run_codegen(
     }
 
     while rx.recv().await.is_some() {
-        println!("\nChange detected, re-running codegen...");
+        println!("{}", "\nChange detected, re-running codegen...".bright_black());
         let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
     }
 }
@@ -121,7 +122,7 @@ async fn execute_codegen(
     for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
         let project_files = &project_meta.files;
 
-        println!("Processing project: {}", project.include.as_key());
+        println!("Processing project: {}", project.include.as_key().blue());
         let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
 
         let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
@@ -142,7 +143,7 @@ async fn execute_codegen(
         let schema = match Engine::load_schema(&cfg.base_dir, &project.schema) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("{}", e.to_string().red());
                 success = false;
                 continue;
             }
@@ -151,9 +152,10 @@ async fn execute_codegen(
             Ok(v) => v,
             Err(e) => {
                 eprintln!(
-                    "Schema validation failed for project {}: {}",
-                    project.include.as_key(),
-                    e
+                    "{} project {}: {}",
+                    "Schema validation failed for".red(),
+                    project.include.as_key().blue(),
+                    e.to_string().red()
                 );
                 success = false;
                 continue;
@@ -169,7 +171,7 @@ async fn execute_codegen(
                 std::fs::create_dir_all(&out_dir_path).ok();
                 let permissions_path = out_dir_path.join("permissions.ts");
                 if verbose {
-                    println!("Generating permissions: {}", permissions_path.display());
+                    println!("{}: {}", "Generating permissions".bright_black(), permissions_path.display().to_string().bright_black());
                 }
                 let content = graphql_rust::features::codegen::generate_permissions_content(
                     &valid_schema,
@@ -177,7 +179,7 @@ async fn execute_codegen(
                     &schema_import,
                 );
                 if let Err(e) = std::fs::write(&permissions_path, content) {
-                    eprintln!("Failed to write permissions: {}", e);
+                    eprintln!("{}: {}", "Failed to write permissions".red(), e);
                     success = false;
                 }
             }
@@ -215,14 +217,14 @@ async fn execute_codegen(
             if clean {
                 if abs_output.exists() {
                     if let Err(e) = std::fs::remove_file(&abs_output) {
-                        eprintln!("Failed to remove {}: {}", abs_output.display(), e);
+                        eprintln!("{}: {} - {}", "Failed to remove".red(), abs_output.display().to_string().red(), e);
                         success = false;
                     } else if verbose {
-                        println!("Removed: {}", abs_output.display());
+                        println!("{}: {}", "Removed".bright_black(), abs_output.display().to_string().bright_black());
                     }
                 }
             } else {
-                println!("Generating types for schema: {}", st.output);
+                println!("Generating types for schema: {}", st.output.blue());
                 if !execute_schema_codegen(
                     &cfg.base_dir,
                     &st.schema,
@@ -244,21 +246,21 @@ async fn execute_codegen(
             let entrypoint_path = out_dir_path.join("graphql.ts");
             if !all_generated_operations.is_empty() {
                 if verbose {
-                    println!("Generating entrypoint: {}", entrypoint_path.display());
+                    println!("{}: {}", "Generating entrypoint".bright_black(), entrypoint_path.display().to_string().bright_black());
                 }
                 let content = graphql_rust::features::codegen::generate_entrypoint_content(
                     &out_dir_path,
                     &all_generated_operations,
                 );
                 if let Err(e) = std::fs::write(&entrypoint_path, content) {
-                    eprintln!("Failed to write entrypoint: {}", e);
+                    eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
                     success = false;
                 }
 
                 // Generate manifest for SWC plugin
                 let manifest_path = out_dir_path.join("manifest.json");
                 if verbose {
-                    println!("Generating manifest: {}", manifest_path.display());
+                    println!("{}: {}", "Generating manifest".bright_black(), manifest_path.display().to_string().bright_black());
                 }
                 let manifest_entries: Vec<_> = all_generated_operations
                     .iter()
@@ -286,7 +288,7 @@ async fn execute_codegen(
 
                 let manifest_json = serde_json::to_string_pretty(&manifest_entries).unwrap();
                 if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
-                    eprintln!("Failed to write manifest: {}", e);
+                    eprintln!("{}: {}", "Failed to write manifest".red(), e);
                     success = false;
                 }
             }
@@ -306,14 +308,14 @@ async fn execute_schema_codegen(
     let schema = match Engine::load_schema(base_dir, source) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{}", e.to_string().red());
             return false;
         }
     };
     let valid_schema = match schema.validate() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Schema validation failed for {}: {}", source.as_key(), e);
+            eprintln!("{} {}: {}", "Schema validation failed for".red(), source.as_key().blue(), e.to_string().red());
             return false;
         }
     };
@@ -325,11 +327,11 @@ async fn execute_schema_codegen(
         std::fs::create_dir_all(parent).ok();
     }
     if let Err(e) = std::fs::write(out_path, ts_code) {
-        eprintln!("Failed to write schema types file {}: {}", output_path, e);
+        eprintln!("{} {}: {}", "Failed to write schema types file".red(), output_path.red(), e);
         return false;
     }
     if verbose {
-        println!("Generated: {}", out_path.display());
+        println!("{}: {}", "Generated".bright_black(), out_path.display().to_string().bright_black());
     }
     true
 }
@@ -343,14 +345,14 @@ async fn execute_project_codegen_entry(
         let schema = match Engine::load_schema(params.base_dir, params.source) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("{}", e.to_string().red());
                 return Err(());
             }
         };
         let valid_schema = match schema.validate() {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("Schema validation failed: {}", e);
+                eprintln!("{}: {}", "Schema validation failed".red(), e.to_string().red());
                 return Err(());
             }
         };
@@ -383,13 +385,13 @@ async fn execute_project_codegen_entry(
                 Ok(ops) => Ok(ops),
                 Err((path, e)) => {
                     if !e.contains("No executable operations") {
-                        eprintln!("Error generating types for {}: {}", path.display(), e);
+                        eprintln!("{} {}: {}", "Error generating types for".red(), path.display().to_string().red(), e.red());
                         if e.contains("Fragment") && e.contains("not found") {
                             for meta in params.global_metadata {
                                 if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
                                     eprintln!(
-                                        "  Hint: Fragment '{}' exists in {} but is not marked as @public",
-                                        meta.name, meta.path
+                                        "  {}: Fragment '{}' exists in {} but is not marked as @public",
+                                        "Hint".yellow(), meta.name.blue(), meta.path.blue()
                                     );
                                 }
                             }
@@ -423,10 +425,10 @@ async fn execute_project_codegen_entry(
                 let mut ok = true;
                 if out_path.exists() {
                     if let Err(e) = std::fs::remove_file(&out_path) {
-                        eprintln!("Failed to remove {}: {}", out_path.display(), e);
+                        eprintln!("{}: {} - {}", "Failed to remove".red(), out_path.display().to_string().red(), e);
                         ok = false;
                     } else if verbose {
-                        println!("Removed: {}", out_path.display());
+                        println!("{}: {}", "Removed".bright_black(), out_path.display().to_string().bright_black());
                     }
                 }
                 ok
@@ -441,13 +443,14 @@ async fn execute_project_codegen_entry(
             if entrypoint_path.exists() {
                 if let Err(e) = std::fs::remove_file(&entrypoint_path) {
                     eprintln!(
-                        "Failed to remove entrypoint {}: {}",
-                        entrypoint_path.display(),
+                        "{} {}: {}",
+                        "Failed to remove entrypoint".red(),
+                        entrypoint_path.display().to_string().red(),
                         e
                     );
                     entrypoint_ok = false;
                 } else if verbose {
-                    println!("Removed: {}", entrypoint_path.display());
+                    println!("{}: {}", "Removed".bright_black(), entrypoint_path.display().to_string().bright_black());
                 }
             }
 
@@ -455,13 +458,14 @@ async fn execute_project_codegen_entry(
             if manifest_path.exists() {
                 if let Err(e) = std::fs::remove_file(&manifest_path) {
                     eprintln!(
-                        "Failed to remove manifest {}: {}",
-                        manifest_path.display(),
+                        "{} {}: {}",
+                        "Failed to remove manifest".red(),
+                        manifest_path.display().to_string().red(),
                         e
                     );
                     manifest_ok = false;
                 } else if verbose {
-                    println!("Removed: {}", manifest_path.display());
+                    println!("{}: {}", "Removed".bright_black(), manifest_path.display().to_string().bright_black());
                 }
             }
 
@@ -470,13 +474,14 @@ async fn execute_project_codegen_entry(
                 if permissions_path.exists() {
                     if let Err(e) = std::fs::remove_file(&permissions_path) {
                         eprintln!(
-                            "Failed to remove permissions {}: {}",
-                            permissions_path.display(),
+                            "{} {}: {}",
+                            "Failed to remove permissions".red(),
+                            permissions_path.display().to_string().red(),
                             e
                         );
                         permissions_ok = false;
                     } else if verbose {
-                        println!("Removed: {}", permissions_path.display());
+                        println!("{}: {}", "Removed".bright_black(), permissions_path.display().to_string().bright_black());
                     }
                 }
             }
@@ -519,7 +524,7 @@ fn execute_single_file_codegen(
     }
     std::fs::write(&abs_out_path, ts_code).map_err(|e| e.to_string())?;
     if verbose {
-        println!("Generated: {}", abs_out_path.display());
+        println!("{}: {}", "Generated".bright_black(), abs_out_path.display().to_string().bright_black());
     }
     Ok(ops)
 }

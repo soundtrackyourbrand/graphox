@@ -1,3 +1,4 @@
+use colored::*;
 use fnv::FnvHashMap;
 use globset::{Glob, GlobSetBuilder};
 use serde::Deserialize;
@@ -107,7 +108,7 @@ impl Config {
 
     pub fn load() -> Self {
         let mut curr = std::env::current_dir().unwrap_or_else(|e| {
-            eprintln!("Error: Failed to get current directory: {}", e);
+            eprintln!("{}: Failed to get current directory: {}", "Error".red(), e.to_string().red());
             std::process::exit(1);
         });
         loop {
@@ -121,7 +122,8 @@ impl Config {
             }
         }
         eprintln!(
-            "Error: No graphql.yaml or graphql.yml found in current or parent directories. This tool requires a configuration file to run."
+            "{}: No graphql.yaml or graphql.yml found in current or parent directories. This tool requires a configuration file to run.",
+            "Error".red()
         );
         std::process::exit(1);
     }
@@ -141,9 +143,10 @@ impl Config {
 
         let content = fs::read_to_string(&config_path).unwrap_or_else(|e| {
             eprintln!(
-                "Error: Failed to read config file {}: {}",
-                config_path.display(),
-                e
+                "{}: Failed to read config file {}: {}",
+                "Error".red(),
+                config_path.display().to_string().blue(),
+                e.to_string().red()
             );
             std::process::exit(1);
         });
@@ -155,9 +158,10 @@ impl Config {
             }
             Err(e) => {
                 eprintln!(
-                    "Error: Failed to parse config file {}: {}",
-                    config_path.display(),
-                    e
+                    "{}: Failed to parse config file {}: {}",
+                    "Error".red(),
+                    config_path.display().to_string().blue(),
+                    e.to_string().red()
                 );
                 std::process::exit(1);
             }

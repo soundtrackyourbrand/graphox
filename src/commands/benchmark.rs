@@ -1,3 +1,4 @@
+use colored::*;
 use fnv::FnvHashMap as HashMap;
 use graphql_rust::Config;
 use graphql_rust::engine::Engine;
@@ -6,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 pub async fn run_benchmark(config: Config, _verbose: bool) {
-    println!("Starting Benchmark...");
+    println!("{}", "Starting Benchmark...".bold());
     let total_start = Instant::now();
 
     // 1. Discovery & Metadata Collection (Parallel)
@@ -45,7 +46,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let schema = match Engine::load_schema(&config.base_dir, &project.schema) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("{}", e.to_string().red());
                 continue;
             }
         };
@@ -53,9 +54,10 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!(
-                    "Schema validation failed for {}: {}",
-                    project.schema.as_key(),
-                    e
+                    "{} {}: {}",
+                    "Schema validation failed for".red(),
+                    project.schema.as_key().blue(),
+                    e.to_string().red()
                 );
                 continue;
             }
@@ -153,53 +155,59 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
 
     let total_duration = total_start.elapsed();
 
-    println!("\n--- Benchmark Results ---");
-    println!("Files with GraphQL:       {}", total_graphql_files);
+    println!("\n{}", "--- Benchmark Results ---".bold());
+    println!("{:<30} {}", "Files with GraphQL:".bright_black(), total_graphql_files);
     println!(
-        "Total Fragments Found:    {}",
+        "{:<30} {}",
+        "Total Fragments Found:".bright_black(),
         fragment_to_path_global.len()
     );
-    println!("Total Operations processed: {}", total_operations);
-    println!("Total Fragments processed:  {}", total_fragments_processed);
+    println!("{:<30} {}", "Total Operations processed:".bright_black(), total_operations);
+    println!("{:<30} {}", "Total Fragments processed:".bright_black(), total_fragments_processed);
     println!();
     if !project_timings.is_empty() {
-        println!("Project Breakdown:");
+        println!("{}", "Project Breakdown:".bold());
         for (key, duration) in project_timings {
-            println!("  {:30}: {:>10?}", key, duration);
+            println!("  {:30}: {:>10?}", key.blue(), duration);
         }
         println!();
     }
     if !schema_type_timings.is_empty() {
-        println!("Schema Types Breakdown:");
+        println!("{}", "Schema Types Breakdown:".bold());
         for (key, duration) in schema_type_timings {
-            println!("  {:30}: {:>10?}", key, duration);
+            println!("  {:30}: {:>10?}", key.blue(), duration);
         }
         println!();
     }
-    println!("Phase Timings:");
+    println!("{}", "Phase Timings:".bold());
     println!(
-        "  Workspace Glob Resolution: {:>10?}",
+        "  {:<26} {:>10?}",
+        "Workspace Glob Resolution:".bright_black(),
         scan_timings.glob_resolution
     );
     println!(
-        "  Workspace Doc Parsing:     {:>10?}",
+        "  {:<26} {:>10?}",
+        "Workspace Doc Parsing:".bright_black(),
         scan_timings.doc_parsing
     );
     println!(
-        "  Workspace Metadata Extr:   {:>10?}",
+        "  {:<26} {:>10?}",
+        "Workspace Metadata Extr:".bright_black(),
         scan_timings.metadata_extraction
     );
-    println!("  Schema Parsing:            {:>10?}", schema_parse_time);
+    println!("  {:<26} {:>10?}", "Schema Parsing:".bright_black(), schema_parse_time);
     println!(
-        "  Fragment Resolution:       {:>10?}",
+        "  {:<26} {:>10?}",
+        "Fragment Resolution:".bright_black(),
         fragment_resolve_time
     );
     println!(
-        "  Metadata Mapping:          {:>10?}",
+        "  {:<26} {:>10?}",
+        "Metadata Mapping:".bright_black(),
         metadata_mapping_time
     );
-    println!("  Document Parsing:          {:>10?}", doc_parse_time);
-    println!("  TS Generation:             {:>10?}", ts_gen_time);
-    println!("--------------------------");
-    println!("Total Wall Time:             {:>10?}", total_duration);
+    println!("  {:<26} {:>10?}", "Document Parsing:".bright_black(), doc_parse_time);
+    println!("  {:<26} {:>10?}", "TS Generation:".bright_black(), ts_gen_time);
+    println!("{}", "--------------------------".bright_black());
+    println!("{:<30} {:>10?}", "Total Wall Time:".bold(), total_duration);
 }
