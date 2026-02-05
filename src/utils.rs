@@ -33,7 +33,7 @@ pub fn is_relevant_file(path: &Path) -> bool {
 
     // Exclude generated files
     if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
-        if file_name.ends_with(".codegen.ts") || file_name == "graphql.ts" || file_name == "manifest.json" || file_name == "permissions.ts" {
+        if file_name.ends_with(".codegen.ts") || file_name == "manifest.json" || file_name == "permissions.ts" {
             return false;
         }
     }
@@ -41,7 +41,11 @@ pub fn is_relevant_file(path: &Path) -> bool {
     true
 }
 
-pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String]) -> Vec<PathBuf> {
+pub fn get_project_files(
+    include_patterns: &[String],
+    exclude_patterns: &[String],
+    base_dir: &Path,
+) -> Vec<PathBuf> {
     use globset::{Glob, GlobSetBuilder};
     use ignore::WalkBuilder;
 
@@ -60,7 +64,7 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
             || p_clean.contains('[')
             || p_clean.contains('{');
         if !is_glob {
-            let path = PathBuf::from(p_clean);
+            let path = base_dir.join(p_clean);
             if path.is_file() {
                 direct_files.push(path);
                 continue;
@@ -98,9 +102,9 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
             root.push(component);
         }
         if root.as_os_str().is_empty() {
-            roots.push(PathBuf::from("."));
+            roots.push(base_dir.to_path_buf());
         } else {
-            roots.push(root);
+            roots.push(base_dir.join(root));
         }
     }
 
@@ -131,7 +135,7 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
     let mut files = direct_files;
 
     if roots.is_empty() && include_patterns.iter().any(|p| p.contains('*')) {
-        roots.push(PathBuf::from("."));
+        roots.push(base_dir.to_path_buf());
     }
 
     if !roots.is_empty() {
@@ -151,21 +155,25 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
         let walk = walk_builder
             .add_custom_ignore_filename(".graphqlignore")
             .hidden(false)
+            .follow_links(true)
             .build();
-
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         for entry in walk.filter_map(|e| e.ok()) {
             if entry.file_type().is_some_and(|ft| ft.is_file()) {
                 let path = entry.path();
                 if is_relevant_file(path) {
                     let mut matched = include_set.is_match(path);
+                    
+                    if !matched {
+                        if let Ok(abs_path) = std::fs::canonicalize(path) {
+                             matched = include_set.is_match(&abs_path);
+                        }
+                    }
 
                     if !matched
-                        && let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd)
-                        && include_set.is_match(&rel_to_cwd)
+                        && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
                     {
-                        matched = true;
+                        matched = include_set.is_match(&rel_to_base);
                     }
 
                     if !matched
@@ -178,8 +186,8 @@ pub fn get_project_files(include_patterns: &[String], exclude_patterns: &[String
                     if matched {
                         let mut excluded = exclude_set.is_match(path);
                         if !excluded
-                            && let Some(rel_to_cwd) = pathdiff::diff_paths(path, &cwd)
-                            && exclude_set.is_match(&rel_to_cwd)
+                            && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
+                            && exclude_set.is_match(&rel_to_base)
                         {
                             excluded = true;
                         }
@@ -409,10 +417,10 @@ mod tests {
         assert!(is_relevant_file(Path::new("test.graphql")));
         assert!(is_relevant_file(Path::new("test.ts")));
         assert!(is_relevant_file(Path::new("src/test.tsx")));
+        assert!(is_relevant_file(Path::new("graphql.ts")));
         
         // Should ignore generated files
         assert!(!is_relevant_file(Path::new("test.codegen.ts")));
-        assert!(!is_relevant_file(Path::new("graphql.ts")));
         assert!(!is_relevant_file(Path::new("manifest.json")));
         assert!(!is_relevant_file(Path::new("permissions.ts")));
         

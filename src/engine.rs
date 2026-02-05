@@ -66,32 +66,52 @@ impl Engine {
     ) -> ProjectContext {
         let project_files_set: fnv::FnvHashSet<String> = project_files
             .iter()
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|p| {
+                std::fs::canonicalize(p)
+                    .unwrap_or_else(|_| p.clone())
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect();
 
         let mut fragment_to_path: HashMap<String, String> = HashMap::default();
         let mut fragment_to_import: HashMap<String, String> = HashMap::default();
+        let mut project_fragments_metadata = Vec::new();
 
         for meta in global_metadata {
-            let is_local = project_files_set.contains(&meta.path);
+            let meta_path = Path::new(&meta.path);
+            let meta_abs_path = std::fs::canonicalize(meta_path)
+                .unwrap_or_else(|_| meta_path.to_path_buf())
+                .to_string_lossy()
+                .to_string();
+
+            let is_local = project_files_set.contains(&meta_abs_path)
+                || project_files_set.contains(&meta.path);
             if is_local {
                 fragment_to_path.insert(meta.name.clone(), meta.path.clone());
                 if let Some(a) = &meta.import_alias {
                     fragment_to_import.insert(meta.name.clone(), a.clone());
                 }
+                project_fragments_metadata.push(meta.clone());
             } else if meta.is_public {
-                fragment_to_path
-                    .entry(meta.name.clone())
-                    .or_insert_with(|| meta.path.clone());
-                if let Some(a) = &meta.import_alias {
-                    fragment_to_import
+                let existing_local = fragment_to_path.contains_key(&meta.name)
+                    && project_files_set.contains(fragment_to_path.get(&meta.name).unwrap());
+
+                if !existing_local {
+                    fragment_to_path
                         .entry(meta.name.clone())
-                        .or_insert_with(|| a.clone());
+                        .or_insert_with(|| meta.path.clone());
+                    if let Some(a) = &meta.import_alias {
+                        fragment_to_import
+                            .entry(meta.name.clone())
+                            .or_insert_with(|| a.clone());
+                    }
+                    project_fragments_metadata.push(meta.clone());
                 }
             }
         }
 
-        let all_fragments = Self::resolve_fragments(valid_schema, global_metadata);
+        let all_fragments = Self::resolve_fragments(valid_schema, &project_fragments_metadata);
 
         ProjectContext {
             fragment_to_path,
@@ -145,7 +165,7 @@ impl Engine {
                     .map(|p_exc| config.base_dir.join(p_exc).to_string_lossy().to_string())
                     .collect();
                 (
-                    get_project_files(&abs_includes, &abs_excludes),
+                    get_project_files(&abs_includes, &abs_excludes, &config.base_dir),
                     p.import.clone(),
                 )
             })
@@ -198,6 +218,12 @@ impl Engine {
                 break;
             }
             on_progress(i, total_docs);
+
+            // Helpful for debugging large workspaces
+            if i % 100 == 0 || i == total_docs - 1 {
+                // println!("Parsing file {}/{}", i + 1, total_docs);
+            }
+
             on_doc(p.clone(), doc.clone());
             path_to_doc.insert(p, doc);
         }
@@ -256,7 +282,8 @@ impl Engine {
     /// Step 1b: Discovery for simple mode (no config)
     pub fn scan_path(scan_path: &str) -> HashMap<String, String> {
         let mut fragment_map = HashMap::default();
-        let paths = get_project_files(&[scan_path.to_string()], &[]);
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let paths = get_project_files(&[scan_path.to_string()], &[], &base_dir);
 
         let results: Vec<Vec<_>> = paths
             .par_iter()

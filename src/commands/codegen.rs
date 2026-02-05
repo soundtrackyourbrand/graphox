@@ -413,11 +413,23 @@ async fn execute_project_codegen_entry(
                         eprintln!("{} {}: {}", "Error generating types for".red(), path.display().to_string().red(), e.red());
                         if e.contains("Fragment") && e.contains("not found") {
                             for meta in params.global_metadata {
-                                if !meta.is_public && e.contains(&format!("'{}'", meta.name)) {
-                                    eprintln!(
-                                        "  {}: Fragment '{}' exists in {} but is not marked as @public",
-                                        "Hint".yellow(), meta.name.blue(), meta.path.blue()
-                                    );
+                                if e.contains(&format!("'{}'", meta.name)) {
+                                     let is_local = params.project_files.iter().any(|pf: &PathBuf| {
+                                         std::fs::canonicalize(pf).unwrap_or_else(|_| pf.clone()) == 
+                                         std::fs::canonicalize(&meta.path).unwrap_or_else(|_| PathBuf::from(&meta.path))
+                                     });
+
+                                     if is_local {
+                                         eprintln!(
+                                             "  {}: Fragment '{}' exists in {} but association might have failed.",
+                                             "Hint".yellow(), meta.name.blue(), meta.path.blue()
+                                         );
+                                     } else if !meta.is_public {
+                                         eprintln!(
+                                             "  {}: Fragment '{}' exists in {} but is not marked as @public",
+                                             "Hint".yellow(), meta.name.blue(), meta.path.blue()
+                                         );
+                                     }
                                 }
                             }
                         }

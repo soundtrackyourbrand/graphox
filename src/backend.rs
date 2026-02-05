@@ -129,37 +129,39 @@ impl Backend {
     }
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
-        self.fragment_defs
+        let fragment_defs = self.fragment_defs.clone();
+        let config = self.config.clone();
+        let package_roots = self.package_roots.clone();
+
+        fragment_defs
             .iter()
             .flat_map(|entry| {
                 let uri = entry.key();
                 let frags = entry.value();
 
-                let import_path = if let Ok(p) = uri.to_file_path() {
-                    self.config
-                        .get_project_for_path(&p)
-                        .and_then(|proj| proj.import.clone())
+                // Get project info once per file
+                let (import_path, package_root) = if let Ok(p) = uri.to_file_path() {
+                    let project = config.get_project_for_path(&p);
+                    (
+                        project.and_then(|proj| proj.import.clone()),
+                        package_roots.get(uri).and_then(|r| r.value().clone()),
+                    )
                 } else {
-                    None
+                    (None, None)
                 };
 
-                let package_root = self.package_roots.get(uri).and_then(|r| r.value().clone());
-
-                frags
-                    .iter()
-                    .map(|frag| FragmentCompletionInfo {
-                        name: frag.name.clone(),
-                        type_condition: frag.type_condition.clone(),
-                        description: frag.description.clone(),
-                        import_path: import_path.clone(),
-                        is_public: frag.is_public,
-                        uri: uri.clone(),
-                        package_root: package_root.clone(),
-                        used_variables: frag.used_variables.clone(),
-                        used_fragments: frag.used_fragments.clone(),
-                        requirements: std::collections::BTreeMap::new(),
-                    })
-                    .collect::<Vec<_>>()
+                frags.iter().map(move |frag| FragmentCompletionInfo {
+                    name: frag.name.clone(),
+                    type_condition: frag.type_condition.clone(),
+                    description: frag.description.clone(),
+                    import_path: import_path.clone(),
+                    is_public: frag.is_public,
+                    uri: uri.clone(),
+                    package_root: package_root.clone(),
+                    used_variables: frag.used_variables.clone(),
+                    used_fragments: frag.used_fragments.clone(),
+                    requirements: std::collections::BTreeMap::new(),
+                }).collect::<Vec<_>>()
             })
             .collect()
     }
@@ -167,14 +169,38 @@ impl Backend {
     pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
         let all_fragments = self.get_all_fragments_info();
         let target_package_root = doc.package_root.as_ref();
+        let doc_path = doc.uri.to_file_path().ok();
+        let schema_key = doc_path.as_ref().and_then(|p| self.config.get_schema_for_path(p));
 
-        all_fragments
+        let mut filtered: Vec<_> = all_fragments
             .into_iter()
             .filter(|f| {
                 let is_same_package = f.package_root.as_ref() == target_package_root;
-                is_same_package || f.is_public
+                if is_same_package || f.is_public {
+                    return true;
+                }
+                
+                if let Some(f_path) = f.uri.to_file_path().ok() {
+                    let f_schema_key = self.config.get_schema_for_path(&f_path);
+                    return f_schema_key.is_some() && f_schema_key == schema_key;
+                }
+                false
             })
-            .collect()
+            .collect();
+
+        // Prioritize: same package > same project > public
+        filtered.sort_by(|a, b| {
+            let a_same_pkg = a.package_root.as_ref() == target_package_root;
+            let b_same_pkg = b.package_root.as_ref() == target_package_root;
+            
+            if a_same_pkg != b_same_pkg {
+                return b_same_pkg.cmp(&a_same_pkg);
+            }
+            
+            b.is_public.cmp(&a.is_public).reverse() // prefer non-public
+        });
+
+        filtered
     }
 
     fn get_transitive_fragments(
@@ -576,9 +602,6 @@ impl Backend {
         let used_fragments = self.get_used_fragments();
         let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
 
-        // Pre-calculate all fragments info to avoid holding locks during O(N^2) work
-        let all_fragments_info = self.get_all_fragments_info();
-
         for uri in uris {
             if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
                 // Skip validating schema files as executable documents
@@ -593,17 +616,7 @@ impl Backend {
                 }
 
                 let schema = self.get_schema_for_doc(&uri);
-
-                // Filter fragments for this doc
-                let target_package_root = doc.package_root.as_ref();
-                let filtered_fragments: Vec<_> = all_fragments_info
-                    .iter()
-                    .filter(|f| {
-                        let is_same_package = f.package_root.as_ref() == target_package_root;
-                        is_same_package || f.is_public
-                    })
-                    .cloned()
-                    .collect();
+                let filtered_fragments = self.get_fragments_for_doc(&doc);
 
                 let diagnostics = doc.get_semantic_diagnostics(
                     &schema,
@@ -907,18 +920,20 @@ impl LanguageServer for Backend {
             let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap());
 
             // Pre-calculate all fragments info
-            let all_fragments_info: Vec<FragmentCompletionInfo> = fragment_defs
+            let all_fragments_info: Vec<(FragmentCompletionInfo, Option<String>)> = fragment_defs
                 .iter()
                 .flat_map(|entry| {
                     let uri = entry.key();
                     let frags = entry.value();
 
-                    let import_path = if let Ok(p) = uri.to_file_path() {
-                        config
-                            .get_project_for_path(&p)
-                            .and_then(|proj| proj.import.clone())
+                    let (import_path, schema_key) = if let Ok(p) = uri.to_file_path() {
+                        let project = config.get_project_for_path(&p);
+                        (
+                            project.and_then(|proj| proj.import.clone()),
+                            project.map(|proj| proj.schema.as_key()),
+                        )
                     } else {
-                        None
+                        (None, None)
                     };
 
                     let package_root =
@@ -927,23 +942,27 @@ impl LanguageServer for Backend {
                     frags
                         .iter()
                         .map(move |frag| {
-                            FragmentCompletionInfo {
-                                name: frag.name.clone(),
-                                type_condition: frag.type_condition.clone(),
-                                description: frag.description.clone(),
-                                import_path: import_path.clone(),
-                                is_public: frag.is_public,
-                                uri: uri.clone(),
-                                package_root: package_root.clone(),
-                                used_variables: frag.used_variables.clone(),
-                                used_fragments: frag.used_fragments.clone(),
-                                requirements: std::collections::BTreeMap::new(),
-                            }
+                            (
+                                FragmentCompletionInfo {
+                                    name: frag.name.clone(),
+                                    type_condition: frag.type_condition.clone(),
+                                    description: frag.description.clone(),
+                                    import_path: import_path.clone(),
+                                    is_public: frag.is_public,
+                                    uri: uri.clone(),
+                                    package_root: package_root.clone(),
+                                    used_variables: frag.used_variables.clone(),
+                                    used_fragments: frag.used_fragments.clone(),
+                                    requirements: std::collections::BTreeMap::new(),
+                                },
+                                schema_key.clone(),
+                            )
                         })
                         .collect::<Vec<_>>()
                 })
                 .collect();
 
+            use rayon::prelude::*;
             let to_publish: Vec<(Url, Vec<Diagnostic>)> = documents
                 .as_ref()
                 .par_iter()
@@ -952,29 +971,45 @@ impl LanguageServer for Backend {
                     let doc = entry.value();
 
                     // Get schema for doc
-                    let schema: Arc<apollo_compiler::validation::Valid<Schema>> = if let Ok(path) = uri.to_file_path()
+                    let (schema_key, schema): (Option<String>, Arc<apollo_compiler::validation::Valid<Schema>>) = if let Ok(path) = uri.to_file_path()
                         && let Some(schema_path) = config.get_schema_for_path(&path)
                         && let Some(schema) = validated_schemas_map.get(&schema_path)
                     {
-                        schema.clone()
+                        (Some(schema_path), schema.clone())
                     } else {
-                        valid_empty_schema.clone()
+                        (None, valid_empty_schema.clone())
                     };
 
-                    // Filter fragments for this doc (same package or public)
+                    // Filter fragments for this doc (same project/schema or public)
                     let target_package_root = doc.package_root.as_ref();
-                    let filtered_fragments: Vec<_> = all_fragments_info
+                    let filtered_fragments: Vec<FragmentCompletionInfo> = all_fragments_info
                         .iter()
-                        .filter(|f| {
+                        .filter(|(f, f_schema_key)| {
+                            let is_same_project = f_schema_key.is_some() && f_schema_key == &schema_key;
                             let is_same_package = f.package_root.as_ref() == target_package_root;
-                            is_same_package || f.is_public
+                            is_same_project || is_same_package || f.is_public
                         })
-                        .cloned()
+                        .map(|(f, _)| f.clone())
                         .collect();
-
+                    
+                    // If there are duplicate fragment names, prioritize the one in the same package,
+                    // then same project, then public.
+                    let mut sorted_fragments = filtered_fragments;
+                    sorted_fragments.sort_by(|a, b| {
+                        let a_same_pkg = a.package_root.as_ref() == target_package_root;
+                        let b_same_pkg = b.package_root.as_ref() == target_package_root;
+                        
+                        if a_same_pkg != b_same_pkg {
+                            return b_same_pkg.cmp(&a_same_pkg);
+                        }
+                        
+                        // If both (or neither) are same package, prefer same project (already filtered)
+                        b.is_public.cmp(&a.is_public).reverse() // prefer non-public (local)
+                    });
+                    
                     let diagnostics = doc.get_semantic_diagnostics(
                         &schema,
-                        &filtered_fragments,
+                        &sorted_fragments,
                         Some(&used_fragments),
                         Some(&config),
                         false,

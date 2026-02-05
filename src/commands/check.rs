@@ -20,10 +20,6 @@ pub async fn run_check(config: Config, verbose: bool) {
         }
     }
 
-    let mut global_fragments_per_package: HashMap<
-        Option<PathBuf>,
-        Vec<graphql_rust::features::completion::FragmentCompletionInfo>,
-    > = HashMap::default();
     let mut global_public_fragments: Vec<graphql_rust::features::completion::FragmentCompletionInfo> =
         Vec::new();
 
@@ -34,25 +30,20 @@ pub async fn run_check(config: Config, verbose: bool) {
             .and_then(|p| p.import.clone());
 
         for frag in doc.fragments() {
-            let info = graphql_rust::features::completion::FragmentCompletionInfo {
-                name: frag.name.clone(),
-                type_condition: frag.type_condition.clone(),
-                description: frag.description.clone(),
-                import_path: project_import.clone(),
-                is_public: frag.is_public,
-                uri: doc.uri.clone(),
-                package_root: package_root.clone(),
-                used_variables: frag.used_variables.clone(),
-                used_fragments: frag.used_fragments.clone(),
-                requirements: std::collections::BTreeMap::new(),
-            };
             if frag.is_public {
-                global_public_fragments.push(info.clone());
+                global_public_fragments.push(graphql_rust::features::completion::FragmentCompletionInfo {
+                    name: frag.name.clone(),
+                    type_condition: frag.type_condition.clone(),
+                    description: frag.description.clone(),
+                    import_path: project_import.clone(),
+                    is_public: frag.is_public,
+                    uri: doc.uri.clone(),
+                    package_root: package_root.clone(),
+                    used_variables: frag.used_variables.clone(),
+                    used_fragments: frag.used_fragments.clone(),
+                    requirements: std::collections::BTreeMap::new(),
+                });
             }
-            global_fragments_per_package
-                .entry(package_root.clone())
-                .or_default()
-                .push(info);
         }
     }
 
@@ -69,7 +60,6 @@ pub async fn run_check(config: Config, verbose: bool) {
             &workspace_metadata.documents,
             &global_used_fragments,
             &global_public_fragments,
-            &global_fragments_per_package,
             &config,
             verbose,
         )
@@ -92,10 +82,6 @@ async fn execute_project_check(
     all_documents: &HashMap<PathBuf, DocumentState>,
     global_used_fragments: &fnv::FnvHashSet<String>,
     global_public_fragments: &[graphql_rust::features::completion::FragmentCompletionInfo],
-    global_fragments_per_package: &HashMap<
-        Option<PathBuf>,
-        Vec<graphql_rust::features::completion::FragmentCompletionInfo>,
-    >,
     config: &Config,
     verbose: bool,
 ) -> bool {
@@ -144,30 +130,59 @@ async fn execute_project_check(
 
     let mut found_any = false;
 
+    let mut project_fragments = Vec::new();
     for path in project_files {
         if let Some(doc) = all_documents.get(path) {
-            let mut package_fragments = global_fragments_per_package
-                .get(&doc.package_root)
-                .cloned()
-                .unwrap_or_default();
-
-            for pub_frag in global_public_fragments {
-                if !package_fragments
-                    .iter()
-                    .any(|f| f.name == pub_frag.name && f.uri == pub_frag.uri)
-                {
-                    package_fragments.push(pub_frag.clone());
-                }
+            for frag in doc.fragments() {
+                project_fragments.push(graphql_rust::features::completion::FragmentCompletionInfo {
+                    name: frag.name.clone(),
+                    type_condition: frag.type_condition.clone(),
+                    description: frag.description.clone(),
+                    import_path: None,
+                    is_public: frag.is_public,
+                    uri: doc.uri.clone(),
+                    package_root: doc.package_root.clone(),
+                    used_variables: frag.used_variables.clone(),
+                    used_fragments: frag.used_fragments.clone(),
+                    requirements: std::collections::BTreeMap::new(),
+                });
             }
+        }
+    }
 
-            let diagnostics = doc.get_semantic_diagnostics(
-                &valid_schema,
-                &package_fragments,
-                Some(global_used_fragments),
-                Some(config),
-                verbose,
-                true,
-            );
+    for (path, doc) in project_files.iter().zip(project_files.iter().filter_map(|p| all_documents.get(p))) {
+        let mut available_fragments = project_fragments.clone();
+
+        for pub_frag in global_public_fragments {
+            if !available_fragments
+                .iter()
+                .any(|f| f.name == pub_frag.name && f.uri == pub_frag.uri)
+            {
+                available_fragments.push(pub_frag.clone());
+            }
+        }
+
+        // Filter fragments for this doc (same project or public)
+        // Note: we already have all project fragments in available_fragments.
+        // We still might want to prioritize the ones in the same package if there are name collisions,
+        // but for now let's just make them all available.
+        
+        // If there are duplicate fragment names in the project, we should probably 
+        // prefer the one in the same package.
+        available_fragments.sort_by(|a, b| {
+            let a_same_pkg = a.package_root == doc.package_root;
+            let b_same_pkg = b.package_root == doc.package_root;
+            b_same_pkg.cmp(&a_same_pkg)
+        });
+
+        let diagnostics = doc.get_semantic_diagnostics(
+            &valid_schema,
+            &available_fragments,
+            Some(global_used_fragments),
+            Some(config),
+            verbose,
+            true,
+        );
             if !diagnostics.is_empty() {
                 let mut file_header_printed = false;
                 let display_path = if let Some(root) = &doc.package_root {
@@ -213,12 +228,12 @@ async fn execute_project_check(
                             colored_msg
                         );
                     }
-                }
             }
         }
     }
 
     if !found_any {
+
         if verbose {
             println!("\n{}", "Scan complete.".bright_black());
         } else {
