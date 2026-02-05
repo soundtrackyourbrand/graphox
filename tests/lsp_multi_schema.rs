@@ -50,6 +50,7 @@ async fn test_lsp_multi_schema_support() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
     };
 

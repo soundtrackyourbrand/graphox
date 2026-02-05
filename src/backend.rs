@@ -1025,8 +1025,16 @@ impl LanguageServer for Backend {
             });
         }
 
+        if self.config.watch_all_files() {
+            // Watch all relevant files in the workspace
+            watchers.push(FileSystemWatcher {
+                glob_pattern: GlobPattern::String("**/*.{graphql,gql,ts,tsx,mts,cts,js,jsx,mjs,cjs}".to_string()),
+                kind: Some(WatchKind::all()),
+            });
+        }
+
         let registration = Registration {
-            id: "watch-schema".to_string(),
+            id: "watch-files".to_string(),
             method: "workspace/didChangeWatchedFiles".to_string(),
             register_options: Some(
                 serde_json::to_value(DidChangeWatchedFilesRegistrationOptions { watchers })
@@ -1792,21 +1800,21 @@ impl LanguageServer for Backend {
                         }
                     }
 
-                    if !is_schema {
-                        if let Some(schema_types) = &self.config.schema_types {
-                            for st in schema_types {
-                                if st.schema.files().iter().any(|f| {
-                                    let abs = self.config.base_dir.join(f);
-                                    abs.to_string_lossy() == path_str
-                                        || abs
-                                            .canonicalize()
-                                            .ok()
-                                            .map(|p| p.to_string_lossy().to_string())
-                                            == Some(path_str.clone())
-                                }) {
-                                    is_schema = true;
-                                    break;
-                                }
+                    if !is_schema
+                        && let Some(schema_types) = &self.config.schema_types
+                    {
+                        for st in schema_types {
+                            if st.schema.files().iter().any(|f| {
+                                let abs = self.config.base_dir.join(f);
+                                abs.to_string_lossy() == path_str
+                                    || abs
+                                        .canonicalize()
+                                        .ok()
+                                        .map(|p| p.to_string_lossy().to_string())
+                                        == Some(path_str.clone())
+                            }) {
+                                is_schema = true;
+                                break;
                             }
                         }
                     }
@@ -1816,36 +1824,117 @@ impl LanguageServer for Backend {
                     } else if is_relevant_file(&path) {
                         // Update document if it's already open
                         let uri = self.normalize_uri(change.uri);
-                        if let Some(mut doc_ref) = self.documents.get_mut(&uri)
-                            && let Ok(content) = std::fs::read_to_string(&path)
-                        {
+
+                        let mut affected_fragment_names = FnvHashSet::default();
+                        let mut affected_spread_names = FnvHashSet::default();
+
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            let language = DocumentLanguage::from_uri(&uri);
                             let mut parser = tree_sitter::Parser::new();
                             parser
-                                .set_language(&doc_ref.language.get_parser_language())
+                                .set_language(&language.get_parser_language())
                                 .unwrap();
                             let new_doc = DocumentState::new(uri.clone(), &content, parser);
-                            
+
+                            let old_fragments = self
+                                .fragment_defs
+                                .get(&uri)
+                                .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
+                            let old_spreads = self.fragment_spreads.get(&uri).map(|s| s.clone());
+
+                            let new_fragment_defs = new_doc.fragments().to_vec();
+                            let new_fragment_names: Vec<_> =
+                                new_fragment_defs.iter().map(|f| f.name.clone()).collect();
+                            let new_spreads = new_doc.fragment_spreads.clone();
+
+                            // Track changes to fragment definitions
+                            if let Some(old) = &old_fragments {
+                                for name in old {
+                                    if !new_fragment_names.contains(name) {
+                                        affected_fragment_names.insert(name.clone());
+                                    }
+                                }
+                            }
+                            for name in &new_fragment_names {
+                                if old_fragments.as_ref().is_none_or(|old| !old.contains(name)) {
+                                    affected_fragment_names.insert(name.clone());
+                                }
+                            }
+
+                            // Track changes to fragment spreads
+                            if let Some(old) = &old_spreads {
+                                for name in old {
+                                    if !new_spreads.contains(name) {
+                                        affected_spread_names.insert(name.clone());
+                                    }
+                                }
+                            }
+                            for name in &new_spreads {
+                                if old_spreads.as_ref().is_none_or(|old| !old.contains(name)) {
+                                    affected_spread_names.insert(name.clone());
+                                }
+                            }
+
                             // Update metadata
-                            self.fragment_defs
-                                .insert(uri.clone(), new_doc.fragments().to_vec());
+                            self.fragment_defs.insert(uri.clone(), new_fragment_defs);
                             self.fragment_spreads
-                                .insert(uri.clone(), new_doc.fragment_spreads.clone());
+                                .insert(uri.clone(), new_spreads.clone());
                             self.package_roots
                                 .insert(uri.clone(), new_doc.package_root.clone());
+
                             self.update_definition_indices(
                                 &uri,
-                                None,
-                                new_doc.fragments().iter().map(|f| f.name.clone()).collect(),
+                                old_fragments,
+                                new_fragment_names,
                             );
+                            self.update_dependency_indices(&uri, old_spreads, new_spreads);
 
-                            *doc_ref = Arc::new(new_doc);
+                            // Update documents map if we have it
+                            if self.documents.contains_key(&uri) {
+                                self.documents.insert(uri.clone(), Arc::new(new_doc));
+                            }
+
+                            let uris_to_validate = self.get_affected_uris(
+                                uri,
+                                affected_fragment_names,
+                                affected_spread_names,
+                            );
+                            self.validate_uris(uris_to_validate).await;
                         }
-
-                        // Re-validate all documents because this file might have changed fragments or spreads
-                        let all_uris: Vec<Url> =
-                            self.documents.iter().map(|e| e.key().clone()).collect();
-                        self.validate_uris(all_uris).await;
                     }
+                } else if change.typ == FileChangeType::DELETED {
+                    let uri = self.normalize_uri(change.uri);
+                    let mut affected_fragment_names = FnvHashSet::default();
+                    let mut affected_spread_names = FnvHashSet::default();
+
+                    let old_fragments = self
+                        .fragment_defs
+                        .get(&uri)
+                        .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
+                    let old_spreads = self.fragment_spreads.get(&uri).map(|s| s.clone());
+
+                    if let Some(old) = &old_fragments {
+                        for name in old {
+                            affected_fragment_names.insert(name.clone());
+                        }
+                    }
+                    if let Some(old) = &old_spreads {
+                        for name in old {
+                            affected_spread_names.insert(name.clone());
+                        }
+                    }
+
+                    // Clean up metadata
+                    self.documents.remove(&uri);
+                    self.fragment_defs.remove(&uri);
+                    self.fragment_spreads.remove(&uri);
+                    self.package_roots.remove(&uri);
+                    self.update_definition_indices(&uri, old_fragments, vec![]);
+                    self.update_dependency_indices(&uri, old_spreads, vec![]);
+
+                    let uris_to_validate =
+                        self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
+                    self.validate_uris(uris_to_validate).await;
                 }
             }
         })
@@ -1905,6 +1994,7 @@ mod tests {
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
             tracing: None,
+            watch_all_files: None,
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
@@ -1932,6 +2022,7 @@ mod tests {
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
             tracing: None,
+            watch_all_files: None,
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));

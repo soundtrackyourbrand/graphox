@@ -38,6 +38,7 @@ async fn test_lsp_command_clear_cache() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
@@ -168,6 +169,7 @@ async fn test_lsp_command_run_codegen() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 

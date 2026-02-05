@@ -14,6 +14,7 @@ pub struct Config {
     pub ignore_deprecations: Option<Vec<String>>,
     pub generate_ast_for_fragments: Option<bool>,
     pub tracing: Option<TracingConfig>,
+    pub watch_all_files: Option<bool>,
     #[serde(skip)]
     pub base_dir: PathBuf,
 }
@@ -102,6 +103,7 @@ impl Config {
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
             tracing: None,
+            watch_all_files: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -227,6 +229,10 @@ impl Config {
 
     pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
         self.get_project_for_path(path).map(|p| p.schema.as_key())
+    }
+
+    pub fn watch_all_files(&self) -> bool {
+        self.watch_all_files.unwrap_or(true)
     }
 }
 

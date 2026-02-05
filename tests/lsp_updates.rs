@@ -79,6 +79,7 @@ async fn test_lsp_fragment_collisions() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
     };
 
@@ -304,6 +305,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
     };
 
@@ -486,6 +488,7 @@ async fn test_lsp_fragment_rename_same_project() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -710,6 +713,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

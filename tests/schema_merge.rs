@@ -47,6 +47,7 @@ async fn test_lsp_multi_schema_merge() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
@@ -143,6 +144,7 @@ async fn test_lsp_multi_schema_extension_first() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
@@ -242,6 +244,7 @@ async fn test_lsp_multi_schema_with_docs() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
@@ -337,6 +340,7 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
@@ -432,6 +436,7 @@ async fn test_lsp_multi_schema_triple_overlap() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
@@ -527,6 +532,7 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
+        watch_all_files: None,
         base_dir: base_dir.clone(),
     };
 
