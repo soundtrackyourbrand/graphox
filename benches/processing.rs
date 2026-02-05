@@ -43,7 +43,10 @@ fn bench_document_processing(c: &mut Criterion) {
         .expect("Failed to read component.ts");
     let schema_content = std::fs::read_to_string("tests/fixtures/simple_schema.graphql")
         .expect("Failed to read simple_schema.graphql");
-    let schema = Schema::parse(&schema_content, "schema.graphql").expect("Failed to parse schema");
+    let schema = Schema::parse(&schema_content, "schema.graphql")
+        .expect("Failed to parse schema")
+        .validate()
+        .expect("Failed to validate schema");
     let uri = Url::parse("file:///tests/fixtures/component.ts").unwrap();
 
     let mut group = c.benchmark_group("Document Processing");

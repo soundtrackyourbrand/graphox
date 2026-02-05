@@ -53,3 +53,7 @@ harness = false
 [[bench]]
 name = "utils"
 harness = false
+
+[[bench]]
+name = "large_schema_definition"
+harness = false
