@@ -4,11 +4,12 @@
 //! processing each project, generating types, and creating the entrypoint file.
 
 use crate::Config;
+use std::sync::Arc;
 use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
 
 /// Runs the codegen process for all projects in the configuration
-pub async fn run_codegen(client: Client, config: Config) {
+pub async fn run_codegen(client: Client, config: Config, type_caches: Arc<dashmap::DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>) {
     let workspace_metadata = crate::engine::Engine::scan_workspace(&config, |_, _| {});
 
     let global_metadata = &workspace_metadata.fragments;
@@ -65,24 +66,32 @@ pub async fn run_codegen(client: Client, config: Config) {
             project_files,
         );
 
+        // Get or create persistent type cache for this schema
+        let schema_key = project.schema.as_key();
+        let type_cache = type_caches
+            .entry(schema_key.clone())
+            .or_insert_with(|| Arc::new(crate::features::codegen::TypeCache::new()))
+            .clone();
+
         for path in project_files {
             if let Some(doc) = workspace_metadata.documents.get(path) {
                 if doc.get_graphql_trees().is_empty() {
                     continue;
                 }
 
-                let ctx = crate::features::codegen::CodegenContext {
-                    schema: &valid_schema,
-                    fragment_to_path: &project_context.fragment_to_path,
-                    fragment_to_import: &project_context.fragment_to_import,
-                    fragment_to_type_only: &project_context.fragment_to_type_only,
-                    all_fragments: &project_context.all_fragments,
-                    current_file_path: path,
-                    scalars: &config.scalars,
-                    schema_import: &schema_import,
-                    generate_ast_for_fragments: config.generate_ast_for_fragments.unwrap_or(false),
-                    fragment_dependencies: &project_context.fragment_dependencies,
-                };
+                let ctx = crate::features::codegen::CodegenContext::new(
+                    &valid_schema,
+                    &project_context.fragment_to_path,
+                    &project_context.fragment_to_import,
+                    &project_context.fragment_to_type_only,
+                    &project_context.all_fragments,
+                    path,
+                    &config.scalars,
+                    &schema_import,
+                    config.generate_ast_for_fragments.unwrap_or(false),
+                    &project_context.fragment_dependencies,
+                    &type_cache, // Use persistent cache from Backend
+                );
 
                 if let Ok((ts_code, mut ops)) =
                     crate::features::codegen::generate_typescript(doc, &ctx)

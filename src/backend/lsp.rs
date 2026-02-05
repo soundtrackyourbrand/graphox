@@ -32,6 +32,9 @@ pub struct Backend {
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
     pub gitignore: Arc<ignore::gitignore::Gitignore>,
+    /// Persistent type cache per schema (keyed by schema key)
+    /// Shared across all codegen runs for the same schema to maximize cache hits
+    pub type_caches: Arc<DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>,
 }
 
 impl Backend {
@@ -84,6 +87,7 @@ impl Backend {
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
             gitignore,
+            type_caches: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
         }
     }
 
@@ -281,7 +285,7 @@ impl Backend {
     }
 
     pub async fn run_codegen(&self) {
-        super::codegen_runner::run_codegen(self.client.clone(), self.config.clone()).await;
+        super::codegen_runner::run_codegen(self.client.clone(), self.config.clone(), self.type_caches.clone()).await;
     }
 
     fn update_dependency_indices(
@@ -731,8 +735,9 @@ impl LanguageServer for Backend {
         if self.config.lsp_automatic_codegen() {
             let client = self.client.clone();
             let config = self.config.clone();
+            let type_caches = self.type_caches.clone();
             tokio::spawn(async move {
-                super::codegen_runner::run_codegen(client, config).await;
+                super::codegen_runner::run_codegen(client, config, type_caches).await;
             });
         }
     }
@@ -762,8 +767,9 @@ impl LanguageServer for Backend {
             if self.config.lsp_automatic_codegen() {
                 let client = self.client.clone();
                 let config = self.config.clone();
+                let type_caches = self.type_caches.clone();
                 tokio::spawn(async move {
-                    super::codegen_runner::run_codegen(client, config).await;
+                    super::codegen_runner::run_codegen(client, config, type_caches).await;
                 });
             }
         }
@@ -1245,8 +1251,9 @@ impl LanguageServer for Backend {
                     if result.should_run_codegen {
                         let client = self.client.clone();
                         let config = self.config.clone();
+                        let type_caches = self.type_caches.clone();
                         tokio::spawn(async move {
-                            super::codegen_runner::run_codegen(client, config).await;
+                            super::codegen_runner::run_codegen(client, config, type_caches).await;
                         });
                     }
                 }

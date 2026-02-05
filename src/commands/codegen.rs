@@ -386,6 +386,9 @@ async fn execute_project_codegen_entry(
             }
         };
 
+        // Create shared type cache for all files in this project
+        let shared_type_cache = graphql_rust::features::codegen::TypeCache::new();
+
         let results: Vec<_> = params
             .project_files
             .par_iter()
@@ -394,18 +397,19 @@ async fn execute_project_codegen_entry(
             })
             .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
             .map(|(path, doc)| {
-                let ctx = graphql_rust::features::codegen::CodegenContext {
-                    schema: &valid_schema,
-                    fragment_to_path: &params.project_context.fragment_to_path,
-                    fragment_to_import: &params.project_context.fragment_to_import,
-                    fragment_to_type_only: &params.project_context.fragment_to_type_only,
-                    all_fragments: &params.project_context.all_fragments,
-                    current_file_path: path,
-                    scalars: params.scalars,
-                    schema_import: params.schema_import,
-                    generate_ast_for_fragments: params.generate_ast_for_fragments,
-                    fragment_dependencies: &params.project_context.fragment_dependencies,
-                };
+                let ctx = graphql_rust::features::codegen::CodegenContext::new(
+                    &valid_schema,
+                    &params.project_context.fragment_to_path,
+                    &params.project_context.fragment_to_import,
+                    &params.project_context.fragment_to_type_only,
+                    &params.project_context.all_fragments,
+                    path,
+                    params.scalars,
+                    params.schema_import,
+                    params.generate_ast_for_fragments,
+                    &params.project_context.fragment_dependencies,
+                    &shared_type_cache, // Shared across all files in project
+                );
 
                 execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
                     .map_err(|e| (path.to_path_buf(), e))

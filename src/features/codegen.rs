@@ -7,8 +7,11 @@ use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
 use colored::*;
+use dashmap::DashMap;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
@@ -22,6 +25,93 @@ pub struct CodegenContext<'a> {
     pub generate_ast_for_fragments: bool,
     /// Cached fragment dependencies from workspace scan
     pub fragment_dependencies: &'a HashMap<String, Vec<String>>,
+    /// Shared cache for type conversions across all files in a project (thread-safe)
+    type_cache: &'a TypeCache,
+}
+
+/// Thread-safe cache for GraphQL type to TypeScript type conversions
+/// Shared across all files in a project since they use the same schema
+pub struct TypeCache {
+    cache: DashMap<String, String>,
+    // Optional metrics for benchmarking
+    hits: AtomicUsize,
+    misses: AtomicUsize,
+}
+
+impl Default for TypeCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TypeCache {
+    pub fn new() -> Self {
+        Self {
+            cache: DashMap::new(),
+            hits: AtomicUsize::new(0),
+            misses: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn get_or_insert(&self, key: &str, compute: impl FnOnce() -> String) -> String {
+        if let Some(cached) = self.cache.get(key) {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+            return cached.clone();
+        }
+        
+        self.misses.fetch_add(1, Ordering::Relaxed);
+        let result = compute();
+        self.cache.insert(key.to_string(), result.clone());
+        result
+    }
+
+    pub fn stats(&self) -> (usize, usize) {
+        (self.hits.load(Ordering::Relaxed), self.misses.load(Ordering::Relaxed))
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+}
+
+impl<'a> CodegenContext<'a> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        schema: &'a apollo_compiler::validation::Valid<Schema>,
+        fragment_to_path: &'a HashMap<String, String>,
+        fragment_to_import: &'a HashMap<String, String>,
+        fragment_to_type_only: &'a HashMap<String, bool>,
+        all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
+        current_file_path: &'a Path,
+        scalars: &'a Option<HashMap<String, String>>,
+        schema_import: &'a Option<String>,
+        generate_ast_for_fragments: bool,
+        fragment_dependencies: &'a HashMap<String, Vec<String>>,
+        type_cache: &'a TypeCache,
+    ) -> Self {
+        Self {
+            schema,
+            fragment_to_path,
+            fragment_to_import,
+            fragment_to_type_only,
+            all_fragments,
+            current_file_path,
+            scalars,
+            schema_import,
+            generate_ast_for_fragments,
+            fragment_dependencies,
+            type_cache,
+        }
+    }
+
+    /// Get cached type conversion or compute and cache it
+    fn get_cached_type(&self, type_name: &str, compute: impl FnOnce() -> String) -> String {
+        self.type_cache.get_or_insert(type_name, compute)
+    }
 }
 
 pub struct OperationGenerated {
@@ -100,14 +190,19 @@ pub fn generate_typescript(
                 &mut used_schema_types,
             );
 
-            bodies.push_str(&format!(
-                "export interface {}{} {}\n\n",
-                name, suffix, ts_type
-            ));
+            // Avoid format! macro overhead
+            bodies.push_str("export interface ");
+            bodies.push_str(name);
+            bodies.push_str(suffix);
+            bodies.push(' ');
+            bodies.push_str(&ts_type);
+            bodies.push_str("\n\n");
 
             let vars_type = if !op.variables.is_empty() {
                 let v_name = format!("{}{}Variables", name, suffix);
-                bodies.push_str(&format!("export interface {} {{\n", v_name));
+                bodies.push_str("export interface ");
+                bodies.push_str(&v_name);
+                bodies.push_str(" {\n");
                 for var in &op.variables {
                     let ts_type_str = gql_type_to_ts(
                         &var.ty,
@@ -117,7 +212,12 @@ pub fn generate_typescript(
                         &mut used_schema_types,
                     );
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
-                    bodies.push_str(&format!("  {}{}: {};\n", var.name, optional, ts_type_str));
+                    bodies.push_str("  ");
+                    bodies.push_str(&var.name);
+                    bodies.push_str(optional);
+                    bodies.push_str(": ");
+                    bodies.push_str(&ts_type_str);
+                    bodies.push_str(";\n");
                 }
                 bodies.push_str("}\n\n");
                 v_name
@@ -130,10 +230,17 @@ pub fn generate_typescript(
                 
                 // Use cached dependencies when possible to avoid expensive tree traversal
                 let deps = get_operation_deps_cached(op, ctx, doc);
+                
+                // Pre-allocate with known capacity to avoid reallocations
+                let estimated_size = deps.len();
+                let mut definitions_parts = Vec::with_capacity(estimated_size + 1);
+                let op_def_str = op_def.to_string();
+                definitions_parts.push(op_def_str);
+                
+                // Sort deps once to avoid repeated allocations
                 let mut deps_list: Vec<_> = deps.into_iter().collect();
-                deps_list.sort();
+                deps_list.sort_unstable(); // unstable sort is faster
 
-                let mut definitions_parts = vec![op_def.to_string()];
                 for dep in deps_list {
                     let is_type_only =
                         ctx.fragment_to_type_only
@@ -148,25 +255,37 @@ pub fn generate_typescript(
                             });
 
                     if !is_type_only {
-                        definitions_parts.push(format!("...{}Document.definitions", dep));
+                        // Use direct string building instead of format! macro
+                        let mut spread = String::with_capacity(dep.len() + 23); // "...Document.definitions"
+                        spread.push_str("...");
+                        spread.push_str(&dep);
+                        spread.push_str("Document.definitions");
+                        definitions_parts.push(spread);
                     }
                 }
 
-                let definitions = format!("[{}]", definitions_parts.join(", "));
-
-                format!("{{ kind: 'Document', definitions: {} }}", definitions)
+                // Pre-calculate total size for final string
+                let total_size: usize = definitions_parts.iter().map(|s| s.len()).sum::<usize>() + definitions_parts.len() * 2 + 30;
+                let mut result = String::with_capacity(total_size);
+                result.push_str("{ kind: 'Document', definitions: [");
+                result.push_str(&definitions_parts.join(", "));
+                result.push_str("] }");
+                result
             } else {
                 crate::features::apollo_ast::serialize_operation(op, ctx.all_fragments).to_string()
             };
 
-            bodies.push_str(&format!(
-                "export const {}Document = {} as unknown as DocumentNode<{}{}, {}>;\n\n",
-                format!("{}{}", name, suffix),
-                ast_content,
-                name,
-                suffix,
-                vars_type
-            ));
+            let doc_name = format!("{}{}", name, suffix);
+            bodies.push_str("export const ");
+            bodies.push_str(&doc_name);
+            bodies.push_str("Document = ");
+            bodies.push_str(&ast_content);
+            bodies.push_str(" as unknown as DocumentNode<");
+            bodies.push_str(name);
+            bodies.push_str(suffix);
+            bodies.push_str(", ");
+            bodies.push_str(&vars_type);
+            bodies.push_str(">;\n\n");
 
             generated_operations.push(OperationGenerated {
                 name: name.to_string(),
@@ -193,7 +312,11 @@ pub fn generate_typescript(
                 &mut used_fragments,
                 &mut used_schema_types,
             );
-            bodies.push_str(&format!("export interface {} {}\n\n", frag.name, ts_type));
+            bodies.push_str("export interface ");
+            bodies.push_str(&frag.name);
+            bodies.push(' ');
+            bodies.push_str(&ts_type);
+            bodies.push_str("\n\n");
 
             if ctx.generate_ast_for_fragments {
                 let is_type_only = doc
@@ -208,10 +331,17 @@ pub fn generate_typescript(
                     
                     // Use cached dependencies to avoid tree traversal
                     let deps = get_fragment_deps_cached(&frag.name, ctx);
+                    
+                    // Pre-allocate with known capacity
+                    let estimated_size = deps.len();
+                    let mut definitions_parts = Vec::with_capacity(estimated_size + 1);
+                    let frag_def_str = frag_def.to_string();
+                    definitions_parts.push(frag_def_str);
+                    
+                    // Sort deps once
                     let mut deps_list: Vec<_> = deps.into_iter().collect();
-                    deps_list.sort();
+                    deps_list.sort_unstable();
 
-                    let mut definitions_parts = vec![frag_def.to_string()];
                     for dep in deps_list {
                         let is_dep_type_only = ctx
                             .fragment_to_type_only
@@ -226,16 +356,27 @@ pub fn generate_typescript(
                             });
 
                         if !is_dep_type_only {
-                            definitions_parts.push(format!("...{}Document.definitions", dep));
+                            // Use direct string building
+                            let mut spread = String::with_capacity(dep.len() + 23);
+                            spread.push_str("...");
+                            spread.push_str(&dep);
+                            spread.push_str("Document.definitions");
+                            definitions_parts.push(spread);
                         }
                     }
 
-                    let definitions = format!("[{}]", definitions_parts.join(", "));
+                    // Pre-calculate total size
+                    let total_size: usize = definitions_parts.iter().map(|s| s.len()).sum::<usize>() + definitions_parts.len() * 2;
+                    let mut definitions = String::with_capacity(total_size);
+                    definitions.push('[');
+                    definitions.push_str(&definitions_parts.join(", "));
+                    definitions.push(']');
 
-                    bodies.push_str(&format!(
-                        "export const {}Document = {{ kind: 'Document', definitions: {} }} as unknown as DocumentNode<any, any>;\n\n",
-                        frag.name, definitions
-                    ));
+                    bodies.push_str("export const ");
+                    bodies.push_str(&frag.name);
+                    bodies.push_str("Document = { kind: 'Document', definitions: ");
+                    bodies.push_str(&definitions);
+                    bodies.push_str(" } as unknown as DocumentNode<any, any>;\n\n");
                 }
             }
         }
@@ -243,13 +384,10 @@ pub fn generate_typescript(
 
     // Add imports for fragments used from other files
     let mut used_frag_names: Vec<_> = used_fragments.keys().cloned().collect();
-    used_frag_names.sort();
+    used_frag_names.sort_unstable();
 
-    // Pre-allocate imports map with estimated capacity
-    let mut imports: HashMap<String, Vec<String>> = HashMap::with_capacity_and_hasher(
-        used_frag_names.len(),
-        Default::default(),
-    );
+    // Use BTreeMap to keep imports sorted, avoiding need to sort later
+    let mut imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let current_path = doc.uri.path();
     for frag_name in used_frag_names {
         if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name) {
@@ -279,49 +417,61 @@ pub fn generate_typescript(
     if let Some(schema_import_path) = ctx.schema_import
         && !used_schema_types.is_empty()
     {
-        let mut types: Vec<_> = used_schema_types.into_iter().collect();
-        types.sort();
-        import_section.push_str(&format!(
-            "import type {{ {} }} from \"{}\";\n",
-            types.join(", "),
-            schema_import_path
-        ));
+        // Use BTreeSet to keep schema types sorted
+        let types: std::collections::BTreeSet<_> = used_schema_types.into_iter().collect();
+        
+        // Pre-allocate string for import line
+        let estimated_size = types.len() * 20 + schema_import_path.len() + 30;
+        let mut line = String::with_capacity(estimated_size);
+        line.push_str("import type { ");
+        let mut first = true;
+        for ty in types {
+            if !first {
+                line.push_str(", ");
+            }
+            first = false;
+            line.push_str(&ty);
+        }
+        line.push_str(" } from \"");
+        line.push_str(schema_import_path);
+        line.push_str("\";\n");
+        import_section.push_str(&line);
     }
 
-    let mut import_paths: Vec<_> = imports.keys().cloned().collect();
-    import_paths.sort();
-
-    for path in import_paths {
-        let names = imports.get(&path).unwrap();
-
-        let final_import_path = if ctx.fragment_to_import.values().any(|v| v == &path) {
+    // Pre-compute current_file_parent to avoid repeated calls
+    let current_file_parent = ctx.current_file_path.parent().unwrap();
+    
+    // BTreeMap iteration is already sorted, no need to sort
+    for (path, names) in &imports {
+        let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
             // It's an alias
-            path
+            path.clone()
         } else {
             // It's a file path, need to relativize
-            let rel_path = pathdiff::diff_paths(&path, ctx.current_file_path.parent().unwrap())
+            let rel_path = pathdiff::diff_paths(path, current_file_parent)
                 .unwrap_or_else(|| Path::new(&path).to_path_buf());
             let mut path_str = rel_path.to_string_lossy().to_string();
             if !path_str.starts_with('.') {
-                path_str = format!("./{}", path_str);
+                path_str.insert_str(0, "./");
             }
-            // Change extension to .codegen
+            // Change extension to .codegen - optimized string building
             let p = Path::new(&path_str);
             let stem = p.file_stem().unwrap().to_str().unwrap();
             let parent = p.parent().unwrap();
             let final_p = parent.join(stem);
             let mut final_path_str = final_p.to_string_lossy().to_string();
             if !final_path_str.starts_with('.') && !final_path_str.starts_with('/') {
-                final_path_str = format!("./{}", final_path_str);
+                final_path_str.insert_str(0, "./");
             }
-            format!("{}.codegen", final_path_str)
+            final_path_str.push_str(".codegen");
+            final_path_str
         };
 
-        import_section.push_str(&format!(
-            "import type {{ {} }} from \"{}\";\n",
-            names.join(", "),
-            final_import_path
-        ));
+        import_section.push_str("import type { ");
+        import_section.push_str(&names.join(", "));
+        import_section.push_str(" } from \"");
+        import_section.push_str(&final_import_path);
+        import_section.push_str("\";\n");
 
         if ctx.generate_ast_for_fragments {
             let mut doc_names = Vec::new();
@@ -339,16 +489,19 @@ pub fn generate_typescript(
                         });
 
                 if !is_type_only {
-                    doc_names.push(format!("{}Document", name));
+                    let mut doc_name = String::with_capacity(name.len() + 8);
+                    doc_name.push_str(name);
+                    doc_name.push_str("Document");
+                    doc_names.push(doc_name);
                 }
             }
 
             if !doc_names.is_empty() {
-                import_section.push_str(&format!(
-                    "import {{ {} }} from \"{}\";\n",
-                    doc_names.join(", "),
-                    final_import_path
-                ));
+                import_section.push_str("import { ");
+                import_section.push_str(&doc_names.join(", "));
+                import_section.push_str(" } from \"");
+                import_section.push_str(&final_import_path);
+                import_section.push_str("\";\n");
             }
         }
     }
@@ -382,8 +535,8 @@ pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGen
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
     let mut import_lines = Vec::with_capacity(operations.len());
-    let mut overloads = Vec::with_capacity(operations.len());
-    let mut map_entries = Vec::with_capacity(operations.len());
+    let mut overloads = String::with_capacity(operations.len() * 100);
+    let mut map_entries = String::with_capacity(operations.len() * 80);
 
     for op in operations {
         let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
@@ -404,13 +557,15 @@ pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGen
             op.operation_type_name, op.operation_type_name, op.operation_type_name, path_no_ext
         ));
 
-        overloads.push(format!(
-            "export function graphql(source: {:?}): typeof {}Document;",
+        // Write overloads using format! for proper string escaping
+        overloads.push_str(&format!(
+            "export function graphql(source: {:?}): typeof {}Document;\n",
             op.source_text, op.operation_type_name
         ));
 
-        map_entries.push(format!(
-            "  {:?}: {}Document,",
+        // Write map entries using format! for proper string escaping
+        map_entries.push_str(&format!(
+            "  {:?}: {}Document,\n",
             op.source_text, op.operation_type_name
         ));
     }
@@ -423,21 +578,11 @@ pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGen
     }
     output.push('\n');
 
-    let mut map_body = String::new();
-    for entry in map_entries {
-        map_body.push_str(&entry);
-        map_body.push('\n');
-    }
+    output.push_str("const documents: { [key: string]: any } = {\n");
+    output.push_str(&map_entries);
+    output.push_str("};\n\n");
 
-    output.push_str(&format!(
-        "const documents: {{ [key: string]: any }} = {{\n{}}};\n\n",
-        map_body
-    ));
-
-    for overload in overloads {
-        output.push_str(&overload);
-        output.push('\n');
-    }
+    output.push_str(&overloads);
     output.push_str("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;\n");
     output.push_str(
         "export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n",
@@ -512,18 +657,23 @@ pub fn generate_permissions_content(
 
     let empty_fragments = HashMap::default();
     let empty_deps = HashMap::default();
-    let dummy_ctx = CodegenContext {
+    let empty_path_map = HashMap::default();
+    let empty_import_map = HashMap::default();
+    let empty_type_only_map = HashMap::default();
+    let dummy_cache = TypeCache::new();
+    let dummy_ctx = CodegenContext::new(
         schema,
-        fragment_to_path: &HashMap::default(),
-        fragment_to_import: &HashMap::default(),
-        fragment_to_type_only: &HashMap::default(),
-        all_fragments: &empty_fragments,
-        current_file_path: Path::new(""),
+        &empty_path_map,
+        &empty_import_map,
+        &empty_type_only_map,
+        &empty_fragments,
+        Path::new(""),
         scalars,
         schema_import,
-        generate_ast_for_fragments: false,
-        fragment_dependencies: &empty_deps,
-    };
+        false,
+        &empty_deps,
+        &dummy_cache,
+    );
     let mut used_schema_types = HashSet::default();
 
     output.push_str("export interface PermissionsType {\n");
@@ -594,7 +744,7 @@ fn generate_selection_set(
 
     if inline_fragments.is_empty() {
         // Simple object or intersection
-        let mut local_fields_list = Vec::new();
+        let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
         if !has_explicit_typename {
             local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
         }
@@ -639,11 +789,23 @@ fn generate_selection_set(
 
         if fragment_spreads.is_empty() {
             // Standard multi-line object (keep this for simple_query)
-            let mut result = String::new();
+            // Pre-allocate result string with estimated size
+            let estimated_size = local_fields_list.len() * 40 + 20;
+            let mut result = String::with_capacity(estimated_size);
             for f in local_fields_list {
-                result.push_str(&format!("\n{}{};", inner_pad, f));
+                result.push('\n');
+                result.push_str(&inner_pad);
+                result.push_str(&f);
+                result.push(';');
             }
-            format!("{{{}\n{}}}", result, pad)
+            result.push('\n');
+            result.push_str(&pad);
+            // Use concat instead of format!
+            let mut output = String::with_capacity(result.len() + 2);
+            output.push('{');
+            output.push_str(&result);
+            output.push('}');
+            output
         } else {
             // Intersection mode (compact style for fragment_usage)
             let base_obj = format!("{{ {} }}", local_fields_list.join(", "));
@@ -657,11 +819,10 @@ fn generate_selection_set(
         }
     } else {
         // Union type
-        let mut branches = Vec::new();
+        let mut branches = Vec::with_capacity(inline_fragments.len() + fragment_spreads.len() + 1);
 
         // Base branch
-        let base_branch = format!("{{ __typename: \"{}\" }}", parent_type.name());
-        branches.push(base_branch);
+        branches.push(format!("{{ __typename: \"{}\" }}", parent_type.name()));
 
         for inline in inline_fragments {
             let type_name = inline
@@ -671,8 +832,12 @@ fn generate_selection_set(
                 .unwrap_or_else(|| parent_type.name());
             let target_type = ctx.schema.types.get(type_name).unwrap_or(parent_type);
 
-            let mut branch_fields = String::new();
-            branch_fields.push_str(&format!("\n{}    __typename: \"{}\";", pad, type_name));
+            let mut branch_fields = String::with_capacity(256);
+            branch_fields.push('\n');
+            branch_fields.push_str(&pad);
+            branch_fields.push_str("    __typename: \"");
+            branch_fields.push_str(type_name);
+            branch_fields.push_str("\";");
 
             // Generate fields for this fragment
             for selection in &inline.selection_set.selections {
@@ -708,11 +873,23 @@ fn generate_selection_set(
                             );
                             wrap_in_list_and_nullability(&base_type, &fd.ty)
                         };
-                        branch_fields.push_str(&format!("\n{}    {}: {};", pad, name, ts_type));
+                        branch_fields.push('\n');
+                        branch_fields.push_str(&pad);
+                        branch_fields.push_str("    ");
+                        branch_fields.push_str(name);
+                        branch_fields.push_str(": ");
+                        branch_fields.push_str(&ts_type);
+                        branch_fields.push(';');
                     }
                 }
             }
-            branches.push(format!("{{{}\n{}  }}", branch_fields, pad));
+            let mut branch = String::with_capacity(branch_fields.len() + pad.len() + 10);
+            branch.push('{');
+            branch.push_str(&branch_fields);
+            branch.push('\n');
+            branch.push_str(&pad);
+            branch.push_str("  }");
+            branches.push(branch);
         }
 
         for spread in fragment_spreads {
@@ -723,7 +900,9 @@ fn generate_selection_set(
         let mut result = branches[0].clone();
         for (i, branch) in branches.iter().enumerate().skip(1) {
             if i == 1 {
-                result.push_str(&format!("\n{}  | ", pad));
+                result.push('\n');
+                result.push_str(&pad);
+                result.push_str("  | ");
             } else {
                 result.push_str(" | ");
             }
@@ -781,52 +960,57 @@ fn gql_type_to_ts_internal(
         "Int" | "Float" => "number".to_string(),
         "Boolean" => "boolean".to_string(),
         other => {
-            if let Some(config_scalars) = scalars
-                && let Some(mapped) = config_scalars.get(other)
-            {
-                mapped.to_string()
-            } else if let Some(t) = schema.types.get(other) {
-                match t {
-                    ExtendedType::Enum(enm) => {
-                        if ctx.schema_import.is_some() {
-                            used_schema_types.insert(other.to_string());
-                            other.to_string()
-                        } else if use_names {
-                            other.to_string()
-                        } else {
-                            let mut values: Vec<_> = enm.values.keys().collect();
-                            values.sort();
-                            values
-                                .iter()
-                                .map(|v| format!("\"{}\"", v))
-                                .collect::<Vec<_>>()
-                                .join(" | ")
+            // Use cache for expensive enum value lookups
+            ctx.get_cached_type(other, || {
+                if let Some(config_scalars) = scalars
+                    && let Some(mapped) = config_scalars.get(other)
+                {
+                    mapped.to_string()
+                } else if let Some(t) = schema.types.get(other) {
+                    match t {
+                        ExtendedType::Enum(enm) => {
+                            if ctx.schema_import.is_some() {
+                                used_schema_types.insert(other.to_string());
+                                other.to_string()
+                            } else if use_names {
+                                other.to_string()
+                            } else {
+                                // This is expensive - building the union of all enum values
+                                // Cache it so we only do it once per enum type
+                                let mut values: Vec<_> = enm.values.keys().collect();
+                                values.sort();
+                                values
+                                    .iter()
+                                    .map(|v| format!("\"{}\"", v))
+                                    .collect::<Vec<_>>()
+                                    .join(" | ")
+                            }
+                        }
+                        ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
+                            if ctx.schema_import.is_some() {
+                                used_schema_types.insert(other.to_string());
+                                other.to_string()
+                            } else if use_names {
+                                other.to_string()
+                            } else {
+                                "any".to_string()
+                            }
+                        }
+                        ExtendedType::Object(_)
+                        | ExtendedType::Interface(_)
+                        | ExtendedType::Union(_) => {
+                            if ctx.schema_import.is_some() || use_names {
+                                used_schema_types.insert(other.to_string());
+                                other.to_string()
+                            } else {
+                                "any".to_string()
+                            }
                         }
                     }
-                    ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
-                        if ctx.schema_import.is_some() {
-                            used_schema_types.insert(other.to_string());
-                            other.to_string()
-                        } else if use_names {
-                            other.to_string()
-                        } else {
-                            "any".to_string()
-                        }
-                    }
-                    ExtendedType::Object(_)
-                    | ExtendedType::Interface(_)
-                    | ExtendedType::Union(_) => {
-                        if ctx.schema_import.is_some() || use_names {
-                            used_schema_types.insert(other.to_string());
-                            other.to_string()
-                        } else {
-                            "any".to_string()
-                        }
-                    }
+                } else {
+                    "any".to_string()
                 }
-            } else {
-                "any".to_string()
-            }
+            })
         }
     };
 
@@ -843,18 +1027,23 @@ pub fn generate_schema_types(
 
     let empty_fragments = HashMap::default();
     let empty_deps = HashMap::default();
-    let dummy_ctx = CodegenContext {
+    let empty_path_map = HashMap::default();
+    let empty_import_map = HashMap::default();
+    let empty_type_only_map = HashMap::default();
+    let dummy_cache = TypeCache::new();
+    let dummy_ctx = CodegenContext::new(
         schema,
-        fragment_to_path: &HashMap::default(),
-        fragment_to_import: &HashMap::default(),
-        fragment_to_type_only: &HashMap::default(),
-        all_fragments: &empty_fragments,
-        current_file_path: Path::new(""),
+        &empty_path_map,
+        &empty_import_map,
+        &empty_type_only_map,
+        &empty_fragments,
+        Path::new(""),
         scalars,
-        schema_import: &None,
-        generate_ast_for_fragments: false,
-        fragment_dependencies: &empty_deps,
-    };
+        &None,
+        false,
+        &empty_deps,
+        &dummy_cache,
+    );
     let mut used_schema_types = HashSet::default();
 
     // 1. Enums
@@ -1014,31 +1203,32 @@ fn get_operation_deps_cached(
 ) -> HashSet<String> {
     let mut all_deps = HashSet::default();
     
-    // Collect direct fragment spreads from the operation
+    // Collect direct fragment spreads from the operation (single pass)
     collect_direct_fragment_spreads(&operation.selection_set, &mut all_deps);
     
+    // Pre-allocate for transitive deps to reduce reallocations
+    let initial_size = all_deps.len();
+    let mut transitive_deps = HashSet::with_capacity_and_hasher(initial_size * 2, Default::default());
+    
     // For each direct dependency, add its transitive dependencies from cache
-    let direct_deps: Vec<_> = all_deps.iter().cloned().collect();
-    for frag_name in direct_deps {
-        if let Some(transitive) = ctx.fragment_dependencies.get(&frag_name) {
-            // Use cached transitive dependencies
-            for dep in transitive {
-                all_deps.insert(dep.clone());
-            }
+    for frag_name in &all_deps {
+        if let Some(cached_transitive) = ctx.fragment_dependencies.get(frag_name) {
+            // Use cached transitive dependencies - avoid cloning
+            transitive_deps.extend(cached_transitive.iter().map(|s| s.as_str().to_string()));
         } else {
             // Fallback: compute manually (only for fragments defined in current file)
-            if let Some(local_frag) = doc.fragments().iter().find(|f| f.name == frag_name) {
+            if let Some(local_frag) = doc.fragments().iter().find(|f| &f.name == frag_name) {
                 // This fragment is local, compute its deps on the fly
                 if let Some(parsed_frag) = ctx.all_fragments.get(&local_frag.name) {
                     let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
-                    for dep in frag_deps {
-                        all_deps.insert(dep);
-                    }
+                    transitive_deps.extend(frag_deps);
                 }
             }
         }
     }
     
+    // Merge transitive deps into all_deps
+    all_deps.extend(transitive_deps);
     all_deps
 }
 

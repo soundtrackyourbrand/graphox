@@ -8,7 +8,9 @@ pub fn serialize_operation(
     operation: &executable::Operation,
     fragments: &HashMap<String, Node<executable::Fragment>>,
 ) -> Value {
-    let mut definitions = Vec::new();
+    // Pre-allocate definitions vector with estimated capacity
+    // Typical operation has 1 op + N fragments where N is usually small
+    let mut definitions = Vec::with_capacity(16);
 
     // 1. Add the operation itself
     definitions.push(convert_operation(operation));
@@ -17,8 +19,10 @@ pub fn serialize_operation(
     let mut used_fragments = HashSet::default();
     collect_fragments(&operation.selection_set, fragments, &mut used_fragments);
 
-    let mut sorted_fragments: Vec<_> = used_fragments.into_iter().collect();
-    sorted_fragments.sort();
+    // Pre-allocate sorted_fragments with known size to avoid reallocation
+    let mut sorted_fragments: Vec<_> = Vec::with_capacity(used_fragments.len());
+    sorted_fragments.extend(used_fragments.into_iter());
+    sorted_fragments.sort_unstable(); // unstable sort is faster when element order doesn't matter
 
     for frag_name in sorted_fragments {
         if let Some(frag) = fragments.get(&frag_name) {

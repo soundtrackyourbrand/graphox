@@ -67,6 +67,9 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let all_fragments = &project_context.all_fragments;
         metadata_mapping_time += mm_start.elapsed();
 
+        // Create shared type cache for all files in this project
+        let shared_type_cache = graphql_rust::features::codegen::TypeCache::new();
+
         let (p_graphql_files, p_operations, p_fragments_processed, p_doc_parse_time, p_ts_gen_time) =
             project_files
                 .par_iter()
@@ -81,20 +84,19 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                                 .find(|st| st.schema.as_key() == project.schema.as_key())
                                 .and_then(|st| st.import.clone())
                         });
-                        let ctx = graphql_rust::features::codegen::CodegenContext {
-                            schema: &valid_schema,
-                            fragment_to_path: project_fragment_to_path,
-                            fragment_to_import: project_fragment_to_import,
-                            fragment_to_type_only: &project_context.fragment_to_type_only,
+                        let ctx = graphql_rust::features::codegen::CodegenContext::new(
+                            &valid_schema,
+                            project_fragment_to_path,
+                            project_fragment_to_import,
+                            &project_context.fragment_to_type_only,
                             all_fragments,
-                            current_file_path: path,
-                            scalars: &config.scalars,
-                            schema_import: &schema_import,
-                            generate_ast_for_fragments: config
-                                .generate_ast_for_fragments
-                                .unwrap_or(false),
-                            fragment_dependencies: &project_context.fragment_dependencies,
-                        };
+                            path,
+                            &config.scalars,
+                            &schema_import,
+                            config.generate_ast_for_fragments.unwrap_or(false),
+                            &project_context.fragment_dependencies,
+                            &shared_type_cache, // Shared across all files in project
+                        );
                         let g_start = Instant::now();
                         if let Ok(_ts_code) =
                             graphql_rust::features::codegen::generate_typescript(doc, &ctx)
@@ -123,7 +125,31 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         total_fragments_processed += p_fragments_processed;
         doc_parse_time += p_doc_parse_time;
         ts_gen_time += p_ts_gen_time;
-        project_timings.push((project.include.as_key(), project_total_start.elapsed()));
+        
+        // Collect cache stats for this project
+        let (cache_hits, cache_misses) = shared_type_cache.stats();
+        let cache_size = shared_type_cache.len();
+        
+        project_timings.push((
+            project.include.as_key(),
+            project_total_start.elapsed(),
+        ));
+        
+        // Report cache metrics for this project (only if cache was used)
+        if cache_hits + cache_misses > 0 {
+            let hit_rate = if cache_hits + cache_misses > 0 {
+                (cache_hits as f64 / (cache_hits + cache_misses) as f64) * 100.0
+            } else {
+                0.0
+            };
+            println!(
+                "  Type Cache: {} types, {} hits, {} misses ({:.1}% hit rate)",
+                cache_size.to_string().blue(),
+                cache_hits.to_string().green(),
+                cache_misses.to_string().yellow(),
+                hit_rate
+            );
+        }
     }
 
     if let Some(schema_types) = &config.schema_types {
