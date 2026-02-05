@@ -217,17 +217,33 @@ pub fn get_output_path(path: &Path, base_dir: &Path, output_dir: Option<&str>) -
 }
 
 pub fn merge_schema_texts(texts: &[String]) -> String {
-    let mut merged = String::new();
+    let total_len: usize = texts.iter().map(|s| s.len() + 1).sum();
+    let mut merged = String::with_capacity(total_len);
     let mut seen_base = fnv::FnvHashSet::default();
 
-    for text in texts {
-        let mut parser = tree_sitter::Parser::new();
-        if let Err(e) = parser.set_language(&tree_sitter_graphql::LANGUAGE.into()) {
-            eprintln!("{}: Failed to set GraphQL language: {}", "ERROR".red(), e.to_string().red());
+    let mut parser = tree_sitter::Parser::new();
+    let language: tree_sitter::Language = tree_sitter_graphql::LANGUAGE.into();
+    if let Err(e) = parser.set_language(&language) {
+        eprintln!(
+            "{}: Failed to set GraphQL language: {}",
+            "ERROR".red(),
+            e.to_string().red()
+        );
+        for text in texts {
             merged.push_str(text);
             merged.push('\n');
-            continue;
         }
+        return merged;
+    }
+
+    let query = crate::queries::GQL_MERGE_QUERY_CACHE.get_or_init(|| {
+        tree_sitter::Query::new(&language, crate::queries::GQL_MERGE_QUERY).unwrap()
+    });
+    let name_idx = query.capture_index_for_name("name").unwrap();
+    let type_def_idx = query.capture_index_for_name("type_def").unwrap();
+    let mut cursor = tree_sitter::QueryCursor::new();
+
+    for text in texts {
         let tree = if let Some(t) = parser.parse(text, None) {
             t
         } else {
@@ -237,27 +253,7 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
         };
         let root = tree.root_node();
 
-        let query_str = r#"
-            [
-                (object_type_definition (name) @name)
-                (interface_type_definition (name) @name)
-                (enum_type_definition (name) @name)
-                (scalar_type_definition (name) @name)
-                (union_type_definition (name) @name)
-                (input_object_type_definition (name) @name)
-
-                (type_extension (object_type_extension (name) @name))
-                (type_extension (interface_type_extension (name) @name))
-                (type_extension (enum_type_extension (name) @name))
-                (type_extension (scalar_type_extension (name) @name))
-                (type_extension (union_type_extension (name) @name))
-                (type_extension (input_object_type_extension (name) @name))
-            ] @type_def
-        "#;
-        let query =
-            tree_sitter::Query::new(&tree_sitter_graphql::LANGUAGE.into(), query_str).unwrap();
-        let mut cursor = tree_sitter::QueryCursor::new();
-        let mut matches = cursor.matches(&query, root, text.as_bytes());
+        let mut matches = cursor.matches(query, root, text.as_bytes());
 
         let mut modifications = Vec::new();
 
@@ -265,10 +261,9 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
             let mut name_node = None;
             let mut container_node = None;
             for cap in m.captures {
-                let cap_name = query.capture_names()[cap.index as usize];
-                if cap_name == "name" {
+                if cap.index == name_idx {
                     name_node = Some(cap.node);
-                } else if cap_name == "type_def" {
+                } else if cap.index == type_def_idx {
                     container_node = Some(cap.node);
                 }
             }
@@ -326,15 +321,13 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
         }
 
         modifications.sort_by_key(|m| m.0);
-        let mut final_text = String::new();
         let mut current_pos = 0;
         for (start, end, replacement) in modifications {
-            final_text.push_str(&text[current_pos..start]);
-            final_text.push_str(&replacement);
+            merged.push_str(&text[current_pos..start]);
+            merged.push_str(&replacement);
             current_pos = end;
         }
-        final_text.push_str(&text[current_pos..]);
-        merged.push_str(&final_text);
+        merged.push_str(&text[current_pos..]);
         merged.push('\n');
     }
 

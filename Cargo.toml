@@ -49,3 +49,7 @@ harness = false
 [[bench]]
 name = "lsp_actions"
 harness = false
+
+[[bench]]
+name = "utils"
+harness = false

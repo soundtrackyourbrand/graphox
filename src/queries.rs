@@ -10,6 +10,7 @@ pub static GQL_DESCRIPTION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_COMPLETION_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_DIAGNOSTICS_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 pub static GQL_REFERENCES_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
+pub static GQL_MERGE_QUERY_CACHE: OnceLock<Query> = OnceLock::new();
 
 pub const GQL_SYMBOL_QUERY: &str = r#"
     (object_type_definition 
@@ -101,4 +102,22 @@ pub const GQL_REFERENCES_QUERY: &str = r#"
     (fragment_definition (fragment_name (name) @name)) @definition
     (variable) @name @reference
     (variable_definition (variable) @name @definition)
+"#;
+
+pub const GQL_MERGE_QUERY: &str = r#"
+    [
+        (object_type_definition (name) @name)
+        (interface_type_definition (name) @name)
+        (enum_type_definition (name) @name)
+        (scalar_type_definition (name) @name)
+        (union_type_definition (name) @name)
+        (input_object_type_definition (name) @name)
+
+        (type_extension (object_type_extension (name) @name))
+        (type_extension (interface_type_extension (name) @name))
+        (type_extension (enum_type_extension (name) @name))
+        (type_extension (scalar_type_extension (name) @name))
+        (type_extension (union_type_extension (name) @name))
+        (type_extension (input_object_type_extension (name) @name))
+    ] @type_def
 "#;
