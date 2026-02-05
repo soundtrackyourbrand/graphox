@@ -436,8 +436,120 @@ impl DocumentState {
                         }
                     }
                     break;
+                } else if parent.kind() == "named_type" || parent.kind() == "directive" {
+                    let type_name = self.get_node_text(node, offset);
+                    let mut found_loc = None;
+
+                    for p_uri in preferred_uris {
+                        if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone()) {
+                            if let Some(loc) =
+                                doc.find_type_definition_in_schema(&type_name, symbol_query)
+                            {
+                                found_loc = Some(loc);
+                                break;
+                            }
+                        } else if let Ok(path) = p_uri.to_file_path() {
+                            if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                if let Some(loc) =
+                                    doc.find_type_definition_in_schema(&type_name, symbol_query)
+                                {
+                                    found_loc = Some(loc);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if found_loc.is_none() {
+                        if let Some(uris) = fragment_definitions.get(&type_name) {
+                            for uri in uris.iter() {
+                                if preferred_uris.contains(&*uri) {
+                                    continue;
+                                }
+                                if let Some(doc) = documents.get(&*uri).map(|r| r.value().clone()) {
+                                    if let Some(loc) =
+                                        doc.find_type_definition_in_schema(&type_name, symbol_query)
+                                    {
+                                        found_loc = Some(loc);
+                                        break;
+                                    }
+                                } else if let Ok(path) = uri.to_file_path() {
+                                    if let Some(doc) = crate::engine::Engine::parse_doc(&path) {
+                                        if let Some(loc) = doc.find_type_definition_in_schema(
+                                            &type_name,
+                                            symbol_query,
+                                        ) {
+                                            found_loc = Some(loc);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(loc) = found_loc {
+                        return Some(loc);
+                    }
+                    return None;
                 }
                 curr = parent;
+            }
+        }
+        None
+    }
+
+    pub fn find_type_definition_in_schema(
+        &self,
+        type_name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location> {
+        let mut cursor = QueryCursor::new();
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches =
+                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
+                    let start = node.start_byte();
+                    let end = node.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut name_node = None;
+                let mut container_node = None;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                        name_node = Some(cap.node);
+                    } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
+                    }
+                }
+
+                if let Some(n) = name
+                    && n == type_name
+                    && let Some(container) = container_node
+                {
+                    let kind = container.kind();
+                    if kind.ends_with("_type_definition")
+                        || kind.ends_with("_type_extension")
+                        || kind == "scalar_type_definition"
+                        || kind == "directive_definition"
+                    {
+                        if let Some(node) = name_node {
+                            return Some(Location {
+                                uri: self.uri.clone(),
+                                range: self.translate_to_file_range(node, offset),
+                            });
+                        }
+                    }
+                }
             }
         }
         None
