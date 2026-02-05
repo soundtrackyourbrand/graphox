@@ -1,5 +1,5 @@
 use crate::document::DocumentState;
-use apollo_compiler::{Schema, schema};
+use apollo_compiler::{Schema, schema, ast};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
 
@@ -56,6 +56,111 @@ impl DocumentState {
         let mut node = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
 
         while let Some(current) = node {
+            if self.is_after_at(cursor_offset) || current.kind() == "directive" {
+                let mut context_node = if current.kind() == "directive"
+
+                    || (current.kind() == "name"
+                        && current.parent().map(|p| p.kind()) == Some("directive"))
+                {
+                    let dir_node = if current.kind() == "name" {
+                        current.parent().unwrap()
+                    } else {
+                        current
+                    };
+                    dir_node.parent()
+                } else if current.kind() == "ERROR" && self.get_node_text(current, offset) == "@" {
+                    if let Some(prev) = current.prev_sibling() {
+                        Some(prev)
+                    } else {
+                        Some(current)
+                    }
+                } else {
+                    Some(current)
+                };
+
+                // If we are at a name, fragment_name or error, the context is the parent
+                if let Some(mut node) = context_node {
+                    while node.kind() == "name"
+                        || node.kind() == "fragment_name"
+                        || node.kind() == "ERROR"
+                        || node.kind() == "MISSING"
+                    {
+                        if let Some(parent) = node.parent() {
+                            node = parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    context_node = Some(node);
+                }
+
+                if let Some(p) = context_node {
+                    let mut p = p;
+                    loop {
+                        if p.kind() == "selection" {
+                            let mut cursor = p.walk();
+                            for child in p.children(&mut cursor) {
+                                let kind = child.kind();
+                                if kind == "field"
+                                    || kind == "fragment_spread"
+                                    || kind == "inline_fragment"
+                                {
+                                    p = child;
+                                    break;
+                                }
+                            }
+                        }
+
+                        let location = match p.kind() {
+                            "field" => Some(ast::DirectiveLocation::Field),
+                            "fragment_definition" => Some(ast::DirectiveLocation::FragmentDefinition),
+                            "inline_fragment" => Some(ast::DirectiveLocation::InlineFragment),
+                            "fragment_spread" => Some(ast::DirectiveLocation::FragmentSpread),
+                            "operation_definition" => {
+                                let mut op_type = ast::OperationType::Query;
+                                let mut cursor = p.walk();
+                                for child in p.children(&mut cursor) {
+                                    if child.kind() == "operation_type" {
+                                        let text = self.get_node_text(child, offset);
+                                        if text == "mutation" {
+                                            op_type = ast::OperationType::Mutation;
+                                        } else if text == "subscription" {
+                                            op_type = ast::OperationType::Subscription;
+                                        }
+                                    }
+                                }
+                                match op_type {
+                                    ast::OperationType::Query => Some(ast::DirectiveLocation::Query),
+                                    ast::OperationType::Mutation => {
+                                        Some(ast::DirectiveLocation::Mutation)
+                                    }
+                                    ast::OperationType::Subscription => {
+                                        Some(ast::DirectiveLocation::Subscription)
+                                    }
+                                }
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(loc) = location {
+                            return Some(self.get_directive_completions(schema, loc));
+                        }
+
+
+
+
+                        if let Some(parent) = p.parent() {
+                            p = parent;
+                            if p.kind() == "selection_set" || p.kind() == "document" {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
             match current.kind() {
                 "selection_set"
                 | "operation_definition"
@@ -651,6 +756,70 @@ impl DocumentState {
             });
         }
         items
+    }
+
+    fn get_directive_completions(
+        &self,
+        schema: &Schema,
+        location: ast::DirectiveLocation,
+    ) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+
+        for (name, def) in &schema.directive_definitions {
+            if def.locations.contains(&location) {
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    documentation: def.description.as_ref().map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d.to_string(),
+                        })
+                    }),
+                    ..Default::default()
+                });
+            }
+        }
+
+        // Special ones for fragments
+        if matches!(
+            location,
+            ast::DirectiveLocation::FragmentDefinition
+                | ast::DirectiveLocation::InlineFragment
+                | ast::DirectiveLocation::FragmentSpread
+        ) {
+            if !items.iter().any(|i| i.label == "public") {
+                items.push(CompletionItem {
+                    label: "public".to_string(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: "Marks the fragment as public for codegen".to_string(),
+                    })),
+                    ..Default::default()
+                });
+            }
+            if !items.iter().any(|i| i.label == "type_only") {
+                items.push(CompletionItem {
+                    label: "type_only".to_string(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: "Marks the fragment as type-only for codegen".to_string(),
+                    })),
+                    ..Default::default()
+                });
+            }
+        }
+
+        items
+    }
+
+    fn is_after_at(&self, cursor_offset: usize) -> bool {
+        if cursor_offset == 0 {
+            return false;
+        }
+        self.rope.char(cursor_offset - 1) == '@'
     }
 
     fn is_after_dots(&self, offset: usize, local_byte: usize) -> bool {
