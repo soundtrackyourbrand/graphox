@@ -34,6 +34,7 @@ async fn test_goto_definition_cross_file() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -161,6 +162,7 @@ async fn test_goto_definition_types() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

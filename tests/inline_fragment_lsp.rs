@@ -32,6 +32,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
             generate_permissions: None,
         }],
         base_dir: dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     }
 }

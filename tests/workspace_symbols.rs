@@ -28,6 +28,7 @@ async fn test_workspace_symbols() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

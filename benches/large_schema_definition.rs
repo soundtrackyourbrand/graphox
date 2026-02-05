@@ -50,6 +50,7 @@ fn generate_complex_workspace(base_dir: &std::path::Path, project_count: usize, 
     Config {
         projects,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     }
 }

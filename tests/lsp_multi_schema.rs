@@ -52,6 +52,7 @@ async fn test_lsp_multi_schema_support() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

@@ -48,6 +48,7 @@ async fn test_workspace_scan_concurrency() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

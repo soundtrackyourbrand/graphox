@@ -230,6 +230,7 @@ async fn test_fragment_hover_requirements() {
             generate_permissions: None,
         }],
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -350,6 +351,7 @@ async fn test_fragment_completion_requirements() {
             generate_permissions: None,
         }],
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -500,6 +502,7 @@ async fn test_variable_references_including_fragments() {
             generate_permissions: None,
         }],
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

@@ -32,6 +32,7 @@ async fn test_fragment_call_hierarchy() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -189,6 +190,7 @@ async fn test_call_hierarchy_tsx() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

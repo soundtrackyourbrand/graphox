@@ -42,6 +42,7 @@ async fn test_lsp_smart_extract_fragment() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -163,6 +164,7 @@ async fn test_lsp_smart_extract_field() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

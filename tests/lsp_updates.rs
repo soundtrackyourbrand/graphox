@@ -81,6 +81,7 @@ async fn test_lsp_fragment_collisions() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -307,6 +308,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
     };
 
     let client_capture = Arc::new(Mutex::new(None));
@@ -490,6 +492,7 @@ async fn test_lsp_fragment_rename_same_project() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
@@ -715,6 +718,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

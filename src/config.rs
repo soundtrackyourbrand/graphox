@@ -15,6 +15,7 @@ pub struct Config {
     pub generate_ast_for_fragments: Option<bool>,
     pub tracing: Option<TracingConfig>,
     pub watch_all_files: Option<bool>,
+    pub lsp_automatic_codegen: Option<bool>,
     #[serde(skip)]
     pub base_dir: PathBuf,
 }
@@ -104,6 +105,7 @@ impl Config {
             generate_ast_for_fragments: None,
             tracing: None,
             watch_all_files: None,
+            lsp_automatic_codegen: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -233,6 +235,10 @@ impl Config {
 
     pub fn watch_all_files(&self) -> bool {
         self.watch_all_files.unwrap_or(true)
+    }
+
+    pub fn lsp_automatic_codegen(&self) -> bool {
+        self.lsp_automatic_codegen.unwrap_or(true)
     }
 }
 

@@ -29,6 +29,7 @@ async fn test_completion_fields() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -121,6 +122,7 @@ async fn test_completion_variables() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -217,6 +219,7 @@ async fn test_completion_fragment_spread() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -308,6 +311,7 @@ async fn test_completion_types_in_fragment() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -404,6 +408,7 @@ async fn test_completion_fragment_spread_acceptance() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

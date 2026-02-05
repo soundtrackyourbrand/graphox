@@ -31,6 +31,7 @@ async fn test_signature_help() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -128,6 +129,7 @@ async fn test_signature_help_tsx() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

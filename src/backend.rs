@@ -391,14 +391,17 @@ impl Backend {
     }
 
     pub async fn run_codegen(&self) {
-        let workspace_metadata = crate::engine::Engine::scan_workspace(&self.config, |_, _| {});
+        Self::run_codegen_internal(self.client.clone(), self.config.clone()).await;
+    }
+
+    async fn run_codegen_internal(client: Client, config: Config) {
+        let workspace_metadata = crate::engine::Engine::scan_workspace(&config, |_, _| {});
 
         let global_metadata = &workspace_metadata.fragments;
-        let global_output_dir = self.config.output_dir.as_deref();
+        let global_output_dir = config.output_dir.as_deref();
         let mut all_generated_operations = Vec::new();
 
-        for (project, project_meta) in self
-            .config
+        for (project, project_meta) in config
             .projects
             .iter()
             .zip(&workspace_metadata.projects)
@@ -408,7 +411,7 @@ impl Backend {
 
             let project_schema_files: fnv::FnvHashSet<_> =
                 project.schema.files().into_iter().collect();
-            let schema_import = self.config.schema_types.as_ref().and_then(|sts| {
+            let schema_import = config.schema_types.as_ref().and_then(|sts| {
                 let mut matches: Vec<_> = sts
                     .iter()
                     .filter(|st| {
@@ -422,10 +425,10 @@ impl Backend {
             });
 
             let schema =
-                match crate::engine::Engine::load_schema(&self.config.base_dir, &project.schema) {
+                match crate::engine::Engine::load_schema(&config.base_dir, &project.schema) {
                     Ok(s) => s,
                     Err(e) => {
-                        let _ = self.client.log_message(MessageType::ERROR, e).await;
+                        let _ = client.log_message(MessageType::ERROR, e).await;
                         continue;
                     }
                 };
@@ -433,8 +436,7 @@ impl Backend {
             let valid_schema = match schema.validate() {
                 Ok(v) => v,
                 Err(e) => {
-                    let _ = self
-                        .client
+                    let _ = client
                         .log_message(
                             MessageType::ERROR,
                             format!(
@@ -466,10 +468,9 @@ impl Backend {
                         fragment_to_import: &project_context.fragment_to_import,
                         all_fragments: &project_context.all_fragments,
                         current_file_path: path,
-                        scalars: &self.config.scalars,
+                        scalars: &config.scalars,
                         schema_import: &schema_import,
-                        generate_ast_for_fragments: self
-                            .config
+                        generate_ast_for_fragments: config
                             .generate_ast_for_fragments
                             .unwrap_or(false),
                     };
@@ -479,13 +480,13 @@ impl Backend {
                     {
                         let out_path = crate::utils::get_output_path(
                             path,
-                            &self.config.base_dir,
+                            &config.base_dir,
                             project_output_dir,
                         );
                         let abs_out_path = if out_path.is_absolute() {
                             out_path
                         } else {
-                            self.config.base_dir.join(out_path)
+                            config.base_dir.join(out_path)
                         };
 
                         if let Some(parent) = abs_out_path.parent() {
@@ -504,7 +505,7 @@ impl Backend {
         }
 
         if let Some(out_dir) = global_output_dir {
-            let out_dir_path = self.config.base_dir.join(out_dir);
+            let out_dir_path = config.base_dir.join(out_dir);
             let entrypoint_path = out_dir_path.join("graphql.ts");
             if !all_generated_operations.is_empty() {
                 let content = crate::features::codegen::generate_entrypoint_content(
@@ -1309,6 +1310,14 @@ impl LanguageServer for Backend {
         let uris_to_validate =
             self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
         self.validate_uris(uris_to_validate).await;
+
+        if self.config.lsp_automatic_codegen() {
+            let client = self.client.clone();
+            let config = self.config.clone();
+            tokio::spawn(async move {
+                Self::run_codegen_internal(client, config).await;
+            });
+        }
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = self.normalize_uri(params.text_document.uri);
@@ -1386,6 +1395,14 @@ impl LanguageServer for Backend {
         let uris_to_validate =
             self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
         self.validate_uris(uris_to_validate).await;
+
+        if self.config.lsp_automatic_codegen() {
+            let client = self.client.clone();
+            let config = self.config.clone();
+            tokio::spawn(async move {
+                Self::run_codegen_internal(client, config).await;
+            });
+        }
     }
 
     async fn goto_definition(
@@ -1889,10 +1906,10 @@ impl LanguageServer for Backend {
                             );
                             self.update_dependency_indices(&uri, old_spreads, new_spreads);
 
-                            // Update documents map if we have it
-                            if self.documents.contains_key(&uri) {
-                                self.documents.insert(uri.clone(), Arc::new(new_doc));
-                            }
+                    // Update documents map if we have it
+                    if self.documents.contains_key(&uri) {
+                        self.documents.insert(uri.clone(), Arc::new(new_doc));
+                    }
 
                             let uris_to_validate = self.get_affected_uris(
                                 uri,
@@ -1900,6 +1917,14 @@ impl LanguageServer for Backend {
                                 affected_spread_names,
                             );
                             self.validate_uris(uris_to_validate).await;
+
+                            if self.config.lsp_automatic_codegen() {
+                                let client = self.client.clone();
+                                let config = self.config.clone();
+                                tokio::spawn(async move {
+                                    Self::run_codegen_internal(client, config).await;
+                                });
+                            }
                         }
                     }
                 } else if change.typ == FileChangeType::DELETED {
@@ -1995,6 +2020,7 @@ mod tests {
             generate_ast_for_fragments: None,
             tracing: None,
             watch_all_files: None,
+            lsp_automatic_codegen: None,
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
@@ -2023,6 +2049,7 @@ mod tests {
             generate_ast_for_fragments: None,
             tracing: None,
             watch_all_files: None,
+            lsp_automatic_codegen: None,
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));

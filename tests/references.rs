@@ -34,6 +34,7 @@ async fn test_fragment_references() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -165,6 +166,7 @@ async fn test_fragment_references_tsx() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -316,6 +318,7 @@ async fn test_fragment_references_exclude_declaration() {
             generate_permissions: None,
         }],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

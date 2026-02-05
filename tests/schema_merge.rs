@@ -49,6 +49,7 @@ async fn test_lsp_multi_schema_merge() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -146,6 +147,7 @@ async fn test_lsp_multi_schema_extension_first() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -246,6 +248,7 @@ async fn test_lsp_multi_schema_with_docs() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -342,6 +345,7 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -438,6 +442,7 @@ async fn test_lsp_multi_schema_triple_overlap() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -534,6 +539,7 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         tracing: None,
         watch_all_files: None,
         base_dir: base_dir.clone(),
+        lsp_automatic_codegen: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

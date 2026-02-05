@@ -29,6 +29,7 @@ async fn test_completion_fragment_spread_filtering() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -149,6 +150,7 @@ async fn test_completion_fragment_spread_interface_filtering() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
@@ -267,6 +269,7 @@ async fn test_completion_fragment_spread_union_filtering() {
             generate_permissions: None,
         }],
         base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 

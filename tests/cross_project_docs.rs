@@ -61,6 +61,7 @@ async fn test_cross_project_docs_and_imports() {
             },
         ],
         base_dir: base_dir.to_path_buf(),
+        lsp_automatic_codegen: None,
         ..Config::new_empty()
     };
 
