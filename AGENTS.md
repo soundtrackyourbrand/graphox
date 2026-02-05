@@ -20,7 +20,7 @@ You are an agentic coding assistant working on `graphql-rust`, a comprehensive R
 1.  **Standalone:** `.graphql` files containing schemas or operations.
 2.  **Embedded:** GraphQL operations inside TypeScript/TSX template literals (e.g., `gql` or `graphql` tags).
 
-The core logic relies on **Tree-sitter** for incremental parsing and **apollo-compiler** for GraphQL schema validation and semantic analysis.
+The core logic relies on **Tree-sitter** for incremental parsing and **apollo-compiler** for GraphQL schema validation and semantic analysis. The workspace also includes plugins (e.g., `plugins/swc`) for integration with other tools.
 
 ## Code Style & Conventions
 
@@ -29,6 +29,7 @@ The core logic relies on **Tree-sitter** for incremental parsing and **apollo-co
 - **Async Runtime:** `tokio` (multi-threaded).
 - **LSP Framework:** `tower-lsp`.
 - **Concurrency:** Uses `DashMap` for shared state and `Arc` for immutable data. Use `rayon` for parallel processing of files during codegen/scan.
+- **Performance Tracing:** Built-in tracing for LSP requests that exceed a threshold (configurable via `tracing` in `graphql.yaml`).
 
 ### Formatting & Naming
 - Follow standard Rust naming conventions: `PascalCase` for types/traits, `snake_case` for functions, variables, and modules.
@@ -42,21 +43,32 @@ The core logic relies on **Tree-sitter** for incremental parsing and **apollo-co
 
 ## Code Structure
 
-- `src/main.rs`: CLI entry point using `clap`.
+- `src/main.rs`: CLI entry point using `clap`. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
 - `src/lib.rs`: Library exports and module definitions.
-- `src/backend.rs`: Core LSP implementation. Manages `DashMap<Url, DocumentState>` and `DashMap<String, Arc<Schema>>`.
-- `src/document.rs`: `DocumentState` manages a file's content (via `ropey`), its primary Tree-sitter tree, and any embedded GraphQL blocks.
+- `src/backend.rs`: Core LSP implementation. Manages workspace state using `DashMap` and handles concurrency.
+- `src/document.rs`: `DocumentState` manages a file's content (via `ropey`), its Tree-sitter tree, and embedded GraphQL blocks.
 - `src/engine.rs`: High-level operations like workspace scanning, fragment resolution, and validation.
 - `src/queries.rs`: Contains Tree-sitter query strings and cached `Query` objects.
-- `src/commands/`: CLI subcommand implementations (lsp, check, codegen, benchmark).
-- `src/features/`: LSP feature implementations (hover, completion, definition, etc.).
+- `src/utils.rs`: Shared utilities for file handling, URI normalization, and schema merging.
+- `src/commands/`: CLI subcommand implementations.
+- `src/features/`: LSP feature implementations (hover, completion, definition, code actions, etc.).
+- `src/features/diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
 
 ## Key Patterns
 
+### Workspace Scanning & Performance
+The tool is designed for very large projects. Workspace scanning is parallelized using `rayon`.
+- `Engine::scan_workspace`: Discovers all GraphQL fragments and operations across the workspace in parallel.
+- **Indexing:** `Backend` maintains several indices for fast lookup:
+    - `fragment_defs`: Maps URL to fragment definitions in that file.
+    - `fragment_dependents`: Maps fragment name to files that use it.
+    - `fragment_definitions`: Maps fragment name to files where it is defined.
+- **Cancellation:** Long-running operations like workspace scans are cancellable via `AtomicBool`.
+
 ### Document Management
 `DocumentState` is the source of truth for a file. For TS/TSX files, it extracts GraphQL blocks by searching for template literals. These blocks are tracked with their offsets to allow mapping positions between the host language and GraphQL.
-- `get_semantic_diagnostics`: Main entry point for validation.
-- `apply_change`: Handles incremental updates from the LSP.
+- `get_semantic_diagnostics`: Main entry point for validation. Uses granular rules from `features/diagnostics/`.
+- `apply_change`: Handles incremental updates from the LSP, ensuring the Tree-sitter tree stays in sync.
 
 ### Concurrency in LSP
 The `Backend` struct is wrapped in `Arc` and shared across LSP requests. Use `DashMap` for thread-safe access to documents and schemas. Avoid holding `DashMap` write locks across `await` points.
@@ -68,47 +80,41 @@ Queries are defined as constants in `src/queries.rs` and lazily initialized in `
 3. Use it in `document.rs` or features via `TS_QUERY_CACHE.get_or_init(...)`.
 
 ### Codegen & Baselines
-The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/`. If you intentionally change codegen output, run `make update-baselines` to update these files.
-- **Entrypoint:** A `graphql.ts` file is generated in the root of the `output_dir` (if specified), providing a type-safe `graphql` function.
+The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/`.
+- **Entrypoint:** A `graphql.ts` file is generated in the root of the `output_dir` providing a type-safe `graphql` function.
+- **Incremental Codegen:** The LSP can automatically run codegen on file changes if `lsp_automatic_codegen` is enabled.
 
 ### Configuration Handling
-The `Config` struct (in `src/config.rs`) defines how the tool scans the workspace. It supports multiple projects with different schemas.
-- `projects`: List of project configurations.
-- `base_dir`: Root directory for relative paths.
-- `GlobPattern`: Used for `include` and `exclude` fields. Supports both single strings and arrays of strings. Matches are relative to `base_dir`.
-- `exclude`: Optional glob patterns to exclude files from a project.
+The `Config` struct (in `src/config.rs`) supports complex workspace setups.
+- `projects`: List of project configurations with their own schemas and include/exclude patterns.
+- `schema_types`: Configuration for generating global schema types.
+- `scalars`: Mapping of GraphQL scalars to TypeScript types.
+- `tracing`: Configuration for performance tracing.
+- `ignore_deprecations`: List of deprecated fields/types to ignore in validation.
 
 ## Testing Strategy
 
-- **Unit Tests:** Located in `src/` modules.
-- **Integration Tests:** Located in `tests/`. Use `tests/fixtures/simple_schema.graphql` for most tests.
-- **LSP Tests:** Use `tower-lsp`'s testing utilities to simulate client requests.
-- **Fixture Based:** Add new GraphQL or TSX files to `tests/fixtures/` and use them in integration tests.
-- **Performance & Timeouts:** Our LSP is designed to be fast. Tests should NOT require long timeouts or arbitrary `sleep` delays. If a test is slow or deadlocks, investigate the underlying cause (e.g., concurrency issues) rather than masking it with increased timeouts.
+- **Test Coverage:** High test coverage is mandatory. Every new feature or bug fix must include corresponding tests.
+- **Integration Tests:** Use `tests/fixtures/` for realistic scenarios. Integration tests should cover LSP interactions, CLI commands, and complex fragment resolution.
+- **Codegen Baselines:** Always verify codegen output against baselines. If changes are expected, run `make update-baselines`.
+- **Performance Benchmarks:** Performance is a first-class citizen. Use `make benchmark` and `criterion` benchmarks to ensure no regressions, especially for large schemas and many-file workspaces.
+- **LSP Reliability:** Use `tower-lsp`'s testing utilities. Avoid `sleep` in tests; use proper synchronization or wait for specific states.
 
 ## Adding New Features
 
 1.  **LSP Feature:**
-    - Implement the logic in `src/features/`.
-    - Add the method to `Backend` in `src/backend.rs` (implementing the `LanguageServer` trait).
-    - Add a test case in `tests/`.
+    - Implement logic in `src/features/`.
+    - Add the method to `Backend` in `src/backend.rs`.
+    - Add integration tests in `tests/`.
 2.  **CLI Command:**
-    - Add the variant to `Commands` enum in `src/main.rs`.
-    - Create a new module in `src/commands/`.
-    - Implement the logic, usually leveraging `Engine`.
-3.  **Grammar Changes:**
-    - The project uses `tree-sitter-graphql`, `tree-sitter-typescript`, and `tree-sitter-tsx`. If parsing fails, check if the query in `src/queries.rs` needs updating.
+    - Add to `Commands` enum in `src/main.rs` and implement in `src/commands/`.
+3.  **Grammar/Query Changes:**
+    - Update `src/queries.rs` if needed. Verify against multiple host languages (TS, TSX, GraphQL).
 
 ## Performance Tips
 
-- Use `rayon`'s `par_iter()` when scanning many files.
-- Minimize `Rope` to `String` conversions.
-- Use `fnv::FnvHashMap` for better performance with small keys (like fragment names).
-- Cache expensive computations (like schema parsing) in `Arc` or `DashMap`.
-
-## Useful Crates & Why
-- `apollo-compiler`: Industrial-strength GraphQL compiler for validation and analysis.
-- `tree-sitter`: Incremental parsing, essential for real-time LSP feedback.
-- `ropey`: Efficient text manipulation, used for handling LSP edits.
-- `dashmap`: High-performance concurrent hash map.
-- `rayon`: Simple and powerful data parallelism.
+- **Parallelism:** Use `rayon` for data-heavy tasks (scanning, codegen, workspace-wide validation).
+- **Caching:** Cache parsed schemas (`Arc<Valid<Schema>>`) and Tree-sitter queries.
+- **Granular Validation:** Only re-validate files affected by a change. Use the `fragment_dependents` index to find affected files when a fragment changes.
+- **Minimize Allocations:** Avoid frequent `Rope` to `String` conversions. Use `byte_slice` or `chunks` where possible.
+- **Fast Hashing:** Use `FnvHashMap` or `ahash` for performance-critical maps.
