@@ -542,3 +542,248 @@ async fn test_hover_variable() {
         panic!("Expected Markup contents");
     }
 }
+
+#[tokio::test]
+async fn test_hover_argument() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { user(id: ID!): User } type User { id: ID! username: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
+        ..Config::new_empty()
+    };
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams {
+        ..Default::default()
+    };
+    let request = Request::build("initialize")
+        .params(serde_json::to_value(&init_params).unwrap())
+        .id(0)
+        .finish();
+    service.call(request).await.unwrap().unwrap();
+
+    let request = Request::build("initialized")
+        .params(serde_json::json!({}))
+        .finish();
+    service.call(request).await.unwrap();
+
+    // 1. Open file
+    let query_path = dir.path().join("hover_arg.graphql");
+    let text = r#"
+        query {
+            user(id: "1") {
+                id
+            }
+        }
+    "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: text.to_string(),
+        },
+    };
+    let request = Request::build("textDocument/didOpen")
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    service.call(request).await.unwrap();
+
+    let position = Position::new(2, 17); // "id" in "user(id: \"1\")"
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/hover")
+        .id(1)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for argument 'id'"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("argument id"),
+            "Should show argument info for 'id', got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Type: `ID!`"),
+            "Should show correct argument type, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_input_object_field() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { createUser(input: CreateUserInput!): User } \
+         input CreateUserInput { username: String! age: Int } \
+         type User { id: ID! username: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+        }],
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams {
+        ..Default::default()
+    };
+    let request = Request::build("initialize")
+        .params(serde_json::to_value(&init_params).unwrap())
+        .id(0)
+        .finish();
+    service.call(request).await.unwrap().unwrap();
+
+    let request = Request::build("initialized")
+        .params(serde_json::json!({}))
+        .finish();
+    service.call(request).await.unwrap();
+
+    // 1. Open file
+    let query_path = dir.path().join("hover_input.graphql");
+    let text = r#"
+        query {
+            createUser(input: { username: "emma", age: 25 }) {
+                id
+            }
+        }
+    "#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "graphql".to_string(),
+            version: 1,
+            text: text.to_string(),
+        },
+    };
+    let request = Request::build("textDocument/didOpen")
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    service.call(request).await.unwrap();
+
+    // Hover over 'username' in the input object
+    let position = Position::new(2, 35); // "username" in "input: { username: \"emma\""
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/hover")
+        .id(1)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for input field 'username'"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("field CreateUserInput.username"),
+            "Should show field info, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Type: `String!`"),
+            "Should show correct field type, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+
+    // Hover over 'age'
+    let position = Position::new(2, 52); // "age" in "age: 25"
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+    };
+
+    let request = Request::build("textDocument/hover")
+        .id(2)
+        .params(serde_json::to_value(&params).unwrap())
+        .finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for input field 'age'"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("field CreateUserInput.age"),
+            "Should show field info, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Type: `Int`"),
+            "Should show correct field type, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}

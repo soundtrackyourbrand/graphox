@@ -1,6 +1,6 @@
 use crate::document::DocumentState;
 use crate::queries::*;
-use apollo_compiler::{Schema, schema};
+use apollo_compiler::{schema, Schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::{Node, StreamingIterator};
 
@@ -216,6 +216,10 @@ impl DocumentState {
         cursor_offset: usize,
         schema: &Schema,
     ) -> Option<String> {
+        if let Some(info) = self.find_directive_info_on_node(node, offset, cursor_offset, schema) {
+            return Some(info);
+        }
+
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -248,6 +252,10 @@ impl DocumentState {
         cursor_offset: usize,
         schema: &Schema,
     ) -> Option<String> {
+        if let Some(info) = self.find_directive_info_on_node(node, offset, cursor_offset, schema) {
+            return Some(info);
+        }
+
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "selection_set" {
@@ -371,12 +379,16 @@ impl DocumentState {
         }
         let mut name_node = None;
         let mut selection_set_node = None;
+        let mut arguments_node = None;
+        let mut directives_node = None;
 
         let mut cursor = field_node.walk();
         for child in field_node.children(&mut cursor) {
             match child.kind() {
                 "name" => name_node = Some(child),
                 "selection_set" => selection_set_node = Some(child),
+                "arguments" => arguments_node = Some(child),
+                "directives" => directives_node = Some(child),
                 _ => {}
             }
         }
@@ -401,6 +413,34 @@ impl DocumentState {
                         info.push_str(desc);
                     }
                     return Some(info);
+                }
+
+                if let Some(args_node) = arguments_node {
+                    let args_range =
+                        (args_node.start_byte() + offset)..(args_node.end_byte() + offset);
+                    if cursor_offset >= args_range.start && cursor_offset <= args_range.end {
+                        if let Some(info) = self.find_argument_info(
+                            args_node,
+                            offset,
+                            cursor_offset,
+                            &field_def.arguments,
+                            schema,
+                        ) {
+                            return Some(info);
+                        }
+                    }
+                }
+
+                if let Some(dirs_node) = directives_node {
+                    let dirs_range =
+                        (dirs_node.start_byte() + offset)..(dirs_node.end_byte() + offset);
+                    if cursor_offset >= dirs_range.start && cursor_offset <= dirs_range.end {
+                        if let Some(info) =
+                            self.find_directive_info(dirs_node, offset, cursor_offset, schema)
+                        {
+                            return Some(info);
+                        }
+                    }
                 }
 
                 if let Some(sss) = selection_set_node {
@@ -436,6 +476,11 @@ impl DocumentState {
         if depth > 100 {
             return None;
         }
+
+        if let Some(info) = self.find_directive_info_on_node(node, offset, cursor_offset, schema) {
+            return Some(info);
+        }
+
         let mut target_type = parent_type;
         let mut selection_set_node = None;
 
@@ -467,6 +512,247 @@ impl DocumentState {
                     schema,
                     depth + 1,
                 );
+            }
+        }
+        None
+    }
+
+    fn find_argument_info(
+        &self,
+        arguments_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        arg_defs: &[apollo_compiler::Node<schema::InputValueDefinition>],
+        schema: &Schema,
+    ) -> Option<String> {
+        let mut cursor = arguments_node.walk();
+        for argument_node in arguments_node.children(&mut cursor) {
+            if argument_node.kind() == "argument" {
+                let arg_range =
+                    (argument_node.start_byte() + offset)..(argument_node.end_byte() + offset);
+                if cursor_offset >= arg_range.start && cursor_offset <= arg_range.end {
+                    let mut name_node = None;
+                    let mut value_node = None;
+                    let mut arg_cursor = argument_node.walk();
+                    for child in argument_node.children(&mut arg_cursor) {
+                        match child.kind() {
+                            "name" => name_node = Some(child),
+                            "value" => value_node = Some(child),
+                            _ => {}
+                        }
+                    }
+
+                    if let Some(name_node) = name_node {
+                        let name_range =
+                            (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                        if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                            let arg_name = self.get_node_text(name_node, offset);
+                            if let Some(arg_def) =
+                                arg_defs.iter().find(|a| a.name.as_str() == arg_name)
+                            {
+                                let mut info = format!("### argument {}\n---\n", arg_name);
+                                info.push_str(&format!("Type: `{}`\n", arg_def.ty));
+                                if let Some(desc) = &arg_def.description {
+                                    info.push('\n');
+                                    info.push_str(desc);
+                                }
+                                return Some(info);
+                            }
+                        }
+                    }
+
+                    if let Some(value_node) = value_node {
+                        let value_range =
+                            (value_node.start_byte() + offset)..(value_node.end_byte() + offset);
+                        if cursor_offset >= value_range.start && cursor_offset <= value_range.end {
+                            let arg_name = name_node
+                                .map(|n| self.get_node_text(n, offset))
+                                .unwrap_or_default();
+                            if let Some(arg_def) =
+                                arg_defs.iter().find(|a| a.name.as_str() == arg_name)
+                            {
+                                return self.find_info_in_value(
+                                    value_node,
+                                    offset,
+                                    cursor_offset,
+                                    &arg_def.ty,
+                                    schema,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_directive_info_on_node(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "directives" {
+                let range = (child.start_byte() + offset)..(child.end_byte() + offset);
+                if cursor_offset >= range.start && cursor_offset <= range.end {
+                    return self.find_directive_info(child, offset, cursor_offset, schema);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_directive_info(
+        &self,
+        directives_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<String> {
+        let mut cursor = directives_node.walk();
+        for directive_node in directives_node.children(&mut cursor) {
+            if directive_node.kind() == "directive" {
+                let dir_range =
+                    (directive_node.start_byte() + offset)..(directive_node.end_byte() + offset);
+                if cursor_offset >= dir_range.start && cursor_offset <= dir_range.end {
+                    let mut name_node = None;
+                    let mut args_node = None;
+                    let mut d_cursor = directive_node.walk();
+                    for child in directive_node.children(&mut d_cursor) {
+                        match child.kind() {
+                            "name" => name_node = Some(child),
+                            "arguments" => args_node = Some(child),
+                            _ => {}
+                        }
+                    }
+
+                    if let Some(name_node) = name_node {
+                        let name_range =
+                            (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                        let dir_name = self.get_node_text(name_node, offset);
+                        if let Some(dir_def) = schema.directive_definitions.get(dir_name.as_str()) {
+                            if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                                let mut info = format!("### directive @{}\n---\n", dir_name);
+                                if let Some(desc) = &dir_def.description {
+                                    info.push_str(desc);
+                                }
+                                return Some(info);
+                            }
+
+                            if let Some(args_node) = args_node {
+                                let args_range = (args_node.start_byte() + offset)
+                                    ..(args_node.end_byte() + offset);
+                                if cursor_offset >= args_range.start
+                                    && cursor_offset <= args_range.end
+                                {
+                                    return self.find_argument_info(
+                                        args_node,
+                                        offset,
+                                        cursor_offset,
+                                        &dir_def.arguments,
+                                        schema,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_info_in_value(
+        &self,
+        value_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        ty: &apollo_compiler::ast::Type,
+        schema: &Schema,
+    ) -> Option<String> {
+        let mut cursor = value_node.walk();
+        for child in value_node.children(&mut cursor) {
+            match child.kind() {
+                "object_value" => {
+                    return self.find_info_in_object_value(child, offset, cursor_offset, ty, schema);
+                }
+                "list_value" => {
+                    return self.find_info_in_value(child, offset, cursor_offset, ty, schema);
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn find_info_in_object_value(
+        &self,
+        object_value_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        ty: &apollo_compiler::ast::Type,
+        schema: &Schema,
+    ) -> Option<String> {
+        let type_name = ty.inner_named_type();
+        let type_def = schema.types.get(type_name.as_str())?;
+        let input_obj = match type_def {
+            schema::ExtendedType::InputObject(io) => io,
+            _ => return None,
+        };
+
+        let mut cursor = object_value_node.walk();
+        for field_node in object_value_node.children(&mut cursor) {
+            if field_node.kind() == "object_field" {
+                let range = (field_node.start_byte() + offset)..(field_node.end_byte() + offset);
+                if cursor_offset >= range.start && cursor_offset <= range.end {
+                    let mut name_node = None;
+                    let mut val_node = None;
+                    let mut f_cursor = field_node.walk();
+                    for child in field_node.children(&mut f_cursor) {
+                        match child.kind() {
+                            "name" => name_node = Some(child),
+                            "value" => val_node = Some(child),
+                            _ => {}
+                        }
+                    }
+
+                    if let Some(name_node) = name_node {
+                        let name_range =
+                            (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                        if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                            let field_name = self.get_node_text(name_node, offset);
+                            if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
+                                let mut info =
+                                    format!("### field {}.{}\n---\n", type_name, field_name);
+                                info.push_str(&format!("Type: `{}`\n", field_def.ty));
+                                if let Some(desc) = &field_def.description {
+                                    info.push('\n');
+                                    info.push_str(desc);
+                                }
+                                return Some(info);
+                            }
+                        }
+                    }
+
+                    if let Some(val_node) = val_node {
+                        let field_name = name_node
+                            .map(|n| self.get_node_text(n, offset))
+                            .unwrap_or_default();
+                        if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
+                            return self.find_info_in_value(
+                                val_node,
+                                offset,
+                                cursor_offset,
+                                &field_def.ty,
+                                schema,
+                            );
+                        }
+                    }
+                }
             }
         }
         None
