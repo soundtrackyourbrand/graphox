@@ -92,6 +92,130 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(1000)]
+fn test_cli_check_cross_project_fragment_usage() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_frag");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // Project 1: Defines a public fragment
+    let p1_dir = temp_dir.join("project1");
+    std::fs::create_dir_all(&p1_dir).unwrap();
+    std::fs::write(
+        p1_dir.join("fragment.graphql"),
+        "fragment UserInfo on User @public { id name }",
+    )
+    .unwrap();
+
+    // Project 2: Uses the fragment
+    let p2_dir = temp_dir.join("project2");
+    std::fs::create_dir_all(&p2_dir).unwrap();
+    std::fs::write(p2_dir.join("query.graphql"), "query { me { ...UserInfo } }").unwrap();
+
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "project1/**/*.graphql"
+  - schema: "schema.graphql"
+    include: "project2/**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("check")
+        .output()
+        .expect("Failed to execute process");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Check should pass even with cross-project fragment usage. Output: {}",
+        stdout
+    );
+    assert!(stdout.contains("No issues found."));
+
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
+#[ntest::timeout(1000)]
+fn test_cli_check_recursive_fragment_usage() {
+    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let temp_dir = std::env::temp_dir().join("graphql_rust_recursive_frag");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // File 1: Operation -> Fragment A
+    std::fs::write(temp_dir.join("query.graphql"), "query { me { ...FragA } }").unwrap();
+
+    // File 2: Fragment A -> Fragment B
+    std::fs::write(
+        temp_dir.join("frag_a.graphql"),
+        "fragment FragA on User { ...FragB }",
+    )
+    .unwrap();
+
+    // File 3: Fragment B
+    std::fs::write(
+        temp_dir.join("frag_b.graphql"),
+        "fragment FragB on User { id }",
+    )
+    .unwrap();
+
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphql.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("check")
+        .output()
+        .expect("Failed to execute process");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "Check should pass with recursive fragment usage. Output: {}",
+        stdout
+    );
+    assert!(stdout.contains("No issues found."));
+
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
 #[ntest::timeout(250)]
 fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");

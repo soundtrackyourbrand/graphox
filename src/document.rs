@@ -484,7 +484,11 @@ impl DocumentState {
     }
 
     pub fn extract_fragment_spreads(&self) -> Vec<String> {
-        self.get_fragment_spreads_in_node(self.tree.root_node(), 0)
+        let mut spreads = Vec::new();
+        for block in self.get_graphql_trees() {
+            spreads.extend(self.get_fragment_spreads_in_node(block.tree.root_node(), block.offset));
+        }
+        spreads
     }
 
     pub fn get_fragment_spreads_in_node(&self, node: Node, offset: usize) -> Vec<String> {

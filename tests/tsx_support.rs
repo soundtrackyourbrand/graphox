@@ -100,3 +100,120 @@ fn test_graphql_tag_repro() {
         "Should support 'graphql' tag as well as 'gql'"
     );
 }
+
+#[test]
+#[ntest::timeout(100)]
+fn test_multiple_graphql_blocks_fragment_spreads() {
+    let text = r#"
+        const query = graphql(`
+          query PlaylistPage($id: ID!) {
+            playlist(id: $id) {
+              ...PlaylistPage
+            }
+          }
+        `);
+
+        const fragment = graphql(`
+          fragment PlaylistPage on Playlist {
+            id
+            permissions
+          }
+        `);
+
+        const subscription = graphql(`
+          subscription PlaylistSubscription($id: ID!) {
+            playlistUpdate(input: { playlist: $id }) {
+              playlist {
+                ...PlaylistPage
+              }
+            }
+          }
+        `);
+    "#;
+
+    let uri = Url::parse("file:///test.ts").unwrap();
+    let language = DocumentLanguage::from_uri(&uri);
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&language.get_parser_language())
+        .unwrap();
+
+    let doc = DocumentState::new(uri, text, parser);
+    let blocks = doc.get_graphql_trees();
+
+    assert_eq!(blocks.len(), 3, "Should have found 3 GraphQL blocks");
+
+    let fragments = doc.fragments();
+    assert_eq!(
+        fragments.len(),
+        1,
+        "Should have found 1 fragment definition"
+    );
+    assert_eq!(fragments[0].name, "PlaylistPage");
+
+    let spreads = doc.fragment_spreads;
+    assert_eq!(
+        spreads.len(),
+        2,
+        "Should have found 2 fragment spreads across different blocks"
+    );
+    assert!(spreads.iter().all(|s| s == "PlaylistPage"));
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_multiple_graphql_blocks_variables_fragment_interaction() {
+    let text = r#"
+        const fragment = graphql(`
+          fragment PlaylistPage on Playlist {
+            id
+            permissions @include(if: $showPermissions)
+          }
+        `);
+
+        const query = graphql(`
+          query PlaylistPage($id: ID!, $showPermissions: Boolean!) {
+            playlist(id: $id) {
+              ...PlaylistPage
+            }
+          }
+        `);
+    "#;
+
+    let uri = Url::parse("file:///test.ts").unwrap();
+    let language = DocumentLanguage::from_uri(&uri);
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&language.get_parser_language())
+        .unwrap();
+
+    let doc = DocumentState::new(uri, text, parser);
+
+    // 1. Check fragment extraction (metadata)
+    let fragments = doc.fragments();
+    assert_eq!(fragments.len(), 1);
+    assert_eq!(fragments[0].name, "PlaylistPage");
+    assert!(fragments[0]
+        .used_variables
+        .contains(&"showPermissions".to_string()));
+
+    // 2. Check full diagnostic flow (LSP context)
+    let schema_content = "type Playlist { id: ID! permissions: [String] } type Query { playlist(id: ID!): Playlist }";
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    // Should NOT have undefined variable error for $showPermissions
+    let undefined_vars: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("Undefined variable"))
+        .collect();
+    assert!(
+        undefined_vars.is_empty(),
+        "Should not have undefined variable errors: {:?}",
+        undefined_vars
+    );
+}

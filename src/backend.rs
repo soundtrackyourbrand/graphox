@@ -25,6 +25,7 @@ pub struct Backend {
     pub fragment_spreads: Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
     pub package_roots: Arc<DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
     pub fragment_dependents: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub fragment_definitions: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub workspace_loaded: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
@@ -68,6 +69,7 @@ impl Backend {
             fragment_spreads: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             package_roots: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             fragment_dependents: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
+            fragment_definitions: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             workspace_loaded: Arc::new(AtomicBool::new(false)),
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
@@ -531,6 +533,30 @@ impl Backend {
         }
     }
 
+    fn update_definition_indices(
+        &self,
+        uri: &Url,
+        old_fragments: Option<Vec<String>>,
+        new_fragments: Vec<String>,
+    ) {
+        if let Some(old) = old_fragments {
+            for name in old {
+                if !new_fragments.contains(&name)
+                    && let Some(mut entry) = self.fragment_definitions.get_mut(&name)
+                {
+                    entry.remove(uri);
+                }
+            }
+        }
+
+        for name in new_fragments {
+            self.fragment_definitions
+                .entry(name)
+                .or_default()
+                .insert(uri.clone());
+        }
+    }
+
     pub async fn validate_uris(&self, uris: Vec<Url>) {
         if uris.is_empty() {
             return;
@@ -583,12 +609,13 @@ impl Backend {
     fn get_affected_uris(
         &self,
         initial_uri: Url,
-        affected_fragments: FnvHashSet<String>,
+        affected_fragment_names: FnvHashSet<String>,
+        affected_spread_names: FnvHashSet<String>,
     ) -> Vec<Url> {
         let mut uris_to_validate = FnvHashSet::default();
         uris_to_validate.insert(initial_uri);
 
-        let mut to_process: Vec<String> = affected_fragments.into_iter().collect();
+        let mut to_process: Vec<String> = affected_fragment_names.into_iter().collect();
         let mut processed_fragments = FnvHashSet::default();
 
         while let Some(frag_name) = to_process.pop() {
@@ -608,6 +635,15 @@ impl Backend {
                 }
             }
         }
+
+        for spread_name in affected_spread_names {
+            if let Some(definitions) = self.fragment_definitions.get(&spread_name) {
+                for def_uri in definitions.value() {
+                    uris_to_validate.insert(def_uri.clone());
+                }
+            }
+        }
+
         uris_to_validate.into_iter().collect()
     }
 }
@@ -700,6 +736,7 @@ impl LanguageServer for Backend {
         let fragment_spreads = self.fragment_spreads.clone();
         let package_roots = self.package_roots.clone();
         let fragment_dependents = self.fragment_dependents.clone();
+        let fragment_definitions = self.fragment_definitions.clone();
         let workspace_loaded = self.workspace_loaded.clone();
         let empty_schema = self.empty_schema.clone();
         let schemas = self.schemas.clone();
@@ -747,6 +784,13 @@ impl LanguageServer for Backend {
                     fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
                     fragment_spreads.insert(uri.clone(), doc.fragment_spreads.clone());
                     package_roots.insert(uri.clone(), doc.package_root.clone());
+
+                    for frag in doc.fragments() {
+                        fragment_definitions
+                            .entry(frag.name.clone())
+                            .or_default()
+                            .insert(uri.clone());
+                    }
 
                     for spread in &doc.fragment_spreads {
                         fragment_dependents
@@ -1194,10 +1238,21 @@ impl LanguageServer for Backend {
         self.package_roots
             .insert(uri.clone(), doc.package_root.clone());
         self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
+        self.update_definition_indices(
+            &uri,
+            None,
+            doc.fragments().iter().map(|f| f.name.clone()).collect(),
+        );
+
+        let mut affected_spread_names = FnvHashSet::default();
+        for s in &doc.fragment_spreads {
+            affected_spread_names.insert(s.clone());
+        }
 
         self.documents.insert(uri.clone(), doc);
 
-        let uris_to_validate = self.get_affected_uris(uri, affected_fragment_names);
+        let uris_to_validate =
+            self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
         self.validate_uris(uris_to_validate).await;
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -1211,12 +1266,16 @@ impl LanguageServer for Backend {
         let mut new_fragments_opt = None;
         let mut new_spreads_opt = None;
         let mut package_root_opt = None;
+        let mut new_fragment_names_opt = None;
+        let mut affected_spread_names_opt = None;
         let mut affected_fragment_names = FnvHashSet::default();
+        let mut old_fragment_names = Vec::new();
 
         if let Some(mut doc) = self.documents.get_mut(&uri) {
             // Collect fragments before change
             for f in doc.fragments() {
                 affected_fragment_names.insert(f.name.clone());
+                old_fragment_names.push(f.name.clone());
             }
 
             let old_spreads = doc.fragment_spreads.clone();
@@ -1238,9 +1297,24 @@ impl LanguageServer for Backend {
             let new_fragments = doc.fragments().to_vec();
             let new_spreads = doc.fragment_spreads.clone();
 
+            let mut affected_spread_names = FnvHashSet::default();
+            for s in &old_spreads {
+                if !new_spreads.contains(s) {
+                    affected_spread_names.insert(s.clone());
+                }
+            }
+            for s in &new_spreads {
+                if !old_spreads.contains(s) {
+                    affected_spread_names.insert(s.clone());
+                }
+            }
+
             new_fragments_opt = Some(new_fragments);
             new_spreads_opt = Some((old_spreads, new_spreads));
             package_root_opt = Some(doc.package_root.clone());
+            new_fragment_names_opt =
+                Some(doc.fragments().iter().map(|f| f.name.clone()).collect());
+            affected_spread_names_opt = Some(affected_spread_names);
         }
 
         if let Some(new_fragments) = new_fragments_opt {
@@ -1251,11 +1325,16 @@ impl LanguageServer for Backend {
                 .insert(uri.clone(), new_spreads.clone());
             self.update_dependency_indices(&uri, Some(old_spreads), new_spreads);
         }
+        if let Some(new_names) = new_fragment_names_opt {
+            self.update_definition_indices(&uri, Some(old_fragment_names), new_names);
+        }
         if let Some(package_root) = package_root_opt {
             self.package_roots.insert(uri.clone(), package_root);
         }
 
-        let uris_to_validate = self.get_affected_uris(uri, affected_fragment_names);
+        let affected_spread_names = affected_spread_names_opt.unwrap_or_default();
+        let uris_to_validate =
+            self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
         self.validate_uris(uris_to_validate).await;
     }
 
@@ -1606,11 +1685,6 @@ impl LanguageServer for Backend {
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         self.with_tracing("did_change_watched_files", async move {
-            let mut to_publish = Vec::new();
-            let used_fragments = self.get_used_fragments();
-            let workspace_loaded = self.workspace_loaded.load(Ordering::SeqCst);
-            let all_fragments_info = self.get_all_fragments_info();
-
             for change in params.changes {
                 if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
                     let path = change.uri.to_file_path().unwrap();
@@ -1673,45 +1747,19 @@ impl LanguageServer for Backend {
                                 .insert(uri.clone(), doc.fragment_spreads.clone());
                             self.package_roots
                                 .insert(uri.clone(), doc.package_root.clone());
+                            self.update_definition_indices(
+                                &uri,
+                                None,
+                                doc.fragments().iter().map(|f| f.name.clone()).collect(),
+                            );
                         }
 
-                        // Re-validate all documents because this file might have changed fragments
+                        // Re-validate all documents because this file might have changed fragments or spreads
                         let all_uris: Vec<Url> =
                             self.documents.iter().map(|e| e.key().clone()).collect();
-                        for uri in all_uris {
-                            if let Some(doc) = self.documents.get(&uri) {
-                                let schema = self.get_schema_for_doc(&uri);
-
-                                let target_package_root = doc.package_root.as_ref();
-                                let fragments: Vec<_> = all_fragments_info
-                                    .iter()
-                                    .filter(|f| {
-                                        let is_same_package =
-                                            f.package_root.as_ref() == target_package_root;
-                                        is_same_package || f.is_public
-                                    })
-                                    .cloned()
-                                    .collect();
-
-                                let diagnostics = doc.get_semantic_diagnostics(
-                                    &schema,
-                                    &fragments,
-                                    Some(&used_fragments),
-                                    Some(&self.config),
-                                    false,
-                                    workspace_loaded,
-                                );
-                                to_publish.push((uri.clone(), diagnostics));
-                            }
-                        }
+                        self.validate_uris(all_uris).await;
                     }
                 }
-            }
-
-            for (uri, diagnostics) in to_publish {
-                self.client
-                    .publish_diagnostics(uri, diagnostics, None)
-                    .await;
             }
         })
         .await
