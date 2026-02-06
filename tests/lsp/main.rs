@@ -2,6 +2,7 @@ mod call_hierarchy;
 mod code_actions;
 mod completion;
 mod completion_filtering;
+mod concurrent_operations;
 mod config_reload;
 mod cross_file_def;
 mod document_highlight;
