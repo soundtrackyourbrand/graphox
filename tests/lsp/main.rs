@@ -4,6 +4,7 @@ mod completion;
 mod completion_filtering;
 mod config_reload;
 mod cross_file_def;
+mod format;
 mod goto_definition;
 mod hover;
 mod inline_fragment_lsp;

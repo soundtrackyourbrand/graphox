@@ -1462,6 +1462,11 @@ impl LanguageServer for Backend {
             for action in refactor_actions {
                 actions.push(CodeActionOrCommand::CodeAction(action));
             }
+
+            // 3. Format action for inline GraphQL blocks
+            if let Some(format_action) = doc.get_format_action(params.range) {
+                actions.push(CodeActionOrCommand::CodeAction(format_action));
+            }
         }
 
         if actions.is_empty() {

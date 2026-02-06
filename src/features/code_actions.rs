@@ -2,6 +2,73 @@ use crate::document::DocumentState;
 use tower_lsp::lsp_types::*;
 
 impl DocumentState {
+    /// Get format action for inline GraphQL blocks in TypeScript/JavaScript files
+    pub fn get_format_action(&self, range: Range) -> Option<CodeAction> {
+        // Only provide formatting for host language files (TS/TSX)
+        if !self.language.is_host_language() {
+            return None;
+        }
+
+        let start_byte = self.position_to_byte(range.start);
+
+        // Find which GraphQL block contains the cursor/range
+        for block in self.get_graphql_trees() {
+            let block_start = block.offset;
+            let block_end = block.offset + block.tree.root_node().end_byte();
+
+            // Check if the position is within this GraphQL block
+            if start_byte >= block_start && start_byte <= block_end {
+                // Extract the GraphQL content
+                let graphql_content = self.rope.byte_slice(block_start..block_end).to_string();
+
+                // Parse and format using apollo-compiler
+                // We use the AST parser which doesn't require a schema
+                let mut parser = apollo_compiler::parser::Parser::new();
+                let doc = parser.parse_ast(graphql_content.clone(), "inline.graphql");
+
+                // Handle parse result - even with errors, we can get a partial document
+                let formatted = match doc {
+                    Ok(document)
+                    | Err(apollo_compiler::validation::WithErrors {
+                        partial: document, ..
+                    }) => {
+                        // apollo-compiler's Document implements Display which formats the GraphQL
+                        document.to_string()
+                    }
+                };
+
+                // Only create the action if the formatted version is different
+                if formatted.trim() == graphql_content.trim() {
+                    return None;
+                }
+
+                let mut changes = std::collections::HashMap::new();
+                changes.insert(
+                    self.uri.clone(),
+                    vec![TextEdit {
+                        range: Range {
+                            start: self.byte_to_position(block_start),
+                            end: self.byte_to_position(block_end),
+                        },
+                        new_text: formatted,
+                    }],
+                );
+
+                return Some(CodeAction {
+                    title: "Format GraphQL".to_string(),
+                    kind: Some(CodeActionKind::SOURCE_FIX_ALL),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            }
+        }
+
+        None
+    }
+
     pub fn get_extraction_actions(
         &self,
         range: Range,
