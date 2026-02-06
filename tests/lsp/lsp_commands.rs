@@ -43,6 +43,7 @@ async fn test_lsp_command_clear_cache() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -184,6 +185,7 @@ async fn test_lsp_command_run_codegen() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

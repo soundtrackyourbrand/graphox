@@ -279,12 +279,41 @@ impl Backend {
         super::validation::get_used_fragments(&self.fragment_spreads)
     }
 
-    async fn with_tracing<T, Fut>(&self, name: &str, fut: Fut) -> Fut::Output
+    async fn with_tracing<T, Fut>(&self, name: &str, fut: Fut) -> Result<Option<T>>
     where
-        Fut: std::future::Future<Output = T>,
+        Fut: std::future::Future<Output = Result<Option<T>>>,
     {
         let start = std::time::Instant::now();
-        let res = fut.await;
+        
+        // Get timeout duration
+        let timeout_ms = {
+            let config = self.config.read().unwrap();
+            config.get_timeouts().lsp_request_ms
+        };
+        
+        // Apply timeout
+        let res = match tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            fut
+        ).await {
+            Ok(result) => result,
+            Err(_) => {
+                let elapsed = start.elapsed();
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "LSP Request '{}' exceeded timeout of {}ms (took {}ms) - returning empty response",
+                            name,
+                            timeout_ms,
+                            elapsed.as_millis()
+                        ),
+                    )
+                    .await;
+                // Return Ok(None) for timed out requests
+                Ok(None)
+            }
+        };
 
         // Extract tracing config before await
         let should_log = {
@@ -838,133 +867,145 @@ impl LanguageServer for Backend {
     }
 
     async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
-        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
-        let position = params.text_document_position_params.position;
+        self.with_tracing("signature_help", async move {
+            let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
+            let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let schema = self.get_schema_for_doc(&uri);
-            return Ok(doc.get_signature_help(position, &schema));
-        }
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let schema = self.get_schema_for_doc(&uri);
+                return Ok(doc.get_signature_help(position, &schema));
+            }
 
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn prepare_call_hierarchy(
         &self,
         params: CallHierarchyPrepareParams,
     ) -> Result<Option<Vec<CallHierarchyItem>>> {
-        let uri = self.normalize_uri(
-            params
-                .text_document_position_params
-                .text_document
-                .uri
-                .clone(),
-        );
-        let position = params.text_document_position_params.position;
+        self.with_tracing("prepare_call_hierarchy", async move {
+            let uri = self.normalize_uri(
+                params
+                    .text_document_position_params
+                    .text_document
+                    .uri
+                    .clone(),
+            );
+            let position = params.text_document_position_params.position;
 
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            return Ok(doc.prepare_call_hierarchy(position));
-        }
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                return Ok(doc.prepare_call_hierarchy(position));
+            }
 
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn incoming_calls(
         &self,
         params: CallHierarchyIncomingCallsParams,
     ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
-        let item = params.item;
-        let symbol_name = item.name;
-        let mut incoming = Vec::new();
+        self.with_tracing("incoming_calls", async move {
+            let item = params.item;
+            let symbol_name = item.name;
+            let mut incoming = Vec::new();
 
-        // Collect documents first to avoid holding DashMap locks during processing
-        let doc_arcs: Vec<Arc<DocumentState>> =
-            self.documents.iter().map(|e| e.value().clone()).collect();
+            // Collect documents first to avoid holding DashMap locks during processing
+            let doc_arcs: Vec<Arc<DocumentState>> =
+                self.documents.iter().map(|e| e.value().clone()).collect();
 
-        for doc in doc_arcs {
-            let refs = doc.find_references_in_tree(&symbol_name, false);
+            for doc in doc_arcs {
+                let refs = doc.find_references_in_tree(&symbol_name, false);
 
-            if !refs.is_empty() {
-                // For each reference, we need to find the container (fragment or operation)
-                // This is a bit expensive but necessary for call hierarchy.
-                // For now, let's group by URI.
+                if !refs.is_empty() {
+                    // For each reference, we need to find the container (fragment or operation)
+                    // This is a bit expensive but necessary for call hierarchy.
+                    // For now, let's group by URI.
 
-                let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> =
-                    std::collections::HashMap::new();
+                    let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> =
+                        std::collections::HashMap::new();
 
-                // Grouping is hard because we need the container name.
-                // Let's simplify: each reference is its own call from the file.
-                for r in refs {
-                    // Try to find what container this range is in
-                    let container_name = doc.get_container_name_at_range(r.range);
-                    let key = container_name.unwrap_or_else(|| "unknown".to_string());
-                    ranges_by_container.entry(key).or_default().push(r.range);
-                }
+                    // Grouping is hard because we need the container name.
+                    // Let's simplify: each reference is its own call from the file.
+                    for r in refs {
+                        // Try to find what container this range is in
+                        let container_name = doc.get_container_name_at_range(r.range);
+                        let key = container_name.unwrap_or_else(|| "unknown".to_string());
+                        ranges_by_container.entry(key).or_default().push(r.range);
+                    }
 
-                for (name, ranges) in ranges_by_container {
-                    incoming.push(CallHierarchyIncomingCall {
-                        from: CallHierarchyItem {
-                            name: name.clone(),
-                            kind: SymbolKind::FUNCTION,
-                            tags: None,
-                            detail: Some(doc.uri.to_string()),
-                            uri: doc.uri.clone(),
-                            range: doc
-                                .find_definition_in_tree(&name)
-                                .map(|l| l.range)
-                                .unwrap_or(ranges[0]),
-                            selection_range: doc
-                                .find_definition_in_tree(&name)
-                                .map(|l| l.range)
-                                .unwrap_or(ranges[0]),
-                            data: None,
-                        },
-                        from_ranges: ranges,
-                    });
+                    for (name, ranges) in ranges_by_container {
+                        incoming.push(CallHierarchyIncomingCall {
+                            from: CallHierarchyItem {
+                                name: name.clone(),
+                                kind: SymbolKind::FUNCTION,
+                                tags: None,
+                                detail: Some(doc.uri.to_string()),
+                                uri: doc.uri.clone(),
+                                range: doc
+                                    .find_definition_in_tree(&name)
+                                    .map(|l| l.range)
+                                    .unwrap_or(ranges[0]),
+                                selection_range: doc
+                                    .find_definition_in_tree(&name)
+                                    .map(|l| l.range)
+                                    .unwrap_or(ranges[0]),
+                                data: None,
+                            },
+                            from_ranges: ranges,
+                        });
+                    }
                 }
             }
-        }
 
-        if incoming.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(incoming))
-        }
+            if incoming.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(incoming))
+            }
+        })
+        .await
     }
 
     async fn outgoing_calls(
         &self,
         params: CallHierarchyOutgoingCallsParams,
     ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
-        let item = params.item;
-        let symbol_name = item.name;
-        let uri = self.normalize_uri(item.uri);
+        self.with_tracing("outgoing_calls", async move {
+            let item = params.item;
+            let symbol_name = item.name;
+            let uri = self.normalize_uri(item.uri);
 
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let mut calls = doc.get_outgoing_calls(&symbol_name);
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let mut calls = doc.get_outgoing_calls(&symbol_name);
 
-            // Collect documents first to avoid holding DashMap locks during processing
-            let doc_arcs: Vec<Arc<DocumentState>> =
-                self.documents.iter().map(|e| e.value().clone()).collect();
+                // Collect documents first to avoid holding DashMap locks during processing
+                let doc_arcs: Vec<Arc<DocumentState>> =
+                    self.documents.iter().map(|e| e.value().clone()).collect();
 
-            // Resolve the 'to' items
-            for call in &mut calls {
-                let callee_name = &call.to.name;
-                // Find where it's defined
-                for other_doc in &doc_arcs {
-                    if let Some(loc) = other_doc.find_definition_in_tree(callee_name) {
-                        call.to.uri = loc.uri;
-                        call.to.range = loc.range;
-                        call.to.selection_range = loc.range;
-                        break;
+                // Resolve the 'to' items
+                for call in &mut calls {
+                    let callee_name = &call.to.name;
+                    // Find where it's defined
+                    for other_doc in &doc_arcs {
+                        if let Some(loc) = other_doc.find_definition_in_tree(callee_name) {
+                            call.to.uri = loc.uri;
+                            call.to.range = loc.range;
+                            call.to.selection_range = loc.range;
+                            break;
+                        }
                     }
                 }
+
+                return Ok(Some(calls));
             }
 
-            return Ok(Some(calls));
-        }
-
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -1347,221 +1388,242 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let uri = self.normalize_uri(params.text_document.uri.clone());
-        let position = params.position;
+        self.with_tracing("prepare_rename", async move {
+            let uri = self.normalize_uri(params.text_document.uri.clone());
+            let position = params.position;
 
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone())
-            && let Some(_name) = doc.get_symbol_at_position(position)
-        {
-            return Ok(Some(PrepareRenameResponse::DefaultBehavior {
-                default_behavior: true,
-            }));
-        }
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone())
+                && let Some(_name) = doc.get_symbol_at_position(position)
+            {
+                return Ok(Some(PrepareRenameResponse::DefaultBehavior {
+                    default_behavior: true,
+                }));
+            }
 
-        Ok(None)
+            Ok(None)
+        })
+        .await
     }
 
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let uri = self.normalize_uri(params.text_document.uri);
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let symbols = doc.get_symbols();
-            return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
-        }
-        Ok(None)
+        self.with_tracing("document_symbol", async move {
+            let uri = self.normalize_uri(params.text_document.uri);
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let symbols = doc.get_symbols();
+                return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
+            }
+            Ok(None)
+        })
+        .await
     }
 
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let uri = self.normalize_uri(params.text_document.uri);
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let tokens = doc.get_semantic_tokens();
-            return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
-                result_id: None,
-                data: tokens,
-            })));
-        }
-        Ok(None)
+        self.with_tracing("semantic_tokens_full", async move {
+            let uri = self.normalize_uri(params.text_document.uri);
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let tokens = doc.get_semantic_tokens();
+                return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+                    result_id: None,
+                    data: tokens,
+                })));
+            }
+            Ok(None)
+        })
+        .await
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
-        let uri = self.normalize_uri(params.text_document.uri);
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let ranges = doc.get_folding_ranges();
-            return Ok(if ranges.is_empty() {
-                None
-            } else {
-                Some(ranges)
-            });
-        }
-        Ok(None)
+        self.with_tracing("folding_range", async move {
+            let uri = self.normalize_uri(params.text_document.uri);
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let ranges = doc.get_folding_ranges();
+                return Ok(if ranges.is_empty() {
+                    None
+                } else {
+                    Some(ranges)
+                });
+            }
+            Ok(None)
+        })
+        .await
     }
 
     async fn selection_range(
         &self,
         params: SelectionRangeParams,
     ) -> Result<Option<Vec<SelectionRange>>> {
-        let uri = self.normalize_uri(params.text_document.uri);
-        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-            let ranges = doc.get_selection_ranges(params.positions);
-            return Ok(if ranges.is_empty() {
-                None
-            } else {
-                Some(ranges)
-            });
-        }
-        Ok(None)
+        self.with_tracing("selection_range", async move {
+            let uri = self.normalize_uri(params.text_document.uri);
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let ranges = doc.get_selection_ranges(params.positions);
+                return Ok(if ranges.is_empty() {
+                    None
+                } else {
+                    Some(ranges)
+                });
+            }
+            Ok(None)
+        })
+        .await
     }
 
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        let query = params.query.to_lowercase();
-        let mut all_symbols = Vec::new();
+        self.with_tracing("workspace_symbol", async move {
+            let query = params.query.to_lowercase();
+            let mut all_symbols = Vec::new();
 
-        let doc_arcs: Vec<Arc<DocumentState>> =
-            self.documents.iter().map(|e| e.value().clone()).collect();
+            let doc_arcs: Vec<Arc<DocumentState>> =
+                self.documents.iter().map(|e| e.value().clone()).collect();
 
-        for doc in doc_arcs {
-            let symbols = doc.get_symbols();
+            for doc in doc_arcs {
+                let symbols = doc.get_symbols();
 
-            for sym in symbols {
-                if sym.name.to_lowercase().contains(&query) {
-                    #[allow(deprecated)]
-                    all_symbols.push(SymbolInformation {
-                        name: sym.name,
-                        kind: sym.kind,
-                        tags: sym.tags,
-                        deprecated: sym.deprecated,
-                        location: Location {
-                            uri: doc.uri.clone(),
-                            range: sym.selection_range,
-                        },
-                        container_name: sym.detail,
-                    });
+                for sym in symbols {
+                    if sym.name.to_lowercase().contains(&query) {
+                        #[allow(deprecated)]
+                        all_symbols.push(SymbolInformation {
+                            name: sym.name,
+                            kind: sym.kind,
+                            tags: sym.tags,
+                            deprecated: sym.deprecated,
+                            location: Location {
+                                uri: doc.uri.clone(),
+                                range: sym.selection_range,
+                            },
+                            container_name: sym.detail,
+                        });
+                    }
                 }
             }
-        }
 
-        if all_symbols.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(all_symbols))
-        }
+            if all_symbols.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(all_symbols))
+            }
+        })
+        .await
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let uri = &params.text_document.uri;
-        let mut actions = Vec::new();
+        self.with_tracing("code_action", async move {
+            let uri = &params.text_document.uri;
+            let mut actions = Vec::new();
 
-        // 1. Diagnostics-based fixes
-        for diagnostic in params.context.diagnostics {
-            if let Some(NumberOrString::String(ref code)) = diagnostic.code {
-                if code == "unused_fragment" {
-                    let mut changes = std::collections::HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range: diagnostic.range,
-                            new_text: String::new(),
-                        }],
-                    );
+            // 1. Diagnostics-based fixes
+            for diagnostic in params.context.diagnostics {
+                if let Some(NumberOrString::String(ref code)) = diagnostic.code {
+                    if code == "unused_fragment" {
+                        let mut changes = std::collections::HashMap::new();
+                        changes.insert(
+                            uri.clone(),
+                            vec![TextEdit {
+                                range: diagnostic.range,
+                                new_text: String::new(),
+                            }],
+                        );
 
-                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Remove unused fragment".to_string(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Remove unused fragment".to_string(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            diagnostics: Some(vec![diagnostic.clone()]),
+                            is_preferred: Some(true),
                             ..Default::default()
-                        }),
-                        diagnostics: Some(vec![diagnostic.clone()]),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    }));
+                        }));
 
-                    if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
-                        let type_only_actions = doc.get_unused_fragment_actions(&diagnostic);
-                        for action in type_only_actions {
-                            actions.push(CodeActionOrCommand::CodeAction(action));
+                        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+                            let type_only_actions = doc.get_unused_fragment_actions(&diagnostic);
+                            for action in type_only_actions {
+                                actions.push(CodeActionOrCommand::CodeAction(action));
+                            }
                         }
-                    }
-                } else if code == "unused_variable" {
-                    let mut changes = std::collections::HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range: diagnostic.range,
-                            new_text: String::new(),
-                        }],
-                    );
+                    } else if code == "unused_variable" {
+                        let mut changes = std::collections::HashMap::new();
+                        changes.insert(
+                            uri.clone(),
+                            vec![TextEdit {
+                                range: diagnostic.range,
+                                new_text: String::new(),
+                            }],
+                        );
 
-                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Remove unused variable".to_string(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Remove unused variable".to_string(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            diagnostics: Some(vec![diagnostic.clone()]),
+                            is_preferred: Some(true),
                             ..Default::default()
-                        }),
-                        diagnostics: Some(vec![diagnostic.clone()]),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    }));
-                } else if code == "type_only_used" {
-                    let mut changes = std::collections::HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range: diagnostic.range,
-                            new_text: String::new(),
-                        }],
-                    );
+                        }));
+                    } else if code == "type_only_used" {
+                        let mut changes = std::collections::HashMap::new();
+                        changes.insert(
+                            uri.clone(),
+                            vec![TextEdit {
+                                range: diagnostic.range,
+                                new_text: String::new(),
+                            }],
+                        );
 
-                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Remove @type_only directive".to_string(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Remove @type_only directive".to_string(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            diagnostics: Some(vec![diagnostic.clone()]),
+                            is_preferred: Some(true),
                             ..Default::default()
-                        }),
-                        diagnostics: Some(vec![diagnostic.clone()]),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    }));
-                } else if code == "missing_field" {
-                    if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
-                        let field_actions = doc.get_missing_field_actions(&diagnostic);
-                        for action in field_actions {
-                            actions.push(CodeActionOrCommand::CodeAction(action));
+                        }));
+                    } else if code == "missing_field" {
+                        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+                            let field_actions = doc.get_missing_field_actions(&diagnostic);
+                            for action in field_actions {
+                                actions.push(CodeActionOrCommand::CodeAction(action));
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // 2. Refactoring actions
-        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
-            let schema = self.get_schema_for_doc(uri);
-            let refactor_actions = doc.get_extraction_actions(params.range, &schema);
-            for action in refactor_actions {
-                actions.push(CodeActionOrCommand::CodeAction(action));
+            // 2. Refactoring actions
+            if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+                let schema = self.get_schema_for_doc(uri);
+                let refactor_actions = doc.get_extraction_actions(params.range, &schema);
+                for action in refactor_actions {
+                    actions.push(CodeActionOrCommand::CodeAction(action));
+                }
+
+                // 3. Format action for inline GraphQL blocks
+                if let Some(format_action) = doc.get_format_action(params.range) {
+                    actions.push(CodeActionOrCommand::CodeAction(format_action));
+                }
             }
 
-            // 3. Format action for inline GraphQL blocks
-            if let Some(format_action) = doc.get_format_action(params.range) {
-                actions.push(CodeActionOrCommand::CodeAction(format_action));
+            if actions.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(actions))
             }
-        }
-
-        if actions.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(actions))
-        }
+        })
+        .await
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
@@ -1571,7 +1633,18 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        self.with_tracing("did_change_watched_files", async move {
+        let start = std::time::Instant::now();
+        
+        // Get timeout duration
+        let timeout_ms = {
+            let config = self.config.read().unwrap();
+            config.get_timeouts().lsp_request_ms
+        };
+        
+        // Apply timeout
+        let _res = tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            async move {
             let config = self.config.read().unwrap().clone();
             for change in params.changes {
                 let change_params = super::file_change_handler::FileChangeParams {
@@ -1639,8 +1712,41 @@ impl LanguageServer for Backend {
                     }
                 }
             }
-        })
-        .await
+        }
+        ).await;
+        
+        if _res.is_err() {
+            let elapsed = start.elapsed();
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "LSP Request 'did_change_watched_files' exceeded timeout of {}ms (took {}ms)",
+                        timeout_ms,
+                        elapsed.as_millis()
+                    ),
+                )
+                .await;
+        }
+
+        // Extract tracing config
+        let should_log = {
+            let config = self.config.read().unwrap();
+            config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+        };
+
+        if let Some((enabled, threshold_ms)) = should_log
+            && enabled {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() >= threshold_ms as u128 {
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("LSP Request 'did_change_watched_files' took {}ms", elapsed.as_millis()),
+                        )
+                        .await;
+                }
+            }
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
@@ -1674,141 +1780,253 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
-        let uri = self.normalize_uri(params.text_document.uri.clone());
-
-        // Get the current document version
-        let doc_version = if let Some(doc) = self.documents.get(&uri) {
-            doc.version
-        } else {
-            // Document not found
-            return Ok(DocumentDiagnosticReportResult::Report(
-                DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-                    related_documents: None,
-                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                        result_id: None,
-                        items: vec![],
-                    },
-                }),
-            ));
+        let start = std::time::Instant::now();
+        
+        // Get timeout duration
+        let timeout_ms = {
+            let config = self.config.read().unwrap();
+            config.get_timeouts().lsp_request_ms
         };
+        
+        // Apply timeout
+        let res = match tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            async move {
+            let uri = self.normalize_uri(params.text_document.uri.clone());
 
-        // Check if we have cached diagnostics
-        if let Some(cached) = self.diagnostic_cache.get(&uri) {
-            let (cached_version, cached_diagnostics) = cached.value();
-
-            // If the cached version matches the previous result ID, return unchanged
-            if let Some(prev_result_id) = &params.previous_result_id
-                && let Ok(prev_version) = prev_result_id.parse::<i32>()
-                    && prev_version == *cached_version && prev_version == doc_version {
-                        return Ok(DocumentDiagnosticReportResult::Report(
-                            DocumentDiagnosticReport::Unchanged(
-                                RelatedUnchangedDocumentDiagnosticReport {
-                                    related_documents: None,
-                                    unchanged_document_diagnostic_report:
-                                        UnchangedDocumentDiagnosticReport {
-                                            result_id: cached_version.to_string(),
-                                        },
-                                },
-                            ),
-                        ));
-                    }
-
-            // Return cached diagnostics if version matches
-            if *cached_version == doc_version {
+            // Get the current document version
+            let doc_version = if let Some(doc) = self.documents.get(&uri) {
+                doc.version
+            } else {
+                // Document not found
                 return Ok(DocumentDiagnosticReportResult::Report(
                     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                         related_documents: None,
                         full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                            result_id: Some(cached_version.to_string()),
-                            items: cached_diagnostics.clone(),
+                            result_id: None,
+                            items: vec![],
+                        },
+                    }),
+                ));
+            };
+
+            // Check if we have cached diagnostics
+            if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                let (cached_version, cached_diagnostics) = cached.value();
+
+                // If the cached version matches the previous result ID, return unchanged
+                if let Some(prev_result_id) = &params.previous_result_id
+                    && let Ok(prev_version) = prev_result_id.parse::<i32>()
+                        && prev_version == *cached_version && prev_version == doc_version {
+                            return Ok(DocumentDiagnosticReportResult::Report(
+                                DocumentDiagnosticReport::Unchanged(
+                                    RelatedUnchangedDocumentDiagnosticReport {
+                                        related_documents: None,
+                                        unchanged_document_diagnostic_report:
+                                            UnchangedDocumentDiagnosticReport {
+                                                result_id: cached_version.to_string(),
+                                            },
+                                    },
+                                ),
+                            ));
+                        }
+
+                // Return cached diagnostics if version matches
+                if *cached_version == doc_version {
+                    return Ok(DocumentDiagnosticReportResult::Report(
+                        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                            related_documents: None,
+                            full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                result_id: Some(cached_version.to_string()),
+                                items: cached_diagnostics.clone(),
+                            },
+                        }),
+                    ));
+                }
+            }
+
+            // No cache or outdated cache - compute diagnostics
+            // Force validation with caching but no push
+            self.validate_uris(vec![uri.clone()]).await;
+
+            // Retrieve from cache
+            if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                let (version, diagnostics) = cached.value();
+                return Ok(DocumentDiagnosticReportResult::Report(
+                    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                        related_documents: None,
+                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                            result_id: Some(version.to_string()),
+                            items: diagnostics.clone(),
                         },
                     }),
                 ));
             }
-        }
 
-        // No cache or outdated cache - compute diagnostics
-        // Force validation with caching but no push
-        self.validate_uris(vec![uri.clone()]).await;
-
-        // Retrieve from cache
-        if let Some(cached) = self.diagnostic_cache.get(&uri) {
-            let (version, diagnostics) = cached.value();
-            return Ok(DocumentDiagnosticReportResult::Report(
+            // Fallback: return empty diagnostics
+            Ok(DocumentDiagnosticReportResult::Report(
                 DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                     related_documents: None,
                     full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                        result_id: Some(version.to_string()),
-                        items: diagnostics.clone(),
+                        result_id: Some(doc_version.to_string()),
+                        items: vec![],
                     },
                 }),
-            ));
+            ))
         }
+        ).await {
+            Ok(result) => result,
+            Err(_) => {
+                let elapsed = start.elapsed();
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "LSP Request 'diagnostic' exceeded timeout of {}ms (took {}ms) - returning empty response",
+                            timeout_ms,
+                            elapsed.as_millis()
+                        ),
+                    )
+                    .await;
+                // Return empty diagnostic report on timeout
+                Ok(DocumentDiagnosticReportResult::Report(
+                    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                        related_documents: None,
+                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                            result_id: None,
+                            items: vec![],
+                        },
+                    }),
+                ))
+            }
+        };
 
-        // Fallback: return empty diagnostics
-        Ok(DocumentDiagnosticReportResult::Report(
-            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-                related_documents: None,
-                full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                    result_id: Some(doc_version.to_string()),
-                    items: vec![],
-                },
-            }),
-        ))
+        // Extract tracing config
+        let should_log = {
+            let config = self.config.read().unwrap();
+            config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+        };
+
+        if let Some((enabled, threshold_ms)) = should_log
+            && enabled {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() >= threshold_ms as u128 {
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("LSP Request 'diagnostic' took {}ms", elapsed.as_millis()),
+                        )
+                        .await;
+                }
+            }
+        res
     }
 
     async fn workspace_diagnostic(
         &self,
         params: WorkspaceDiagnosticParams,
     ) -> Result<WorkspaceDiagnosticReportResult> {
-        let mut items = Vec::new();
+        let start = std::time::Instant::now();
+        
+        // Get timeout duration
+        let timeout_ms = {
+            let config = self.config.read().unwrap();
+            config.get_timeouts().lsp_request_ms
+        };
+        
+        // Apply timeout
+        let res = match tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            async move {
+            let mut items = Vec::new();
 
-        // Get all document URIs
-        let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+            // Get all document URIs
+            let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
 
-        // Validate all documents (this will cache diagnostics)
-        self.validate_all_documents().await;
+            // Validate all documents (this will cache diagnostics)
+            self.validate_all_documents().await;
 
-        // Collect diagnostics from cache
-        for uri in all_uris {
-            if let Some(cached) = self.diagnostic_cache.get(&uri) {
-                let (version, diagnostics) = cached.value();
+            // Collect diagnostics from cache
+            for uri in all_uris {
+                if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                    let (version, diagnostics) = cached.value();
 
-                // Check if this URI was in the previous result
-                let unchanged = params
-                    .previous_result_ids
-                    .iter()
-                    .any(|prev| prev.uri == uri && prev.value == version.to_string());
+                    // Check if this URI was in the previous result
+                    let unchanged = params
+                        .previous_result_ids
+                        .iter()
+                        .any(|prev| prev.uri == uri && prev.value == version.to_string());
 
-                if unchanged {
-                    items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
-                        WorkspaceUnchangedDocumentDiagnosticReport {
-                            uri: uri.clone(),
-                            version: Some((*version) as i64),
-                            unchanged_document_diagnostic_report:
-                                UnchangedDocumentDiagnosticReport {
-                                    result_id: version.to_string(),
-                                },
-                        },
-                    ));
-                } else {
-                    items.push(WorkspaceDocumentDiagnosticReport::Full(
-                        WorkspaceFullDocumentDiagnosticReport {
-                            uri: uri.clone(),
-                            version: Some((*version) as i64),
-                            full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                                result_id: Some(version.to_string()),
-                                items: diagnostics.clone(),
+                    if unchanged {
+                        items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
+                            WorkspaceUnchangedDocumentDiagnosticReport {
+                                uri: uri.clone(),
+                                version: Some((*version) as i64),
+                                unchanged_document_diagnostic_report:
+                                    UnchangedDocumentDiagnosticReport {
+                                        result_id: version.to_string(),
+                                    },
                             },
-                        },
-                    ));
+                        ));
+                    } else {
+                        items.push(WorkspaceDocumentDiagnosticReport::Full(
+                            WorkspaceFullDocumentDiagnosticReport {
+                                uri: uri.clone(),
+                                version: Some((*version) as i64),
+                                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                    result_id: Some(version.to_string()),
+                                    items: diagnostics.clone(),
+                                },
+                            },
+                        ));
+                    }
                 }
             }
-        }
 
-        Ok(WorkspaceDiagnosticReportResult::Report(
-            WorkspaceDiagnosticReport { items },
-        ))
+            Ok(WorkspaceDiagnosticReportResult::Report(
+                WorkspaceDiagnosticReport { items },
+            ))
+        }
+        ).await {
+            Ok(result) => result,
+            Err(_) => {
+                let elapsed = start.elapsed();
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "LSP Request 'workspace_diagnostic' exceeded timeout of {}ms (took {}ms) - returning empty response",
+                            timeout_ms,
+                            elapsed.as_millis()
+                        ),
+                    )
+                    .await;
+                // Return empty workspace diagnostic report on timeout
+                Ok(WorkspaceDiagnosticReportResult::Report(
+                    WorkspaceDiagnosticReport { items: vec![] },
+                ))
+            }
+        };
+
+        // Extract tracing config
+        let should_log = {
+            let config = self.config.read().unwrap();
+            config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+        };
+
+        if let Some((enabled, threshold_ms)) = should_log
+            && enabled {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() >= threshold_ms as u128 {
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("LSP Request 'workspace_diagnostic' took {}ms", elapsed.as_millis()),
+                        )
+                        .await;
+                }
+            }
+        res
     }
 }
 
@@ -1838,6 +2056,7 @@ mod tests {
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
             tracing: None,
+            timeouts: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
             enable_schema_cache: None,
@@ -1868,6 +2087,7 @@ mod tests {
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
             tracing: None,
+            timeouts: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
             enable_schema_cache: None,

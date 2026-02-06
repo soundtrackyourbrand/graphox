@@ -51,6 +51,7 @@ async fn test_workspace_scan_concurrency() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -64,7 +65,7 @@ async fn test_workspace_scan_concurrency() {
             if msg.method() == "window/logMessage" {
                 let params: LogMessageParams =
                     serde_json::from_value(msg.params().unwrap().clone()).unwrap();
-                if params.message == "Workspace scan complete." {
+                if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
             } else if msg.method() == "$/progress" {

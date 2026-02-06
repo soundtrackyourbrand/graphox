@@ -234,6 +234,7 @@ async fn test_fragment_hover_requirements() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
         ..Config::new_empty()
     };
 
@@ -357,6 +358,7 @@ async fn test_fragment_completion_requirements() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
         ..Config::new_empty()
     };
 
@@ -510,6 +512,7 @@ async fn test_variable_references_including_fragments() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
         ..Config::new_empty()
     };
 

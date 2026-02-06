@@ -14,6 +14,7 @@ pub struct Config {
     pub ignore_deprecations: Option<Vec<String>>,
     pub generate_ast_for_fragments: Option<bool>,
     pub tracing: Option<TracingConfig>,
+    pub timeouts: Option<TimeoutConfig>,
     pub watch_all_files: Option<bool>,
     pub lsp_automatic_codegen: Option<bool>,
     pub enable_schema_cache: Option<bool>,
@@ -30,6 +31,31 @@ pub struct TracingConfig {
 
 fn default_threshold() -> u64 {
     20
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TimeoutConfig {
+    #[serde(default = "default_workspace_scan_timeout_ms")]
+    pub workspace_scan_ms: u64,
+    #[serde(default = "default_lsp_request_timeout_ms")]
+    pub lsp_request_ms: u64,
+}
+
+fn default_workspace_scan_timeout_ms() -> u64 {
+    60_000 // 1 minute
+}
+
+fn default_lsp_request_timeout_ms() -> u64 {
+    1_000 // 1 second
+}
+
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        Self {
+            workspace_scan_ms: default_workspace_scan_timeout_ms(),
+            lsp_request_ms: default_lsp_request_timeout_ms(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -106,6 +132,7 @@ impl Config {
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
             tracing: None,
+            timeouts: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
             enable_schema_cache: None,
@@ -249,6 +276,10 @@ impl Config {
 
     pub fn enable_schema_cache(&self) -> bool {
         self.enable_schema_cache.unwrap_or(true)
+    }
+
+    pub fn get_timeouts(&self) -> TimeoutConfig {
+        self.timeouts.clone().unwrap_or_default()
     }
 }
 

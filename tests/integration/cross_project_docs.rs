@@ -65,6 +65,7 @@ async fn test_cross_project_docs_and_imports() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
         ..Config::new_empty()
     };
 

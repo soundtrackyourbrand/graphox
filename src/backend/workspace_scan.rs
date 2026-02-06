@@ -40,6 +40,44 @@ pub struct WorkspaceScanParams {
 /// It runs in a separate tokio task to avoid blocking the LSP during initialization.
 pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
     tokio::spawn(async move {
+        let timeout_ms = params.config.get_timeouts().workspace_scan_ms;
+        let start = std::time::Instant::now();
+        let client = params.client.clone();
+        
+        // Apply timeout to the entire workspace scan operation
+        let scan_result = tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            perform_workspace_scan(params)
+        ).await;
+        
+        match scan_result {
+            Ok(()) => {
+                let elapsed = start.elapsed();
+                client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("Workspace scan complete in {}ms.", elapsed.as_millis()),
+                    )
+                    .await;
+            }
+            Err(_) => {
+                let elapsed = start.elapsed();
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Workspace scan exceeded timeout of {}ms (took {}ms) and was aborted.",
+                            timeout_ms,
+                            elapsed.as_millis()
+                        ),
+                    )
+                    .await;
+            }
+        }
+    });
+}
+
+async fn perform_workspace_scan(params: WorkspaceScanParams) {
         // Create progress reporter
         let progress = super::progress::ProgressReporter::new(
             params.client.clone(),
@@ -73,12 +111,6 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
         progress
             .end(Some(format!("Finished scanning {} files", total_docs)))
             .await;
-
-        params
-            .client
-            .log_message(MessageType::INFO, "Workspace scan complete.")
-            .await;
-    });
 }
 
 /// Scans workspace and indexes all fragments and spreads

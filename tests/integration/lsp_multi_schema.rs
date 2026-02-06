@@ -55,6 +55,7 @@ async fn test_lsp_multi_schema_support() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        timeouts: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

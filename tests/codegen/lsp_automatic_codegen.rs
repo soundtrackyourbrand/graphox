@@ -44,6 +44,7 @@ async fn test_lsp_automatic_codegen() {
         tracing: None,
         watch_all_files: None,
         lsp_automatic_codegen: Some(true),
+        timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
     };
@@ -56,7 +57,7 @@ async fn test_lsp_automatic_codegen() {
             if msg.method() == "window/logMessage" {
                 let params: LogMessageParams =
                     serde_json::from_value(msg.params().unwrap().clone()).unwrap();
-                if params.message == "Workspace scan complete." {
+                if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
             }
@@ -251,6 +252,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         tracing: None,
         watch_all_files: None,
         lsp_automatic_codegen: Some(true),
+        timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
     };
@@ -263,7 +265,7 @@ async fn test_lsp_automatic_codegen_disabled() {
             if msg.method() == "window/logMessage" {
                 let params: LogMessageParams =
                     serde_json::from_value(msg.params().unwrap().clone()).unwrap();
-                if params.message == "Workspace scan complete." {
+                if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
             }
