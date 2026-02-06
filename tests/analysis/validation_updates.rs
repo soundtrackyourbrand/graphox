@@ -50,7 +50,13 @@ fn test_diagnostics_update_on_schema_change() {
         !diagnostics.is_empty(),
         "Should have diagnostics after schema change"
     );
-    assert!(diagnostics[0].message.contains("name"));
+    // Expect deterministic internal message
+    let msg = diagnostics[0].message.clone();
+    assert_eq!(
+        msg, "Field 'name' not found on type 'User'",
+        "Unexpected diagnostic message: {}",
+        msg
+    );
 
     // Query fixed: use 'fullName'
     let query_text_v2 = "query { me { id fullName } }";
@@ -75,11 +81,7 @@ fn test_diagnostics_update_on_fragment_change() {
     // 1. Missing fragment
     let diagnostics = query_doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
     assert!(!diagnostics.is_empty());
-    assert!(
-        diagnostics[0]
-            .message
-            .contains("Unknown fragment: UserFrag")
-    );
+    assert_eq!(diagnostics[0].message, "Unknown fragment: UserFrag");
 
     // 2. Fragment provided (simulating it being found in another file)
     let fragments = vec![FragmentCompletionInfo {
@@ -120,11 +122,7 @@ fn test_diagnostics_update_on_fragment_change() {
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);
     assert!(!diagnostics.is_empty());
-    assert!(
-        diagnostics[0]
-            .message
-            .contains("Unknown fragment: UserFrag")
-    );
+    assert_eq!(diagnostics[0].message, "Unknown fragment: UserFrag");
 }
 
 #[tokio::test]

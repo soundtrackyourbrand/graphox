@@ -2,7 +2,10 @@ use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
 use graphql_rust::DocumentState;
 use std::path::PathBuf;
+#[path = "common.rs"]
+mod common;
 use tempfile::tempdir;
+use tower_lsp::lsp_types::NumberOrString;
 use tower_lsp::lsp_types::*;
 
 fn create_doc(uri_str: &str, text: &str) -> DocumentState {
@@ -56,13 +59,22 @@ fn test_private_duplicate_same_package_root_reports_error() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    assert!(
-        diagnostics.iter().any(|d| d
-            .message
-            .contains("Duplicate fragment name: 'DuplicateFrag'")),
-        "Expected duplicate fragment error, got: {:?}",
-        diagnostics
-    );
+    let expected_message =
+        "Duplicate fragment name: 'DuplicateFrag' in the same project.".to_string();
+    let diag = diagnostics
+        .iter()
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected duplicate fragment error, got: {:?}",
+            diagnostics
+        ));
+
+    // Range should point at fragment name in this document
+    let last_name = "DuplicateFrag";
+    let text = std::fs::read_to_string(&frag_a_path).unwrap();
+    let expected = common::range_for_token(&doc, &text, last_name);
+    assert_eq!(diag.range.start, expected.start);
+    assert_eq!(diag.range.end, expected.end);
 }
 
 #[test]
@@ -139,13 +151,22 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[other_frag], None, Some(&config), false, true);
 
-    assert!(
-        diagnostics.iter().any(|d| d
-            .message
-            .contains("Duplicate fragment name: 'DuplicateFrag'")),
-        "Expected duplicate fragment error with project config, got: {:?}",
-        diagnostics
-    );
+    let expected_message =
+        "Duplicate fragment name: 'DuplicateFrag' in the same project.".to_string();
+    let diag = diagnostics
+        .iter()
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected duplicate fragment error with project config, got: {:?}",
+            diagnostics
+        ));
+
+    // Range should point at fragment name in this document
+    let last_name = "DuplicateFrag";
+    let text = std::fs::read_to_string(&frag_a_path).unwrap();
+    let expected = common::range_for_token(&doc, &text, last_name);
+    assert_eq!(diag.range.start, expected.start);
+    assert_eq!(diag.range.end, expected.end);
 }
 
 #[test]
@@ -192,13 +213,21 @@ fn test_public_duplicate_across_workspace_reports_error() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    assert!(
-        diagnostics.iter().any(|d| d
-            .message
-            .contains("Duplicate public fragment name: 'PublicFrag'")),
-        "Expected duplicate public fragment error, got: {:?}",
-        diagnostics
-    );
+    let expected_message = "Duplicate public fragment name: 'PublicFrag'. Public fragments must have unique names across the workspace.".to_string();
+    let diag = diagnostics
+        .iter()
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected duplicate public fragment error, got: {:?}",
+            diagnostics
+        ));
+
+    // Range should point at fragment name in this document
+    let last_name = "PublicFrag";
+    let text = std::fs::read_to_string(&frag_a_path).unwrap();
+    let expected = common::range_for_token(&doc, &text, last_name);
+    assert_eq!(diag.range.start, expected.start);
+    assert_eq!(diag.range.end, expected.end);
 }
 
 #[test]
@@ -249,13 +278,28 @@ fn test_private_shadows_public_emits_hint() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    assert!(
-        diagnostics.iter().any(|d| d.severity
-            == Some(tower_lsp::lsp_types::DiagnosticSeverity::HINT)
-            && d.message.contains("shadows a public fragment")),
-        "Expected hint about shadowing public fragment, got: {:?}",
-        diagnostics
+    let expected_message = format!(
+        "Private fragment '{}' shadows a public fragment defined in {}.",
+        "PublicFrag",
+        Url::from_file_path(&frag_public_path).unwrap()
     );
+    let diag = diagnostics
+        .iter()
+        .find(|d| {
+            d.severity == Some(tower_lsp::lsp_types::DiagnosticSeverity::HINT)
+                && d.message == expected_message
+        })
+        .expect(&format!(
+            "Expected hint about shadowing public fragment, got: {:?}",
+            diagnostics
+        ));
+
+    // Range should point at fragment name in this document
+    let last_name = "PublicFrag";
+    let text = std::fs::read_to_string(&frag_private_path).unwrap();
+    let expected = common::range_for_token(&doc, &text, last_name);
+    assert_eq!(diag.range.start, expected.start);
+    assert_eq!(diag.range.end, expected.end);
 }
 
 #[test]
@@ -347,10 +391,12 @@ fn test_private_duplicates_across_different_projects_do_not_error() {
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[other_frag], None, Some(&config), false, true);
 
+    let unexpected = "Duplicate fragment name: 'DuplicateFrag'";
     assert!(
-        !diagnostics.iter().any(|d| d
-            .message
-            .contains("Duplicate fragment name: 'DuplicateFrag'")),
+        !diagnostics.iter().any(|d| match &d.code {
+            Some(NumberOrString::String(s)) => s == "duplicate_fragment",
+            _ => d.message == unexpected,
+        }),
         "Did not expect duplicate fragment error across different projects, got: {:?}",
         diagnostics
     );

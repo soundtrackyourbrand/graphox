@@ -322,24 +322,16 @@ fn add_duplicate_operation_diagnostics(
                         .map(|path| path.display().to_string())
                         .collect();
 
-                    let message = if other_files.is_empty() {
-                        // Duplicate is in the same file
-                        format!("Duplicate operation name '{}'", name)
-                    } else {
-                        format!(
-                            "Duplicate operation name '{}' (also in: {})",
-                            name,
-                            other_files.join(", ")
-                        )
-                    };
-
-                    diagnostics.push(Diagnostic {
+                    push_duplicate_operation_diagnostic(
+                        diagnostics,
                         range,
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        message,
-                        code: Some(NumberOrString::String("duplicate_operation".to_string())),
-                        ..Default::default()
-                    });
+                        name,
+                        if other_files.is_empty() {
+                            None
+                        } else {
+                            Some(other_files)
+                        },
+                    );
 
                     // Only report once per operation name in this file
                     break;
@@ -347,6 +339,31 @@ fn add_duplicate_operation_diagnostics(
             }
         }
     }
+}
+
+pub(crate) fn push_duplicate_operation_diagnostic(
+    diagnostics: &mut Vec<Diagnostic>,
+    range: Range,
+    name: &str,
+    other_files: Option<Vec<String>>,
+) {
+    let message = if let Some(files) = other_files {
+        format!(
+            "Duplicate operation name '{}' (also in: {})",
+            name,
+            files.join(", ")
+        )
+    } else {
+        format!("Duplicate operation name '{}'", name)
+    };
+
+    diagnostics.push(Diagnostic {
+        range,
+        severity: Some(DiagnosticSeverity::ERROR),
+        message,
+        code: Some(NumberOrString::String("duplicate_operation".to_string())),
+        ..Default::default()
+    });
 }
 
 /// Finds the range of an operation definition by name

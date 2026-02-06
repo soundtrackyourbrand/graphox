@@ -1,8 +1,11 @@
 use apollo_compiler::Schema;
-use graphql_rust::features::completion::FragmentCompletionInfo;
 use graphql_rust::DocumentState;
+use graphql_rust::features::completion::FragmentCompletionInfo;
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::*;
+
+#[path = "common.rs"]
+mod common;
 
 // Shared schema for tests
 static SCHEMA: OnceLock<Schema> = OnceLock::new();
@@ -72,11 +75,22 @@ fn test_validation_missing_field() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let error = diagnostics.iter().find(|d| d.message.contains("not found"));
-    assert!(error.is_some(), "Expected 'not found' error");
-    assert_eq!(error.unwrap().severity, Some(DiagnosticSeverity::ERROR));
-    assert!(error.unwrap().message.contains("nonExistentField"));
-    assert!(error.unwrap().message.contains("User")); // Should mention parent type
+    let expected_message = format!(
+        "Field '{}' not found on type '{}'",
+        "nonExistentField", "User"
+    );
+    let error = diagnostics
+        .iter()
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected 'not found' error '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    assert_eq!(error.severity, Some(DiagnosticSeverity::ERROR));
+    // Range should point at the field name occurrence
+    let expected = common::range_for_token(&doc, text, "nonExistentField");
+    assert_eq!(error.range.start, expected.start);
+    assert_eq!(error.range.end, expected.end);
 }
 
 #[test]
@@ -94,17 +108,19 @@ fn test_validation_deprecated_field() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
+    let expected_message = "Field 'oldField' is deprecated: Use username instead".to_string();
     let warning = diagnostics
         .iter()
-        .find(|d| d.message.contains("deprecated"));
-    assert!(warning.is_some(), "Expected 'deprecated' warning");
-    assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
-    assert!(warning.unwrap().message.contains("oldField"));
-    assert!(
-        warning.unwrap().message.contains("Use username instead"),
-        "Message should contain reason: {}",
-        warning.unwrap().message
-    );
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected 'deprecated' warning '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
+    // Range should point at the field name
+    let expected = common::range_for_token(&doc, text, "oldField");
+    assert_eq!(warning.range.start, expected.start);
+    assert_eq!(warning.range.end, expected.end);
 }
 
 #[test]
@@ -125,11 +141,21 @@ fn test_validation_nested_missing_field() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
+    let expected_message = format!(
+        "Field '{}' not found on type '{}'",
+        "missingInAuthor", "User"
+    );
     let error = diagnostics
         .iter()
-        .find(|d| d.message.contains("missingInAuthor"));
-    assert!(error.is_some(), "Expected nested missing field error");
-    assert!(error.unwrap().message.contains("User")); // Author is User
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected nested missing field error '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    // Range should point at the missing field
+    let expected = common::range_for_token(&doc, text, "missingInAuthor");
+    assert_eq!(error.range.start, expected.start);
+    assert_eq!(error.range.end, expected.end);
 }
 
 #[test]
@@ -145,11 +171,20 @@ fn test_validation_fragment() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
+    let expected_message = format!(
+        "Field '{}' not found on type '{}'",
+        "missingInFragment", "User"
+    );
     let error = diagnostics
         .iter()
-        .find(|d| d.message.contains("missingInFragment"));
-    assert!(error.is_some(), "Expected error in fragment");
-    assert!(error.unwrap().message.contains("User"));
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected fragment error '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    let expected = common::range_for_token(&doc, text, "missingInFragment");
+    assert_eq!(error.range.start, expected.start);
+    assert_eq!(error.range.end, expected.end);
 }
 
 #[test]
@@ -169,10 +204,20 @@ fn test_validation_inline_fragment() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
+    let expected_message = format!(
+        "Field '{}' not found on type '{}'",
+        "nonExistentOnUser", "User"
+    );
     let error = diagnostics
         .iter()
-        .find(|d| d.message.contains("nonExistentOnUser"));
-    assert!(error.is_some(), "Expected error in inline fragment");
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected inline fragment error '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    let expected = common::range_for_token(&doc, text, "nonExistentOnUser");
+    assert_eq!(error.range.start, expected.start);
+    assert_eq!(error.range.end, expected.end);
 }
 
 #[test]
@@ -189,10 +234,17 @@ fn test_validation_unknown_fragment_spread() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
+    let expected_message = "Unknown fragment: UnknownFrag".to_string();
     let error = diagnostics
         .iter()
-        .find(|d| d.message.contains("Unknown fragment: UnknownFrag"));
-    assert!(error.is_some(), "Expected unknown fragment error");
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected unknown fragment error '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    let expected = common::range_for_token(&doc, text, "UnknownFrag");
+    assert_eq!(error.range.start, expected.start);
+    assert_eq!(error.range.end, expected.end);
 }
 
 #[test]
@@ -290,7 +342,11 @@ fn test_type_only_fragment_used() {
         warning.is_some(),
         "Expected warning for @type_only fragment being used"
     );
-    assert!(warning.unwrap().message.contains("Remove @type_only"));
+    let w = warning.unwrap();
+    assert_eq!(
+        w.message,
+        "Fragment 'UserFrag' is used but marked with @type_only. Remove @type_only to resolve this warning."
+    );
 }
 
 #[test]
@@ -319,15 +375,19 @@ fn test_validation_input_field_deprecation() {
     let doc = create_doc("file:///input_deprecated.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
+    let expected_message = "Input field 'oldField' is deprecated: Use newField".to_string();
     let warning = diagnostics
         .iter()
-        .find(|d| d.message.contains("Input field 'oldField' is deprecated"));
-    assert!(
-        warning.is_some(),
-        "Expected 'deprecated' warning for input field"
-    );
-    assert_eq!(warning.unwrap().severity, Some(DiagnosticSeverity::WARNING));
-    assert!(warning.unwrap().message.contains("Use newField"));
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected input deprecation warning '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
+    // Range should point at oldField occurrence
+    let expected = common::range_for_token(&doc, text, "oldField");
+    assert_eq!(warning.range.start, expected.start);
+    assert_eq!(warning.range.end, expected.end);
 }
 
 #[test]
@@ -383,9 +443,17 @@ fn test_validation_unions_and_interfaces() {
     "#;
     let doc = create_doc("file:///invalid_union.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    assert!(diagnostics
+    let expected_message = "Field 'id' not found on type 'SearchResult'".to_string();
+    let error = diagnostics
         .iter()
-        .any(|d| d.message.contains("not found on type 'SearchResult'")));
+        .find(|d| d.message == expected_message)
+        .expect(&format!(
+            "Expected union missing field error '{}', got: {:?}",
+            expected_message, diagnostics
+        ));
+    let expected = common::range_for_token(&doc, text, "id");
+    assert_eq!(error.range.start, expected.start);
+    assert_eq!(error.range.end, expected.end);
 
     // Valid: field on interface
     let text = r#"
@@ -455,12 +523,9 @@ fn test_validation_circular_fragments() {
 
     // The diagnostic range should point at the last fragment name mentioned in the message
     let last_name = "FragA";
-    let start_byte = text.rfind(last_name).unwrap();
-    let end_byte = start_byte + last_name.len();
-    let expected_start = doc.byte_to_position(start_byte);
-    let expected_end = doc.byte_to_position(end_byte);
-    assert_eq!(diag.range.start, expected_start);
-    assert_eq!(diag.range.end, expected_end);
+    let expected = common::range_for_token(&doc, text, last_name);
+    assert_eq!(diag.range.start, expected.start);
+    assert_eq!(diag.range.end, expected.end);
 }
 
 #[test]
@@ -493,10 +558,7 @@ fn test_validation_circular_fragments_three_way() {
 
     // Range should point to the last fragment name mentioned in the message (A)
     let last_name = "A";
-    let start_byte = text.rfind(last_name).unwrap();
-    let end_byte = start_byte + last_name.len();
-    let expected_start = doc.byte_to_position(start_byte);
-    let expected_end = doc.byte_to_position(end_byte);
-    assert_eq!(diag.range.start, expected_start);
-    assert_eq!(diag.range.end, expected_end);
+    let expected = common::range_for_token(&doc, text, last_name);
+    assert_eq!(diag.range.start, expected.start);
+    assert_eq!(diag.range.end, expected.end);
 }

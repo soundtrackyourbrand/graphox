@@ -115,11 +115,12 @@ fn test_required_field_missing_always_true() {
         required_field_error.is_some(),
         "Expected required field error"
     );
-    assert!(required_field_error.unwrap().message.contains("users"));
+    let d = required_field_error.unwrap();
     assert_eq!(
-        required_field_error.unwrap().severity,
-        Some(DiagnosticSeverity::ERROR)
+        d.message,
+        "Required field 'users' must be selected in query operations"
     );
+    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[test]
@@ -202,8 +203,11 @@ fn test_required_field_specific_operation_query() {
         required_field_error.is_some(),
         "Expected required field error for query operation"
     );
-    assert!(required_field_error.unwrap().message.contains("users"));
-    assert!(required_field_error.unwrap().message.contains("query"));
+    let d = required_field_error.unwrap();
+    assert_eq!(
+        d.message,
+        "Required field 'users' must be selected in query operations"
+    );
 }
 
 #[test]
@@ -365,6 +369,11 @@ fn test_required_field_case_insensitive() {
         required_field_error.is_some(),
         "Expected required field error (case-insensitive)"
     );
+    let d = required_field_error.unwrap();
+    assert_eq!(
+        d.message,
+        "Required field 'users' must be selected in query operations"
+    );
 }
 
 #[test]
@@ -407,7 +416,10 @@ fn test_multiple_required_fields() {
         1,
         "Expected exactly one required field error"
     );
-    assert!(required_field_errors[0].message.contains("posts"));
+    assert_eq!(
+        required_field_errors[0].message,
+        "Required field 'posts' must be selected in query operations"
+    );
 }
 
 #[test]

@@ -2,6 +2,7 @@ use apollo_compiler::Schema;
 use graphql_rust::DocumentState;
 use std::sync::OnceLock;
 use tokio::time::{Duration, sleep};
+use tower_lsp::lsp_types::NumberOrString;
 use tower_lsp::lsp_types::*;
 
 static SCHEMA: OnceLock<Schema> = OnceLock::new();
@@ -61,9 +62,10 @@ fn test_variable_used_in_fragment_spread() {
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
 
+    // Prefer exact diagnostic codes for determinism
     let unused_vars: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Unused variable"))
+        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
         .collect();
 
     assert!(
@@ -98,7 +100,7 @@ fn test_variable_used_transitively_in_nested_fragments() {
 
     let unused_vars: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Unused variable"))
+        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
         .collect();
 
     assert!(
@@ -130,7 +132,7 @@ fn test_variable_unused_even_with_fragments() {
 
     let unused_vars: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Unused variable: $unused"))
+        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
         .collect();
 
     assert_eq!(
@@ -157,7 +159,9 @@ fn test_undefined_variable_direct() {
 
     let errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Undefined variable: $undefined"))
+        .filter(
+            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "undefined_variable"),
+        )
         .collect();
 
     assert_eq!(errors.len(), 1, "Expected one undefined variable error");
@@ -184,7 +188,9 @@ fn test_undefined_variable_in_fragment_spread() {
 
     let errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Undefined variable: $admin"))
+        .filter(
+            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "undefined_variable"),
+        )
         .collect();
 
     assert_eq!(
@@ -626,7 +632,9 @@ fn test_fragment_variables_not_undefined_in_isolation() {
 
     let errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Undefined variable: $admin"))
+        .filter(
+            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "undefined_variable"),
+        )
         .collect();
 
     assert!(
@@ -667,7 +675,7 @@ fn test_variable_used_only_in_directive() {
 
     let unused_vars: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Unused variable: $skipName"))
+        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
         .collect();
 
     assert!(

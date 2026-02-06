@@ -302,8 +302,11 @@ impl DocumentState {
                     let mut min_idx = 0usize;
                     for i in 0..unique_len {
                         // compare by fragment name (before the first space which precedes the URI)
-                        let a = cycle_parts[i].splitn(2, ' ').next().unwrap_or(&cycle_parts[i]);
-                        let b = cycle_parts[min_idx].splitn(2, ' ').next().unwrap_or(&cycle_parts[min_idx]);
+                        let a = cycle_parts[i].split(' ').next().unwrap_or(&cycle_parts[i]);
+                        let b = cycle_parts[min_idx]
+                            .split(' ')
+                            .next()
+                            .unwrap_or(&cycle_parts[min_idx]);
                         if a < b {
                             min_idx = i;
                         }

@@ -4,7 +4,9 @@ use graphql_rust::{
     config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource},
 };
 use tempfile::tempdir;
-use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
+#[path = "common.rs"]
+mod common;
 
 fn get_schema() -> apollo_compiler::validation::Valid<Schema> {
     let schema_text = r#"
@@ -76,12 +78,12 @@ fn test_duplicate_operation_names_same_file() {
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
     // Should have diagnostics for duplicate operations (either from apollo-compiler or our check)
+    // Require diagnostics to have the specific code for duplicate operations.
     let duplicate_errors: Vec<_> = diagnostics
         .iter()
         .filter(|d| {
             d.severity == Some(DiagnosticSeverity::ERROR)
-                && (d.message.contains("Duplicate operation")
-                    || d.message.contains("defined multiple times"))
+                && matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation")
         })
         .collect();
 
@@ -145,9 +147,12 @@ fn test_unique_operation_names_no_error() {
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
     // Should NOT have diagnostics for duplicate operations
+    // Check there are no duplicate_operation diagnostics
     let duplicate_errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Duplicate operation"))
+        .filter(
+            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation"),
+        )
         .collect();
 
     assert!(
@@ -211,7 +216,9 @@ fn test_duplicate_operation_rule_disabled() {
     // Should NOT have diagnostics when rule is disabled
     let duplicate_errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Duplicate operation"))
+        .filter(
+            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation"),
+        )
         .collect();
 
     assert!(
@@ -272,7 +279,9 @@ fn test_duplicate_operation_no_rules_config() {
     // Should NOT have diagnostics when no rules config exists
     let duplicate_errors: Vec<_> = diagnostics
         .iter()
-        .filter(|d| d.message.contains("Duplicate operation"))
+        .filter(
+            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation"),
+        )
         .collect();
 
     assert!(
