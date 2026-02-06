@@ -475,16 +475,13 @@ async fn test_workspace_diagnostics() {
             let mut found_query2 = false;
 
             for item in &report.items {
-                match item {
-                    WorkspaceDocumentDiagnosticReport::Full(full_report) => {
-                        if full_report.uri == query1_uri {
-                            found_query1 = true;
-                        }
-                        if full_report.uri == query2_uri {
-                            found_query2 = true;
-                        }
+                if let WorkspaceDocumentDiagnosticReport::Full(full_report) = item {
+                    if full_report.uri == query1_uri {
+                        found_query1 = true;
                     }
-                    _ => {}
+                    if full_report.uri == query2_uri {
+                        found_query2 = true;
+                    }
                 }
             }
 

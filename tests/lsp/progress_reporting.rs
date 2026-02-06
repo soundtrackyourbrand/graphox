@@ -64,10 +64,10 @@ async fn test_progress_on_workspace_scan() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress" {
-                if let Some(params) = msg.params() {
-                    progress_clone.lock().unwrap().push(params.clone());
-                }
+            if msg.method() == "$/progress"
+                && let Some(params) = msg.params()
+            {
+                progress_clone.lock().unwrap().push(params.clone());
             }
         }
     });
@@ -204,10 +204,10 @@ async fn test_no_progress_without_capability() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress" {
-                if let Some(params) = msg.params() {
-                    progress_clone.lock().unwrap().push(params.clone());
-                }
+            if msg.method() == "$/progress"
+                && let Some(params) = msg.params()
+            {
+                progress_clone.lock().unwrap().push(params.clone());
             }
         }
     });
@@ -301,10 +301,10 @@ async fn test_progress_on_codegen() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress" {
-                if let Some(params) = msg.params() {
-                    progress_clone.lock().unwrap().push(params.clone());
-                }
+            if msg.method() == "$/progress"
+                && let Some(params) = msg.params()
+            {
+                progress_clone.lock().unwrap().push(params.clone());
             }
         }
     });
@@ -370,12 +370,12 @@ async fn test_progress_on_codegen() {
 
     // Check if any progress notification mentions codegen/generating
     let has_codegen_progress = notifications.iter().any(|n| {
-        if let Some(value) = n.get("value") {
-            if let Some(message) = value.get("message").and_then(|m| m.as_str()) {
-                return message.to_lowercase().contains("generat")
-                    || message.to_lowercase().contains("typescript")
-                    || message.to_lowercase().contains("types");
-            }
+        if let Some(value) = n.get("value")
+            && let Some(message) = value.get("message").and_then(|m| m.as_str())
+        {
+            return message.to_lowercase().contains("generat")
+                || message.to_lowercase().contains("typescript")
+                || message.to_lowercase().contains("types");
         }
         false
     });
@@ -438,10 +438,10 @@ async fn test_progress_messages_contain_percentage() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress" {
-                if let Some(params) = msg.params() {
-                    progress_clone.lock().unwrap().push(params.clone());
-                }
+            if msg.method() == "$/progress"
+                && let Some(params) = msg.params()
+            {
+                progress_clone.lock().unwrap().push(params.clone());
             }
         }
     });

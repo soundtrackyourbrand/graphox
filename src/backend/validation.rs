@@ -17,6 +17,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 
+/// Type alias for diagnostic cache
+pub type DiagnosticCache = Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>;
+
 /// Parameters for validation operations
 pub struct ValidationParams<'a> {
     pub client: &'a Client,
@@ -42,7 +45,7 @@ pub async fn validate_uris(
     params: ValidationParams<'_>,
     uris: Vec<Url>,
     use_push: bool,
-    diagnostic_cache: Option<&Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>>,
+    diagnostic_cache: Option<&DiagnosticCache>,
 ) {
     if uris.is_empty() {
         return;
@@ -138,7 +141,7 @@ pub async fn validate_uris(
 pub async fn validate_all_documents(
     params: ValidationParams<'_>,
     use_push: bool,
-    diagnostic_cache: Option<&Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>>,
+    diagnostic_cache: Option<&DiagnosticCache>,
 ) {
     let all_uris: Vec<Url> = params.documents.iter().map(|e| e.key().clone()).collect();
     validate_uris(params, all_uris, use_push, diagnostic_cache).await;

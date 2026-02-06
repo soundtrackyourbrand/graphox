@@ -40,7 +40,7 @@
 //! your `graphql.yaml` configuration file.
 
 use crate::config::SchemaSource;
-use apollo_compiler::{Schema, validation::Valid};
+use apollo_compiler::{validation::Valid, Schema};
 use dashmap::DashMap;
 use fnv::FnvHashMap;
 use once_cell::sync::Lazy;
@@ -192,14 +192,13 @@ pub fn clear_memory_cache() {
 
 /// Get the cache directory path
 fn get_cache_dir() -> PathBuf {
-    let cache_dir = if let Ok(dir) = std::env::var("GRAPHQL_CACHE_DIR") {
+    if let Ok(dir) = std::env::var("GRAPHQL_CACHE_DIR") {
         PathBuf::from(dir)
     } else if let Some(cache_home) = dirs::cache_dir() {
         cache_home.join("graphql-rust")
     } else {
         PathBuf::from(".graphql-cache")
-    };
-    cache_dir
+    }
 }
 
 /// Get the cache file path for a given schema source
@@ -319,7 +318,6 @@ mod tests {
 
         // Modify the file
         let mut file = fs::OpenOptions::new()
-            .write(true)
             .append(true)
             .open(&schema_path)
             .unwrap();

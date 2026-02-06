@@ -21,7 +21,7 @@ pub fn serialize_operation(
 
     // Pre-allocate sorted_fragments with known size to avoid reallocation
     let mut sorted_fragments: Vec<_> = Vec::with_capacity(used_fragments.len());
-    sorted_fragments.extend(used_fragments.into_iter());
+    sorted_fragments.extend(used_fragments);
     sorted_fragments.sort_unstable(); // unstable sort is faster when element order doesn't matter
 
     for frag_name in sorted_fragments {

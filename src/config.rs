@@ -432,12 +432,12 @@ projects:
         assert_eq!(config.projects.len(), 3);
 
         // First project has codegen disabled
-        assert_eq!(config.projects[0].codegen_enabled(), false);
+        assert!(!config.projects[0].codegen_enabled());
 
         // Second project has default (enabled)
-        assert_eq!(config.projects[1].codegen_enabled(), true);
+        assert!(config.projects[1].codegen_enabled());
 
         // Third project has codegen explicitly enabled
-        assert_eq!(config.projects[2].codegen_enabled(), true);
+        assert!(config.projects[2].codegen_enabled());
     }
 }

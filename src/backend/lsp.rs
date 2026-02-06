@@ -262,8 +262,8 @@ impl Backend {
             config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
         };
 
-        if let Some((enabled, threshold_ms)) = should_log {
-            if enabled {
+        if let Some((enabled, threshold_ms)) = should_log
+            && enabled {
                 let elapsed = start.elapsed();
                 if elapsed.as_millis() >= threshold_ms as u128 {
                     self.client
@@ -274,7 +274,6 @@ impl Backend {
                         .await;
                 }
             }
-        }
         res
     }
 
@@ -392,14 +391,13 @@ impl Backend {
         let config = self.config.read().unwrap().clone();
         for project in &config.projects {
             let key = project.schema.as_key();
-            if !self.schemas.contains_key(&key) {
-                if let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema) {
+            if !self.schemas.contains_key(&key)
+                && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema) {
                     if let Ok(valid) = (*schema).clone().validate() {
                         self.validated_schemas.insert(key.clone(), Arc::new(valid));
                     }
                     self.schemas.insert(key, schema);
                 }
-            }
         }
 
         // Trigger workspace scan to re-index everything
@@ -1240,12 +1238,11 @@ impl LanguageServer for Backend {
             if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
                 let symbol_name = doc.get_symbol_at_position(position);
 
-                if let Some(name) = symbol_name {
-                    if name.starts_with('$') {
+                if let Some(name) = symbol_name
+                    && name.starts_with('$') {
                         // Get highlights in the current document only
                         return Ok(doc.get_document_highlights(position));
                     }
-                }
             }
 
             Ok(None)
@@ -1674,9 +1671,9 @@ impl LanguageServer for Backend {
             let (cached_version, cached_diagnostics) = cached.value();
 
             // If the cached version matches the previous result ID, return unchanged
-            if let Some(prev_result_id) = &params.previous_result_id {
-                if let Ok(prev_version) = prev_result_id.parse::<i32>() {
-                    if prev_version == *cached_version && prev_version == doc_version {
+            if let Some(prev_result_id) = &params.previous_result_id
+                && let Ok(prev_version) = prev_result_id.parse::<i32>()
+                    && prev_version == *cached_version && prev_version == doc_version {
                         return Ok(DocumentDiagnosticReportResult::Report(
                             DocumentDiagnosticReport::Unchanged(
                                 RelatedUnchangedDocumentDiagnosticReport {
@@ -1689,8 +1686,6 @@ impl LanguageServer for Backend {
                             ),
                         ));
                     }
-                }
-            }
 
             // Return cached diagnostics if version matches
             if *cached_version == doc_version {
