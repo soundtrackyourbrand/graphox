@@ -755,9 +755,43 @@ fn generate_selection_set(
     used_fragments: &mut HashMap<String, String>,
     used_schema_types: &mut HashSet<String>,
 ) -> String {
-    let pad = "  ".repeat(indent);
-    let inner_pad = "  ".repeat(indent + 1);
+    let (fields, inline_fragments, fragment_spreads, has_explicit_typename) =
+        categorize_selections(selection_set, used_fragments);
 
+    if inline_fragments.is_empty() {
+        generate_object_or_intersection(
+            &fields,
+            &fragment_spreads,
+            parent_type,
+            ctx,
+            indent,
+            has_explicit_typename,
+            used_fragments,
+            used_schema_types,
+        )
+    } else {
+        generate_union_type(
+            &inline_fragments,
+            &fragment_spreads,
+            parent_type,
+            ctx,
+            indent,
+            used_fragments,
+            used_schema_types,
+        )
+    }
+}
+
+/// Categorize selections into fields, inline fragments, and fragment spreads
+fn categorize_selections<'a>(
+    selection_set: &'a SelectionSet,
+    used_fragments: &mut HashMap<String, String>,
+) -> (
+    Vec<&'a Node<executable::Field>>,
+    Vec<&'a Node<executable::InlineFragment>>,
+    Vec<&'a Node<executable::FragmentSpread>>,
+    bool,
+) {
     let mut fields = Vec::new();
     let mut inline_fragments = Vec::new();
     let mut fragment_spreads = Vec::new();
@@ -781,16 +815,204 @@ fn generate_selection_set(
         }
     }
 
-    if inline_fragments.is_empty() {
-        // Simple object or intersection
-        let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
-        if !has_explicit_typename {
-            local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
-        }
+    (fields, inline_fragments, fragment_spreads, has_explicit_typename)
+}
 
-        for field in fields {
+/// Generate TypeScript type for object or intersection types (no inline fragments)
+fn generate_object_or_intersection(
+    fields: &[&Node<executable::Field>],
+    fragment_spreads: &[&Node<executable::FragmentSpread>],
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+    indent: usize,
+    has_explicit_typename: bool,
+    used_fragments: &mut HashMap<String, String>,
+    used_schema_types: &mut HashSet<String>,
+) -> String {
+    let local_fields_list = generate_field_list(
+        fields,
+        parent_type,
+        ctx,
+        indent,
+        has_explicit_typename,
+        used_fragments,
+        used_schema_types,
+    );
+
+    if fragment_spreads.is_empty() {
+        format_multiline_object(&local_fields_list, indent)
+    } else {
+        format_intersection(&local_fields_list, fragment_spreads)
+    }
+}
+
+/// Generate list of TypeScript field definitions
+fn generate_field_list(
+    fields: &[&Node<executable::Field>],
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+    indent: usize,
+    has_explicit_typename: bool,
+    used_fragments: &mut HashMap<String, String>,
+    used_schema_types: &mut HashSet<String>,
+) -> Vec<String> {
+    let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
+    
+    if !has_explicit_typename {
+        local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
+    }
+
+    for field in fields {
+        let name = field.alias.as_ref().unwrap_or(&field.name);
+        let field_def = match parent_type {
+            ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+            ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
+            _ => None,
+        };
+
+        if let Some(fd) = field_def {
+            let ts_type = if field.selection_set.selections.is_empty() {
+                gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx, used_schema_types)
+            } else {
+                let inner_type_name = fd.ty.inner_named_type();
+                let inner_type = ctx
+                    .schema
+                    .types
+                    .get(inner_type_name.as_str())
+                    .expect("Field type must exist");
+                generate_selection_set(
+                    &field.selection_set,
+                    inner_type,
+                    ctx,
+                    indent + 1,
+                    used_fragments,
+                    used_schema_types,
+                )
+            };
+
+            let wrapped_type = if field.selection_set.selections.is_empty() {
+                ts_type
+            } else {
+                wrap_in_list_and_nullability(&ts_type, &fd.ty)
+            };
+
+            local_fields_list.push(format!("{}: {}", name, wrapped_type));
+        }
+    }
+
+    local_fields_list
+}
+
+/// Format fields as a multi-line TypeScript object
+fn format_multiline_object(fields: &[String], indent: usize) -> String {
+    let pad = "  ".repeat(indent);
+    let inner_pad = "  ".repeat(indent + 1);
+    
+    let estimated_size = fields.len() * 40 + 20;
+    let mut result = String::with_capacity(estimated_size);
+    
+    for f in fields {
+        result.push('\n');
+        result.push_str(&inner_pad);
+        result.push_str(f);
+        result.push(';');
+    }
+    result.push('\n');
+    result.push_str(&pad);
+    
+    let mut output = String::with_capacity(result.len() + 2);
+    output.push('{');
+    output.push_str(&result);
+    output.push('}');
+    output
+}
+
+/// Format as TypeScript intersection type (object & fragments)
+fn format_intersection(
+    fields: &[String],
+    fragment_spreads: &[&Node<executable::FragmentSpread>],
+) -> String {
+    let base_obj = format!("{{ {} }}", fields.join(", "));
+    let mut spreads: Vec<_> = fragment_spreads
+        .iter()
+        .map(|s| s.fragment_name.as_str())
+        .collect();
+    spreads.sort();
+
+    format!("({} & {})", base_obj, spreads.join(" & "))
+}
+
+/// Generate TypeScript union type for inline fragments
+fn generate_union_type(
+    inline_fragments: &[&Node<executable::InlineFragment>],
+    fragment_spreads: &[&Node<executable::FragmentSpread>],
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+    indent: usize,
+    used_fragments: &mut HashMap<String, String>,
+    used_schema_types: &mut HashSet<String>,
+) -> String {
+    let pad = "  ".repeat(indent);
+    let mut branches = Vec::with_capacity(inline_fragments.len() + fragment_spreads.len() + 1);
+
+    // Base branch
+    branches.push(format!("{{ __typename: \"{}\" }}", parent_type.name()));
+
+    // Add inline fragment branches
+    for inline in inline_fragments {
+        let branch = generate_inline_fragment_branch(
+            inline,
+            parent_type,
+            ctx,
+            indent,
+            used_fragments,
+            used_schema_types,
+        );
+        branches.push(branch);
+    }
+
+    // Add fragment spread branches
+    for spread in fragment_spreads {
+        branches.push(spread.fragment_name.to_string());
+        used_fragments.insert(spread.fragment_name.to_string(), String::new());
+    }
+
+    format_union_branches(&branches, &pad)
+}
+
+/// Generate a single inline fragment branch
+fn generate_inline_fragment_branch(
+    inline: &Node<executable::InlineFragment>,
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+    indent: usize,
+    used_fragments: &mut HashMap<String, String>,
+    used_schema_types: &mut HashSet<String>,
+) -> String {
+    let pad = "  ".repeat(indent);
+    let type_name = inline
+        .type_condition
+        .as_ref()
+        .map(|n| n.as_str())
+        .unwrap_or_else(|| parent_type.name());
+    let target_type = ctx.schema.types.get(type_name).unwrap_or(parent_type);
+
+    let mut branch_fields = String::with_capacity(256);
+    branch_fields.push('\n');
+    branch_fields.push_str(&pad);
+    branch_fields.push_str("    __typename: \"");
+    branch_fields.push_str(type_name);
+    branch_fields.push_str("\";");
+
+    // Generate fields for this fragment
+    for selection in &inline.selection_set.selections {
+        if let Selection::Field(field) = selection {
             let name = field.alias.as_ref().unwrap_or(&field.name);
-            let field_def = match parent_type {
+            if name.as_str() == "__typename" {
+                continue;
+            }
+
+            let field_def = match target_type {
                 ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
                 ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
                 _ => None,
@@ -806,149 +1028,50 @@ fn generate_selection_set(
                         .types
                         .get(inner_type_name.as_str())
                         .expect("Field type must exist");
-                    generate_selection_set(
+                    let base_type = generate_selection_set(
                         &field.selection_set,
                         inner_type,
                         ctx,
-                        indent + 1,
+                        indent + 2,
                         used_fragments,
                         used_schema_types,
-                    )
+                    );
+                    wrap_in_list_and_nullability(&base_type, &fd.ty)
                 };
-
-                let wrapped_type = if field.selection_set.selections.is_empty() {
-                    ts_type
-                } else {
-                    wrap_in_list_and_nullability(&ts_type, &fd.ty)
-                };
-
-                local_fields_list.push(format!("{}: {}", name, wrapped_type));
+                branch_fields.push('\n');
+                branch_fields.push_str(&pad);
+                branch_fields.push_str("    ");
+                branch_fields.push_str(name);
+                branch_fields.push_str(": ");
+                branch_fields.push_str(&ts_type);
+                branch_fields.push(';');
             }
         }
-
-        if fragment_spreads.is_empty() {
-            // Standard multi-line object (keep this for simple_query)
-            // Pre-allocate result string with estimated size
-            let estimated_size = local_fields_list.len() * 40 + 20;
-            let mut result = String::with_capacity(estimated_size);
-            for f in local_fields_list {
-                result.push('\n');
-                result.push_str(&inner_pad);
-                result.push_str(&f);
-                result.push(';');
-            }
-            result.push('\n');
-            result.push_str(&pad);
-            // Use concat instead of format!
-            let mut output = String::with_capacity(result.len() + 2);
-            output.push('{');
-            output.push_str(&result);
-            output.push('}');
-            output
-        } else {
-            // Intersection mode (compact style for fragment_usage)
-            let base_obj = format!("{{ {} }}", local_fields_list.join(", "));
-            let mut spreads: Vec<_> = fragment_spreads
-                .iter()
-                .map(|s| s.fragment_name.as_str())
-                .collect();
-            spreads.sort();
-
-            format!("({} & {})", base_obj, spreads.join(" & "))
-        }
-    } else {
-        // Union type
-        let mut branches = Vec::with_capacity(inline_fragments.len() + fragment_spreads.len() + 1);
-
-        // Base branch
-        branches.push(format!("{{ __typename: \"{}\" }}", parent_type.name()));
-
-        for inline in inline_fragments {
-            let type_name = inline
-                .type_condition
-                .as_ref()
-                .map(|n| n.as_str())
-                .unwrap_or_else(|| parent_type.name());
-            let target_type = ctx.schema.types.get(type_name).unwrap_or(parent_type);
-
-            let mut branch_fields = String::with_capacity(256);
-            branch_fields.push('\n');
-            branch_fields.push_str(&pad);
-            branch_fields.push_str("    __typename: \"");
-            branch_fields.push_str(type_name);
-            branch_fields.push_str("\";");
-
-            // Generate fields for this fragment
-            for selection in &inline.selection_set.selections {
-                if let Selection::Field(field) = selection {
-                    let name = field.alias.as_ref().unwrap_or(&field.name);
-                    if name.as_str() == "__typename" {
-                        continue;
-                    }
-
-                    let field_def = match target_type {
-                        ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
-                        ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
-                        _ => None,
-                    };
-
-                    if let Some(fd) = field_def {
-                        let ts_type = if field.selection_set.selections.is_empty() {
-                            gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx, used_schema_types)
-                        } else {
-                            let inner_type_name = fd.ty.inner_named_type();
-                            let inner_type = ctx
-                                .schema
-                                .types
-                                .get(inner_type_name.as_str())
-                                .expect("Field type must exist");
-                            let base_type = generate_selection_set(
-                                &field.selection_set,
-                                inner_type,
-                                ctx,
-                                indent + 2,
-                                used_fragments,
-                                used_schema_types,
-                            );
-                            wrap_in_list_and_nullability(&base_type, &fd.ty)
-                        };
-                        branch_fields.push('\n');
-                        branch_fields.push_str(&pad);
-                        branch_fields.push_str("    ");
-                        branch_fields.push_str(name);
-                        branch_fields.push_str(": ");
-                        branch_fields.push_str(&ts_type);
-                        branch_fields.push(';');
-                    }
-                }
-            }
-            let mut branch = String::with_capacity(branch_fields.len() + pad.len() + 10);
-            branch.push('{');
-            branch.push_str(&branch_fields);
-            branch.push('\n');
-            branch.push_str(&pad);
-            branch.push_str("  }");
-            branches.push(branch);
-        }
-
-        for spread in fragment_spreads {
-            branches.push(spread.fragment_name.to_string());
-            used_fragments.insert(spread.fragment_name.to_string(), String::new());
-        }
-
-        let mut result = branches[0].clone();
-        for (i, branch) in branches.iter().enumerate().skip(1) {
-            if i == 1 {
-                result.push('\n');
-                result.push_str(&pad);
-                result.push_str("  | ");
-            } else {
-                result.push_str(" | ");
-            }
-            result.push_str(branch);
-        }
-        result
     }
+
+    let mut branch = String::with_capacity(branch_fields.len() + pad.len() + 10);
+    branch.push('{');
+    branch.push_str(&branch_fields);
+    branch.push('\n');
+    branch.push_str(&pad);
+    branch.push_str("  }");
+    branch
+}
+
+/// Format union type branches with proper separators
+fn format_union_branches(branches: &[String], pad: &str) -> String {
+    let mut result = branches[0].clone();
+    for (i, branch) in branches.iter().enumerate().skip(1) {
+        if i == 1 {
+            result.push('\n');
+            result.push_str(pad);
+            result.push_str("  | ");
+        } else {
+            result.push_str(" | ");
+        }
+        result.push_str(branch);
+    }
+    result
 }
 
 fn wrap_in_list_and_nullability(base: &str, ty: &Type) -> String {

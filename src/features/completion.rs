@@ -52,188 +52,243 @@ impl DocumentState {
         fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         let local_byte = cursor_offset.saturating_sub(offset);
-
         let mut node = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
 
         while let Some(current) = node {
-            if self.is_after_at(cursor_offset) || current.kind() == "directive" {
-                let mut context_node = if current.kind() == "directive"
-                    || (current.kind() == "name"
-                        && current.parent().map(|p| p.kind()) == Some("directive"))
-                {
-                    let dir_node = if current.kind() == "name" {
-                        current.parent().unwrap()
-                    } else {
-                        current
-                    };
-                    dir_node.parent()
-                } else if current.kind() == "ERROR" && self.get_node_text(current, offset) == "@" {
-                    if let Some(prev) = current.prev_sibling() {
-                        Some(prev)
-                    } else {
-                        Some(current)
-                    }
-                } else {
-                    Some(current)
-                };
-
-                // If we are at a name, fragment_name or error, the context is the parent
-                if let Some(mut node) = context_node {
-                    while node.kind() == "name"
-                        || node.kind() == "fragment_name"
-                        || node.kind() == "ERROR"
-                        || node.kind() == "MISSING"
-                    {
-                        if let Some(parent) = node.parent() {
-                            node = parent;
-                        } else {
-                            break;
-                        }
-                    }
-                    context_node = Some(node);
-                }
-
-                if let Some(p) = context_node {
-                    let mut p = p;
-                    loop {
-                        if p.kind() == "selection" {
-                            let mut cursor = p.walk();
-                            for child in p.children(&mut cursor) {
-                                let kind = child.kind();
-                                if kind == "field"
-                                    || kind == "fragment_spread"
-                                    || kind == "inline_fragment"
-                                {
-                                    p = child;
-                                    break;
-                                }
-                            }
-                        }
-
-                        let location = match p.kind() {
-                            "field" => Some(ast::DirectiveLocation::Field),
-                            "fragment_definition" => {
-                                Some(ast::DirectiveLocation::FragmentDefinition)
-                            }
-                            "inline_fragment" => Some(ast::DirectiveLocation::InlineFragment),
-                            "fragment_spread" => Some(ast::DirectiveLocation::FragmentSpread),
-                            "operation_definition" => {
-                                let mut op_type = ast::OperationType::Query;
-                                let mut cursor = p.walk();
-                                for child in p.children(&mut cursor) {
-                                    if child.kind() == "operation_type" {
-                                        let text = self.get_node_text(child, offset);
-                                        if text == "mutation" {
-                                            op_type = ast::OperationType::Mutation;
-                                        } else if text == "subscription" {
-                                            op_type = ast::OperationType::Subscription;
-                                        }
-                                    }
-                                }
-                                match op_type {
-                                    ast::OperationType::Query => {
-                                        Some(ast::DirectiveLocation::Query)
-                                    }
-                                    ast::OperationType::Mutation => {
-                                        Some(ast::DirectiveLocation::Mutation)
-                                    }
-                                    ast::OperationType::Subscription => {
-                                        Some(ast::DirectiveLocation::Subscription)
-                                    }
-                                }
-                            }
-                            _ => None,
-                        };
-
-                        if let Some(loc) = location {
-                            return Some(self.get_directive_completions(schema, loc));
-                        }
-
-                        if let Some(parent) = p.parent() {
-                            p = parent;
-                            if p.kind() == "selection_set" || p.kind() == "document" {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                }
+            // Try directive completions first
+            if let Some(items) = self.try_directive_completions(current, offset, cursor_offset, schema) {
+                return Some(items);
             }
 
-            match current.kind() {
-                "selection_set"
-                | "operation_definition"
-                | "fragment_definition"
-                | "inline_fragment" => {
-                    // Check if we are right after dots
-                    if self.is_after_dots(offset, local_byte)
-                        && let Some(items) = self.complete_selection_set_at_node(
-                            current,
-                            offset,
-                            cursor_offset,
-                            schema,
-                            fragments,
-                        )
-                    {
-                        // Filter these items to ONLY include fragments
-                        return Some(
-                            items
-                                .into_iter()
-                                .filter(|i| i.kind == Some(CompletionItemKind::SNIPPET))
-                                .collect(),
-                        );
-                    }
-                }
-                _ => {}
+            // Try fragment spread completions (after dots)
+            if let Some(items) = self.try_fragment_spread_completions(
+                current,
+                offset,
+                local_byte,
+                cursor_offset,
+                schema,
+                fragments,
+            ) {
+                return Some(items);
             }
 
-            match current.kind() {
-                "type_condition" | "named_type" => {
-                    return Some(self.get_all_type_completions(schema));
-                }
-                "variable" | "variable_definitions" | "arguments" => {
-                    return Some(self.get_operation_variables(root, offset, cursor_offset));
-                }
-                "fragment_spread" => {
-                    let parent_type = self.find_parent_type_for_node(current, offset, schema);
-                    return Some(self.get_fragment_name_completions(
-                        fragments,
-                        parent_type.as_ref(),
-                        schema,
-                    ));
-                }
-                "fragment_definition" => {
-                    if self.is_after_on(offset, local_byte) {
-                        return Some(self.get_all_type_completions(schema));
-                    }
-                    if let Some(items) = self.complete_selection_set_at_node(
-                        current,
-                        offset,
-                        cursor_offset,
-                        schema,
-                        fragments,
-                    ) {
-                        return Some(items);
-                    }
-                }
-                "selection_set" | "operation_definition" => {
-                    if let Some(items) = self.complete_selection_set_at_node(
-                        current,
-                        offset,
-                        cursor_offset,
-                        schema,
-                        fragments,
-                    ) {
-                        return Some(items);
-                    }
-                }
-                _ => {}
+            // Try completions based on node kind
+            if let Some(items) = self.try_node_kind_completions(
+                current,
+                root,
+                offset,
+                local_byte,
+                cursor_offset,
+                schema,
+                fragments,
+            ) {
+                return Some(items);
             }
+
             node = current.parent();
         }
 
         None
+    }
+
+    /// Try to provide directive completions if cursor is after @ or in a directive
+    fn try_directive_completions(
+        &self,
+        current: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<Vec<CompletionItem>> {
+        if !self.is_after_at(cursor_offset) && current.kind() != "directive" {
+            return None;
+        }
+
+        let context_node = self.find_directive_context_node(current, offset)?;
+        let directive_location = self.find_directive_location(context_node, offset)?;
+        Some(self.get_directive_completions(schema, directive_location))
+    }
+
+    /// Find the context node for directive completion
+    fn find_directive_context_node<'a>(&self, current: Node<'a>, offset: usize) -> Option<Node<'a>> {
+        let mut context_node = if current.kind() == "directive"
+            || (current.kind() == "name"
+                && current.parent().map(|p| p.kind()) == Some("directive"))
+        {
+            let dir_node = if current.kind() == "name" {
+                current.parent().unwrap()
+            } else {
+                current
+            };
+            dir_node.parent()
+        } else if current.kind() == "ERROR" && self.get_node_text(current, offset) == "@" {
+            if let Some(prev) = current.prev_sibling() {
+                Some(prev)
+            } else {
+                Some(current)
+            }
+        } else {
+            Some(current)
+        };
+
+        // Navigate up through name/fragment_name/ERROR/MISSING nodes
+        if let Some(mut node) = context_node {
+            while matches!(node.kind(), "name" | "fragment_name" | "ERROR" | "MISSING") {
+                node = node.parent()?;
+            }
+            context_node = Some(node);
+        }
+
+        context_node
+    }
+
+    /// Find the directive location based on the context node
+    fn find_directive_location<'a>(&self, mut p: Node<'a>, offset: usize) -> Option<ast::DirectiveLocation> {
+        loop {
+            // If at selection, descend to actual selection type
+            if p.kind() == "selection" {
+                let mut cursor = p.walk();
+                for child in p.children(&mut cursor) {
+                    if matches!(child.kind(), "field" | "fragment_spread" | "inline_fragment") {
+                        p = child;
+                        break;
+                    }
+                }
+            }
+
+            // Map node kind to directive location
+            let location = match p.kind() {
+                "field" => Some(ast::DirectiveLocation::Field),
+                "fragment_definition" => Some(ast::DirectiveLocation::FragmentDefinition),
+                "inline_fragment" => Some(ast::DirectiveLocation::InlineFragment),
+                "fragment_spread" => Some(ast::DirectiveLocation::FragmentSpread),
+                "operation_definition" => {
+                    Some(self.get_operation_directive_location(p, offset))
+                }
+                _ => None,
+            };
+
+            if location.is_some() {
+                return location;
+            }
+
+            // Move up the tree
+            p = p.parent()?;
+            if matches!(p.kind(), "selection_set" | "document") {
+                return None;
+            }
+        }
+    }
+
+    /// Get directive location for an operation definition
+    fn get_operation_directive_location(&self, node: Node, offset: usize) -> ast::DirectiveLocation {
+        let mut op_type = ast::OperationType::Query;
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "operation_type" {
+                let text = self.get_node_text(child, offset);
+                op_type = match text.as_str() {
+                    "mutation" => ast::OperationType::Mutation,
+                    "subscription" => ast::OperationType::Subscription,
+                    _ => ast::OperationType::Query,
+                };
+                break;
+            }
+        }
+
+        match op_type {
+            ast::OperationType::Query => ast::DirectiveLocation::Query,
+            ast::OperationType::Mutation => ast::DirectiveLocation::Mutation,
+            ast::OperationType::Subscription => ast::DirectiveLocation::Subscription,
+        }
+    }
+
+    /// Try fragment spread completions (when cursor is after "...")
+    fn try_fragment_spread_completions(
+        &self,
+        current: Node,
+        offset: usize,
+        local_byte: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+        fragments: &[FragmentCompletionInfo],
+    ) -> Option<Vec<CompletionItem>> {
+        if !matches!(
+            current.kind(),
+            "selection_set" | "operation_definition" | "fragment_definition" | "inline_fragment"
+        ) {
+            return None;
+        }
+
+        if !self.is_after_dots(offset, local_byte) {
+            return None;
+        }
+
+        let items = self.complete_selection_set_at_node(
+            current,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+        )?;
+
+        // Filter to only include fragments
+        Some(
+            items
+                .into_iter()
+                .filter(|i| i.kind == Some(CompletionItemKind::SNIPPET))
+                .collect(),
+        )
+    }
+
+    /// Try completions based on the current node kind
+    fn try_node_kind_completions(
+        &self,
+        current: Node,
+        root: Node,
+        offset: usize,
+        local_byte: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+        fragments: &[FragmentCompletionInfo],
+    ) -> Option<Vec<CompletionItem>> {
+        match current.kind() {
+            "type_condition" | "named_type" => {
+                Some(self.get_all_type_completions(schema))
+            }
+            "variable" | "variable_definitions" | "arguments" => {
+                Some(self.get_operation_variables(root, offset, cursor_offset))
+            }
+            "fragment_spread" => {
+                let parent_type = self.find_parent_type_for_node(current, offset, schema);
+                Some(self.get_fragment_name_completions(
+                    fragments,
+                    parent_type.as_ref(),
+                    schema,
+                ))
+            }
+            "fragment_definition" => {
+                if self.is_after_on(offset, local_byte) {
+                    return Some(self.get_all_type_completions(schema));
+                }
+                self.complete_selection_set_at_node(
+                    current,
+                    offset,
+                    cursor_offset,
+                    schema,
+                    fragments,
+                )
+            }
+            "selection_set" | "operation_definition" => {
+                self.complete_selection_set_at_node(
+                    current,
+                    offset,
+                    cursor_offset,
+                    schema,
+                    fragments,
+                )
+            }
+            _ => None,
+        }
     }
 
     fn complete_selection_set_at_node(

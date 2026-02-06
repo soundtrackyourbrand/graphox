@@ -609,6 +609,128 @@ impl Backend {
             &self.fragment_definitions,
         )
     }
+
+    /// Try to find variable definition location
+    fn try_goto_variable_definition(
+        &self,
+        symbol_name: &Option<String>,
+        doc: &Arc<DocumentState>,
+        position: Position,
+    ) -> Option<Location> {
+        let name = symbol_name.as_ref()?;
+        if !name.starts_with('$') {
+            return None;
+        }
+        doc.find_variable_definition(name, position)
+    }
+
+    /// Try to find field definition location
+    fn try_goto_field_definition(
+        &self,
+        uri: &Url,
+        doc: &Arc<DocumentState>,
+        position: Position,
+        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
+    ) -> Option<Location> {
+        let preferred_uris = self.get_preferred_schema_uris(uri);
+        doc.get_field_definition_location(
+            position,
+            schema.as_ref(),
+            &self.documents,
+            &preferred_uris,
+            &self.fragment_definitions,
+        )
+    }
+
+    /// Get preferred schema URIs for a document
+    fn get_preferred_schema_uris(&self, uri: &Url) -> Vec<Url> {
+        let mut preferred_uris = Vec::new();
+        if let Ok(path) = uri.to_file_path() {
+            let config = self.config.read().unwrap();
+            if let Some(project) = config.get_project_for_path(&path) {
+                for schema_file in project.schema.files() {
+                    let schema_path = config.base_dir.join(schema_file);
+                    if let Ok(schema_uri) = Url::from_file_path(schema_path) {
+                        preferred_uris.push(schema_uri);
+                    }
+                }
+            }
+        }
+        preferred_uris
+    }
+
+    /// Try to find fragment definition location
+    async fn try_goto_fragment_definition(
+        &self,
+        symbol_name: &Option<String>,
+        doc: &Arc<DocumentState>,
+    ) -> Option<Location> {
+        let name = symbol_name.as_ref()?;
+
+        // Try targeted lookup using the index first
+        if let Some(location) = self.lookup_fragment_in_index(name, doc) {
+            return Some(location);
+        }
+
+        // Fallback to full scan if not in index
+        self.scan_all_documents_for_fragment(name, doc).await
+    }
+
+    /// Look up fragment definition using the fragment index
+    fn lookup_fragment_in_index(&self, name: &str, doc: &Arc<DocumentState>) -> Option<Location> {
+        let uris = self.fragment_definitions.get(name)?;
+        
+        for other_uri in uris.iter() {
+            let other_doc = self.documents.get(other_uri).map(|r| r.value().clone())?;
+            
+            if self.is_fragment_accessible(&other_doc, doc, name) {
+                if let Some(location) = other_doc.find_definition_in_tree(name) {
+                    return Some(location);
+                }
+            }
+        }
+        
+        None
+    }
+
+    /// Scan all documents for fragment definition (fallback)
+    async fn scan_all_documents_for_fragment(
+        &self,
+        name: &str,
+        doc: &Arc<DocumentState>,
+    ) -> Option<Location> {
+        // Only scan if not in index
+        if self.fragment_definitions.contains_key(name) {
+            return None;
+        }
+
+        let doc_arcs: Vec<Arc<DocumentState>> =
+            self.documents.iter().map(|e| e.value().clone()).collect();
+
+        doc_arcs.par_iter().find_map_any(|other_doc| {
+            if self.is_fragment_accessible(other_doc, doc, name) {
+                other_doc.find_definition_in_tree(name)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if a fragment is accessible from the current document
+    fn is_fragment_accessible(
+        &self,
+        fragment_doc: &Arc<DocumentState>,
+        current_doc: &Arc<DocumentState>,
+        fragment_name: &str,
+    ) -> bool {
+        let is_same_package = fragment_doc.package_root == current_doc.package_root;
+        let is_public_fragment = fragment_doc
+            .fragments()
+            .iter()
+            .any(|f| f.name == fragment_name && f.is_public);
+
+        is_same_package || is_public_fragment
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -1123,90 +1245,27 @@ impl LanguageServer for Backend {
             );
             let position = params.text_document_position_params.position;
 
-            if let Some(doc_arc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-                let schema = self.get_schema_for_doc(&uri);
+            let doc_arc = match self.documents.get(&uri).map(|r| r.value().clone()) {
+                Some(doc) => doc,
+                None => return Ok(None),
+            };
 
-                let symbol_name = doc_arc.get_symbol_at_position(position);
+            let schema = self.get_schema_for_doc(&uri);
+            let symbol_name = doc_arc.get_symbol_at_position(position);
 
-                if let Some(ref name) = symbol_name
-                    && name.starts_with('$')
-                    && let Some(location) = doc_arc.find_variable_definition(name, position)
-                {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                }
+            // Try variable definition
+            if let Some(location) = self.try_goto_variable_definition(&symbol_name, &doc_arc, position) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
 
-                let mut preferred_uris = Vec::new();
-                if let Ok(path) = uri.to_file_path() {
-                    let config = self.config.read().unwrap();
-                    if let Some(project) = config.get_project_for_path(&path) {
-                        for schema_file in project.schema.files() {
-                            let schema_path = config.base_dir.join(schema_file);
-                            if let Ok(schema_uri) = Url::from_file_path(schema_path) {
-                                preferred_uris.push(schema_uri);
-                            }
-                        }
-                    }
-                }
+            // Try field definition
+            if let Some(location) = self.try_goto_field_definition(&uri, &doc_arc, position, &schema) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
 
-                if let Some(loc) = doc_arc.get_field_definition_location(
-                    position,
-                    &schema,
-                    &self.documents,
-                    &preferred_uris,
-                    &self.fragment_definitions,
-                ) {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
-                }
-
-                if let Some(name) = symbol_name {
-                    // Targeted lookup using the index
-                    if let Some(uris) = self.fragment_definitions.get(&name) {
-                        for other_uri in uris.iter() {
-                            if let Some(other_doc) =
-                                self.documents.get(other_uri).map(|r| r.value().clone())
-                            {
-                                let is_same_package =
-                                    other_doc.package_root == doc_arc.package_root;
-                                let is_public_fragment = other_doc
-                                    .fragments()
-                                    .iter()
-                                    .any(|f| f.name == name && f.is_public);
-
-                                if (is_same_package || is_public_fragment)
-                                    && let Some(location) = other_doc.find_definition_in_tree(&name)
-                                {
-                                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                                }
-                            }
-                        }
-                    }
-
-                    // Fallback to full scan if not in index
-                    if !self.fragment_definitions.contains_key(&name) {
-                        let doc_arcs: Vec<Arc<DocumentState>> =
-                            self.documents.iter().map(|e| e.value().clone()).collect();
-
-                        let result = doc_arcs.par_iter().find_map_any(|other_doc| {
-                            let is_same_package = other_doc.package_root == doc_arc.package_root;
-                            let is_public_fragment = other_doc
-                                .fragments()
-                                .iter()
-                                .any(|f| f.name == name && f.is_public);
-
-                            if (is_same_package || is_public_fragment)
-                                && let Some(location) = other_doc.find_definition_in_tree(&name)
-                            {
-                                Some(location)
-                            } else {
-                                None
-                            }
-                        });
-
-                        if let Some(location) = result {
-                            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                        }
-                    }
-                }
+            // Try fragment definition
+            if let Some(location) = self.try_goto_fragment_definition(&symbol_name, &doc_arc).await {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
             Ok(None)
