@@ -381,7 +381,7 @@ async fn test_rename_unopened_file() {
     let backend = service.inner();
     let mut attempts = 0;
     while !backend.workspace_loaded.load(Ordering::SeqCst) && attempts < 100 {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
         attempts += 1;
     }
     assert!(

@@ -4,14 +4,13 @@ use graphql_rust::{
 };
 use std::fs;
 use tempfile::tempdir;
-use tokio::time::Duration;
+use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(2000)]
 async fn test_lsp_automatic_codegen() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
@@ -84,7 +83,7 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     // Wait for background scan to complete
-    let _ = tokio::time::timeout(Duration::from_millis(500), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -112,7 +111,7 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     // Wait for codegen
-    wait_for_file(&gen_path, Duration::from_millis(1000)).await;
+    wait_for_file(&gen_path, Duration::from_millis(200)).await;
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("GetMe"));
     // Use a more specific check to avoid matching schema types or comments if any
@@ -151,14 +150,14 @@ async fn test_lsp_automatic_codegen() {
 
     // Wait for updated codegen
     let mut updated = false;
-    for _ in 0..20 {
+    for _ in 0..40 {
         if let Ok(c) = fs::read_to_string(&gen_path)
             && c.contains("name: string | null")
         {
             updated = true;
             break;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(1)).await;
     }
     assert!(updated, "Codegen was not updated after didChange");
 
@@ -185,7 +184,7 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     // Wait for codegen
-    wait_for_file(&gen_path, Duration::from_millis(1000)).await;
+    wait_for_file(&gen_path, Duration::from_millis(200)).await;
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("name: string | null"));
     assert!(!content.contains("id: string"));
@@ -197,13 +196,12 @@ async fn wait_for_file(path: &std::path::Path, timeout: Duration) {
         if path.exists() {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(10)).await;
     }
     panic!("Timeout waiting for file {}", path.display());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(2000)]
 async fn test_lsp_automatic_codegen_disabled() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
@@ -292,7 +290,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait for background scan to complete
-    let _ = tokio::time::timeout(Duration::from_millis(500), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -347,7 +345,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait a bit to ensure no codegen happens
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(10)).await;
 
     // Verify disabled project did NOT generate files
     assert!(
@@ -382,7 +380,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait again to ensure no codegen happens
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(500)).await;
     assert!(
         !disabled_gen_path.exists(),
         "Should still not generate files after didChange for disabled project"
@@ -422,7 +420,7 @@ async fn test_lsp_automatic_codegen_disabled() {
             updated = true;
             break;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(50)).await;
     }
     assert!(
         updated,

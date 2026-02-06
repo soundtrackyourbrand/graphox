@@ -5,7 +5,7 @@ use graphql_rust::{
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
-use tokio::time::Duration;
+use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -98,7 +98,7 @@ async fn test_lsp_command_clear_cache() {
         .unwrap();
 
     // Initial diagnostics (should be empty)
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         assert!(
@@ -129,7 +129,14 @@ async fn test_lsp_command_clear_cache() {
         .unwrap();
 
     // Wait for re-validation diagnostics
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    for _ in 0..50 {
+        sleep(Duration::from_millis(10)).await;
+        let diags = received_diags.lock().unwrap();
+        if diags.len() > 1 {
+            // We have new diagnostics after cache clear
+            break;
+        }
+    }
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -215,12 +222,17 @@ async fn test_lsp_command_run_codegen() {
         .await
         .unwrap();
 
-    // Wait for codegen to complete
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
     // Verify files were generated
     let codegen_file = base_dir.join(output_dir).join("query.codegen.ts");
     let entrypoint_file = base_dir.join(output_dir).join("graphql.ts");
+
+    // Wait for codegen to complete
+    for _ in 0..100 {
+        sleep(Duration::from_millis(10)).await;
+        if codegen_file.exists() && entrypoint_file.exists() {
+            break;
+        }
+    }
 
     assert!(codegen_file.exists(), "Codegen file should be generated");
     assert!(

@@ -5,6 +5,7 @@ use graphql_rust::{
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
+use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -97,7 +98,7 @@ async fn test_lsp_multi_schema_merge() {
         .unwrap();
 
     // If merging works, diagnostics should be empty.
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty(), "Should have received diagnostics");
@@ -196,7 +197,7 @@ async fn test_lsp_multi_schema_extension_first() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -299,7 +300,7 @@ async fn test_lsp_multi_schema_with_docs() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -398,7 +399,7 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -501,7 +502,7 @@ async fn test_lsp_multi_schema_triple_overlap() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -600,7 +601,7 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());

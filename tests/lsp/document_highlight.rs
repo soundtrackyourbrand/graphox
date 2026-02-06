@@ -82,7 +82,7 @@ async fn test_document_highlight_variable_in_operation() {
         .unwrap();
 
     // Small delay to ensure document is processed
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Trigger document highlight on $id in the variable definition
     let position = Position::new(0, 15); // Position inside $id variable name (on 'i')
@@ -200,7 +200,7 @@ query GetUser($id: ID!, $skipName: Boolean!) { user(id: $id) { ...UserFields } }
         .unwrap();
 
     // Small delay to ensure processing completes
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Trigger document highlight on $skipName in the query (line 2, position 25 is 's' in skipName)
     let position = Position::new(2, 25); // Position inside $skipName variable name
@@ -340,7 +340,7 @@ const GET_USER = gql`
         .unwrap();
 
     // Small delay to ensure document is processed
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Trigger document highlight on $id in the variable definition
     // Line 4 is "  query GetUser($id: ID!) {"

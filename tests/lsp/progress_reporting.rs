@@ -103,8 +103,20 @@ async fn test_progress_on_workspace_scan() {
         .await
         .unwrap();
 
-    // Wait for workspace scan to complete
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait for workspace scan to complete and progress notifications to arrive
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let notifications = progress_notifications.lock().unwrap();
+        let has_end = notifications.iter().any(|n| {
+            n.get("value")
+                .and_then(|v| v.get("kind"))
+                .and_then(|k| k.as_str())
+                == Some("end")
+        });
+        if has_end {
+            break;
+        }
+    }
 
     // Verify progress notifications were sent
     let notifications = progress_notifications.lock().unwrap();
@@ -229,7 +241,13 @@ async fn test_no_progress_without_capability() {
         .unwrap();
 
     // Wait for workspace scan to complete
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let notifications = progress_notifications.lock().unwrap();
+        if !notifications.is_empty() {
+            break;
+        }
+    }
 
     // Verify NO progress notifications were sent
     let notifications = progress_notifications.lock().unwrap();
@@ -323,7 +341,7 @@ async fn test_progress_on_codegen() {
         .unwrap();
 
     // Wait for workspace scan
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Clear previous notifications
     progress_notifications.lock().unwrap().clear();
@@ -345,7 +363,7 @@ async fn test_progress_on_codegen() {
         .unwrap();
 
     // Wait for codegen to complete
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Verify codegen progress notifications
     let notifications = progress_notifications.lock().unwrap();
@@ -459,8 +477,20 @@ async fn test_progress_messages_contain_percentage() {
         .await
         .unwrap();
 
-    // Wait for workspace scan
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait for workspace scan and progress with percentage
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let notifications = progress_notifications.lock().unwrap();
+        let has_percentage = notifications.iter().any(|n| {
+            n.get("value")
+                .and_then(|v| v.get("percentage"))
+                .and_then(|p| p.as_u64())
+                .is_some()
+        });
+        if has_percentage {
+            break;
+        }
+    }
 
     // Check for percentage in progress notifications
     let notifications = progress_notifications.lock().unwrap();

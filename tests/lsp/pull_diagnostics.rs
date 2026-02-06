@@ -128,7 +128,7 @@ async fn test_pull_diagnostics_basic() {
         .unwrap();
 
     // Wait for validation
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Request diagnostics via pull
     let diag_params = DocumentDiagnosticParams {
@@ -272,7 +272,7 @@ async fn test_pull_diagnostics_unchanged() {
         .unwrap();
 
     // Wait for validation
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // First pull request
     let diag_params = DocumentDiagnosticParams {
@@ -439,7 +439,7 @@ async fn test_workspace_diagnostics() {
     }
 
     // Wait for validation
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Request workspace diagnostics
     let workspace_diag_params = WorkspaceDiagnosticParams {
@@ -605,7 +605,7 @@ async fn test_fallback_to_push_diagnostics() {
         .unwrap();
 
     // Wait for validation
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Verify push diagnostics WERE sent (fallback behavior)
     let push_diags = received_push_diags.lock().unwrap();

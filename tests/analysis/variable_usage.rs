@@ -1,6 +1,7 @@
 use apollo_compiler::Schema;
 use graphql_rust::DocumentState;
 use std::sync::OnceLock;
+use tokio::time::{Duration, sleep};
 use tower_lsp::lsp_types::*;
 
 static SCHEMA: OnceLock<Schema> = OnceLock::new();
@@ -256,7 +257,7 @@ async fn test_fragment_hover_requirements() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let query_uri = Url::from_file_path(query_path).unwrap();
 
@@ -379,7 +380,7 @@ async fn test_fragment_completion_requirements() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let query_uri = Url::from_file_path(query_path).unwrap();
 
@@ -533,7 +534,7 @@ async fn test_variable_references_including_fragments() {
         .unwrap();
 
     // Wait for scan
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let query_uri = Url::from_file_path(query_path).unwrap();
     let frag_uri = Url::from_file_path(frag_path).unwrap();

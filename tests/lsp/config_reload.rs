@@ -67,7 +67,7 @@ projects:
         .unwrap();
 
     // Wait for initialization to complete
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     // Modify config file - add output_dir
     fs::write(
@@ -99,7 +99,7 @@ projects:
     assert!(result.is_ok(), "Config reload should work without errors");
 
     // Wait for config reload to complete (triggers workspace scan)
-    sleep(Duration::from_millis(3000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     // Verify LSP still works by opening a document
     let doc_uri = Url::from_file_path(&query_path).unwrap();
@@ -181,7 +181,7 @@ projects:
         .await
         .unwrap();
 
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     // Write invalid YAML to config file
     fs::write(&config_path, "this is not valid yaml: [unclosed bracket").unwrap();
@@ -206,7 +206,7 @@ projects:
         "LSP should handle invalid config gracefully"
     );
 
-    sleep(Duration::from_millis(2000)).await;
+    sleep(Duration::from_millis(10)).await;
 
     // LSP should still work with old config - test by opening a document
     let doc_uri = Url::from_file_path(&query_path).unwrap();
@@ -280,7 +280,7 @@ projects:
         .await
         .unwrap();
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(10)).await;
 
     // Change a schema file (not config)
     fs::write(

@@ -5,7 +5,7 @@ use graphql_rust::{
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
-use tokio::time::Duration;
+use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -252,7 +252,7 @@ async fn test_lsp_fragment_collisions() {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let diags = received_diags.lock().unwrap();
 
@@ -386,7 +386,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         .await
         .unwrap();
     // Wait for initial diagnostics
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         assert!(
@@ -422,7 +422,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         .await
         .unwrap();
     // 6. Wait for diagnostics after schema change
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -455,7 +455,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         .await
         .unwrap();
     // 8. Verify diagnostics cleared
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -580,7 +580,7 @@ async fn test_lsp_fragment_rename_same_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -615,7 +615,7 @@ async fn test_lsp_fragment_rename_same_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -660,7 +660,7 @@ async fn test_lsp_fragment_rename_same_project() {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -809,7 +809,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -844,7 +844,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         )
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -889,7 +889,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags

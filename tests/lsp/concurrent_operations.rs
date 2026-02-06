@@ -5,6 +5,7 @@ use graphql_rust::{
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
+use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -153,7 +154,7 @@ async fn test_concurrent_document_operations() {
     }
 
     // Allow a brief moment for async processing
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
 
     println!("All documents opened successfully");
 
@@ -238,7 +239,7 @@ async fn test_concurrent_completion_requests() {
     service.call(request).await.unwrap();
 
     // Allow a brief moment for async processing
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let service = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
@@ -280,7 +281,10 @@ async fn test_concurrent_completion_requests() {
         }
     }
 
-    println!("Completed {}/50 concurrent completion requests", success_count);
+    println!(
+        "Completed {}/50 concurrent completion requests",
+        success_count
+    );
     assert_eq!(success_count, 50, "All completion requests should succeed");
 }
 
@@ -354,7 +358,7 @@ async fn test_concurrent_mixed_operations() {
     }
 
     // Allow a brief moment for async processing
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let service = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
@@ -664,7 +668,10 @@ async fn test_concurrent_document_changes() {
         }
     }
 
-    println!("Completed {}/30 concurrent change operations", success_count);
+    println!(
+        "Completed {}/30 concurrent change operations",
+        success_count
+    );
     assert_eq!(
         success_count, 30,
         "All operations should complete without deadlock"
@@ -762,7 +769,7 @@ async fn test_concurrent_cross_file_references() {
     }
 
     // Allow workspace scan to complete
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let service = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
@@ -891,7 +898,7 @@ async fn test_high_volume_concurrent_requests() {
         .finish();
     service.call(request).await.unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(10)).await;
 
     let service = Arc::new(tokio::sync::Mutex::new(service));
     let request_count = 100;
@@ -996,14 +1003,14 @@ async fn test_high_volume_concurrent_requests() {
         "Completed {} requests in {:?} ({} successful, {} errors)",
         request_count, elapsed, success_count, error_count
     );
-    println!("Average: {:?} per request", elapsed / (request_count as u32));
+    println!(
+        "Average: {:?} per request",
+        elapsed / (request_count as u32)
+    );
 
     assert!(
         error_count == 0,
         "No requests should fail due to lock contention"
     );
-    assert_eq!(
-        success_count, request_count,
-        "All requests should succeed"
-    );
+    assert_eq!(success_count, request_count, "All requests should succeed");
 }
