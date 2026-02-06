@@ -28,11 +28,13 @@ pub async fn run_codegen(
 
     let global_metadata = &workspace_metadata.fragments;
     let global_output_dir = config.output_dir.as_deref();
-    let mut all_generated_operations = Vec::new();
     
+    // Report progress
     let total_projects = config.projects.len();
     let mut current_project = 0;
-
+    let mut all_generated_operations = Vec::new();
+    
+    // Generate types for each project
     for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
         current_project += 1;
         let project_files = &project_meta.files;

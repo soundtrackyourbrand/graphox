@@ -8,13 +8,29 @@ use fnv::FnvHashSet;
 use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
 
-/// Registers file watchers for schema files and workspace files
+/// Registers file watchers for schema files, workspace files, and config file
 ///
 /// This function extracts the file watcher registration logic from Backend::initialized().
 /// It runs in a separate tokio task to avoid blocking if the client doesn't respond immediately.
 pub fn register_file_watchers(client: Client, config: &Config) {
     let mut watchers = Vec::new();
     let mut schema_files = FnvHashSet::default();
+
+    // Watch the config file itself (graphql.yaml or graphql.yml)
+    let config_yaml = config.base_dir.join("graphql.yaml");
+    let config_yml = config.base_dir.join("graphql.yml");
+    
+    if config_yaml.exists() {
+        watchers.push(FileSystemWatcher {
+            glob_pattern: GlobPattern::String(config_yaml.to_string_lossy().to_string()),
+            kind: Some(WatchKind::all()),
+        });
+    } else if config_yml.exists() {
+        watchers.push(FileSystemWatcher {
+            glob_pattern: GlobPattern::String(config_yml.to_string_lossy().to_string()),
+            kind: Some(WatchKind::all()),
+        });
+    }
 
     // Collect all schema files from projects
     for project in &config.projects {

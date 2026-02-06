@@ -32,6 +32,7 @@ pub struct FileChangeResult {
     pub should_reload_schema: bool,
     pub schema_path: Option<String>,
     pub should_run_codegen: bool,
+    pub should_reload_config: bool,
 }
 
 /// Processes a single file creation or modification
@@ -43,6 +44,17 @@ pub fn process_file_created_or_changed(
     let path = change_uri.to_file_path().ok()?;
     let path_str = path.to_string_lossy().to_string();
 
+    // Check if this is a config file
+    if is_config_file(&path, params.config) {
+        return Some(FileChangeResult {
+            uris_to_validate: vec![],
+            should_reload_schema: false,
+            schema_path: None,
+            should_run_codegen: false,
+            should_reload_config: true,
+        });
+    }
+
     // Check if this is a schema file
     if is_schema_file(&path_str, params.config) {
         return Some(FileChangeResult {
@@ -50,6 +62,7 @@ pub fn process_file_created_or_changed(
             should_reload_schema: true,
             schema_path: Some(path_str),
             should_run_codegen: false,
+            should_reload_config: false,
         });
     }
 
@@ -142,6 +155,7 @@ pub fn process_file_created_or_changed(
         should_reload_schema: false,
         schema_path: None,
         should_run_codegen: params.config.lsp_automatic_codegen(),
+        should_reload_config: false,
     })
 }
 
@@ -194,7 +208,19 @@ pub fn process_file_deleted(
         should_reload_schema: false,
         schema_path: None,
         should_run_codegen: false,
+        should_reload_config: false,
     })
+}
+
+/// Checks if a path is the config file
+fn is_config_file(path: &std::path::Path, config: &Config) -> bool {
+    let config_yaml = config.base_dir.join("graphql.yaml");
+    let config_yml = config.base_dir.join("graphql.yml");
+
+    path == config_yaml
+        || path == config_yml
+        || path.canonicalize().ok() == config_yaml.canonicalize().ok()
+        || path.canonicalize().ok() == config_yml.canonicalize().ok()
 }
 
 /// Checks if a path is a schema file

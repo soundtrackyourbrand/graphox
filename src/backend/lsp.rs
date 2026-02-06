@@ -27,7 +27,7 @@ pub struct ClientCapabilities {
 pub struct Backend {
     pub client: Client,
     pub documents: Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    pub config: Config,
+    pub config: Arc<std::sync::RwLock<Config>>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub empty_schema: Arc<Schema>,
     pub valid_empty_schema: Arc<apollo_compiler::validation::Valid<Schema>>,
@@ -87,7 +87,7 @@ impl Backend {
         Self {
             client,
             documents: Arc::new(documents),
-            config,
+            config: Arc::new(std::sync::RwLock::new(config)),
 
             schemas: Arc::new(schemas),
             validated_schemas: Arc::new(validated_schemas),
@@ -125,26 +125,29 @@ impl Backend {
     }
 
     pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<apollo_compiler::validation::Valid<Schema>> {
+        let config = self.config.read().unwrap();
         super::validation::get_schema_for_doc(
             uri,
-            &self.config,
+            &config,
             &self.validated_schemas,
             &self.valid_empty_schema,
         )
     }
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
+        let config = self.config.read().unwrap();
         fragment_manager::collect_fragment_metadata(
             &self.fragment_defs,
-            &self.config,
+            &config,
             &self.package_roots,
         )
     }
 
     pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
+        let config = self.config.read().unwrap();
         super::validation::get_fragments_for_doc(
             doc,
-            &self.config,
+            &config,
             &self.fragment_defs,
             &self.package_roots,
         )
@@ -251,17 +254,25 @@ impl Backend {
     {
         let start = std::time::Instant::now();
         let res = fut.await;
-        if let Some(tracing) = &self.config.tracing
-            && tracing.enabled
-        {
-            let elapsed = start.elapsed();
-            if elapsed.as_millis() >= tracing.threshold_ms as u128 {
-                self.client
-                    .log_message(
-                        MessageType::INFO,
-                        format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
-                    )
-                    .await;
+        
+        // Extract tracing config before await
+        let should_log = {
+            let config = self.config.read().unwrap();
+            config.tracing.as_ref()
+                .map(|t| (t.enabled, t.threshold_ms))
+        };
+        
+        if let Some((enabled, threshold_ms)) = should_log {
+            if enabled {
+                let elapsed = start.elapsed();
+                if elapsed.as_millis() >= threshold_ms as u128 {
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
+                        )
+                        .await;
+                }
             }
         }
         res
@@ -272,9 +283,10 @@ impl Backend {
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
         
+        let config = self.config.read().unwrap().clone();
         let reloaded_keys = super::schema_management::reload_schema(
             changed_path,
-            &self.config,
+            &config,
             &self.schemas,
             &self.validated_schemas,
             &self.client,
@@ -286,7 +298,7 @@ impl Backend {
         for key in reloaded_keys {
             let affected = super::schema_management::get_uris_affected_by_schema(
                 &key,
-                &self.config,
+                &config,
                 || self.documents.iter().map(|e| e.key().clone()).collect(),
             );
             self.validate_uris(affected).await;
@@ -294,8 +306,9 @@ impl Backend {
     }
 
     async fn clear_cache(&self) {
+        let config = self.config.read().unwrap().clone();
         super::schema_management::clear_cache(
-            &self.config,
+            &config,
             &self.schemas,
             &self.validated_schemas,
             &self.client,
@@ -311,12 +324,101 @@ impl Backend {
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
         
+        let config = self.config.read().unwrap().clone();
         super::codegen_runner::run_codegen(
             self.client.clone(),
-            self.config.clone(),
+            config,
             self.type_caches.clone(),
             supports_progress,
         ).await;
+    }
+
+    /// Reloads the configuration file and reinitializes the LSP state
+    async fn reload_config(&self) {
+        self.client
+            .log_message(MessageType::INFO, "Configuration file changed, reloading...")
+            .await;
+
+        // Get the base directory from current config
+        let base_dir = self.config.read().unwrap().base_dir.clone();
+
+        // Try to load new config
+        let new_config = match Config::load_from_dir(&base_dir) {
+            Some(config) => config,
+            None => {
+                self.client
+                    .log_message(MessageType::ERROR, "Failed to reload configuration file")
+                    .await;
+                return;
+            }
+        };
+
+        // Update the config
+        *self.config.write().unwrap() = new_config;
+
+        // Clear all state
+        self.schemas.clear();
+        self.validated_schemas.clear();
+        
+        // Only clear non-open documents to preserve user's open files
+        let open_uris: Vec<_> = self.open_documents.iter().map(|r| r.key().clone()).collect();
+        self.documents.retain(|uri, _| open_uris.contains(uri));
+        
+        self.fragment_defs.clear();
+        self.fragment_spreads.clear();
+        self.fragment_dependents.clear();
+        self.fragment_definitions.clear();
+        self.package_roots.clear();
+        self.type_caches.clear();
+        
+        // Re-register file watchers with new config
+        {
+            let config = self.config.read().unwrap();
+            super::file_watchers::register_file_watchers(self.client.clone(), &config);
+        }
+        
+        // Reload schemas from new config
+        let config = self.config.read().unwrap().clone();
+        for project in &config.projects {
+            let key = project.schema.as_key();
+            if !self.schemas.contains_key(&key) {
+                if let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema) {
+                    if let Ok(valid) = (*schema).clone().validate() {
+                        self.validated_schemas.insert(key.clone(), Arc::new(valid));
+                    }
+                    self.schemas.insert(key, schema);
+                }
+            }
+        }
+        
+        // Trigger workspace scan to re-index everything
+        let supports_progress = self.client_capabilities.read()
+            .map(|caps| caps.supports_progress)
+            .unwrap_or(false);
+        
+        // Reset workspace_loaded flag
+        self.workspace_loaded.store(false, std::sync::atomic::Ordering::Relaxed);
+        
+        let scan_config = self.config.read().unwrap().clone();
+        super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
+            client: self.client.clone(),
+            config: scan_config,
+            documents: self.documents.clone(),
+            fragment_defs: self.fragment_defs.clone(),
+            fragment_spreads: self.fragment_spreads.clone(),
+            package_roots: self.package_roots.clone(),
+            fragment_dependents: self.fragment_dependents.clone(),
+            fragment_definitions: self.fragment_definitions.clone(),
+            workspace_loaded: self.workspace_loaded.clone(),
+            empty_schema: self.empty_schema.clone(),
+            schemas: self.schemas.clone(),
+            workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            supports_progress,
+        });
+
+        self.client
+            .log_message(MessageType::INFO, "Configuration reloaded successfully")
+            .await;
     }
 
     fn update_dependency_indices(
@@ -354,10 +456,11 @@ impl Backend {
             (true, false) // Default to push if can't read capabilities
         };
         
+        let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
             client: &self.client,
             documents: &self.documents,
-            config: &self.config,
+            config: &config,
             fragment_defs: &self.fragment_defs,
             fragment_spreads: &self.fragment_spreads,
             package_roots: &self.package_roots,
@@ -385,10 +488,11 @@ impl Backend {
             (true, false) // Default to push if can't read capabilities
         };
         
+        let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
             client: &self.client,
             documents: &self.documents,
-            config: &self.config,
+            config: &config,
             fragment_defs: &self.fragment_defs,
             fragment_spreads: &self.fragment_spreads,
             package_roots: &self.package_roots,
@@ -552,17 +656,24 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "LSP Started!")
             .await;
 
-        if let Some(tracing) = &self.config.tracing
-            && tracing.enabled
-        {
-            self.client
-                .log_message(
-                    MessageType::INFO,
-                    format!(
+        // Check tracing configuration and log if enabled
+        let tracing_msg = {
+            let config = self.config.read().unwrap();
+            config.tracing.as_ref().and_then(|tracing| {
+                if tracing.enabled {
+                    Some(format!(
                         "Performance tracing enabled (threshold: {}ms)",
                         tracing.threshold_ms
-                    ),
-                )
+                    ))
+                } else {
+                    None
+                }
+            })
+        };
+        
+        if let Some(msg) = tracing_msg {
+            self.client
+                .log_message(MessageType::INFO, msg)
                 .await;
         }
 
@@ -571,9 +682,10 @@ impl LanguageServer for Backend {
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
         
+        let config = self.config.read().unwrap().clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
-            config: self.config.clone(),
+            config,
             documents: self.documents.clone(),
             fragment_defs: self.fragment_defs.clone(),
             fragment_spreads: self.fragment_spreads.clone(),
@@ -588,7 +700,8 @@ impl LanguageServer for Backend {
         });
 
         // Register file watchers
-        super::file_watchers::register_file_watchers(self.client.clone(), &self.config);
+        let config = self.config.read().unwrap();
+        super::file_watchers::register_file_watchers(self.client.clone(), &config);
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -636,12 +749,14 @@ impl LanguageServer for Backend {
                                 value.push_str(&desc);
                             }
 
-                            if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path()
-                                && let Some(proj) = self.config.get_project_for_path(&other_p)
+                            if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path() {
+                                let config = self.config.read().unwrap();
+                                if let Some(proj) = config.get_project_for_path(&other_p)
                                     && let Some(import) = &proj.import {
                                         value.push_str("\n\n---\n");
                                         value.push_str(&format!("Import: `{}`", import));
                                     }
+                            }
 
                             return Ok(Some(Hover {
                                 contents: HoverContents::Markup(MarkupContent {
@@ -854,9 +969,10 @@ impl LanguageServer for Backend {
             self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
         self.validate_uris(uris_to_validate).await;
 
-        if self.config.lsp_automatic_codegen() {
+        let should_run_codegen = self.config.read().unwrap().lsp_automatic_codegen();
+        if should_run_codegen {
             let client = self.client.clone();
-            let config = self.config.clone();
+            let config = self.config.read().unwrap().clone();
             let type_caches = self.type_caches.clone();
             let supports_progress = self.client_capabilities.read()
                 .map(|caps| caps.supports_progress)
@@ -890,9 +1006,10 @@ impl LanguageServer for Backend {
             self.validate_uris(result.uris_to_validate).await;
 
             // Run codegen if enabled
-            if self.config.lsp_automatic_codegen() {
+            let should_run_codegen = self.config.read().unwrap().lsp_automatic_codegen();
+            if should_run_codegen {
                 let client = self.client.clone();
-                let config = self.config.clone();
+                let config = self.config.read().unwrap().clone();
                 let type_caches = self.type_caches.clone();
                 let supports_progress = self.client_capabilities.read()
                     .map(|caps| caps.supports_progress)
@@ -931,15 +1048,17 @@ impl LanguageServer for Backend {
                 }
 
                 let mut preferred_uris = Vec::new();
-                if let Ok(path) = uri.to_file_path()
-                    && let Some(project) = self.config.get_project_for_path(&path) {
+                if let Ok(path) = uri.to_file_path() {
+                    let config = self.config.read().unwrap();
+                    if let Some(project) = config.get_project_for_path(&path) {
                         for schema_file in project.schema.files() {
-                            let schema_path = self.config.base_dir.join(schema_file);
+                            let schema_path = config.base_dir.join(schema_file);
                             if let Ok(schema_uri) = Url::from_file_path(schema_path) {
                                 preferred_uris.push(schema_uri);
                             }
                         }
                     }
+                }
 
                 if let Some(loc) = doc_arc.get_field_definition_location(
                     position,
@@ -1336,10 +1455,11 @@ impl LanguageServer for Backend {
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         self.with_tracing("did_change_watched_files", async move {
+            let config = self.config.read().unwrap().clone();
             for change in params.changes {
                 let change_params = super::file_change_handler::FileChangeParams {
                     client: &self.client,
-                    config: &self.config,
+                    config: &config,
                     documents: &self.documents,
                     fragment_defs: &self.fragment_defs,
                     fragment_spreads: &self.fragment_spreads,
@@ -1368,6 +1488,12 @@ impl LanguageServer for Backend {
                 };
 
                 if let Some(result) = result {
+                    // Config reload takes precedence - if config changed, reload everything
+                    if result.should_reload_config {
+                        self.reload_config().await;
+                        continue; // Skip other processing since we're doing a full reload
+                    }
+                    
                     if result.should_reload_schema
                         && let Some(schema_path) = result.schema_path {
                             self.reload_schema(&schema_path).await;
@@ -1379,7 +1505,7 @@ impl LanguageServer for Backend {
 
                     if result.should_run_codegen {
                         let client = self.client.clone();
-                        let config = self.config.clone();
+                        let config = self.config.read().unwrap().clone();
                         let type_caches = self.type_caches.clone();
                         let supports_progress = self.client_capabilities.read()
                             .map(|caps| caps.supports_progress)

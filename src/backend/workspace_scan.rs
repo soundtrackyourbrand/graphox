@@ -189,7 +189,7 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
     let all_fragments_info: Vec<(FragmentCompletionInfo, Option<String>)> =
         super::fragment_manager::collect_fragment_metadata_with_schema(
             fragment_defs,
-            config,
+            &config,
             package_roots,
         );
 
@@ -246,7 +246,7 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
                 &schema,
                 &sorted_fragments,
                 Some(&used_fragments),
-                Some(config),
+                Some(&config),
                 false,
                 true,
             );

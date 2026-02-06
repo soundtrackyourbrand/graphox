@@ -20,7 +20,7 @@ struct CodegenParams<'a> {
 }
 
 pub async fn run_codegen(
-    config: Config,
+    mut config: Config,
     output_dir: Option<&str>,
     watch: bool,
     verbose: bool,
@@ -33,85 +33,104 @@ pub async fn run_codegen(
         return;
     }
 
-    println!("{}", "Watching for changes...".bright_black());
-    let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
+    'watch_loop: loop {
+        println!("{}", "Watching for changes...".bright_black());
+        let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
 
-    let gitignore = graphql_rust::utils::get_gitignore_matcher(&config.base_dir);
-    let mut output_dirs = Vec::new();
-    if let Some(out) = &config.output_dir {
-        output_dirs.push(config.base_dir.join(out));
-    }
-    for p in &config.projects {
-        if let Some(out) = &p.output_dir {
+        let gitignore = graphql_rust::utils::get_gitignore_matcher(&config.base_dir);
+        let mut output_dirs = Vec::new();
+        if let Some(out) = &config.output_dir {
             output_dirs.push(config.base_dir.join(out));
         }
-    }
-
-    let mut debouncer = notify_debouncer_mini::new_debouncer(
-        std::time::Duration::from_millis(200),
-        move |res: notify_debouncer_mini::DebounceEventResult| match res {
-            Ok(events) => {
-                let has_relevant_change = events.iter().any(|e| {
-                    if !graphql_rust::utils::is_relevant_file(&e.path) {
-                        return false;
-                    }
-                    if graphql_rust::utils::is_path_ignored(&e.path, &gitignore) {
-                        return false;
-                    }
-                    if output_dirs.iter().any(|d| e.path.starts_with(d)) {
-                        return false;
-                    }
-                    true
-                });
-                if has_relevant_change {
-                    let _ = tx.blocking_send(());
-                }
+        for p in &config.projects {
+            if let Some(out) = &p.output_dir {
+                output_dirs.push(config.base_dir.join(out));
             }
-            Err(e) => eprintln!("{}: {:?}", "Watch error".red(), e),
-        },
-    )
-    .expect("Failed to create debouncer");
+        }
 
-    // Watch project include directories
-    for project in &config.projects {
-        for pattern in project.include.patterns() {
-            // This is a simplification, ideally we'd find the common parent
-            let path = config.base_dir.join(pattern);
-            let watch_path = if path.to_string_lossy().contains('*') {
-                // Find first non-glob parent
-                let mut p = path.clone();
-                while p.to_string_lossy().contains('*') {
-                    if !p.pop() {
-                        break;
+        let config_tx_clone = config_tx.clone();
+        let base_dir_for_watcher = config.base_dir.clone();
+        let mut debouncer = notify_debouncer_mini::new_debouncer(
+            std::time::Duration::from_millis(200),
+            move |res: notify_debouncer_mini::DebounceEventResult| match res {
+                Ok(events) => {
+                    // Check if config file changed
+                    let has_config_change = events.iter().any(|e| {
+                        let file_name = e.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        file_name == "graphql.yaml" || file_name == "graphql.yml"
+                    });
+                    
+                    if has_config_change {
+                        let _ = config_tx_clone.blocking_send(());
+                        return;
+                    }
+                    
+                    let has_relevant_change = events.iter().any(|e| {
+                        if !graphql_rust::utils::is_relevant_file(&e.path) {
+                            return false;
+                        }
+                        if graphql_rust::utils::is_path_ignored(&e.path, &gitignore) {
+                            return false;
+                        }
+                        if output_dirs.iter().any(|d| e.path.starts_with(d)) {
+                            return false;
+                        }
+                        true
+                    });
+                    if has_relevant_change {
+                        let _ = tx.blocking_send(());
                     }
                 }
-                p
-            } else {
-                path
-            };
-            debouncer
-                .watcher()
-                .watch(&watch_path, notify::RecursiveMode::Recursive)
-                .ok();
-        }
-    }
+                Err(e) => eprintln!("{}: {:?}", "Watch error".red(), e),
+            },
+        )
+        .expect("Failed to create debouncer");
 
-    for project in &config.projects {
-        for file in project.schema.files() {
+        // Watch config files
+        let config_yaml = base_dir_for_watcher.join("graphql.yaml");
+        let config_yml = base_dir_for_watcher.join("graphql.yml");
+        if config_yaml.exists() {
             debouncer
                 .watcher()
-                .watch(
-                    &config.base_dir.join(file),
-                    notify::RecursiveMode::NonRecursive,
-                )
+                .watch(&config_yaml, notify::RecursiveMode::NonRecursive)
                 .ok();
         }
-    }
-    if let Some(schema_types) = &config.schema_types {
-        for st in schema_types {
-            for file in st.schema.files() {
+        if config_yml.exists() {
+            debouncer
+                .watcher()
+                .watch(&config_yml, notify::RecursiveMode::NonRecursive)
+                .ok();
+        }
+
+        // Watch project include directories
+        for project in &config.projects {
+            for pattern in project.include.patterns() {
+                // This is a simplification, ideally we'd find the common parent
+                let path = config.base_dir.join(pattern);
+                let watch_path = if path.to_string_lossy().contains('*') {
+                    // Find first non-glob parent
+                    let mut p = path.clone();
+                    while p.to_string_lossy().contains('*') {
+                        if !p.pop() {
+                            break;
+                        }
+                    }
+                    p
+                } else {
+                    path
+                };
+                debouncer
+                    .watcher()
+                    .watch(&watch_path, notify::RecursiveMode::Recursive)
+                    .ok();
+            }
+        }
+
+        for project in &config.projects {
+            for file in project.schema.files() {
                 debouncer
                     .watcher()
                     .watch(
@@ -121,14 +140,46 @@ pub async fn run_codegen(
                     .ok();
             }
         }
-    }
+        if let Some(schema_types) = &config.schema_types {
+            for st in schema_types {
+                for file in st.schema.files() {
+                    debouncer
+                        .watcher()
+                        .watch(
+                            &config.base_dir.join(file),
+                            notify::RecursiveMode::NonRecursive,
+                        )
+                        .ok();
+                }
+            }
+        }
 
-    while rx.recv().await.is_some() {
-        println!(
-            "{}",
-            "\nChange detected, re-running codegen...".bright_black()
-        );
-        let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
+        loop {
+            tokio::select! {
+                _ = config_rx.recv() => {
+                    println!("{}", "\nConfiguration file changed, reloading...".bright_yellow());
+                    
+                    // Reload config
+                    if let Some(new_config) = Config::load_from_dir(&config.base_dir) {
+                        println!("{}", "Configuration reloaded successfully".bright_green());
+                        config = new_config;
+                        
+                        // Break from inner loop to restart watch with new config
+                        // The debouncer will be dropped automatically
+                        continue 'watch_loop;
+                    } else {
+                        eprintln!("{}", "Failed to reload configuration, continuing with old config".red());
+                    }
+                }
+                _ = rx.recv() => {
+                    println!(
+                        "{}",
+                        "\nChange detected, re-running codegen...".bright_black()
+                    );
+                    let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
+                }
+            }
+        }
     }
 }
 
