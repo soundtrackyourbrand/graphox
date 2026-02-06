@@ -143,9 +143,9 @@ async fn test_codegen_throttle() {
     // With 200ms throttle and 5 rapid changes (100ms total),
     // we should only get 1-2 codegen runs instead of 5
     sleep(Duration::from_millis(500)).await;
-    
+
     let elapsed = start.elapsed();
-    
+
     // Verify the output file was generated
     let output_path = output_dir.join("query.codegen.ts");
     assert!(

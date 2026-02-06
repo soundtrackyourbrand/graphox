@@ -332,7 +332,8 @@ impl DocumentState {
     /// Finds the first child node of the specified kind.
     pub(crate) fn find_child_by_kind<'a>(&self, node: Node<'a>, kind: &str) -> Option<Node<'a>> {
         let mut cursor = node.walk();
-        node.children(&mut cursor).find(|child| child.kind() == kind)
+        node.children(&mut cursor)
+            .find(|child| child.kind() == kind)
     }
 
     /// Finds the first ancestor node of the specified kind.
@@ -408,9 +409,9 @@ impl DocumentState {
         cursor_offset: usize,
     ) -> Option<Node<'a>> {
         let mut cursor = parent.walk();
-        parent.children(&mut cursor).find(|child| {
-            self.is_cursor_in_node_range(*child, offset, cursor_offset)
-        })
+        parent
+            .children(&mut cursor)
+            .find(|child| self.is_cursor_in_node_range(*child, offset, cursor_offset))
     }
 
     /// Extracts the operation type from an operation_definition node.
@@ -422,10 +423,7 @@ impl DocumentState {
     }
 
     /// Extracts the common components from a field node.
-    pub(crate) fn extract_field_components<'a>(
-        &self,
-        field_node: Node<'a>,
-    ) -> FieldComponents<'a> {
+    pub(crate) fn extract_field_components<'a>(&self, field_node: Node<'a>) -> FieldComponents<'a> {
         let mut result = FieldComponents::default();
         let mut cursor = field_node.walk();
         for child in field_node.children(&mut cursor) {
@@ -684,15 +682,17 @@ impl DocumentState {
                     let cap_name = query.capture_names()[cap.index as usize];
                     if cap_name == "symbol.name" {
                         name = Some(self.get_node_text(cap.node, offset));
-                    } else if cap_name == "symbol.container" {
-                        if cap.node.kind() == "operation_type" {
-                            op_type = self.get_node_text(cap.node, offset);
-                            is_operation = true;
-                        }
-                    } else if cap_name == "symbol.full" && cap.node.kind() == "operation_definition"
+                    } else if cap_name == "symbol.container"
+                        && cap.node.kind() == "operation_definition"
                     {
                         is_operation = true;
                         full_node = Some(cap.node);
+                        // Try to find operation_type child to get the operation type (query/mutation/subscription)
+                        if let Some(op_type_node) =
+                            self.find_child_by_kind(cap.node, "operation_type")
+                        {
+                            op_type = self.get_node_text(op_type_node, offset);
+                        }
                     }
                 }
 
@@ -871,7 +871,7 @@ impl DocumentState {
             match kind {
                 "operation_definition" => {
                     let op_type_str = self.get_operation_type(node, offset);
-                    
+
                     let op = match op_type_str.as_str() {
                         "mutation" => apollo_compiler::ast::OperationType::Mutation,
                         "subscription" => apollo_compiler::ast::OperationType::Subscription,
@@ -889,7 +889,8 @@ impl DocumentState {
                 }
                 "field" => {
                     let parent_type = current_type?;
-                    let field_name = self.extract_field_components(node)
+                    let field_name = self
+                        .extract_field_components(node)
                         .name
                         .map(|n| self.get_node_text(n, offset))?;
                     let field_def = match &parent_type {
@@ -1112,12 +1113,14 @@ impl DocumentState {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "argument" {
-                let arg_name = self.find_child_by_kind(child, "name")
+                let arg_name = self
+                    .find_child_by_kind(child, "name")
                     .map(|n| self.get_node_text(n, offset));
-                
+
                 // Find value child (can be "value" or any kind ending with "_value")
                 let mut a_cursor = child.walk();
-                let value_node = child.children(&mut a_cursor)
+                let value_node = child
+                    .children(&mut a_cursor)
                     .find(|n| n.kind() == "value" || n.kind().ends_with("_value"));
 
                 if let (Some(aname), Some(vnode)) = (arg_name, value_node)
@@ -1139,7 +1142,8 @@ impl DocumentState {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "directive" {
-                let dir_name = self.find_child_by_kind(child, "name")
+                let dir_name = self
+                    .find_child_by_kind(child, "name")
                     .map(|n| self.get_node_text(n, offset));
                 let arguments = self.find_child_by_kind(child, "arguments");
 

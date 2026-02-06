@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 use tower_lsp::Client;
 
 use crate::Config;
@@ -51,7 +51,7 @@ impl CodegenThrottle {
                     let throttle_duration = Duration::from_millis(throttle_ms);
                     if time_since < throttle_duration {
                         let wait_time = throttle_duration - time_since;
-                        
+
                         // Drain any additional requests that come in during the wait period
                         tokio::select! {
                             _ = sleep(wait_time) => {

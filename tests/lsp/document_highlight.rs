@@ -55,7 +55,11 @@ async fn test_document_highlight_variable_in_operation() {
         .unwrap();
 
     service
-        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
         .await
         .unwrap();
 
@@ -109,9 +113,13 @@ async fn test_document_highlight_variable_in_operation() {
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     let highlights = result.expect("Expected highlights");
-    
+
     // Should highlight both the definition and the usage
-    assert_eq!(highlights.len(), 2, "Expected 2 highlights (definition + usage)");
+    assert_eq!(
+        highlights.len(),
+        2,
+        "Expected 2 highlights (definition + usage)"
+    );
 
     // Check that we have one WRITE (definition) and one READ (usage)
     let write_count = highlights
@@ -173,7 +181,11 @@ async fn test_document_highlight_variable_across_fragments_same_file() {
         .unwrap();
 
     service
-        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
         .await
         .unwrap();
 
@@ -229,7 +241,7 @@ query GetUser($id: ID!, $skipName: Boolean!) { user(id: $id) { ...UserFields } }
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     let highlights = result.expect("Expected highlights");
-    
+
     // Should highlight the definition in query and usage in fragment (same file)
     assert!(
         highlights.len() >= 2,
@@ -306,7 +318,11 @@ async fn test_document_highlight_variable_in_tsx() {
         .unwrap();
 
     service
-        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
         .await
         .unwrap();
 
@@ -372,9 +388,13 @@ const GET_USER = gql`
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     let highlights = result.expect("Expected highlights");
-    
+
     // Should highlight both the definition and the usage
-    assert_eq!(highlights.len(), 2, "Expected 2 highlights (definition + usage)");
+    assert_eq!(
+        highlights.len(),
+        2,
+        "Expected 2 highlights (definition + usage)"
+    );
 
     // Check that we have one WRITE (definition) and one READ (usage)
     let write_count = highlights

@@ -815,7 +815,12 @@ fn categorize_selections<'a>(
         }
     }
 
-    (fields, inline_fragments, fragment_spreads, has_explicit_typename)
+    (
+        fields,
+        inline_fragments,
+        fragment_spreads,
+        has_explicit_typename,
+    )
 }
 
 /// Generate TypeScript type for object or intersection types (no inline fragments)
@@ -857,7 +862,7 @@ fn generate_field_list(
     used_schema_types: &mut HashSet<String>,
 ) -> Vec<String> {
     let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
-    
+
     if !has_explicit_typename {
         local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
     }
@@ -907,10 +912,10 @@ fn generate_field_list(
 fn format_multiline_object(fields: &[String], indent: usize) -> String {
     let pad = "  ".repeat(indent);
     let inner_pad = "  ".repeat(indent + 1);
-    
+
     let estimated_size = fields.len() * 40 + 20;
     let mut result = String::with_capacity(estimated_size);
-    
+
     for f in fields {
         result.push('\n');
         result.push_str(&inner_pad);
@@ -919,7 +924,7 @@ fn format_multiline_object(fields: &[String], indent: usize) -> String {
     }
     result.push('\n');
     result.push_str(&pad);
-    
+
     let mut output = String::with_capacity(result.len() + 2);
     output.push('{');
     output.push_str(&result);

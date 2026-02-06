@@ -1,5 +1,6 @@
 use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    Backend, Config, config::GlobPattern, config::ProjectConfig, config::RulesConfig,
+    config::SchemaSource,
 };
 use std::fs;
 use tempfile::tempdir;
@@ -266,7 +267,7 @@ async fn test_lsp_smart_extract_field() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_required_field_code_action() {
     use fnv::FnvHashMap;
-    
+
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
 
@@ -311,8 +312,9 @@ async fn test_lsp_required_field_code_action() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
     };
 
@@ -445,7 +447,7 @@ async fn test_lsp_required_field_code_action() {
 
         assert_eq!(file_changes.len(), 1);
         let text_edit = &file_changes[0];
-        
+
         // The edit should add 'requestId' to the selection set
         assert!(
             text_edit.new_text.contains("requestId"),

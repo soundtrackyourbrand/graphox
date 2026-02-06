@@ -6,6 +6,7 @@ mod concurrent_operations;
 mod config_reload;
 mod cross_file_def;
 mod document_highlight;
+mod duplicate_operations;
 mod folding_ranges;
 mod format;
 mod goto_definition;

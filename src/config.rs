@@ -8,6 +8,16 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize, Clone)]
 pub struct RulesConfig {
     pub required_fields: Option<FnvHashMap<String, RequiredFieldRule>>,
+    pub unique_operation_name: Option<bool>,
+}
+
+impl Default for RulesConfig {
+    fn default() -> Self {
+        Self {
+            required_fields: None,
+            unique_operation_name: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -21,9 +31,9 @@ impl RequiredFieldRule {
     pub fn applies_to_operation(&self, operation_type: &str) -> bool {
         match self {
             RequiredFieldRule::Always(enabled) => *enabled,
-            RequiredFieldRule::Operations(ops) => ops.iter().any(|op| {
-                op.eq_ignore_ascii_case(operation_type)
-            }),
+            RequiredFieldRule::Operations(ops) => {
+                ops.iter().any(|op| op.eq_ignore_ascii_case(operation_type))
+            }
         }
     }
 }
@@ -150,10 +160,10 @@ pub struct SchemaTypeConfig {
 
 impl Default for Config {
     /// Returns a default Config with all optional fields set to None.
-    /// 
+    ///
     /// This is useful for tests where you only need to set specific fields.
     /// Use the struct update syntax to override specific fields:
-    /// 
+    ///
     /// ```rust,ignore
     /// let config = Config {
     ///     base_dir: PathBuf::from("/my/project"),

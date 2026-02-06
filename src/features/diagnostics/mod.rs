@@ -91,6 +91,7 @@ impl DocumentState {
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);
         }
+
         diagnostics
     }
 

@@ -8,20 +8,14 @@ use tower_lsp::lsp_types::MessageType;
 /// Logs an error message to the LSP client
 pub async fn log_error(client: &Client, context: &str, error: impl std::fmt::Display) {
     client
-        .log_message(
-            MessageType::ERROR,
-            format!("{}: {}", context, error),
-        )
+        .log_message(MessageType::ERROR, format!("{}: {}", context, error))
         .await;
 }
 
 /// Logs a warning message to the LSP client
 pub async fn log_warning(client: &Client, context: &str, message: impl std::fmt::Display) {
     client
-        .log_message(
-            MessageType::WARNING,
-            format!("{}: {}", context, message),
-        )
+        .log_message(MessageType::WARNING, format!("{}: {}", context, message))
         .await;
 }
 

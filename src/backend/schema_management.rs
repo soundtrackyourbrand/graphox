@@ -68,7 +68,9 @@ pub async fn reload_schema(
 
         match new_schema {
             Some(new_schema) => {
-                if let Ok(valid) = <apollo_compiler::Schema as Clone>::clone(&*new_schema).validate() {
+                if let Ok(valid) =
+                    <apollo_compiler::Schema as Clone>::clone(&*new_schema).validate()
+                {
                     validated_schemas.insert(key.clone(), Arc::new(valid));
                 } else {
                     client
@@ -121,7 +123,9 @@ pub async fn clear_cache(
         if !schemas.contains_key(&key) {
             match crate::schema::load_schema_arc(&config.base_dir, &project.schema) {
                 Some(schema) => {
-                    if let Ok(valid) = <apollo_compiler::Schema as Clone>::clone(&*schema).validate() {
+                    if let Ok(valid) =
+                        <apollo_compiler::Schema as Clone>::clone(&*schema).validate()
+                    {
                         validated_schemas.insert(key.clone(), Arc::new(valid));
                     } else {
                         client

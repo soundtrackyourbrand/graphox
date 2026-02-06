@@ -132,8 +132,10 @@ async fn test_missing_field_diagnostic_with_suggestions() {
 
             // Verify data contains similar_fields
             if let Some(data) = &missing_field_diag.data {
-                let similar_fields: Vec<String> =
-                    serde_json::from_value::<Vec<String>>(data.get("similar_fields").unwrap().clone()).unwrap();
+                let similar_fields: Vec<String> = serde_json::from_value::<Vec<String>>(
+                    data.get("similar_fields").unwrap().clone(),
+                )
+                .unwrap();
                 assert!(!similar_fields.is_empty());
                 assert!(similar_fields.contains(&"name".to_string()));
             } else {
@@ -257,7 +259,7 @@ async fn test_missing_field_code_actions() {
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     let actions = result.expect("Expected actions");
-    
+
     // Should have code actions for "username" and "name"
     let username_action = actions
         .iter()
@@ -276,7 +278,10 @@ async fn test_missing_field_code_actions() {
         let changes = edit.changes.as_ref().unwrap();
         let edits = &changes[&query_uri];
         assert_eq!(edits[0].new_text, "username");
-        assert_eq!(edits[0].range, Range::new(Position::new(0, 19), Position::new(0, 26)));
+        assert_eq!(
+            edits[0].range,
+            Range::new(Position::new(0, 19), Position::new(0, 26))
+        );
     }
 
     let name_action = actions

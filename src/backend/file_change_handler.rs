@@ -23,6 +23,7 @@ pub struct FileChangeParams<'a> {
     pub package_roots: &'a Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
     pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub operation_names: &'a Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
     pub gitignore: &'a ignore::gitignore::Gitignore,
 }
 
@@ -98,7 +99,7 @@ pub async fn process_file_created_or_changed(
             return None;
         }
     };
-    
+
     let language = DocumentLanguage::from_uri(&uri);
     let mut parser = tree_sitter::Parser::new();
     if let Err(e) = parser.set_language(&language.get_parser_language()) {
@@ -110,7 +111,7 @@ pub async fn process_file_created_or_changed(
         .await;
         return None;
     }
-    
+
     let new_doc = DocumentState::new(uri.clone(), &content, parser);
 
     let old_fragments = params
@@ -167,6 +168,34 @@ pub async fn process_file_created_or_changed(
         new_fragment_names,
     );
     update_dependency_indices(params.fragment_dependents, &uri, old_spreads, new_spreads);
+
+    // Update operation name index
+    if let Some(schema_key) = params.config.get_schema_for_path(&path) {
+        // Remove old operations for this URI
+        let mut operations_to_update: Vec<String> = Vec::new();
+        for mut entry in params.operation_names.iter_mut() {
+            let op_name = entry.key().clone();
+            entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
+            if entry.value().is_empty() {
+                operations_to_update.push(op_name);
+            }
+        }
+        // Clean up empty entries
+        for op_name in operations_to_update {
+            params.operation_names.remove(&op_name);
+        }
+
+        // Add new operations
+        for op in new_doc.operations() {
+            if let Some(name) = &op.name {
+                params
+                    .operation_names
+                    .entry(name.clone())
+                    .or_default()
+                    .push((schema_key.clone(), uri.clone()));
+            }
+        }
+    }
 
     // Update documents map if we have it
     if params.documents.contains_key(&uri) {
@@ -225,6 +254,19 @@ pub fn process_file_deleted(
     params.package_roots.remove(&uri);
     update_definition_indices(params.fragment_definitions, &uri, old_fragments, vec![]);
     update_dependency_indices(params.fragment_dependents, &uri, old_spreads, vec![]);
+
+    // Remove operations from index
+    let mut operations_to_clean: Vec<String> = Vec::new();
+    for mut entry in params.operation_names.iter_mut() {
+        let op_name = entry.key().clone();
+        entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
+        if entry.value().is_empty() {
+            operations_to_clean.push(op_name);
+        }
+    }
+    for op_name in operations_to_clean {
+        params.operation_names.remove(&op_name);
+    }
 
     let uris_to_validate = super::validation::get_affected_uris(
         uri,

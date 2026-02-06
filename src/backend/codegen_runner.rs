@@ -152,20 +152,20 @@ pub async fn run_codegen(
                         config.base_dir.join(out_path)
                     };
 
-                    if let Some(parent) = abs_out_path.parent() {
-                        if let Err(e) = std::fs::create_dir_all(parent) {
-                            client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    format!(
-                                        "Failed to create output directory {}: {}",
-                                        parent.display(),
-                                        e
-                                    ),
-                                )
-                                .await;
-                            continue;
-                        }
+                    if let Some(parent) = abs_out_path.parent()
+                        && let Err(e) = std::fs::create_dir_all(parent)
+                    {
+                        client
+                            .log_message(
+                                MessageType::ERROR,
+                                format!(
+                                    "Failed to create output directory {}: {}",
+                                    parent.display(),
+                                    e
+                                ),
+                            )
+                            .await;
+                        continue;
                     }
 
                     match std::fs::write(&abs_out_path, ts_code) {

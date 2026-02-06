@@ -52,6 +52,9 @@ pub struct WorkspaceMetadata {
     pub projects: Vec<ProjectMetadata>,
     pub timings: WorkspaceScanTimings,
     pub documents: HashMap<PathBuf, DocumentState>,
+    /// Maps operation name -> project index -> list of file paths
+    /// Used to detect duplicate operation names within a project
+    pub operation_names_by_project: HashMap<String, HashMap<usize, Vec<PathBuf>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +286,26 @@ impl Engine {
         Self::compute_fragment_dependencies(&mut all_fragments);
         timings.fragment_deps_computation = start_deps.elapsed();
 
+        // 6. Build operation name index for duplicate detection
+        let mut operation_names_by_project: HashMap<String, HashMap<usize, Vec<PathBuf>>> =
+            HashMap::default();
+        for (project_idx, (paths, _)) in project_info.iter().enumerate() {
+            for path in paths {
+                if let Some(doc) = path_to_doc.get(path) {
+                    for op in doc.operations() {
+                        if let Some(name) = &op.name {
+                            operation_names_by_project
+                                .entry(name.clone())
+                                .or_default()
+                                .entry(project_idx)
+                                .or_default()
+                                .push(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         WorkspaceMetadata {
             fragments: all_fragments,
             operations: all_operations,
@@ -296,6 +319,7 @@ impl Engine {
                 .collect(),
             timings,
             documents: path_to_doc,
+            operation_names_by_project,
         }
     }
 

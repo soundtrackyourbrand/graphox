@@ -30,6 +30,9 @@ pub struct Backend {
     pub package_roots: Arc<DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
     pub fragment_dependents: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub fragment_definitions: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    /// Maps operation name -> (project schema key, URI)
+    /// Used to detect duplicate operation names within a project
+    pub operation_names: Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
     pub workspace_loaded: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
@@ -60,16 +63,18 @@ impl Backend {
             DashMap::with_hasher(ahash::RandomState::default());
 
         let empty_schema = Arc::new(
-            Schema::parse("type Query { _empty: String }", "empty.graphql")
-                .unwrap_or_else(|e| {
-                    super::error_logging::log_error_sync(format!(
-                        "Failed to parse empty schema (this should never happen): {}",
-                        e
-                    ));
-                    // Fallback to absolutely minimal schema
-                    Schema::parse("schema { query: Query } type Query { __typename: String }", "fallback.graphql")
-                        .expect("Critical error: even fallback schema failed to parse")
-                }),
+            Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap_or_else(|e| {
+                super::error_logging::log_error_sync(format!(
+                    "Failed to parse empty schema (this should never happen): {}",
+                    e
+                ));
+                // Fallback to absolutely minimal schema
+                Schema::parse(
+                    "schema { query: Query } type Query { __typename: String }",
+                    "fallback.graphql",
+                )
+                .expect("Critical error: even fallback schema failed to parse")
+            }),
         );
         let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap_or_else(|e| {
             super::error_logging::log_error_sync(format!(
@@ -139,6 +144,7 @@ impl Backend {
             package_roots: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             fragment_dependents: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             fragment_definitions: Arc::new(fragment_definitions),
+            operation_names: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             workspace_loaded: Arc::new(AtomicBool::new(false)),
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
@@ -293,7 +299,7 @@ impl Backend {
             let config = self.config.read().unwrap();
             config.get_timeouts().lsp_request_ms
         };
-        
+
         let tracing_config = {
             let config = self.config.read().unwrap();
             config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
@@ -417,12 +423,13 @@ impl Backend {
         for project in &config.projects {
             let key = project.schema.as_key();
             if !self.schemas.contains_key(&key)
-                && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema) {
-                    if let Ok(valid) = (*schema).clone().validate() {
-                        self.validated_schemas.insert(key.clone(), Arc::new(valid));
-                    }
-                    self.schemas.insert(key, schema);
+                && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema)
+            {
+                if let Ok(valid) = (*schema).clone().validate() {
+                    self.validated_schemas.insert(key.clone(), Arc::new(valid));
                 }
+                self.schemas.insert(key, schema);
+            }
         }
 
         // Trigger workspace scan to re-index everything
@@ -446,6 +453,7 @@ impl Backend {
             package_roots: self.package_roots.clone(),
             fragment_dependents: self.fragment_dependents.clone(),
             fragment_definitions: self.fragment_definitions.clone(),
+            operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
@@ -507,6 +515,7 @@ impl Backend {
             open_documents: &self.open_documents,
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
+            operation_names: &self.operation_names,
             supports_progress,
         };
         super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
@@ -534,6 +543,7 @@ impl Backend {
             open_documents: &self.open_documents,
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
+            operation_names: &self.operation_names,
             supports_progress,
         };
         super::validation::validate_all_documents(params, use_push, Some(&self.diagnostic_cache))
@@ -625,17 +635,17 @@ impl Backend {
     /// Look up fragment definition using the fragment index
     fn lookup_fragment_in_index(&self, name: &str, doc: &Arc<DocumentState>) -> Option<Location> {
         let uris = self.fragment_definitions.get(name)?;
-        
+
         for other_uri in uris.iter() {
             let other_doc = self.documents.get(other_uri).map(|r| r.value().clone())?;
-            
-            if self.is_fragment_accessible(&other_doc, doc, name) {
-                if let Some(location) = other_doc.find_definition_in_tree(name) {
-                    return Some(location);
-                }
+
+            if self.is_fragment_accessible(&other_doc, doc, name)
+                && let Some(location) = other_doc.find_definition_in_tree(name)
+            {
+                return Some(location);
             }
         }
-        
+
         None
     }
 
@@ -745,6 +755,7 @@ impl LanguageServer for Backend {
             package_roots: self.package_roots.clone(),
             fragment_dependents: self.fragment_dependents.clone(),
             fragment_definitions: self.fragment_definitions.clone(),
+            operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
@@ -1098,17 +1109,24 @@ impl LanguageServer for Backend {
             let symbol_name = doc_arc.get_symbol_at_position(position);
 
             // Try variable definition
-            if let Some(location) = self.try_goto_variable_definition(&symbol_name, &doc_arc, position) {
+            if let Some(location) =
+                self.try_goto_variable_definition(&symbol_name, &doc_arc, position)
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
             // Try field definition
-            if let Some(location) = self.try_goto_field_definition(&uri, &doc_arc, position, &schema) {
+            if let Some(location) =
+                self.try_goto_field_definition(&uri, &doc_arc, position, &schema)
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
             // Try fragment definition
-            if let Some(location) = self.try_goto_fragment_definition(&symbol_name, &doc_arc).await {
+            if let Some(location) = self
+                .try_goto_fragment_definition(&symbol_name, &doc_arc)
+                .await
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
@@ -1205,10 +1223,11 @@ impl LanguageServer for Backend {
                 let symbol_name = doc.get_symbol_at_position(position);
 
                 if let Some(name) = symbol_name
-                    && name.starts_with('$') {
-                        // Get highlights in the current document only
-                        return Ok(doc.get_document_highlights(position));
-                    }
+                    && name.starts_with('$')
+                {
+                    // Get highlights in the current document only
+                    return Ok(doc.get_document_highlights(position));
+                }
             }
 
             Ok(None)
@@ -1502,12 +1521,12 @@ impl LanguageServer for Backend {
                                 actions.push(CodeActionOrCommand::CodeAction(action));
                             }
                         }
-                    } else if code == "required_field_missing" {
-                        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
-                            let field_actions = doc.get_required_field_actions(&diagnostic);
-                            for action in field_actions {
-                                actions.push(CodeActionOrCommand::CodeAction(action));
-                            }
+                    } else if code == "required_field_missing"
+                        && let Some(doc) = self.documents.get(uri).map(|r| r.value().clone())
+                    {
+                        let field_actions = doc.get_required_field_actions(&diagnostic);
+                        for action in field_actions {
+                            actions.push(CodeActionOrCommand::CodeAction(action));
                         }
                     }
                 }
@@ -1544,17 +1563,15 @@ impl LanguageServer for Backend {
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         let start = std::time::Instant::now();
-        
+
         // Get timeout duration
         let timeout_ms = {
             let config = self.config.read().unwrap();
             config.get_timeouts().lsp_request_ms
         };
-        
+
         // Apply timeout
-        let _res = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            async move {
+        let _res = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async move {
             let config = self.config.read().unwrap().clone();
             for change in params.changes {
                 let change_params = super::file_change_handler::FileChangeParams {
@@ -1566,6 +1583,7 @@ impl LanguageServer for Backend {
                     package_roots: &self.package_roots,
                     fragment_dependents: &self.fragment_dependents,
                     fragment_definitions: &self.fragment_definitions,
+                    operation_names: &self.operation_names,
                     gitignore: &self.gitignore,
                 };
 
@@ -1606,16 +1624,16 @@ impl LanguageServer for Backend {
                     }
 
                     // Request throttled codegen if enabled
-                    if result.should_run_codegen {
-                        if let Some(throttle) = &self.codegen_throttle {
-                            throttle.request_codegen();
-                        }
+                    if result.should_run_codegen
+                        && let Some(throttle) = &self.codegen_throttle
+                    {
+                        throttle.request_codegen();
                     }
                 }
             }
-        }
-        ).await;
-        
+        })
+        .await;
+
         if _res.is_err() {
             let elapsed = start.elapsed();
             self.client
@@ -1637,17 +1655,21 @@ impl LanguageServer for Backend {
         };
 
         if let Some((enabled, threshold_ms)) = should_log
-            && enabled {
-                let elapsed = start.elapsed();
-                if elapsed.as_millis() >= threshold_ms as u128 {
-                    self.client
-                        .log_message(
-                            MessageType::INFO,
-                            format!("LSP Request 'did_change_watched_files' took {}ms", elapsed.as_millis()),
-                        )
-                        .await;
-                }
+            && enabled
+        {
+            let elapsed = start.elapsed();
+            if elapsed.as_millis() >= threshold_ms as u128 {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!(
+                            "LSP Request 'did_change_watched_files' took {}ms",
+                            elapsed.as_millis()
+                        ),
+                    )
+                    .await;
             }
+        }
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
@@ -1682,100 +1704,104 @@ impl LanguageServer for Backend {
         params: DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
         let start = std::time::Instant::now();
-        
+
         // Get timeout duration
         let timeout_ms = {
             let config = self.config.read().unwrap();
             config.get_timeouts().lsp_request_ms
         };
-        
+
         // Apply timeout
         let res = match tokio::time::timeout(
             std::time::Duration::from_millis(timeout_ms),
             async move {
-            let uri = self.normalize_uri(params.text_document.uri.clone());
+                let uri = self.normalize_uri(params.text_document.uri.clone());
 
-            // Get the current document version
-            let doc_version = if let Some(doc) = self.documents.get(&uri) {
-                doc.version
-            } else {
-                // Document not found
-                return Ok(DocumentDiagnosticReportResult::Report(
-                    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-                        related_documents: None,
-                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                            result_id: None,
-                            items: vec![],
-                        },
-                    }),
-                ));
-            };
-
-            // Check if we have cached diagnostics
-            if let Some(cached) = self.diagnostic_cache.get(&uri) {
-                let (cached_version, cached_diagnostics) = cached.value();
-
-                // If the cached version matches the previous result ID, return unchanged
-                if let Some(prev_result_id) = &params.previous_result_id
-                    && let Ok(prev_version) = prev_result_id.parse::<i32>()
-                        && prev_version == *cached_version && prev_version == doc_version {
-                            return Ok(DocumentDiagnosticReportResult::Report(
-                                DocumentDiagnosticReport::Unchanged(
-                                    RelatedUnchangedDocumentDiagnosticReport {
-                                        related_documents: None,
-                                        unchanged_document_diagnostic_report:
-                                            UnchangedDocumentDiagnosticReport {
-                                                result_id: cached_version.to_string(),
-                                            },
-                                    },
-                                ),
-                            ));
-                        }
-
-                // Return cached diagnostics if version matches
-                if *cached_version == doc_version {
+                // Get the current document version
+                let doc_version = if let Some(doc) = self.documents.get(&uri) {
+                    doc.version
+                } else {
+                    // Document not found
                     return Ok(DocumentDiagnosticReportResult::Report(
                         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                             related_documents: None,
                             full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                                result_id: Some(cached_version.to_string()),
-                                items: cached_diagnostics.clone(),
+                                result_id: None,
+                                items: vec![],
+                            },
+                        }),
+                    ));
+                };
+
+                // Check if we have cached diagnostics
+                if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                    let (cached_version, cached_diagnostics) = cached.value();
+
+                    // If the cached version matches the previous result ID, return unchanged
+                    if let Some(prev_result_id) = &params.previous_result_id
+                        && let Ok(prev_version) = prev_result_id.parse::<i32>()
+                        && prev_version == *cached_version
+                        && prev_version == doc_version
+                    {
+                        return Ok(DocumentDiagnosticReportResult::Report(
+                            DocumentDiagnosticReport::Unchanged(
+                                RelatedUnchangedDocumentDiagnosticReport {
+                                    related_documents: None,
+                                    unchanged_document_diagnostic_report:
+                                        UnchangedDocumentDiagnosticReport {
+                                            result_id: cached_version.to_string(),
+                                        },
+                                },
+                            ),
+                        ));
+                    }
+
+                    // Return cached diagnostics if version matches
+                    if *cached_version == doc_version {
+                        return Ok(DocumentDiagnosticReportResult::Report(
+                            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                                related_documents: None,
+                                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                    result_id: Some(cached_version.to_string()),
+                                    items: cached_diagnostics.clone(),
+                                },
+                            }),
+                        ));
+                    }
+                }
+
+                // No cache or outdated cache - compute diagnostics
+                // Force validation with caching but no push
+                self.validate_uris(vec![uri.clone()]).await;
+
+                // Retrieve from cache
+                if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                    let (version, diagnostics) = cached.value();
+                    return Ok(DocumentDiagnosticReportResult::Report(
+                        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                            related_documents: None,
+                            full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                result_id: Some(version.to_string()),
+                                items: diagnostics.clone(),
                             },
                         }),
                     ));
                 }
-            }
 
-            // No cache or outdated cache - compute diagnostics
-            // Force validation with caching but no push
-            self.validate_uris(vec![uri.clone()]).await;
-
-            // Retrieve from cache
-            if let Some(cached) = self.diagnostic_cache.get(&uri) {
-                let (version, diagnostics) = cached.value();
-                return Ok(DocumentDiagnosticReportResult::Report(
+                // Fallback: return empty diagnostics
+                Ok(DocumentDiagnosticReportResult::Report(
                     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                         related_documents: None,
                         full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                            result_id: Some(version.to_string()),
-                            items: diagnostics.clone(),
+                            result_id: Some(doc_version.to_string()),
+                            items: vec![],
                         },
                     }),
-                ));
-            }
-
-            // Fallback: return empty diagnostics
-            Ok(DocumentDiagnosticReportResult::Report(
-                DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-                    related_documents: None,
-                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                        result_id: Some(doc_version.to_string()),
-                        items: vec![],
-                    },
-                }),
-            ))
-        }
-        ).await {
+                ))
+            },
+        )
+        .await
+        {
             Ok(result) => result,
             Err(_) => {
                 let elapsed = start.elapsed();
@@ -1809,17 +1835,18 @@ impl LanguageServer for Backend {
         };
 
         if let Some((enabled, threshold_ms)) = should_log
-            && enabled {
-                let elapsed = start.elapsed();
-                if elapsed.as_millis() >= threshold_ms as u128 {
-                    self.client
-                        .log_message(
-                            MessageType::INFO,
-                            format!("LSP Request 'diagnostic' took {}ms", elapsed.as_millis()),
-                        )
-                        .await;
-                }
+            && enabled
+        {
+            let elapsed = start.elapsed();
+            if elapsed.as_millis() >= threshold_ms as u128 {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("LSP Request 'diagnostic' took {}ms", elapsed.as_millis()),
+                    )
+                    .await;
             }
+        }
         res
     }
 
@@ -1828,67 +1855,69 @@ impl LanguageServer for Backend {
         params: WorkspaceDiagnosticParams,
     ) -> Result<WorkspaceDiagnosticReportResult> {
         let start = std::time::Instant::now();
-        
+
         // Get timeout duration
         let timeout_ms = {
             let config = self.config.read().unwrap();
             config.get_timeouts().lsp_request_ms
         };
-        
+
         // Apply timeout
         let res = match tokio::time::timeout(
             std::time::Duration::from_millis(timeout_ms),
             async move {
-            let mut items = Vec::new();
+                let mut items = Vec::new();
 
-            // Get all document URIs
-            let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
+                // Get all document URIs
+                let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
 
-            // Validate all documents (this will cache diagnostics)
-            self.validate_all_documents().await;
+                // Validate all documents (this will cache diagnostics)
+                self.validate_all_documents().await;
 
-            // Collect diagnostics from cache
-            for uri in all_uris {
-                if let Some(cached) = self.diagnostic_cache.get(&uri) {
-                    let (version, diagnostics) = cached.value();
+                // Collect diagnostics from cache
+                for uri in all_uris {
+                    if let Some(cached) = self.diagnostic_cache.get(&uri) {
+                        let (version, diagnostics) = cached.value();
 
-                    // Check if this URI was in the previous result
-                    let unchanged = params
-                        .previous_result_ids
-                        .iter()
-                        .any(|prev| prev.uri == uri && prev.value == version.to_string());
+                        // Check if this URI was in the previous result
+                        let unchanged = params
+                            .previous_result_ids
+                            .iter()
+                            .any(|prev| prev.uri == uri && prev.value == version.to_string());
 
-                    if unchanged {
-                        items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
-                            WorkspaceUnchangedDocumentDiagnosticReport {
-                                uri: uri.clone(),
-                                version: Some((*version) as i64),
-                                unchanged_document_diagnostic_report:
-                                    UnchangedDocumentDiagnosticReport {
-                                        result_id: version.to_string(),
-                                    },
-                            },
-                        ));
-                    } else {
-                        items.push(WorkspaceDocumentDiagnosticReport::Full(
-                            WorkspaceFullDocumentDiagnosticReport {
-                                uri: uri.clone(),
-                                version: Some((*version) as i64),
-                                full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                                    result_id: Some(version.to_string()),
-                                    items: diagnostics.clone(),
+                        if unchanged {
+                            items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
+                                WorkspaceUnchangedDocumentDiagnosticReport {
+                                    uri: uri.clone(),
+                                    version: Some((*version) as i64),
+                                    unchanged_document_diagnostic_report:
+                                        UnchangedDocumentDiagnosticReport {
+                                            result_id: version.to_string(),
+                                        },
                                 },
-                            },
-                        ));
+                            ));
+                        } else {
+                            items.push(WorkspaceDocumentDiagnosticReport::Full(
+                                WorkspaceFullDocumentDiagnosticReport {
+                                    uri: uri.clone(),
+                                    version: Some((*version) as i64),
+                                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                        result_id: Some(version.to_string()),
+                                        items: diagnostics.clone(),
+                                    },
+                                },
+                            ));
+                        }
                     }
                 }
-            }
 
-            Ok(WorkspaceDiagnosticReportResult::Report(
-                WorkspaceDiagnosticReport { items },
-            ))
-        }
-        ).await {
+                Ok(WorkspaceDiagnosticReportResult::Report(
+                    WorkspaceDiagnosticReport { items },
+                ))
+            },
+        )
+        .await
+        {
             Ok(result) => result,
             Err(_) => {
                 let elapsed = start.elapsed();
@@ -1916,17 +1945,21 @@ impl LanguageServer for Backend {
         };
 
         if let Some((enabled, threshold_ms)) = should_log
-            && enabled {
-                let elapsed = start.elapsed();
-                if elapsed.as_millis() >= threshold_ms as u128 {
-                    self.client
-                        .log_message(
-                            MessageType::INFO,
-                            format!("LSP Request 'workspace_diagnostic' took {}ms", elapsed.as_millis()),
-                        )
-                        .await;
-                }
+            && enabled
+        {
+            let elapsed = start.elapsed();
+            if elapsed.as_millis() >= threshold_ms as u128 {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!(
+                            "LSP Request 'workspace_diagnostic' took {}ms",
+                            elapsed.as_millis()
+                        ),
+                    )
+                    .await;
             }
+        }
         res
     }
 }

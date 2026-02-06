@@ -34,6 +34,7 @@ pub struct ValidationParams<'a> {
     pub open_documents: &'a Arc<DashSet<Url, ahash::RandomState>>,
     pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub operation_names: &'a Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
     pub supports_progress: bool,
 }
 
@@ -94,7 +95,7 @@ pub async fn validate_uris(
                 params.package_roots,
             );
 
-            let diagnostics = doc.get_semantic_diagnostics(
+            let mut diagnostics = doc.get_semantic_diagnostics(
                 &schema,
                 &filtered_fragments,
                 Some(&used_fragments),
@@ -102,6 +103,21 @@ pub async fn validate_uris(
                 false,
                 workspace_loaded,
             );
+
+            // Add duplicate operation name diagnostics if enabled
+            if let Some(rules) = &params.config.rules
+                && let Some(true) = rules.unique_operation_name
+                && let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = params.config.get_schema_for_path(&path)
+            {
+                add_duplicate_operation_diagnostics(
+                    &doc,
+                    &uri,
+                    &schema_key,
+                    params.operation_names,
+                    &mut diagnostics,
+                );
+            }
 
             // Cache diagnostics for pull-based diagnostics
             if let Some(cache) = diagnostic_cache {
@@ -266,4 +282,113 @@ pub fn get_fragments_for_doc(
     });
 
     filtered
+}
+
+/// Adds diagnostics for duplicate operation names within the same project
+fn add_duplicate_operation_diagnostics(
+    doc: &DocumentState,
+    uri: &Url,
+    schema_key: &str,
+    operation_names: &Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    // Check each operation in this document
+    for op in doc.operations() {
+        if let Some(name) = &op.name {
+            // Look up this operation name in the index
+            if let Some(entry) = operation_names.get(name) {
+                // Filter to only operations in the same project (same schema)
+                let locations_in_project: Vec<&Url> = entry
+                    .value()
+                    .iter()
+                    .filter(|(schema, _)| schema == schema_key)
+                    .map(|(_, uri)| uri)
+                    .collect();
+
+                // If there are multiple locations in this project, it's a duplicate
+                if locations_in_project.len() > 1 {
+                    // Find the position of the operation in this document
+                    let range = find_operation_range(doc, name).unwrap_or(Range {
+                        start: Position::new(0, 0),
+                        end: Position::new(0, 0),
+                    });
+
+                    // Build list of other files
+                    let other_files: Vec<String> = locations_in_project
+                        .iter()
+                        .filter(|loc| **loc != uri)
+                        .filter_map(|loc| loc.to_file_path().ok())
+                        .map(|path| path.display().to_string())
+                        .collect();
+
+                    let message = if other_files.is_empty() {
+                        // Duplicate is in the same file
+                        format!("Duplicate operation name '{}'", name)
+                    } else {
+                        format!(
+                            "Duplicate operation name '{}' (also in: {})",
+                            name,
+                            other_files.join(", ")
+                        )
+                    };
+
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message,
+                        code: Some(NumberOrString::String("duplicate_operation".to_string())),
+                        ..Default::default()
+                    });
+
+                    // Only report once per operation name in this file
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Finds the range of an operation definition by name
+fn find_operation_range(doc: &DocumentState, operation_name: &str) -> Option<Range> {
+    use crate::queries::*;
+    use tree_sitter::{QueryCursor, StreamingIterator};
+
+    for block in doc.get_graphql_trees() {
+        let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+
+        let mut cursor = QueryCursor::new();
+        let mut matches =
+            cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
+                doc.rope
+                    .byte_slice(
+                        (node.start_byte() + block.offset)..(node.end_byte() + block.offset),
+                    )
+                    .chunks()
+            });
+
+        while let Some(m) = matches.next() {
+            let mut name = None;
+            let mut op_node = None;
+
+            for cap in m.captures {
+                let cap_name = query.capture_names()[cap.index as usize];
+                if cap_name == "symbol.name" {
+                    name = Some(doc.get_node_text(cap.node, block.offset));
+                } else if cap_name == "symbol.full" && cap.node.kind() == "operation_definition" {
+                    op_node = Some(cap.node);
+                }
+            }
+
+            if let (Some(n), Some(node)) = (name, op_node)
+                && n == operation_name
+            {
+                return Some(doc.translate_to_file_range(node, block.offset));
+            }
+        }
+    }
+
+    None
 }

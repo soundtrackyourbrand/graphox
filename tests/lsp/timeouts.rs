@@ -1,5 +1,6 @@
 use graphql_rust::{
-    Backend, Config, config::{GlobPattern, ProjectConfig, SchemaSource, TimeoutConfig},
+    Backend, Config,
+    config::{GlobPattern, ProjectConfig, SchemaSource, TimeoutConfig},
 };
 use std::fs;
 use tempfile::tempdir;
@@ -24,7 +25,7 @@ async fn test_lsp_request_timeout() {
         schema_content.push_str(&format!("field{}: String ", i));
     }
     schema_content.push_str("}\n");
-    
+
     // Add many types to make the schema larger
     for i in 0..500 {
         schema_content.push_str(&format!("type Type{} {{ id: ID! name: String }}\n", i));
@@ -54,7 +55,7 @@ async fn test_lsp_request_timeout() {
         tracing: None,
         timeouts: Some(TimeoutConfig {
             workspace_scan_ms: 60000, // Keep workspace scan long
-            lsp_request_ms: 10,        // Very short timeout for LSP requests
+            lsp_request_ms: 10,       // Very short timeout for LSP requests
         }),
         watch_all_files: None,
         lsp_automatic_codegen: Some(false),
@@ -66,7 +67,7 @@ async fn test_lsp_request_timeout() {
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-    
+
     let init_params = InitializeParams::default();
     let request = Request::build("initialize")
         .params(serde_json::to_value(&init_params).unwrap())
@@ -157,7 +158,7 @@ async fn test_workspace_scan_timeout() {
         generate_ast_for_fragments: None,
         tracing: None,
         timeouts: Some(TimeoutConfig {
-            workspace_scan_ms: 5,     // Very short timeout to trigger timeout
+            workspace_scan_ms: 5, // Very short timeout to trigger timeout
             lsp_request_ms: 1000,
         }),
         watch_all_files: None,
@@ -170,7 +171,7 @@ async fn test_workspace_scan_timeout() {
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-    
+
     let init_params = InitializeParams::default();
     let request = Request::build("initialize")
         .params(serde_json::to_value(&init_params).unwrap())
@@ -201,7 +202,10 @@ async fn test_workspace_scan_timeout() {
     let result = service.call(request).await;
 
     // The request should complete - LSP should still be responsive after workspace scan timeout
-    assert!(result.is_ok(), "LSP should remain responsive after workspace scan timeout");
+    assert!(
+        result.is_ok(),
+        "LSP should remain responsive after workspace scan timeout"
+    );
 }
 
 #[tokio::test]
@@ -244,7 +248,7 @@ async fn test_timeout_with_normal_config() {
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-    
+
     let init_params = InitializeParams::default();
     let request = Request::build("initialize")
         .params(serde_json::to_value(&init_params).unwrap())
@@ -296,5 +300,8 @@ async fn test_timeout_with_normal_config() {
     let result = service.call(request).await;
 
     // Should get a response without timing out
-    assert!(result.is_ok(), "Should receive hover response without timeout");
+    assert!(
+        result.is_ok(),
+        "Should receive hover response without timeout"
+    );
 }

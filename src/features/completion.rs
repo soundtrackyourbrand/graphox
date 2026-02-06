@@ -56,7 +56,9 @@ impl DocumentState {
 
         while let Some(current) = node {
             // Try directive completions first
-            if let Some(items) = self.try_directive_completions(current, offset, cursor_offset, schema) {
+            if let Some(items) =
+                self.try_directive_completions(current, offset, cursor_offset, schema)
+            {
                 return Some(items);
             }
 
@@ -109,10 +111,13 @@ impl DocumentState {
     }
 
     /// Find the context node for directive completion
-    fn find_directive_context_node<'a>(&self, current: Node<'a>, offset: usize) -> Option<Node<'a>> {
+    fn find_directive_context_node<'a>(
+        &self,
+        current: Node<'a>,
+        offset: usize,
+    ) -> Option<Node<'a>> {
         let mut context_node = if current.kind() == "directive"
-            || (current.kind() == "name"
-                && current.parent().map(|p| p.kind()) == Some("directive"))
+            || (current.kind() == "name" && current.parent().map(|p| p.kind()) == Some("directive"))
         {
             let dir_node = if current.kind() == "name" {
                 current.parent().unwrap()
@@ -139,13 +144,20 @@ impl DocumentState {
     }
 
     /// Find the directive location based on the context node
-    fn find_directive_location<'a>(&self, mut p: Node<'a>, offset: usize) -> Option<ast::DirectiveLocation> {
+    fn find_directive_location<'a>(
+        &self,
+        mut p: Node<'a>,
+        offset: usize,
+    ) -> Option<ast::DirectiveLocation> {
         loop {
             // If at selection, descend to actual selection type
             if p.kind() == "selection" {
                 let mut cursor = p.walk();
                 for child in p.children(&mut cursor) {
-                    if matches!(child.kind(), "field" | "fragment_spread" | "inline_fragment") {
+                    if matches!(
+                        child.kind(),
+                        "field" | "fragment_spread" | "inline_fragment"
+                    ) {
                         p = child;
                         break;
                     }
@@ -158,9 +170,7 @@ impl DocumentState {
                 "fragment_definition" => Some(ast::DirectiveLocation::FragmentDefinition),
                 "inline_fragment" => Some(ast::DirectiveLocation::InlineFragment),
                 "fragment_spread" => Some(ast::DirectiveLocation::FragmentSpread),
-                "operation_definition" => {
-                    Some(self.get_operation_directive_location(p, offset))
-                }
+                "operation_definition" => Some(self.get_operation_directive_location(p, offset)),
                 _ => None,
             };
 
@@ -177,7 +187,11 @@ impl DocumentState {
     }
 
     /// Get directive location for an operation definition
-    fn get_operation_directive_location(&self, node: Node, offset: usize) -> ast::DirectiveLocation {
+    fn get_operation_directive_location(
+        &self,
+        node: Node,
+        offset: usize,
+    ) -> ast::DirectiveLocation {
         let op_type_string = self.get_operation_type(node, offset);
         let op_type = match op_type_string.as_str() {
             "mutation" => ast::OperationType::Mutation,
@@ -213,13 +227,8 @@ impl DocumentState {
             return None;
         }
 
-        let items = self.complete_selection_set_at_node(
-            current,
-            offset,
-            cursor_offset,
-            schema,
-            fragments,
-        )?;
+        let items =
+            self.complete_selection_set_at_node(current, offset, cursor_offset, schema, fragments)?;
 
         // Filter to only include fragments
         Some(
@@ -242,19 +251,13 @@ impl DocumentState {
         fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         match current.kind() {
-            "type_condition" | "named_type" => {
-                Some(self.get_all_type_completions(schema))
-            }
+            "type_condition" | "named_type" => Some(self.get_all_type_completions(schema)),
             "variable" | "variable_definitions" | "arguments" => {
                 Some(self.get_operation_variables(root, offset, cursor_offset))
             }
             "fragment_spread" => {
                 let parent_type = self.find_parent_type_for_node(current, offset, schema);
-                Some(self.get_fragment_name_completions(
-                    fragments,
-                    parent_type.as_ref(),
-                    schema,
-                ))
+                Some(self.get_fragment_name_completions(fragments, parent_type.as_ref(), schema))
             }
             "fragment_definition" => {
                 if self.is_after_on(offset, local_byte) {
@@ -268,15 +271,13 @@ impl DocumentState {
                     fragments,
                 )
             }
-            "selection_set" | "operation_definition" => {
-                self.complete_selection_set_at_node(
-                    current,
-                    offset,
-                    cursor_offset,
-                    schema,
-                    fragments,
-                )
-            }
+            "selection_set" | "operation_definition" => self.complete_selection_set_at_node(
+                current,
+                offset,
+                cursor_offset,
+                schema,
+                fragments,
+            ),
             _ => None,
         }
     }
@@ -323,7 +324,7 @@ impl DocumentState {
     ) -> Vec<CompletionItem> {
         let local_byte = cursor_offset.saturating_sub(offset);
         let current = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
-        
+
         let target_op = current.and_then(|c| self.find_ancestor_by_kind(c, "operation_definition"));
 
         if let Some(op) = target_op {
@@ -396,26 +397,25 @@ impl DocumentState {
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
-        if let Some(type_cond) = self.find_child_by_kind(node, "type_condition") {
-            if self.is_cursor_in_node_range(type_cond, offset, cursor_offset) {
-                return Some(self.get_all_type_completions(schema));
-            }
+        if let Some(type_cond) = self.find_child_by_kind(node, "type_condition")
+            && self.is_cursor_in_node_range(type_cond, offset, cursor_offset)
+        {
+            return Some(self.get_all_type_completions(schema));
         }
 
-        if let Some(selection_set) = self.find_child_by_kind(node, "selection_set") {
-            if self.is_cursor_in_node_range(selection_set, offset, cursor_offset)
-                && let Some(type_name) = self.get_fragment_type_condition(node, offset)
-                && let Some(type_def) = schema.types.get(type_name.as_str())
-            {
-                return self.complete_selection_set_recursive(
-                    selection_set,
-                    offset,
-                    cursor_offset,
-                    type_def,
-                    schema,
-                    fragments,
-                );
-            }
+        if let Some(selection_set) = self.find_child_by_kind(node, "selection_set")
+            && self.is_cursor_in_node_range(selection_set, offset, cursor_offset)
+            && let Some(type_name) = self.get_fragment_type_condition(node, offset)
+            && let Some(type_def) = schema.types.get(type_name.as_str())
+        {
+            return self.complete_selection_set_recursive(
+                selection_set,
+                offset,
+                cursor_offset,
+                type_def,
+                schema,
+                fragments,
+            );
         }
         None
     }
@@ -440,17 +440,17 @@ impl DocumentState {
             self.find_parent_type_for_node(node, offset, schema)
         };
 
-        if let Some(type_def) = parent_type {
-            if let Some(selection_set) = self.find_child_by_kind(node, "selection_set") {
-                return self.complete_selection_set_recursive(
-                    selection_set,
-                    offset,
-                    cursor_offset,
-                    &type_def,
-                    schema,
-                    fragments,
-                );
-            }
+        if let Some(type_def) = parent_type
+            && let Some(selection_set) = self.find_child_by_kind(node, "selection_set")
+        {
+            return self.complete_selection_set_recursive(
+                selection_set,
+                offset,
+                cursor_offset,
+                &type_def,
+                schema,
+                fragments,
+            );
         }
         None
     }
@@ -547,29 +547,25 @@ impl DocumentState {
             };
 
             if let Some(field_def) = field_def {
-                if let Some(args) = components.arguments {
-                    if self.is_cursor_in_node_range(args, offset, cursor_offset) {
-                        return Some(self.get_operation_variables(
-                            field_node,
-                            offset,
-                            cursor_offset,
-                        ));
-                    }
+                if let Some(args) = components.arguments
+                    && self.is_cursor_in_node_range(args, offset, cursor_offset)
+                {
+                    return Some(self.get_operation_variables(field_node, offset, cursor_offset));
                 }
 
-                if let Some(sss) = components.selection_set {
-                    if self.is_cursor_in_node_range(sss, offset, cursor_offset) {
-                        let field_type_name = field_def.ty.inner_named_type();
-                        if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
-                            return self.complete_selection_set_recursive(
-                                sss,
-                                offset,
-                                cursor_offset,
-                                field_type_def,
-                                schema,
-                                fragments,
-                            );
-                        }
+                if let Some(sss) = components.selection_set
+                    && self.is_cursor_in_node_range(sss, offset, cursor_offset)
+                {
+                    let field_type_name = field_def.ty.inner_named_type();
+                    if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
+                        return self.complete_selection_set_recursive(
+                            sss,
+                            offset,
+                            cursor_offset,
+                            field_type_def,
+                            schema,
+                            fragments,
+                        );
                     }
                 }
             }

@@ -27,6 +27,7 @@ pub struct WorkspaceScanParams {
     pub package_roots: Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
     pub fragment_dependents: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub fragment_definitions: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub operation_names: Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
     pub workspace_loaded: Arc<AtomicBool>,
     pub empty_schema: Arc<Schema>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
@@ -43,13 +44,14 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
         let timeout_ms = params.config.get_timeouts().workspace_scan_ms;
         let start = std::time::Instant::now();
         let client = params.client.clone();
-        
+
         // Apply timeout to the entire workspace scan operation
         let scan_result = tokio::time::timeout(
             std::time::Duration::from_millis(timeout_ms),
-            perform_workspace_scan(params)
-        ).await;
-        
+            perform_workspace_scan(params),
+        )
+        .await;
+
         match scan_result {
             Ok(()) => {
                 let elapsed = start.elapsed();
@@ -78,39 +80,39 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
 }
 
 async fn perform_workspace_scan(params: WorkspaceScanParams) {
-        // Create progress reporter
-        let progress = super::progress::ProgressReporter::new(
-            params.client.clone(),
-            "Scanning workspace",
-            params.supports_progress,
+    // Create progress reporter
+    let progress = super::progress::ProgressReporter::new(
+        params.client.clone(),
+        "Scanning workspace",
+        params.supports_progress,
+    )
+    .await;
+
+    let cancelled = params.workspace_scan_cancelled.clone();
+
+    // Scan workspace and index all fragments/spreads
+    progress
+        .report("Discovering GraphQL files...", Some(10))
+        .await;
+    let workspace_metadata = scan_and_index_workspace(&params, &cancelled);
+
+    let total_docs = workspace_metadata.documents.len();
+    progress
+        .report(
+            format!("Indexed {} files, validating...", total_docs),
+            Some(70),
         )
         .await;
 
-        let cancelled = params.workspace_scan_cancelled.clone();
+    params.workspace_loaded.store(true, Ordering::SeqCst);
 
-        // Scan workspace and index all fragments/spreads
-        progress
-            .report("Discovering GraphQL files...", Some(10))
-            .await;
-        let workspace_metadata = scan_and_index_workspace(&params, &cancelled);
+    // Validate all documents with proper schemas and fragments
+    validate_all_documents(&params).await;
 
-        let total_docs = workspace_metadata.documents.len();
-        progress
-            .report(
-                format!("Indexed {} files, validating...", total_docs),
-                Some(70),
-            )
-            .await;
-
-        params.workspace_loaded.store(true, Ordering::SeqCst);
-
-        // Validate all documents with proper schemas and fragments
-        validate_all_documents(&params).await;
-
-        // End progress
-        progress
-            .end(Some(format!("Finished scanning {} files", total_docs)))
-            .await;
+    // End progress
+    progress
+        .end(Some(format!("Finished scanning {} files", total_docs)))
+        .await;
 }
 
 /// Scans workspace and indexes all fragments and spreads
@@ -178,6 +180,21 @@ fn scan_and_index_workspace(
                     .entry(spread.clone())
                     .or_default()
                     .insert(uri.clone());
+            }
+
+            // Index operations for duplicate detection
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = params.config.get_schema_for_path(&path)
+            {
+                for op in doc.operations() {
+                    if let Some(name) = &op.name {
+                        params
+                            .operation_names
+                            .entry(name.clone())
+                            .or_default()
+                            .push((schema_key.clone(), uri.clone()));
+                    }
+                }
             }
 
             // If the document is not already open, we still might want to keep it in memory

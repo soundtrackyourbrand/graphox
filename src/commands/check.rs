@@ -73,6 +73,36 @@ pub async fn run_check(config: Config, verbose: bool) {
         }
     }
 
+    // Check for duplicate operation names across all projects if the rule is enabled
+    if let Some(rules) = &config.rules
+        && let Some(true) = rules.unique_operation_name
+    {
+        for (op_name, projects_map) in &workspace_metadata.operation_names_by_project {
+            for (project_idx, paths) in projects_map {
+                if paths.len() > 1 {
+                    success = false;
+                    let project_name = &cfg.projects[*project_idx].include.as_key();
+                    println!(
+                        "\n{} Duplicate operation name '{}' in project {}:",
+                        "Error:".red(),
+                        op_name.yellow(),
+                        project_name.blue()
+                    );
+                    for path in paths {
+                        let display_path = if let Some(doc) = workspace_metadata.documents.get(path)
+                            && let Some(root) = &doc.package_root
+                        {
+                            path.strip_prefix(root).unwrap_or(path)
+                        } else {
+                            path.as_path()
+                        };
+                        println!("  - {}", display_path.display().to_string().blue());
+                    }
+                }
+            }
+        }
+    }
+
     if !success {
         println!("{}", "\nCheck failed.".red());
         std::process::exit(1);

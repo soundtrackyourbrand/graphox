@@ -1,3 +1,4 @@
+mod duplicate_operations;
 mod field_definition;
 mod required_fields;
 mod schema_extensions;

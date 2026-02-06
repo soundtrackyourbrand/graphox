@@ -1,6 +1,9 @@
 use apollo_compiler::Schema;
 use fnv::FnvHashMap;
-use graphql_rust::{Config, DocumentState};
+use graphql_rust::{
+    Config, DocumentState,
+    config::{RequiredFieldRule, RulesConfig},
+};
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::*;
 
@@ -49,14 +52,12 @@ fn test_required_field_always_true() {
 
     // Create config with required field rule (always true)
     let mut required_fields = FnvHashMap::default();
-    required_fields.insert(
-        "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Always(true),
-    );
+    required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -92,14 +93,12 @@ fn test_required_field_missing_always_true() {
 
     // Create config with required field rule (always true)
     let mut required_fields = FnvHashMap::default();
-    required_fields.insert(
-        "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Always(true),
-    );
+    required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -138,14 +137,12 @@ fn test_required_field_always_false() {
 
     // Create config with required field rule (always false, disabled)
     let mut required_fields = FnvHashMap::default();
-    required_fields.insert(
-        "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Always(false),
-    );
+    required_fields.insert("users".to_string(), RequiredFieldRule::Always(false));
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -182,12 +179,13 @@ fn test_required_field_specific_operation_query() {
     let mut required_fields = FnvHashMap::default();
     required_fields.insert(
         "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Operations(vec!["query".to_string()]),
+        RequiredFieldRule::Operations(vec!["query".to_string()]),
     );
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -242,12 +240,13 @@ fn test_required_field_specific_operation_mutation_not_required() {
     let mut required_fields = FnvHashMap::default();
     required_fields.insert(
         "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Operations(vec!["query".to_string()]),
+        RequiredFieldRule::Operations(vec!["query".to_string()]),
     );
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -300,15 +299,13 @@ fn test_required_field_multiple_operations() {
     let mut required_fields = FnvHashMap::default();
     required_fields.insert(
         "createUser".to_string(),
-        graphql_rust::config::RequiredFieldRule::Operations(vec![
-            "query".to_string(),
-            "mutation".to_string(),
-        ]),
+        RequiredFieldRule::Operations(vec!["query".to_string(), "mutation".to_string()]),
     );
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -345,12 +342,13 @@ fn test_required_field_case_insensitive() {
     let mut required_fields = FnvHashMap::default();
     required_fields.insert(
         "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Operations(vec!["QUERY".to_string()]),
+        RequiredFieldRule::Operations(vec!["QUERY".to_string()]),
     );
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -384,18 +382,13 @@ fn test_multiple_required_fields() {
 
     // Create config with multiple required fields
     let mut required_fields = FnvHashMap::default();
-    required_fields.insert(
-        "users".to_string(),
-        graphql_rust::config::RequiredFieldRule::Always(true),
-    );
-    required_fields.insert(
-        "posts".to_string(),
-        graphql_rust::config::RequiredFieldRule::Always(true),
-    );
+    required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("posts".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };
@@ -451,12 +444,13 @@ fn test_required_field_subscription() {
     let mut required_fields = FnvHashMap::default();
     required_fields.insert(
         "userAdded".to_string(),
-        graphql_rust::config::RequiredFieldRule::Operations(vec!["subscription".to_string()]),
+        RequiredFieldRule::Operations(vec!["subscription".to_string()]),
     );
 
     let config = Config {
-        rules: Some(graphql_rust::config::RulesConfig {
+        rules: Some(RulesConfig {
             required_fields: Some(required_fields),
+            ..RulesConfig::default()
         }),
         ..Default::default()
     };

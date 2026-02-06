@@ -55,7 +55,9 @@ impl DocumentState {
                 let trigger_node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
                 // Find containing operation
-                if let Some(op_node) = self.find_ancestor_by_kind(trigger_node, "operation_definition") {
+                if let Some(op_node) =
+                    self.find_ancestor_by_kind(trigger_node, "operation_definition")
+                {
                     return Some((op_node, offset));
                 }
             }
@@ -201,7 +203,8 @@ impl DocumentState {
                                 if let Some(parent_type) =
                                     self.find_parent_type_for_node(field_node, offset, schema)
                                 {
-                                    let field_node_name = self.find_child_by_kind(field_node, "name")
+                                    let field_node_name = self
+                                        .find_child_by_kind(field_node, "name")
                                         .map(|child| self.get_node_text(child, offset))
                                         .unwrap_or_default();
 
@@ -281,7 +284,8 @@ impl DocumentState {
                                     }
                                 }
                             } else if field_node.kind() == "directive" {
-                                let dir_name = self.find_child_by_kind(field_node, "name")
+                                let dir_name = self
+                                    .find_child_by_kind(field_node, "name")
                                     .map(|child| self.get_node_text(child, offset))
                                     .unwrap_or_default();
 
@@ -580,17 +584,17 @@ impl DocumentState {
                             "fields_definition" => {
                                 let mut f_walker = child.walk();
                                 for f_child in child.children(&mut f_walker) {
-                                    if f_child.kind() == "field_definition" {
-                                        if let Some(name_node) = self.find_child_by_kind(f_child, "name") {
-                                            let f_name = self.get_node_text(name_node, offset);
-                                            if f_name == field_name {
-                                                return Some(Location {
-                                                    uri: self.uri.clone(),
-                                                    range: self.translate_to_file_range(
-                                                        name_node, offset,
-                                                    ),
-                                                });
-                                            }
+                                    if f_child.kind() == "field_definition"
+                                        && let Some(name_node) =
+                                            self.find_child_by_kind(f_child, "name")
+                                    {
+                                        let f_name = self.get_node_text(name_node, offset);
+                                        if f_name == field_name {
+                                            return Some(Location {
+                                                uri: self.uri.clone(),
+                                                range: self
+                                                    .translate_to_file_range(name_node, offset),
+                                            });
                                         }
                                     }
                                 }
@@ -601,8 +605,7 @@ impl DocumentState {
                                     if f_name == field_name {
                                         return Some(Location {
                                             uri: self.uri.clone(),
-                                            range: self
-                                                .translate_to_file_range(name_node, offset),
+                                            range: self.translate_to_file_range(name_node, offset),
                                         });
                                     }
                                 }
@@ -610,20 +613,19 @@ impl DocumentState {
                             "enum_values_definition" => {
                                 let mut f_walker = child.walk();
                                 for f_child in child.children(&mut f_walker) {
-                                    if f_child.kind() == "enum_value_definition" {
-                                        if let Some(enum_value) = self.find_child_by_kind(f_child, "enum_value") {
-                                            if let Some(name_node) = self.find_child_by_kind(enum_value, "name") {
-                                                let f_name = self.get_node_text(name_node, offset);
-                                                if f_name == field_name {
-                                                    return Some(Location {
-                                                        uri: self.uri.clone(),
-                                                        range: self
-                                                            .translate_to_file_range(
-                                                                name_node, offset,
-                                                            ),
-                                                    });
-                                                }
-                                            }
+                                    if f_child.kind() == "enum_value_definition"
+                                        && let Some(enum_value) =
+                                            self.find_child_by_kind(f_child, "enum_value")
+                                        && let Some(name_node) =
+                                            self.find_child_by_kind(enum_value, "name")
+                                    {
+                                        let f_name = self.get_node_text(name_node, offset);
+                                        if f_name == field_name {
+                                            return Some(Location {
+                                                uri: self.uri.clone(),
+                                                range: self
+                                                    .translate_to_file_range(name_node, offset),
+                                            });
                                         }
                                     }
                                 }
@@ -684,16 +686,15 @@ impl DocumentState {
                         if child.kind() == "arguments_definition" {
                             let mut a_walker = child.walk();
                             for a_child in child.children(&mut a_walker) {
-                                if a_child.kind() == "input_value_definition" {
-                                    if let Some(name_node) = self.find_child_by_kind(a_child, "name") {
-                                        if self.get_node_text(name_node, offset) == arg_name {
-                                            return Some(Location {
-                                                uri: self.uri.clone(),
-                                                range: self
-                                                    .translate_to_file_range(name_node, offset),
-                                            });
-                                        }
-                                    }
+                                if a_child.kind() == "input_value_definition"
+                                    && let Some(name_node) =
+                                        self.find_child_by_kind(a_child, "name")
+                                    && self.get_node_text(name_node, offset) == arg_name
+                                {
+                                    return Some(Location {
+                                        uri: self.uri.clone(),
+                                        range: self.translate_to_file_range(name_node, offset),
+                                    });
                                 }
                             }
                         }

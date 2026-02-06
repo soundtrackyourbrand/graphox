@@ -1,13 +1,13 @@
-use tower_lsp::lsp_types::*;
-use tower_lsp::Client;
 use std::time::Instant;
+use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 
 /// Normalize a file URI by resolving it to canonical path
 pub fn normalize_uri(uri: Url) -> Url {
-    if let Ok(path) = uri.to_file_path() {
-        if let Ok(canon) = std::fs::canonicalize(&path) {
-            return Url::from_file_path(canon).unwrap_or(uri);
-        }
+    if let Ok(path) = uri.to_file_path()
+        && let Ok(canon) = std::fs::canonicalize(&path)
+    {
+        return Url::from_file_path(canon).unwrap_or(uri);
     }
     uri
 }
@@ -47,17 +47,17 @@ where
     };
 
     // Log if tracing is enabled and threshold exceeded
-    if let Some((enabled, threshold_ms)) = tracing_config {
-        if enabled {
-            let elapsed = start.elapsed();
-            if elapsed.as_millis() >= threshold_ms as u128 {
-                client
-                    .log_message(
-                        MessageType::INFO,
-                        format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
-                    )
-                    .await;
-            }
+    if let Some((enabled, threshold_ms)) = tracing_config
+        && enabled
+    {
+        let elapsed = start.elapsed();
+        if elapsed.as_millis() >= threshold_ms as u128 {
+            client
+                .log_message(
+                    MessageType::INFO,
+                    format!("LSP Request '{}' took {}ms", name, elapsed.as_millis()),
+                )
+                .await;
         }
     }
 

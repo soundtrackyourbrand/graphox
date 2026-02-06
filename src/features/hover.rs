@@ -244,20 +244,12 @@ impl DocumentState {
             return Some(info);
         }
 
-        if let Some(child) = self.find_child_by_kind(node, "selection_set") {
-            if self.is_cursor_in_node_range(child, offset, cursor_offset)
-                && let Some(type_name) = self.get_fragment_type_condition(node, offset)
-                && let Some(type_def) = schema.types.get(type_name.as_str())
-            {
-                return self.find_field_recursive(
-                    child,
-                    offset,
-                    cursor_offset,
-                    type_def,
-                    schema,
-                    0,
-                );
-            }
+        if let Some(child) = self.find_child_by_kind(node, "selection_set")
+            && self.is_cursor_in_node_range(child, offset, cursor_offset)
+            && let Some(type_name) = self.get_fragment_type_condition(node, offset)
+            && let Some(type_def) = schema.types.get(type_name.as_str())
+        {
+            return self.find_field_recursive(child, offset, cursor_offset, type_def, schema, 0);
         }
         None
     }
@@ -351,7 +343,7 @@ impl DocumentState {
         if depth > 100 {
             return None;
         }
-        
+
         let components = self.extract_field_components(field_node);
 
         if let Some(name_node) = components.name {
@@ -374,42 +366,40 @@ impl DocumentState {
                     ));
                 }
 
-                if let Some(args_node) = components.arguments {
-                    if self.is_cursor_in_node_range(args_node, offset, cursor_offset)
-                        && let Some(info) = self.find_argument_info(
-                            args_node,
+                if let Some(args_node) = components.arguments
+                    && self.is_cursor_in_node_range(args_node, offset, cursor_offset)
+                    && let Some(info) = self.find_argument_info(
+                        args_node,
+                        offset,
+                        cursor_offset,
+                        &field_def.arguments,
+                        schema,
+                    )
+                {
+                    return Some(info);
+                }
+
+                if let Some(dirs_node) = components.directives
+                    && self.is_cursor_in_node_range(dirs_node, offset, cursor_offset)
+                    && let Some(info) =
+                        self.find_directive_info(dirs_node, offset, cursor_offset, schema)
+                {
+                    return Some(info);
+                }
+
+                if let Some(sss) = components.selection_set
+                    && self.is_cursor_in_node_range(sss, offset, cursor_offset)
+                {
+                    let field_type_name = field_def.ty.inner_named_type();
+                    if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
+                        return self.find_field_recursive(
+                            sss,
                             offset,
                             cursor_offset,
-                            &field_def.arguments,
+                            field_type_def,
                             schema,
-                        )
-                    {
-                        return Some(info);
-                    }
-                }
-
-                if let Some(dirs_node) = components.directives {
-                    if self.is_cursor_in_node_range(dirs_node, offset, cursor_offset)
-                        && let Some(info) =
-                            self.find_directive_info(dirs_node, offset, cursor_offset, schema)
-                    {
-                        return Some(info);
-                    }
-                }
-
-                if let Some(sss) = components.selection_set {
-                    if self.is_cursor_in_node_range(sss, offset, cursor_offset) {
-                        let field_type_name = field_def.ty.inner_named_type();
-                        if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
-                            return self.find_field_recursive(
-                                sss,
-                                offset,
-                                cursor_offset,
-                                field_type_def,
-                                schema,
-                                depth + 1,
-                            );
-                        }
+                            depth + 1,
+                        );
                     }
                 }
             } else if cursor_offset >= name_range.start
