@@ -17,8 +17,8 @@ VSCode extension for the GraphQL Rust Language Server.
 
 ### Prerequisites
 
-- Node.js (v16+)
-- npm
+- Node.js (v18+)
+- pnpm
 - Rust toolchain (to build the language server binary)
 
 ### Building and Installing Locally
@@ -34,19 +34,19 @@ cargo build --release
 
 ```bash
 # From the editors/vscode directory
-npm install
+pnpm install
 ```
 
 3. **Compile the extension:**
 
 ```bash
-npm run compile
+pnpm run compile
 ```
 
 4. **Package the extension:**
 
 ```bash
-npm run package
+pnpm run package
 ```
 
 This creates a `.vsix` file (e.g., `graphql-rust-0.1.0.vsix`) that you can install.
@@ -54,7 +54,7 @@ This creates a `.vsix` file (e.g., `graphql-rust-0.1.0.vsix`) that you can insta
 5. **Install the extension in VSCode:**
 
 ```bash
-npm run install-local
+pnpm run install-local
 ```
 
 Or manually install via VSCode:
@@ -70,7 +70,7 @@ For active development with live reloading:
 1. **Terminal 1 - Watch the TypeScript compilation:**
 
 ```bash
-npm run watch
+pnpm run watch
 ```
 
 2. **Terminal 2 - Rebuild the Rust binary when needed:**

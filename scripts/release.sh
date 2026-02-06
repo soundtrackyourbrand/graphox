@@ -65,6 +65,12 @@ if [ -f "editors/vscode/package.json" ]; then
     rm editors/vscode/package.json.bak
 fi
 
+# Update version in NPM CLI package.json
+if [ -f "npm/graphql-rust-cli/package.json" ]; then
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/graphql-rust-cli/package.json
+    rm npm/graphql-rust-cli/package.json.bak
+fi
+
 # Update Cargo.lock
 cargo update -p graphql-rust -p graphql-rust-swc-plugin 2>/dev/null || cargo update -p graphql-rust 2>/dev/null || true
 
@@ -75,6 +81,9 @@ if [ -f "plugins/swc/Cargo.toml" ]; then
 fi
 if [ -f "editors/vscode/package.json" ]; then
     git add editors/vscode/package.json
+fi
+if [ -f "npm/graphql-rust-cli/package.json" ]; then
+    git add npm/graphql-rust-cli/package.json
 fi
 git commit -m "chore: bump version to $NEW_VERSION"
 

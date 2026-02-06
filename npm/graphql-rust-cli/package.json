@@ -1,0 +1,43 @@
+{
+  "name": "graphql-rust-cli",
+  "version": "0.1.0",
+  "description": "GraphQL Language Server and Codegen CLI",
+  "bin": {
+    "graphql-rust": "./bin/graphql-rust"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "prepack": "node scripts/prepare-package.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/graphql-rust.git"
+  },
+  "keywords": [
+    "graphql",
+    "lsp",
+    "language-server",
+    "codegen",
+    "typescript",
+    "rust"
+  ],
+  "author": "YOUR_NAME",
+  "license": "MIT",
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

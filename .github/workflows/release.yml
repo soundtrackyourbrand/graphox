@@ -261,22 +261,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'pnpm'
+          cache-dependency-path: editors/vscode/pnpm-lock.yaml
 
       - name: Install dependencies
         working-directory: editors/vscode
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Compile extension
         working-directory: editors/vscode
-        run: npm run compile
+        run: pnpm run compile
 
       - name: Package extension
         working-directory: editors/vscode
-        run: npm run package
+        run: pnpm run package
 
       - name: Get VSIX filename
         id: vsix_filename

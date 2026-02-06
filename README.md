@@ -21,6 +21,46 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 - Standalone `.graphql` files
 - Embedded GraphQL in TypeScript/TSX template literals (`gql`, `graphql` tags)
 
+## Installation
+
+### NPM Package (Recommended)
+
+Install via pnpm to automatically download the correct binary for your platform:
+
+```bash
+pnpm add graphql-rust-cli
+npm install graphql-rust-cli
+yarn add graphql-rust-cli
+```
+
+Then use with pnpm:
+
+```bash
+pnpm graphql-rust lsp
+pnpm graphql-rust check
+pnpm graphql-rust codegen
+```
+
+Or install globally:
+
+```bash
+pnpm add -g graphql-rust-cli
+graphql-rust lsp
+```
+
+**GitHub Packages:**
+
+```bash
+pnpm add @YOUR_USERNAME/graphql-rust-cli --registry=https://npm.pkg.github.com
+```
+
+### Manual Binary Installation
+
+Download pre-built binaries from the [releases page](https://github.com/YOUR_USERNAME/graphql-rust/releases) for:
+- macOS (x86_64, ARM64)
+- Linux (x86_64, ARM64)
+- Windows (x86_64, ARM64)
+
 ## Commands
 
 ```bash
@@ -252,7 +292,7 @@ make release-major
 ```
 
 The release script will:
-- Update version in `Cargo.toml`, `plugins/swc/Cargo.toml`, and `editors/vscode/package.json`
+- Update version in `Cargo.toml`, `plugins/swc/Cargo.toml`, `editors/vscode/package.json`, and `npm/graphql-rust-cli/package.json`
 - Update `Cargo.lock`
 - Create a commit with message: `chore: bump version to X.Y.Z`
 - Create a git tag: `vX.Y.Z`
@@ -274,9 +314,43 @@ git push && git push --tags
 - Builds binaries for Windows (x86_64, ARM64)
 - Builds SWC plugin for all platforms
 - Builds VSCode extension (.vsix)
+- Publishes NPM package to GitHub Packages
 - Creates a GitHub Release with all artifacts attached
 
 The release will be available at: `https://github.com/YOUR_USERNAME/graphql-rust/releases`
+
+### NPM Package Local Development
+
+If you're developing the CLI and want to test it via the npm package:
+
+```bash
+# Quick setup script
+./scripts/setup-npm-dev.sh
+```
+
+This will build the Rust binary and configure the npm package to use your local build.
+
+**Manual setup:**
+
+```bash
+# Build the binary
+cargo build --release
+
+# Set up the npm package with your local build
+export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
+cd npm/graphql-rust-cli
+pnpm install
+
+# Link globally for testing
+pnpm link --global
+
+# Use in any project
+cd /path/to/test/project
+pnpm link --global graphql-rust-cli
+pnpm graphql-rust check
+```
+
+See [npm/graphql-rust-cli/README.md](npm/graphql-rust-cli/README.md) for more details.
 
 ### VSCode Extension Development
 
