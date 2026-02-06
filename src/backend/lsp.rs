@@ -983,13 +983,9 @@ impl LanguageServer for Backend {
             let client = self.client.clone();
             let config = self.config.read().unwrap().clone();
             let type_caches = self.type_caches.clone();
-            let supports_progress = self
-                .client_capabilities
-                .read()
-                .map(|caps| caps.supports_progress)
-                .unwrap_or(false);
+            // Disable progress reporting for automatic codegen
             tokio::spawn(async move {
-                super::codegen_runner::run_codegen(client, config, type_caches, supports_progress)
+                super::codegen_runner::run_codegen(client, config, type_caches, false)
                     .await;
             });
         }
@@ -1028,17 +1024,13 @@ impl LanguageServer for Backend {
                 let client = self.client.clone();
                 let config = self.config.read().unwrap().clone();
                 let type_caches = self.type_caches.clone();
-                let supports_progress = self
-                    .client_capabilities
-                    .read()
-                    .map(|caps| caps.supports_progress)
-                    .unwrap_or(false);
+                // Disable progress reporting for automatic codegen
                 tokio::spawn(async move {
                     super::codegen_runner::run_codegen(
                         client,
                         config,
                         type_caches,
-                        supports_progress,
+                        false,
                     )
                     .await;
                 });
@@ -1596,17 +1588,13 @@ impl LanguageServer for Backend {
                         let client = self.client.clone();
                         let config = self.config.read().unwrap().clone();
                         let type_caches = self.type_caches.clone();
-                        let supports_progress = self
-                            .client_capabilities
-                            .read()
-                            .map(|caps| caps.supports_progress)
-                            .unwrap_or(false);
+                        // Disable progress reporting for automatic codegen
                         tokio::spawn(async move {
                             super::codegen_runner::run_codegen(
                                 client,
                                 config,
                                 type_caches,
-                                supports_progress,
+                                false,
                             )
                             .await;
                         });
