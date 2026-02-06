@@ -14,6 +14,7 @@ impl DocumentState {
         ctx.is_operation = true;
         ctx.used_variables.clear();
         ctx.defined_variables.clear();
+        ctx.selected_fields.clear();
 
         let mut operation_type_string = String::from("query");
         let mut cursor = node.walk();
@@ -26,6 +27,9 @@ impl DocumentState {
                 var_defs_node = Some(child);
             }
         }
+
+        // Set the current operation type
+        ctx.current_operation_type = Some(operation_type_string.clone());
 
         // 1. Collect and validate variable definitions
         if let Some(var_defs) = var_defs_node {
@@ -73,6 +77,9 @@ impl DocumentState {
             }
         }
 
+        // Check required fields after validating the selection set
+        self.check_required_fields(node, offset, ctx);
+
         // 3. Check for unused variables
         for name in &ctx.defined_variables {
             if !ctx.used_variables.contains(name) {
@@ -104,6 +111,42 @@ impl DocumentState {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn check_required_fields(
+        &self,
+        node: Node,
+        offset: usize,
+        ctx: &mut ValidationContext,
+    ) {
+        // Only check if we have a config and rules
+        if let Some(config) = ctx.config
+            && let Some(rules) = &config.rules
+            && let Some(required_fields) = &rules.required_fields
+            && let Some(operation_type) = &ctx.current_operation_type
+        {
+            // Check each required field
+            for (field_name, rule) in required_fields {
+                // Check if this rule applies to the current operation type
+                if rule.applies_to_operation(operation_type) {
+                    // Check if the field was selected
+                    if !ctx.selected_fields.contains(field_name) {
+                        ctx.diagnostics.push(Diagnostic {
+                            range: self.translate_to_file_range(node, offset),
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: format!(
+                                "Required field '{}' must be selected in {} operations",
+                                field_name, operation_type
+                            ),
+                            code: Some(NumberOrString::String(
+                                "required_field_missing".to_string(),
+                            )),
+                            ..Default::default()
+                        });
                     }
                 }
             }

@@ -49,6 +49,7 @@ async fn test_lsp_automatic_codegen() {
         timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -259,6 +260,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

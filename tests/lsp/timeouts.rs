@@ -62,6 +62,7 @@ async fn test_lsp_request_timeout() {
         codegen_watch_debounce_ms: None,
         enable_schema_cache: Some(false), // Disable cache to ensure slower operations
         base_dir: base_dir.to_path_buf(),
+        rules: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -165,6 +166,7 @@ async fn test_workspace_scan_timeout() {
         codegen_watch_debounce_ms: None,
         enable_schema_cache: Some(false),
         base_dir: base_dir.to_path_buf(),
+        rules: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -238,6 +240,7 @@ async fn test_timeout_with_normal_config() {
         codegen_watch_debounce_ms: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
+        rules: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

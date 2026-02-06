@@ -1,4 +1,5 @@
 mod field_definition;
+mod required_fields;
 mod schema_extensions;
 mod schema_merge;
 mod scoping;

@@ -22,6 +22,8 @@ pub(super) struct ValidationContext<'a> {
     pub include_ignored: bool,
     pub workspace_loaded: bool,
     pub is_operation: bool,
+    pub selected_fields: fnv::FnvHashSet<String>,
+    pub current_operation_type: Option<String>,
 }
 
 impl DocumentState {
@@ -83,6 +85,8 @@ impl DocumentState {
                 include_ignored: verbose,
                 workspace_loaded,
                 is_operation: false,
+                selected_fields: fnv::FnvHashSet::default(),
+                current_operation_type: None,
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);

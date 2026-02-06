@@ -58,6 +58,7 @@ async fn test_lsp_multi_schema_support() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

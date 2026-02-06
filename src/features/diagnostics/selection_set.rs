@@ -74,6 +74,11 @@ impl DocumentState {
         if let Some(name_node) = name_node {
             let field_name = self.get_node_text(name_node, offset);
 
+            // Track selected field name if we're in an operation
+            if ctx.is_operation && depth == 1 {
+                ctx.selected_fields.insert(field_name.clone());
+            }
+
             if field_name == "__typename" {
                 return;
             }

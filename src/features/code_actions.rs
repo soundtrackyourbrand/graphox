@@ -254,4 +254,118 @@ impl DocumentState {
 
         actions
     }
+
+    /// Get code actions for required field diagnostics - adds the missing required field
+    pub fn get_required_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
+        let mut actions = Vec::new();
+
+        // Extract the field name from the diagnostic message
+        // Message format: "Required field 'fieldName' must be selected in <type> operations"
+        let field_name = if let Some(start) = diagnostic.message.find('\'') {
+            if let Some(end) = diagnostic.message[start + 1..].find('\'') {
+                &diagnostic.message[start + 1..start + 1 + end]
+            } else {
+                return actions;
+            }
+        } else {
+            return actions;
+        };
+
+        // Find the operation in the diagnostic range
+        let start_byte = self.position_to_byte(diagnostic.range.start);
+        let end_byte = self.position_to_byte(diagnostic.range.end);
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            if start_byte >= offset && end_byte <= offset + block.tree.root_node().end_byte() {
+                let local_start = start_byte - offset;
+                let local_end = end_byte - offset;
+                let root = block.tree.root_node();
+
+                if let Some(mut node) = root.descendant_for_byte_range(local_start, local_end) {
+                    // Climb up to find the operation definition
+                    while node.kind() != "operation_definition" {
+                        if let Some(parent) = node.parent() {
+                            node = parent;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if node.kind() == "operation_definition" {
+                        // Find the selection set
+                        let mut cursor = node.walk();
+                        for child in node.children(&mut cursor) {
+                            if child.kind() == "selection_set" {
+                                // Find the position right after the opening brace
+                                let insert_position =
+                                    self.byte_to_position(child.start_byte() + offset + 1);
+
+                                // Get the indentation of the first field (if any)
+                                let mut indentation = "\n  ".to_string();
+                                let mut has_fields = false;
+
+                                let mut selection_cursor = child.walk();
+                                for selection_child in child.children(&mut selection_cursor) {
+                                    if selection_child.kind() == "selection" {
+                                        has_fields = true;
+                                        // Extract indentation from first field
+                                        let field_start_pos = self.byte_to_position(
+                                            selection_child.start_byte() + offset,
+                                        );
+                                        let field_start_byte = self.position_to_byte(
+                                            Position::new(field_start_pos.line, 0),
+                                        );
+                                        let field_actual_start =
+                                            selection_child.start_byte() + offset;
+
+                                        if field_actual_start > field_start_byte {
+                                            let indent_text = self
+                                                .rope
+                                                .byte_slice(field_start_byte..field_actual_start)
+                                                .to_string();
+                                            indentation = format!("\n{}", indent_text);
+                                        }
+                                        break;
+                                    }
+                                }
+
+                                let new_text = if has_fields {
+                                    format!("{}{}", indentation, field_name)
+                                } else {
+                                    // Empty selection set, add with default indentation
+                                    format!("\n  {}\n", field_name)
+                                };
+
+                                let mut changes = std::collections::HashMap::new();
+                                changes.insert(
+                                    self.uri.clone(),
+                                    vec![TextEdit {
+                                        range: Range::new(insert_position, insert_position),
+                                        new_text,
+                                    }],
+                                );
+
+                                actions.push(CodeAction {
+                                    title: format!("Add required field '{}'", field_name),
+                                    kind: Some(CodeActionKind::QUICKFIX),
+                                    diagnostics: Some(vec![diagnostic.clone()]),
+                                    edit: Some(WorkspaceEdit {
+                                        changes: Some(changes),
+                                        ..Default::default()
+                                    }),
+                                    is_preferred: Some(true),
+                                    ..Default::default()
+                                });
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        actions
+    }
 }

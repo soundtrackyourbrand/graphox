@@ -60,6 +60,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
         tracing: None,
         timeouts: None,
         enable_schema_cache: Some(true),
+        rules: None,
     }
 }
 

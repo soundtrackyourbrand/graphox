@@ -1,0 +1,69 @@
+# Example configuration demonstrating the required_fields rule
+#
+# This configuration allows you to enforce that certain fields are always
+# selected in GraphQL operations, helping ensure important data like
+# tracking IDs are always included.
+
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.graphql"
+
+# Rules configuration
+rules:
+  # Required fields that must be selected in operations
+  required_fields:
+    # Field must be selected in ALL operation types (query, mutation, subscription)
+    # When set to true, the field is required for all operations
+    requestId: true
+    
+    # Field must be selected only in specific operation types
+    # Use an array to specify which operation types require this field
+    user:
+      - query
+      - mutation
+    
+    # Another example: tracking field only for mutations
+    timestamp:
+      - mutation
+    
+    # Subscription-specific required field
+    connectionId:
+      - subscription
+
+# Example usage:
+#
+# Valid query (includes 'requestId' and 'user'):
+#   query GetUser {
+#     requestId
+#     user {
+#       id
+#       name
+#     }
+#   }
+#
+# Invalid query (missing 'requestId'):
+#   query GetUser {
+#     user {
+#       id
+#       name
+#     }
+#   }
+#   Error: Required field 'requestId' must be selected in query operations
+#
+# Valid mutation (includes 'requestId', 'user', and 'timestamp'):
+#   mutation CreateUser {
+#     requestId
+#     timestamp
+#     user {
+#       id
+#     }
+#   }
+#
+# Invalid subscription (missing 'connectionId'):
+#   subscription OnUserUpdate {
+#     requestId
+#     userUpdated {
+#       id
+#     }
+#   }
+#   Error: Required field 'connectionId' must be selected in subscription operations

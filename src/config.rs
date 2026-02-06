@@ -6,6 +6,29 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct RulesConfig {
+    pub required_fields: Option<FnvHashMap<String, RequiredFieldRule>>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum RequiredFieldRule {
+    Always(bool),
+    Operations(Vec<String>),
+}
+
+impl RequiredFieldRule {
+    pub fn applies_to_operation(&self, operation_type: &str) -> bool {
+        match self {
+            RequiredFieldRule::Always(enabled) => *enabled,
+            RequiredFieldRule::Operations(ops) => ops.iter().any(|op| {
+                op.eq_ignore_ascii_case(operation_type)
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
@@ -20,6 +43,7 @@ pub struct Config {
     pub lsp_codegen_throttle_ms: Option<u64>,
     pub codegen_watch_debounce_ms: Option<u64>,
     pub enable_schema_cache: Option<bool>,
+    pub rules: Option<RulesConfig>,
     #[serde(skip)]
     pub base_dir: PathBuf,
 }
@@ -160,6 +184,7 @@ impl Config {
             lsp_codegen_throttle_ms: None,
             codegen_watch_debounce_ms: None,
             enable_schema_cache: None,
+            rules: None,
             base_dir: PathBuf::from("."),
         }
     }

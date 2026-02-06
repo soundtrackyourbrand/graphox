@@ -56,6 +56,7 @@ async fn test_lsp_multi_schema_merge() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -159,6 +160,7 @@ async fn test_lsp_multi_schema_extension_first() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -265,6 +267,7 @@ async fn test_lsp_multi_schema_with_docs() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -355,18 +358,9 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
-        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
+        ..Config::default()
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -473,6 +467,7 @@ async fn test_lsp_multi_schema_triple_overlap() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -575,6 +570,7 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

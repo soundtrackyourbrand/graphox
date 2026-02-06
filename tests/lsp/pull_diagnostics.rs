@@ -39,18 +39,9 @@ async fn test_pull_diagnostics_basic() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-            watch_all_files: None,
-        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
+        ..Config::default()
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -206,18 +197,10 @@ async fn test_pull_diagnostics_unchanged() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
+        ..Config::default()
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -369,18 +352,9 @@ async fn test_workspace_diagnostics() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
-        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
+        ..Config::default()
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -530,18 +504,10 @@ async fn test_fallback_to_push_diagnostics() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
+        ..Config::default()
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

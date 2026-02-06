@@ -88,6 +88,7 @@ async fn test_lsp_fragment_collisions() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -320,15 +321,9 @@ async fn test_lsp_diagnostics_on_schema_change() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
-
-    let client_capture = Arc::new(Mutex::new(None));
-    let client_capture_clone = client_capture.clone();
-    let (mut service, mut messages) = LspService::new(|client| {
-        let mut cap = client_capture_clone.lock().unwrap();
-        *cap = Some(client.clone());
-        Backend::new(client, config)
-    });
+    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
@@ -509,6 +504,7 @@ async fn test_lsp_fragment_rename_same_project() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
@@ -741,6 +737,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

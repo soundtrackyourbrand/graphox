@@ -50,13 +50,14 @@ async fn test_progress_on_workspace_scan() {
         ignore_deprecations: None,
         generate_ast_for_fragments: None,
         tracing: None,
-            watch_all_files: None,
+        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -200,6 +201,7 @@ async fn test_no_progress_without_capability() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -300,6 +302,7 @@ async fn test_progress_on_codegen() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -440,6 +443,7 @@ async fn test_progress_messages_contain_percentage() {
         lsp_codegen_throttle_ms: None,
         codegen_watch_debounce_ms: None,
         timeouts: None,
+        rules: None,
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
