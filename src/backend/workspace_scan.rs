@@ -31,6 +31,7 @@ pub struct WorkspaceScanParams {
     pub empty_schema: Arc<Schema>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
+    pub supports_progress: bool,
 }
 
 /// Spawns a background workspace scan task
@@ -39,55 +40,32 @@ pub struct WorkspaceScanParams {
 /// It runs in a separate tokio task to avoid blocking the LSP during initialization.
 pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
     tokio::spawn(async move {
-        let token = NumberOrString::String("workspace-scan".to_string());
+        // Create progress reporter
+        let progress = super::progress::ProgressReporter::new(
+            params.client.clone(),
+            "Scanning workspace",
+            params.supports_progress,
+        ).await;
+        
         let cancelled = params.workspace_scan_cancelled.clone();
 
-        // Create progress in a separate task so it doesn't block the scan
-        let client_clone = params.client.clone();
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            let _ = client_clone
-                .send_request::<request::WorkDoneProgressCreate>(WorkDoneProgressCreateParams {
-                    token: token_clone.clone(),
-                })
-                .await;
-
-            // Begin progress
-            let _ = client_clone
-                .send_notification::<notification::Progress>(ProgressParams {
-                    token: token_clone,
-                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
-                        WorkDoneProgressBegin {
-                            title: "Scanning workspace".to_string(),
-                            cancellable: Some(true),
-                            message: Some("Parsing GraphQL files...".to_string()),
-                            percentage: Some(0),
-                        },
-                    )),
-                })
-                .await;
-        });
-
         // Scan workspace and index all fragments/spreads
-        let workspace_metadata = scan_and_index_workspace(&params, &token, &cancelled);
+        progress.report("Discovering GraphQL files...", Some(10)).await;
+        let workspace_metadata = scan_and_index_workspace(&params, &cancelled);
 
         let total_docs = workspace_metadata.documents.len();
+        progress.report(
+            format!("Indexed {} files, validating...", total_docs),
+            Some(70)
+        ).await;
+        
         params.workspace_loaded.store(true, Ordering::SeqCst);
 
         // Validate all documents with proper schemas and fragments
         validate_all_documents(&params).await;
 
         // End progress
-        let _ = params.client
-            .send_notification::<notification::Progress>(ProgressParams {
-                token,
-                value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                    WorkDoneProgressEnd {
-                        message: Some(format!("Finished scanning {} files", total_docs)),
-                    },
-                )),
-            })
-            .await;
+        progress.end(Some(format!("Finished scanning {} files", total_docs))).await;
 
         params.client
             .log_message(MessageType::INFO, "Workspace scan complete.")
@@ -98,7 +76,6 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
 /// Scans workspace and indexes all fragments and spreads
 fn scan_and_index_workspace(
     params: &WorkspaceScanParams,
-    token: &NumberOrString,
     cancelled: &Arc<AtomicBool>,
 ) -> crate::engine::WorkspaceMetadata {
     crate::engine::Engine::scan_workspace_cancellable(
@@ -167,30 +144,8 @@ fn scan_and_index_workspace(
                 params.documents.insert(uri, Arc::new(doc));
             }
         },
-        |current, total| {
-            if total == 0 {
-                return;
-            }
-            let percentage = (current * 100 / total) as u32;
-            let client = params.client.clone();
-            let token = token.clone();
-            tokio::spawn(async move {
-                let _ = client
-                    .send_notification::<notification::Progress>(ProgressParams {
-                        token,
-                        value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
-                            WorkDoneProgressReport {
-                                cancellable: Some(true),
-                                message: Some(format!(
-                                    "Parsing GraphQL files... ({}/{})",
-                                    current, total
-                                )),
-                                percentage: Some(percentage),
-                            },
-                        )),
-                    })
-                    .await;
-            });
+        |_, _| {
+            // Progress reporting is now handled by ProgressReporter in spawn_workspace_scan
         },
         cancelled.clone(),
     )

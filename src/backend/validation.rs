@@ -31,6 +31,7 @@ pub struct ValidationParams<'a> {
     pub open_documents: &'a Arc<DashSet<Url, ahash::RandomState>>,
     pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
     pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub supports_progress: bool,
 }
 
 /// Validates a list of document URIs and publishes diagnostics
@@ -47,11 +48,23 @@ pub async fn validate_uris(
         return;
     }
 
+    // Create progress reporter if validating multiple documents
+    let progress = if uris.len() > 5 {
+        Some(super::progress::ProgressReporter::new(
+            params.client.clone(),
+            format!("Validating {} documents", uris.len()),
+            params.supports_progress,
+        ).await)
+    } else {
+        None
+    };
+
     let mut to_publish = Vec::new();
     let used_fragments = get_used_fragments(params.fragment_spreads);
     let workspace_loaded = params.workspace_loaded.load(Ordering::SeqCst);
+    let total = uris.len();
 
-    for uri in uris {
+    for (idx, uri) in uris.into_iter().enumerate() {
         if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
             // Skip validating schema files as executable documents
             if let Ok(path) = uri.to_file_path()
@@ -87,7 +100,21 @@ pub async fn validate_uris(
             if use_push {
                 to_publish.push((uri.clone(), diagnostics));
             }
+            
+            // Report progress
+            if let Some(ref p) = progress {
+                let percentage = ((idx + 1) * 100 / total) as u32;
+                p.report(
+                    format!("Validated {}/{} documents", idx + 1, total),
+                    Some(percentage)
+                ).await;
+            }
         }
+    }
+
+    // End progress
+    if let Some(p) = progress {
+        p.end(Some(format!("Validated {} documents", total))).await;
     }
 
     // Only publish if using push-based diagnostics

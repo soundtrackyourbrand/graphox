@@ -8,6 +8,7 @@ pub mod document_changes;
 pub mod file_change_handler;
 pub mod file_watchers;
 pub mod fragment_manager;
+pub mod progress;
 pub mod schema_management;
 pub mod validation;
 pub mod workspace_scan;

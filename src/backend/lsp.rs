@@ -268,12 +268,17 @@ impl Backend {
     }
 
     async fn reload_schema(&self, changed_path: &str) {
+        let supports_progress = self.client_capabilities.read()
+            .map(|caps| caps.supports_progress)
+            .unwrap_or(false);
+        
         let reloaded_keys = super::schema_management::reload_schema(
             changed_path,
             &self.config,
             &self.schemas,
             &self.validated_schemas,
             &self.client,
+            supports_progress,
         )
         .await;
 
@@ -302,7 +307,16 @@ impl Backend {
     }
 
     pub async fn run_codegen(&self) {
-        super::codegen_runner::run_codegen(self.client.clone(), self.config.clone(), self.type_caches.clone()).await;
+        let supports_progress = self.client_capabilities.read()
+            .map(|caps| caps.supports_progress)
+            .unwrap_or(false);
+        
+        super::codegen_runner::run_codegen(
+            self.client.clone(),
+            self.config.clone(),
+            self.type_caches.clone(),
+            supports_progress,
+        ).await;
     }
 
     fn update_dependency_indices(
@@ -334,10 +348,10 @@ impl Backend {
     }
 
     pub async fn validate_uris(&self, uris: Vec<Url>) {
-        let use_push = if let Ok(caps) = self.client_capabilities.read() {
-            !caps.supports_pull_diagnostics
+        let (use_push, supports_progress) = if let Ok(caps) = self.client_capabilities.read() {
+            (!caps.supports_pull_diagnostics, caps.supports_progress)
         } else {
-            true // Default to push if can't read capabilities
+            (true, false) // Default to push if can't read capabilities
         };
         
         let params = super::validation::ValidationParams {
@@ -353,6 +367,7 @@ impl Backend {
             open_documents: &self.open_documents,
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
+            supports_progress,
         };
         super::validation::validate_uris(
             params,
@@ -364,10 +379,10 @@ impl Backend {
     }
 
     pub async fn validate_all_documents(&self) {
-        let use_push = if let Ok(caps) = self.client_capabilities.read() {
-            !caps.supports_pull_diagnostics
+        let (use_push, supports_progress) = if let Ok(caps) = self.client_capabilities.read() {
+            (!caps.supports_pull_diagnostics, caps.supports_progress)
         } else {
-            true // Default to push if can't read capabilities
+            (true, false) // Default to push if can't read capabilities
         };
         
         let params = super::validation::ValidationParams {
@@ -383,6 +398,7 @@ impl Backend {
             open_documents: &self.open_documents,
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
+            supports_progress,
         };
         super::validation::validate_all_documents(params, use_push, Some(&self.diagnostic_cache))
             .await;
@@ -551,6 +567,10 @@ impl LanguageServer for Backend {
         }
 
         // Spawn workspace scan in background to avoid hanging the LSP
+        let supports_progress = self.client_capabilities.read()
+            .map(|caps| caps.supports_progress)
+            .unwrap_or(false);
+        
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
             config: self.config.clone(),
@@ -564,6 +584,7 @@ impl LanguageServer for Backend {
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            supports_progress,
         });
 
         // Register file watchers
@@ -837,8 +858,11 @@ impl LanguageServer for Backend {
             let client = self.client.clone();
             let config = self.config.clone();
             let type_caches = self.type_caches.clone();
+            let supports_progress = self.client_capabilities.read()
+                .map(|caps| caps.supports_progress)
+                .unwrap_or(false);
             tokio::spawn(async move {
-                super::codegen_runner::run_codegen(client, config, type_caches).await;
+                super::codegen_runner::run_codegen(client, config, type_caches, supports_progress).await;
             });
         }
     }
@@ -870,8 +894,11 @@ impl LanguageServer for Backend {
                 let client = self.client.clone();
                 let config = self.config.clone();
                 let type_caches = self.type_caches.clone();
+                let supports_progress = self.client_capabilities.read()
+                    .map(|caps| caps.supports_progress)
+                    .unwrap_or(false);
                 tokio::spawn(async move {
-                    super::codegen_runner::run_codegen(client, config, type_caches).await;
+                    super::codegen_runner::run_codegen(client, config, type_caches, supports_progress).await;
                 });
             }
         }
@@ -1354,8 +1381,11 @@ impl LanguageServer for Backend {
                         let client = self.client.clone();
                         let config = self.config.clone();
                         let type_caches = self.type_caches.clone();
+                        let supports_progress = self.client_capabilities.read()
+                            .map(|caps| caps.supports_progress)
+                            .unwrap_or(false);
                         tokio::spawn(async move {
-                            super::codegen_runner::run_codegen(client, config, type_caches).await;
+                            super::codegen_runner::run_codegen(client, config, type_caches, supports_progress).await;
                         });
                     }
                 }

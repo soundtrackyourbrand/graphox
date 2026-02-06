@@ -8,6 +8,7 @@ mod hover;
 mod inline_fragment_lsp;
 mod lsp_code_actions;
 mod lsp_commands;
+mod progress_reporting;
 mod pull_diagnostics;
 mod references;
 mod rename;

@@ -19,6 +19,7 @@ pub async fn reload_schema(
     schemas: &Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     validated_schemas: &Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     client: &Client,
+    supports_progress: bool,
 ) -> Vec<String> {
     let mut sources_to_reload = Vec::new();
     
@@ -38,10 +39,28 @@ pub async fn reload_schema(
         }
     }
 
+    if sources_to_reload.is_empty() {
+        return Vec::new();
+    }
+
+    // Create progress reporter for schema reload
+    let progress = super::progress::ProgressReporter::new(
+        client.clone(),
+        format!("Reloading {} schema(s)", sources_to_reload.len()),
+        supports_progress,
+    ).await;
+
     let mut reloaded_keys = Vec::new();
+    let total = sources_to_reload.len();
     
-    for source in sources_to_reload {
+    for (idx, source) in sources_to_reload.into_iter().enumerate() {
         let key = source.as_key();
+        
+        progress.report(
+            format!("Loading schema {}/{}...", idx + 1, total),
+            Some(((idx + 1) * 100 / total) as u32)
+        ).await;
+        
         let new_schema = crate::schema::load_schema_arc(&config.base_dir, &source);
 
         if let Some(new_schema) = new_schema {
@@ -58,6 +77,8 @@ pub async fn reload_schema(
             reloaded_keys.push(key);
         }
     }
+    
+    progress.end(Some(format!("Reloaded {} schema(s)", reloaded_keys.len()))).await;
     
     reloaded_keys
 }

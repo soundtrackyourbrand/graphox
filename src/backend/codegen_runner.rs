@@ -9,16 +9,39 @@ use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
 
 /// Runs the codegen process for all projects in the configuration
-pub async fn run_codegen(client: Client, config: Config, type_caches: Arc<dashmap::DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>) {
+pub async fn run_codegen(
+    client: Client,
+    config: Config,
+    type_caches: Arc<dashmap::DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>,
+    supports_progress: bool,
+) {
+    // Create progress reporter
+    let progress = super::progress::ProgressReporter::new(
+        client.clone(),
+        "Generating TypeScript types",
+        supports_progress,
+    ).await;
+    
+    progress.report("Scanning workspace...", Some(5)).await;
+    
     let workspace_metadata = crate::engine::Engine::scan_workspace(&config, |_, _| {});
 
     let global_metadata = &workspace_metadata.fragments;
     let global_output_dir = config.output_dir.as_deref();
     let mut all_generated_operations = Vec::new();
+    
+    let total_projects = config.projects.len();
+    let mut current_project = 0;
 
     for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
+        current_project += 1;
         let project_files = &project_meta.files;
         let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+        
+        progress.report(
+            format!("Processing project {}/{}...", current_project, total_projects),
+            Some(5 + (current_project * 70 / total_projects) as u32)
+        ).await;
 
         let project_schema_files: fnv::FnvHashSet<_> =
             project.schema.files().into_iter().collect();
@@ -72,8 +95,13 @@ pub async fn run_codegen(client: Client, config: Config, type_caches: Arc<dashma
             .entry(schema_key.clone())
             .or_insert_with(|| Arc::new(crate::features::codegen::TypeCache::new()))
             .clone();
+        
+        let total_files = project_files.len();
+        let mut current_file = 0;
 
         for path in project_files {
+            current_file += 1;
+            
             if let Some(doc) = workspace_metadata.documents.get(path) {
                 if doc.get_graphql_trees().is_empty() {
                     continue;
@@ -116,8 +144,24 @@ pub async fn run_codegen(client: Client, config: Config, type_caches: Arc<dashma
                     }
                 }
             }
+            
+            // Report progress every 10 files to avoid too many notifications
+            if current_file % 10 == 0 || current_file == total_files {
+                let project_percentage = 5 + (current_project * 70 / total_projects) as u32;
+                let file_percentage = if total_files > 0 {
+                    (current_file * 70 / total_projects / total_files) as u32
+                } else {
+                    0
+                };
+                progress.report(
+                    format!("Generating types ({}/{})", current_file, total_files),
+                    Some(project_percentage + file_percentage)
+                ).await;
+            }
         }
     }
+    
+    progress.report("Writing entrypoint file...", Some(80)).await;
 
     if let Some(out_dir) = global_output_dir {
         let out_dir_path = config.base_dir.join(out_dir);
@@ -130,4 +174,6 @@ pub async fn run_codegen(client: Client, config: Config, type_caches: Arc<dashma
             let _ = std::fs::write(entrypoint_path, content);
         }
     }
+    
+    progress.end(Some(format!("Generated types for {} projects", total_projects))).await;
 }
