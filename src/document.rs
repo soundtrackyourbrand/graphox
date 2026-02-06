@@ -80,6 +80,15 @@ pub struct OperationDef {
     pub source_text: String,
 }
 
+/// Components of a GraphQL field node.
+#[derive(Default)]
+pub(crate) struct FieldComponents<'a> {
+    pub name: Option<Node<'a>>,
+    pub selection_set: Option<Node<'a>>,
+    pub arguments: Option<Node<'a>>,
+    pub directives: Option<Node<'a>>,
+}
+
 #[derive(Clone)]
 pub struct DocumentState {
     pub uri: Url,
@@ -310,23 +319,125 @@ impl DocumentState {
     }
 
     pub fn get_fragment_type_condition(&self, node: Node, offset: usize) -> Option<String> {
+        self.find_child_by_kind(node, "type_condition")
+            .and_then(|tc| self.find_child_by_kind(tc, "named_type"))
+            .and_then(|nt| self.find_child_by_kind(nt, "name"))
+            .map(|name| self.get_node_text(name, offset))
+    }
+
+    // ========================================================================
+    // Tree-sitter Helper Functions
+    // ========================================================================
+
+    /// Finds the first child node of the specified kind.
+    pub(crate) fn find_child_by_kind<'a>(&self, node: Node<'a>, kind: &str) -> Option<Node<'a>> {
         let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "type_condition" {
-                let mut tc_cursor = child.walk();
-                for tc_child in child.children(&mut tc_cursor) {
-                    if tc_child.kind() == "named_type" {
-                        let mut nt_cursor = tc_child.walk();
-                        for nt_child in tc_child.children(&mut nt_cursor) {
-                            if nt_child.kind() == "name" {
-                                return Some(self.get_node_text(nt_child, offset));
-                            }
-                        }
-                    }
-                }
+        node.children(&mut cursor).find(|child| child.kind() == kind)
+    }
+
+    /// Finds the first ancestor node of the specified kind.
+    pub(crate) fn find_ancestor_by_kind<'a>(
+        &self,
+        node: Node<'a>,
+        target_kind: &str,
+    ) -> Option<Node<'a>> {
+        let mut curr = node;
+        while let Some(parent) = curr.parent() {
+            if parent.kind() == target_kind {
+                return Some(parent);
             }
+            curr = parent;
         }
         None
+    }
+
+    /// Finds the first ancestor matching any of the specified kinds.
+    pub(crate) fn find_ancestor_by_kinds<'a>(
+        &self,
+        node: Node<'a>,
+        kinds: &[&str],
+    ) -> Option<Node<'a>> {
+        let mut curr = node;
+        while let Some(parent) = curr.parent() {
+            if kinds.contains(&parent.kind()) {
+                return Some(parent);
+            }
+            curr = parent;
+        }
+        None
+    }
+
+    /// Skips through nodes of specified kinds upward, returning the first non-matching ancestor.
+    pub(crate) fn skip_through_kinds<'a>(
+        &self,
+        mut node: Node<'a>,
+        skip_kinds: &[&str],
+    ) -> Option<Node<'a>> {
+        while skip_kinds.contains(&node.kind()) {
+            node = node.parent()?;
+        }
+        Some(node)
+    }
+
+    /// Checks if the cursor position is within the node's absolute byte range.
+    pub(crate) fn is_cursor_in_node_range(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: usize,
+    ) -> bool {
+        let start = node.start_byte() + offset;
+        let end = node.end_byte() + offset;
+        cursor_offset >= start && cursor_offset <= end
+    }
+
+    /// Gets the absolute byte range for a node (including offset).
+    pub(crate) fn get_absolute_byte_range(
+        &self,
+        node: Node,
+        offset: usize,
+    ) -> std::ops::Range<usize> {
+        (node.start_byte() + offset)..(node.end_byte() + offset)
+    }
+
+    /// Finds the child node that contains the cursor position.
+    pub(crate) fn find_child_at_cursor<'a>(
+        &self,
+        parent: Node<'a>,
+        offset: usize,
+        cursor_offset: usize,
+    ) -> Option<Node<'a>> {
+        let mut cursor = parent.walk();
+        parent.children(&mut cursor).find(|child| {
+            self.is_cursor_in_node_range(*child, offset, cursor_offset)
+        })
+    }
+
+    /// Extracts the operation type from an operation_definition node.
+    /// Returns "query" as the default if no operation_type child is found.
+    pub(crate) fn get_operation_type(&self, operation_node: Node, offset: usize) -> String {
+        self.find_child_by_kind(operation_node, "operation_type")
+            .map(|child| self.get_node_text(child, offset))
+            .unwrap_or_else(|| String::from("query"))
+    }
+
+    /// Extracts the common components from a field node.
+    pub(crate) fn extract_field_components<'a>(
+        &self,
+        field_node: Node<'a>,
+    ) -> FieldComponents<'a> {
+        let mut result = FieldComponents::default();
+        let mut cursor = field_node.walk();
+        for child in field_node.children(&mut cursor) {
+            match child.kind() {
+                "name" => result.name = Some(child),
+                "selection_set" => result.selection_set = Some(child),
+                "arguments" => result.arguments = Some(child),
+                "directives" => result.directives = Some(child),
+                _ => {}
+            }
+        }
+        result
     }
 
     pub fn fragments(&self) -> &[FragmentDef] {
@@ -759,20 +870,9 @@ impl DocumentState {
         for (kind, node) in path {
             match kind {
                 "operation_definition" => {
-                    let mut op_type_str = "query";
-                    let mut walker = node.walk();
-                    for child in node.children(&mut walker) {
-                        if child.kind() == "operation_type" {
-                            let text = self.get_node_text(child, offset);
-                            if text == "mutation" {
-                                op_type_str = "mutation";
-                            } else if text == "subscription" {
-                                op_type_str = "subscription";
-                            }
-                            break;
-                        }
-                    }
-                    let op = match op_type_str {
+                    let op_type_str = self.get_operation_type(node, offset);
+                    
+                    let op = match op_type_str.as_str() {
                         "mutation" => apollo_compiler::ast::OperationType::Mutation,
                         "subscription" => apollo_compiler::ast::OperationType::Subscription,
                         _ => apollo_compiler::ast::OperationType::Query,
@@ -789,15 +889,9 @@ impl DocumentState {
                 }
                 "field" => {
                     let parent_type = current_type?;
-                    let mut f_name = None;
-                    let mut f_walker = node.walk();
-                    for child in node.children(&mut f_walker) {
-                        if child.kind() == "name" {
-                            f_name = Some(self.get_node_text(child, offset));
-                            break;
-                        }
-                    }
-                    let field_name = f_name?;
+                    let field_name = self.extract_field_components(node)
+                        .name
+                        .map(|n| self.get_node_text(n, offset))?;
                     let field_def = match &parent_type {
                         ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
                         ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
@@ -1018,16 +1112,13 @@ impl DocumentState {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "argument" {
-                let mut arg_name = None;
-                let mut value_node = None;
+                let arg_name = self.find_child_by_kind(child, "name")
+                    .map(|n| self.get_node_text(n, offset));
+                
+                // Find value child (can be "value" or any kind ending with "_value")
                 let mut a_cursor = child.walk();
-                for a_child in child.children(&mut a_cursor) {
-                    if a_child.kind() == "name" {
-                        arg_name = Some(self.get_node_text(a_child, offset));
-                    } else if a_child.kind() == "value" || a_child.kind().ends_with("_value") {
-                        value_node = Some(a_child);
-                    }
-                }
+                let value_node = child.children(&mut a_cursor)
+                    .find(|n| n.kind() == "value" || n.kind().ends_with("_value"));
 
                 if let (Some(aname), Some(vnode)) = (arg_name, value_node)
                     && let Some(adef) = arg_defs.iter().find(|a| a.name.as_str() == aname)
@@ -1048,16 +1139,9 @@ impl DocumentState {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "directive" {
-                let mut dir_name = None;
-                let mut arguments = None;
-                let mut d_cursor = child.walk();
-                for d_child in child.children(&mut d_cursor) {
-                    if d_child.kind() == "name" {
-                        dir_name = Some(self.get_node_text(d_child, offset));
-                    } else if d_child.kind() == "arguments" {
-                        arguments = Some(d_child);
-                    }
-                }
+                let dir_name = self.find_child_by_kind(child, "name")
+                    .map(|n| self.get_node_text(n, offset));
+                let arguments = self.find_child_by_kind(child, "arguments");
 
                 if let Some(dname) = dir_name
                     && let Some(ddef) = schema.directive_definitions.get(dname.as_str())

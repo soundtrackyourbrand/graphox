@@ -215,14 +215,7 @@ impl DocumentState {
             return Some(info);
         }
 
-        let mut operation_type_string = String::from("query");
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "operation_type" {
-                operation_type_string = self.get_node_text(child, offset);
-                break;
-            }
-        }
+        let operation_type_string = self.get_operation_type(node, offset);
 
         let op_type = match operation_type_string.as_str() {
             "query" => Some(OperationType::Query),
@@ -251,24 +244,19 @@ impl DocumentState {
             return Some(info);
         }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "selection_set" {
-                let range = (child.start_byte() + offset)..(child.end_byte() + offset);
-                if cursor_offset >= range.start
-                    && cursor_offset <= range.end
-                    && let Some(type_name) = self.get_fragment_type_condition(node, offset)
-                    && let Some(type_def) = schema.types.get(type_name.as_str())
-                {
-                    return self.find_field_recursive(
-                        child,
-                        offset,
-                        cursor_offset,
-                        type_def,
-                        schema,
-                        0,
-                    );
-                }
+        if let Some(child) = self.find_child_by_kind(node, "selection_set") {
+            if self.is_cursor_in_node_range(child, offset, cursor_offset)
+                && let Some(type_name) = self.get_fragment_type_condition(node, offset)
+                && let Some(type_def) = schema.types.get(type_name.as_str())
+            {
+                return self.find_field_recursive(
+                    child,
+                    offset,
+                    cursor_offset,
+                    type_def,
+                    schema,
+                    0,
+                );
             }
         }
         None
@@ -289,21 +277,12 @@ impl DocumentState {
         let target_node = if node.kind() == "selection_set" {
             node
         } else {
-            let mut found = None;
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "selection_set" {
-                    found = Some(child);
-                    break;
-                }
-            }
-            found?
+            self.find_child_by_kind(node, "selection_set")?
         };
 
         let mut cursor = target_node.walk();
         for child in target_node.children(&mut cursor) {
-            let child_range = (child.start_byte() + offset)..(child.end_byte() + offset);
-            if cursor_offset >= child_range.start && cursor_offset <= child_range.end {
+            if self.is_cursor_in_node_range(child, offset, cursor_offset) {
                 let kind = child.kind();
                 if kind == "selection" {
                     let mut inner = child.walk();
@@ -372,23 +351,10 @@ impl DocumentState {
         if depth > 100 {
             return None;
         }
-        let mut name_node = None;
-        let mut selection_set_node = None;
-        let mut arguments_node = None;
-        let mut directives_node = None;
+        
+        let components = self.extract_field_components(field_node);
 
-        let mut cursor = field_node.walk();
-        for child in field_node.children(&mut cursor) {
-            match child.kind() {
-                "name" => name_node = Some(child),
-                "selection_set" => selection_set_node = Some(child),
-                "arguments" => arguments_node = Some(child),
-                "directives" => directives_node = Some(child),
-                _ => {}
-            }
-        }
-
-        if let Some(name_node) = name_node {
+        if let Some(name_node) = components.name {
             let field_name = self.get_node_text(name_node, offset);
             let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
 
@@ -408,11 +374,8 @@ impl DocumentState {
                     ));
                 }
 
-                if let Some(args_node) = arguments_node {
-                    let args_range =
-                        (args_node.start_byte() + offset)..(args_node.end_byte() + offset);
-                    if cursor_offset >= args_range.start
-                        && cursor_offset <= args_range.end
+                if let Some(args_node) = components.arguments {
+                    if self.is_cursor_in_node_range(args_node, offset, cursor_offset)
                         && let Some(info) = self.find_argument_info(
                             args_node,
                             offset,
@@ -425,11 +388,8 @@ impl DocumentState {
                     }
                 }
 
-                if let Some(dirs_node) = directives_node {
-                    let dirs_range =
-                        (dirs_node.start_byte() + offset)..(dirs_node.end_byte() + offset);
-                    if cursor_offset >= dirs_range.start
-                        && cursor_offset <= dirs_range.end
+                if let Some(dirs_node) = components.directives {
+                    if self.is_cursor_in_node_range(dirs_node, offset, cursor_offset)
                         && let Some(info) =
                             self.find_directive_info(dirs_node, offset, cursor_offset, schema)
                     {
@@ -437,9 +397,8 @@ impl DocumentState {
                     }
                 }
 
-                if let Some(sss) = selection_set_node {
-                    let sss_range = (sss.start_byte() + offset)..(sss.end_byte() + offset);
-                    if cursor_offset >= sss_range.start && cursor_offset <= sss_range.end {
+                if let Some(sss) = components.selection_set {
+                    if self.is_cursor_in_node_range(sss, offset, cursor_offset) {
                         let field_type_name = field_def.ty.inner_named_type();
                         if let Some(field_type_def) = schema.types.get(field_type_name.as_str()) {
                             return self.find_field_recursive(
@@ -678,16 +637,8 @@ impl DocumentState {
                 let arg_range =
                     (argument_node.start_byte() + offset)..(argument_node.end_byte() + offset);
                 if cursor_offset >= arg_range.start && cursor_offset <= arg_range.end {
-                    let mut name_node = None;
-                    let mut value_node = None;
-                    let mut arg_cursor = argument_node.walk();
-                    for child in argument_node.children(&mut arg_cursor) {
-                        match child.kind() {
-                            "name" => name_node = Some(child),
-                            "value" => value_node = Some(child),
-                            _ => {}
-                        }
-                    }
+                    let name_node = self.find_child_by_kind(argument_node, "name");
+                    let value_node = self.find_child_by_kind(argument_node, "value");
 
                     if let Some(name_node) = name_node {
                         let name_range =
@@ -764,16 +715,8 @@ impl DocumentState {
                 let dir_range =
                     (directive_node.start_byte() + offset)..(directive_node.end_byte() + offset);
                 if cursor_offset >= dir_range.start && cursor_offset <= dir_range.end {
-                    let mut name_node = None;
-                    let mut args_node = None;
-                    let mut d_cursor = directive_node.walk();
-                    for child in directive_node.children(&mut d_cursor) {
-                        match child.kind() {
-                            "name" => name_node = Some(child),
-                            "arguments" => args_node = Some(child),
-                            _ => {}
-                        }
-                    }
+                    let name_node = self.find_child_by_kind(directive_node, "name");
+                    let args_node = self.find_child_by_kind(directive_node, "arguments");
 
                     if let Some(name_node) = name_node {
                         let name_range =
@@ -860,16 +803,8 @@ impl DocumentState {
             if field_node.kind() == "object_field" {
                 let range = (field_node.start_byte() + offset)..(field_node.end_byte() + offset);
                 if cursor_offset >= range.start && cursor_offset <= range.end {
-                    let mut name_node = None;
-                    let mut val_node = None;
-                    let mut f_cursor = field_node.walk();
-                    for child in field_node.children(&mut f_cursor) {
-                        match child.kind() {
-                            "name" => name_node = Some(child),
-                            "value" => val_node = Some(child),
-                            _ => {}
-                        }
-                    }
+                    let name_node = self.find_child_by_kind(field_node, "name");
+                    let val_node = self.find_child_by_kind(field_node, "value");
 
                     if let Some(name_node) = name_node {
                         let name_range =
