@@ -13,8 +13,8 @@ use fnv::FnvHashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 use tree_sitter::StreamingIterator;
 
 /// Parameters for workspace scanning operation
@@ -45,29 +45,37 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
             params.client.clone(),
             "Scanning workspace",
             params.supports_progress,
-        ).await;
-        
+        )
+        .await;
+
         let cancelled = params.workspace_scan_cancelled.clone();
 
         // Scan workspace and index all fragments/spreads
-        progress.report("Discovering GraphQL files...", Some(10)).await;
+        progress
+            .report("Discovering GraphQL files...", Some(10))
+            .await;
         let workspace_metadata = scan_and_index_workspace(&params, &cancelled);
 
         let total_docs = workspace_metadata.documents.len();
-        progress.report(
-            format!("Indexed {} files, validating...", total_docs),
-            Some(70)
-        ).await;
-        
+        progress
+            .report(
+                format!("Indexed {} files, validating...", total_docs),
+                Some(70),
+            )
+            .await;
+
         params.workspace_loaded.store(true, Ordering::SeqCst);
 
         // Validate all documents with proper schemas and fragments
         validate_all_documents(&params).await;
 
         // End progress
-        progress.end(Some(format!("Finished scanning {} files", total_docs))).await;
+        progress
+            .end(Some(format!("Finished scanning {} files", total_docs)))
+            .await;
 
-        params.client
+        params
+            .client
             .log_message(MessageType::INFO, "Workspace scan complete.")
             .await;
     });
@@ -86,11 +94,15 @@ fn scan_and_index_workspace(
             }
             let uri = doc.uri.clone();
 
-            params.fragment_defs.insert(uri.clone(), doc.fragments().to_vec());
+            params
+                .fragment_defs
+                .insert(uri.clone(), doc.fragments().to_vec());
             params
                 .fragment_spreads
                 .insert(uri.clone(), doc.fragment_spreads.clone());
-            params.package_roots.insert(uri.clone(), doc.package_root.clone());
+            params
+                .package_roots
+                .insert(uri.clone(), doc.package_root.clone());
 
             for frag in doc.fragments() {
                 params
@@ -107,18 +119,15 @@ fn scan_and_index_workspace(
             });
             let mut cursor = tree_sitter::QueryCursor::new();
             for block in doc.get_graphql_trees() {
-                let mut matches = cursor.matches(
-                    query,
-                    block.tree.root_node(),
-                    |node: tree_sitter::Node| {
+                let mut matches =
+                    cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
                         doc.rope
                             .byte_slice(
                                 (node.start_byte() + block.offset)
                                     ..(node.end_byte() + block.offset),
                             )
                             .chunks()
-                    },
-                );
+                    });
                 while let Some(m) = matches.next() {
                     let name_node = m.captures[0].node;
                     let name = doc.get_node_text(name_node, block.offset);

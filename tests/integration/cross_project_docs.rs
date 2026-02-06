@@ -50,6 +50,7 @@ async fn test_cross_project_docs_and_imports() {
                 output_dir: None,
                 import: Some("@my/project1".to_string()),
                 generate_permissions: None,
+                codegen: Some(false),
             },
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
@@ -58,11 +59,12 @@ async fn test_cross_project_docs_and_imports() {
                 output_dir: None,
                 import: Some("@my/project2".to_string()),
                 generate_permissions: None,
+                codegen: Some(false),
             },
         ],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 

@@ -18,7 +18,11 @@ async fn test_pull_diagnostics_basic() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! name: String }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query GetUser { user { nonExistentField } }"; // Invalid field
@@ -33,6 +37,7 @@ async fn test_pull_diagnostics_basic() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -42,7 +47,7 @@ async fn test_pull_diagnostics_basic() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -54,7 +59,10 @@ async fn test_pull_diagnostics_basic() {
         while let Some(msg) = messages.next().await {
             if msg.method() == "textDocument/publishDiagnostics" {
                 let params = msg.params().unwrap();
-                received_push_diags_clone.lock().unwrap().push(params.clone());
+                received_push_diags_clone
+                    .lock()
+                    .unwrap()
+                    .push(params.clone());
             }
         }
     });
@@ -85,7 +93,8 @@ async fn test_pull_diagnostics_basic() {
         .unwrap();
 
     // Verify server advertises diagnostic support
-    let result: InitializeResult = serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
+    let result: InitializeResult =
+        serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
     assert!(result.capabilities.diagnostic_provider.is_some());
 
     service
@@ -140,14 +149,21 @@ async fn test_pull_diagnostics_basic() {
         .await
         .unwrap();
 
-    let result: DocumentDiagnosticReportResult = serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
-    
+    let result: DocumentDiagnosticReportResult =
+        serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
+
     // Should return full diagnostic report
     match result {
         DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
-            assert!(!report.full_document_diagnostic_report.items.is_empty(), "Should have diagnostics for invalid field");
-            assert!(report.full_document_diagnostic_report.result_id.is_some(), "Should have result_id");
-            
+            assert!(
+                !report.full_document_diagnostic_report.items.is_empty(),
+                "Should have diagnostics for invalid field"
+            );
+            assert!(
+                report.full_document_diagnostic_report.result_id.is_some(),
+                "Should have result_id"
+            );
+
             // Verify diagnostic mentions the field
             let diag_msg = &report.full_document_diagnostic_report.items[0].message;
             assert!(diag_msg.contains("nonExistentField") || diag_msg.contains("field"));
@@ -166,7 +182,11 @@ async fn test_pull_diagnostics_unchanged() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! name: String }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query GetUser { user { id name } }"; // Valid query
@@ -181,6 +201,7 @@ async fn test_pull_diagnostics_unchanged() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -190,7 +211,7 @@ async fn test_pull_diagnostics_unchanged() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -272,8 +293,9 @@ async fn test_pull_diagnostics_unchanged() {
         .await
         .unwrap();
 
-    let first_result: DocumentDiagnosticReportResult = serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
-    
+    let first_result: DocumentDiagnosticReportResult =
+        serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
+
     let result_id = match first_result {
         DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
             report.full_document_diagnostic_report.result_id.clone()
@@ -300,8 +322,9 @@ async fn test_pull_diagnostics_unchanged() {
         .await
         .unwrap();
 
-    let second_result: DocumentDiagnosticReportResult = serde_json::from_value(response2.unwrap().result().unwrap().clone()).unwrap();
-    
+    let second_result: DocumentDiagnosticReportResult =
+        serde_json::from_value(response2.unwrap().result().unwrap().clone()).unwrap();
+
     // Should return unchanged report
     match second_result {
         DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Unchanged(_)) => {
@@ -317,7 +340,11 @@ async fn test_workspace_diagnostics() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User post: Post } type User { id: ID! } type Post { title: String }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User post: Post } type User { id: ID! } type Post { title: String }",
+    )
+    .unwrap();
 
     let query1_path = base_dir.join("query1.graphql");
     fs::write(&query1_path, "query GetUser { user { id } }").unwrap();
@@ -334,6 +361,7 @@ async fn test_workspace_diagnostics() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -343,7 +371,7 @@ async fn test_workspace_diagnostics() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -386,7 +414,10 @@ async fn test_workspace_diagnostics() {
     let query1_uri = Url::from_file_path(&query1_path).unwrap();
     let query2_uri = Url::from_file_path(&query2_path).unwrap();
 
-    for (uri, path) in [(query1_uri.clone(), &query1_path), (query2_uri.clone(), &query2_path)] {
+    for (uri, path) in [
+        (query1_uri.clone(), &query1_path),
+        (query2_uri.clone(), &query2_path),
+    ] {
         service
             .call(
                 Request::build("textDocument/didOpen")
@@ -428,17 +459,21 @@ async fn test_workspace_diagnostics() {
         .await
         .unwrap();
 
-    let result: WorkspaceDiagnosticReportResult = serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
-    
+    let result: WorkspaceDiagnosticReportResult =
+        serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
+
     match result {
         WorkspaceDiagnosticReportResult::Report(report) => {
             // Should have diagnostic reports for both documents
-            assert!(!report.items.is_empty(), "Should have workspace diagnostic items");
-            
+            assert!(
+                !report.items.is_empty(),
+                "Should have workspace diagnostic items"
+            );
+
             // Check that we have reports for our documents
             let mut found_query1 = false;
             let mut found_query2 = false;
-            
+
             for item in &report.items {
                 match item {
                     WorkspaceDocumentDiagnosticReport::Full(full_report) => {
@@ -452,8 +487,11 @@ async fn test_workspace_diagnostics() {
                     _ => {}
                 }
             }
-            
-            assert!(found_query1 || found_query2, "Should have diagnostics for at least one query");
+
+            assert!(
+                found_query1 || found_query2,
+                "Should have diagnostics for at least one query"
+            );
         }
         _ => panic!("Expected workspace diagnostic report"),
     }
@@ -465,7 +503,11 @@ async fn test_fallback_to_push_diagnostics() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! }",
+    )
+    .unwrap();
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query GetUser { user { invalidField } }";
@@ -480,6 +522,7 @@ async fn test_fallback_to_push_diagnostics() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -489,7 +532,7 @@ async fn test_fallback_to_push_diagnostics() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -501,7 +544,10 @@ async fn test_fallback_to_push_diagnostics() {
         while let Some(msg) = messages.next().await {
             if msg.method() == "textDocument/publishDiagnostics" {
                 let params = msg.params().unwrap();
-                received_push_diags_clone.lock().unwrap().push(params.clone());
+                received_push_diags_clone
+                    .lock()
+                    .unwrap()
+                    .push(params.clone());
             }
         }
     });
@@ -563,9 +609,15 @@ async fn test_fallback_to_push_diagnostics() {
 
     // Verify push diagnostics WERE sent (fallback behavior)
     let push_diags = received_push_diags.lock().unwrap();
-    assert!(!push_diags.is_empty(), "Should receive push diagnostics when client doesn't support pull");
-    
+    assert!(
+        !push_diags.is_empty(),
+        "Should receive push diagnostics when client doesn't support pull"
+    );
+
     let last_diag = push_diags.last().unwrap();
     assert_eq!(last_diag["uri"].as_str().unwrap(), query_uri.as_str());
-    assert!(!last_diag["diagnostics"].as_array().unwrap().is_empty(), "Should have diagnostics for invalid field");
+    assert!(
+        !last_diag["diagnostics"].as_array().unwrap().is_empty(),
+        "Should have diagnostics for invalid field"
+    );
 }

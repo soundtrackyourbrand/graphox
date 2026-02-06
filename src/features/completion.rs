@@ -174,15 +174,16 @@ impl DocumentState {
                             cursor_offset,
                             schema,
                             fragments,
-                        ) {
-                            // Filter these items to ONLY include fragments
-                            return Some(
-                                items
-                                    .into_iter()
-                                    .filter(|i| i.kind == Some(CompletionItemKind::SNIPPET))
-                                    .collect(),
-                            );
-                        }
+                        )
+                    {
+                        // Filter these items to ONLY include fragments
+                        return Some(
+                            items
+                                .into_iter()
+                                .filter(|i| i.kind == Some(CompletionItemKind::SNIPPET))
+                                .collect(),
+                        );
+                    }
                 }
                 _ => {}
             }
@@ -892,7 +893,9 @@ impl DocumentState {
                 } else {
                     return false;
                 }
-            } else { return c == 'o' || c == 'O' }
+            } else {
+                return c == 'o' || c == 'O';
+            }
         }
         false
     }

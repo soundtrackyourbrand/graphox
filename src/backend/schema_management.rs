@@ -9,8 +9,8 @@ use apollo_compiler::validation::Valid;
 use dashmap::DashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 
 /// Reloads schemas that contain the changed file
 pub async fn reload_schema(
@@ -22,14 +22,14 @@ pub async fn reload_schema(
     supports_progress: bool,
 ) -> Vec<String> {
     let mut sources_to_reload = Vec::new();
-    
+
     // Check if any project schemas contain this file
     for project in &config.projects {
         if schema_contains_file(&project.schema, changed_path, &config.base_dir) {
             sources_to_reload.push(project.schema.clone());
         }
     }
-    
+
     // Check schema_types
     if let Some(schema_types) = &config.schema_types {
         for st in schema_types {
@@ -48,19 +48,22 @@ pub async fn reload_schema(
         client.clone(),
         format!("Reloading {} schema(s)", sources_to_reload.len()),
         supports_progress,
-    ).await;
+    )
+    .await;
 
     let mut reloaded_keys = Vec::new();
     let total = sources_to_reload.len();
-    
+
     for (idx, source) in sources_to_reload.into_iter().enumerate() {
         let key = source.as_key();
-        
-        progress.report(
-            format!("Loading schema {}/{}...", idx + 1, total),
-            Some(((idx + 1) * 100 / total) as u32)
-        ).await;
-        
+
+        progress
+            .report(
+                format!("Loading schema {}/{}...", idx + 1, total),
+                Some(((idx + 1) * 100 / total) as u32),
+            )
+            .await;
+
         let new_schema = crate::schema::load_schema_arc(&config.base_dir, &source);
 
         if let Some(new_schema) = new_schema {
@@ -77,9 +80,11 @@ pub async fn reload_schema(
             reloaded_keys.push(key);
         }
     }
-    
-    progress.end(Some(format!("Reloaded {} schema(s)", reloaded_keys.len()))).await;
-    
+
+    progress
+        .end(Some(format!("Reloaded {} schema(s)", reloaded_keys.len())))
+        .await;
+
     reloaded_keys
 }
 
@@ -97,12 +102,13 @@ pub async fn clear_cache(
     for project in &config.projects {
         let key = project.schema.as_key();
         if !schemas.contains_key(&key)
-            && let Some(schema) = crate::schema::load_schema_arc(&config.base_dir, &project.schema) {
-                if let Ok(valid) = <apollo_compiler::Schema as Clone>::clone(&*schema).validate() {
-                    validated_schemas.insert(key.clone(), Arc::new(valid));
-                }
-                schemas.insert(key, schema);
+            && let Some(schema) = crate::schema::load_schema_arc(&config.base_dir, &project.schema)
+        {
+            if let Ok(valid) = <apollo_compiler::Schema as Clone>::clone(&*schema).validate() {
+                validated_schemas.insert(key.clone(), Arc::new(valid));
             }
+            schemas.insert(key, schema);
+        }
     }
 
     client

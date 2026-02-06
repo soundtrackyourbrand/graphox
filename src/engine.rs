@@ -1,12 +1,12 @@
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file};
-use apollo_compiler::{executable, Node, Schema};
+use apollo_compiler::{Node, Schema, executable};
 use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tower_lsp::lsp_types::Url;
 

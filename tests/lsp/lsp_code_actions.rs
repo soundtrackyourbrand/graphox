@@ -34,6 +34,7 @@ async fn test_lsp_smart_extract_fragment() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -43,7 +44,7 @@ async fn test_lsp_smart_extract_fragment() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -157,6 +158,7 @@ async fn test_lsp_smart_extract_field() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -166,7 +168,7 @@ async fn test_lsp_smart_extract_field() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

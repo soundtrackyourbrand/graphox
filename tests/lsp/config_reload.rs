@@ -1,9 +1,7 @@
-use graphql_rust::{
-    Backend, Config,
-};
+use graphql_rust::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -21,7 +19,11 @@ async fn test_config_file_change_triggers_reload() {
 
     // Create initial schema and config
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! name: String }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
 
     let config_path = base_dir.join("graphql.yaml");
     fs::write(
@@ -56,7 +58,11 @@ projects:
         .unwrap();
 
     service
-        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
         .await
         .unwrap();
 
@@ -100,20 +106,25 @@ projects:
     let open_result = service
         .call(
             Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(DidOpenTextDocumentParams {
-                    text_document: TextDocumentItem {
-                        uri: doc_uri.clone(),
-                        language_id: "graphql".to_string(),
-                        version: 1,
-                        text: fs::read_to_string(&query_path).unwrap(),
-                    },
-                })
-                .unwrap())
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: doc_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&query_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
                 .finish(),
         )
         .await;
 
-    assert!(open_result.is_ok(), "LSP should continue to work after config reload");
+    assert!(
+        open_result.is_ok(),
+        "LSP should continue to work after config reload"
+    );
 }
 
 /// This test verifies that invalid config changes are handled gracefully.
@@ -128,7 +139,11 @@ async fn test_invalid_config_reload_fails_gracefully() {
 
     // Create initial valid config
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! }",
+    )
+    .unwrap();
 
     let config_path = base_dir.join("graphql.yaml");
     fs::write(
@@ -158,7 +173,11 @@ projects:
         .unwrap();
 
     service
-        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
         .await
         .unwrap();
 
@@ -182,7 +201,10 @@ projects:
         .await;
 
     // Should not error even with invalid config
-    assert!(result.is_ok(), "LSP should handle invalid config gracefully");
+    assert!(
+        result.is_ok(),
+        "LSP should handle invalid config gracefully"
+    );
 
     sleep(Duration::from_millis(2000)).await;
 
@@ -191,15 +213,17 @@ projects:
     let open_result = service
         .call(
             Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(DidOpenTextDocumentParams {
-                    text_document: TextDocumentItem {
-                        uri: doc_uri.clone(),
-                        language_id: "graphql".to_string(),
-                        version: 1,
-                        text: fs::read_to_string(&query_path).unwrap(),
-                    },
-                })
-                .unwrap())
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: doc_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: fs::read_to_string(&query_path).unwrap(),
+                        },
+                    })
+                    .unwrap(),
+                )
                 .finish(),
         )
         .await;
@@ -217,7 +241,11 @@ async fn test_non_config_file_changes_work() {
 
     // Create schema and config
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! }",
+    )
+    .unwrap();
 
     let config_path = base_dir.join("graphql.yaml");
     fs::write(
@@ -244,14 +272,22 @@ projects:
         .unwrap();
 
     service
-        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
         .await
         .unwrap();
 
     sleep(Duration::from_millis(200)).await;
 
     // Change a schema file (not config)
-    fs::write(&schema_path, "type Query { post: Post } type Post { id: ID! title: String }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { post: Post } type Post { id: ID! title: String }",
+    )
+    .unwrap();
 
     // Simulate file watcher notification for schema change
     let changes = vec![FileEvent {

@@ -38,9 +38,10 @@ fn create_test_config(dir: &std::path::Path) -> Config {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         base_dir: dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     }
 }

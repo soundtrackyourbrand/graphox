@@ -39,9 +39,9 @@ pub fn is_relevant_file(path: &Path) -> bool {
         && (file_name.ends_with(".codegen.ts")
             || file_name == "manifest.json"
             || file_name == "permissions.ts")
-        {
-            return false;
-        }
+    {
+        return false;
+    }
 
     true
 }
@@ -169,10 +169,9 @@ pub fn get_project_files(
                 if is_relevant_file(path) {
                     let mut matched = include_set.is_match(path);
 
-                    if !matched
-                        && let Ok(abs_path) = std::fs::canonicalize(path) {
-                            matched = include_set.is_match(&abs_path);
-                        }
+                    if !matched && let Ok(abs_path) = std::fs::canonicalize(path) {
+                        matched = include_set.is_match(&abs_path);
+                    }
 
                     if !matched && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir) {
                         matched = include_set.is_match(&rel_to_base);

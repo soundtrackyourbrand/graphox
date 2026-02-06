@@ -10,8 +10,8 @@ use dashmap::DashMap;
 use fnv::FnvHashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 
 /// Parameters for file change processing
 pub struct FileChangeParams<'a> {

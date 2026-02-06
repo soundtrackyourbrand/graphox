@@ -44,13 +44,15 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
-        let valid_schema = match graphql_rust::schema::load_and_validate_schema(&config.base_dir, &project.schema) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                continue;
-            }
-        };
+        let valid_schema =
+            match graphql_rust::schema::load_and_validate_schema(&config.base_dir, &project.schema)
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{}", e.to_string().red());
+                    continue;
+                }
+            };
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
@@ -71,55 +73,71 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         // Create shared type cache for all files in this project
         let shared_type_cache = graphql_rust::features::codegen::TypeCache::new();
 
-        let (p_graphql_files, p_operations, p_fragments_processed, p_doc_parse_time, p_ts_gen_time, p_profile) =
-            project_files
-                .par_iter()
-                .map(|path| {
-                    let dp_start = Instant::now();
-                    let doc_opt = workspace_metadata.documents.get(path);
-                    let d_time = dp_start.elapsed();
+        let (
+            p_graphql_files,
+            p_operations,
+            p_fragments_processed,
+            p_doc_parse_time,
+            p_ts_gen_time,
+            p_profile,
+        ) = project_files
+            .par_iter()
+            .map(|path| {
+                let dp_start = Instant::now();
+                let doc_opt = workspace_metadata.documents.get(path);
+                let d_time = dp_start.elapsed();
 
-                    if let Some(doc) = doc_opt {
-                        let schema_import = config.schema_types.as_ref().and_then(|sts| {
-                            sts.iter()
-                                .find(|st| st.schema.as_key() == project.schema.as_key())
-                                .and_then(|st| st.import.clone())
-                        });
-                        let ctx = graphql_rust::features::codegen::CodegenContext::new(
-                            &valid_schema,
-                            project_fragment_to_path,
-                            project_fragment_to_import,
-                            &project_context.fragment_to_type_only,
-                            all_fragments,
-                            path,
-                            &config.scalars,
-                            &schema_import,
-                            config.generate_ast_for_fragments.unwrap_or(false),
-                            &project_context.fragment_dependencies,
-                            &shared_type_cache, // Shared across all files in project
+                if let Some(doc) = doc_opt {
+                    let schema_import = config.schema_types.as_ref().and_then(|sts| {
+                        sts.iter()
+                            .find(|st| st.schema.as_key() == project.schema.as_key())
+                            .and_then(|st| st.import.clone())
+                    });
+                    let ctx = graphql_rust::features::codegen::CodegenContext::new(
+                        &valid_schema,
+                        project_fragment_to_path,
+                        project_fragment_to_import,
+                        &project_context.fragment_to_type_only,
+                        all_fragments,
+                        path,
+                        &config.scalars,
+                        &schema_import,
+                        config.generate_ast_for_fragments.unwrap_or(false),
+                        &project_context.fragment_dependencies,
+                        &shared_type_cache, // Shared across all files in project
+                    );
+                    let g_start = Instant::now();
+                    if let Ok((_ts_code, _ops, profile)) =
+                        graphql_rust::features::codegen::generate_typescript_with_profile(doc, &ctx)
+                    {
+                        let g_time = g_start.elapsed();
+                        return (
+                            1,
+                            doc.get_graphql_trees().len(),
+                            doc.fragments().len(),
+                            d_time,
+                            g_time,
+                            profile,
                         );
-                        let g_start = Instant::now();
-                        if let Ok((_ts_code, _ops, profile)) =
-                            graphql_rust::features::codegen::generate_typescript_with_profile(doc, &ctx)
-                        {
-                            let g_time = g_start.elapsed();
-                            return (
-                                1,
-                                doc.get_graphql_trees().len(),
-                                doc.fragments().len(),
-                                d_time,
-                                g_time,
-                                profile,
-                            );
-                        }
-                        (1, 0, 0, d_time, Duration::ZERO, Default::default())
-                    } else {
-                        (0, 0, 0, d_time, Duration::ZERO, Default::default())
                     }
-                })
-                .reduce(
-                    || (0, 0, 0, Duration::ZERO, Duration::ZERO, graphql_rust::features::codegen::CodegenProfile::default()),
-                    |a, b| (
+                    (1, 0, 0, d_time, Duration::ZERO, Default::default())
+                } else {
+                    (0, 0, 0, d_time, Duration::ZERO, Default::default())
+                }
+            })
+            .reduce(
+                || {
+                    (
+                        0,
+                        0,
+                        0,
+                        Duration::ZERO,
+                        Duration::ZERO,
+                        graphql_rust::features::codegen::CodegenProfile::default(),
+                    )
+                },
+                |a, b| {
+                    (
                         a.0 + b.0,
                         a.1 + b.1,
                         a.2 + b.2,
@@ -128,11 +146,14 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         graphql_rust::features::codegen::CodegenProfile {
                             parse_time: a.5.parse_time + b.5.parse_time,
                             selection_set_time: a.5.selection_set_time + b.5.selection_set_time,
-                            ast_serialization_time: a.5.ast_serialization_time + b.5.ast_serialization_time,
-                            import_generation_time: a.5.import_generation_time + b.5.import_generation_time,
+                            ast_serialization_time: a.5.ast_serialization_time
+                                + b.5.ast_serialization_time,
+                            import_generation_time: a.5.import_generation_time
+                                + b.5.import_generation_time,
                         },
-                    ),
-                );
+                    )
+                },
+            );
 
         total_graphql_files += p_graphql_files;
         total_operations += p_operations;
@@ -143,16 +164,13 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         codegen_profile.selection_set_time += p_profile.selection_set_time;
         codegen_profile.ast_serialization_time += p_profile.ast_serialization_time;
         codegen_profile.import_generation_time += p_profile.import_generation_time;
-        
+
         // Collect cache stats for this project
         let (cache_hits, cache_misses) = shared_type_cache.stats();
         let cache_size = shared_type_cache.len();
-        
-        project_timings.push((
-            project.include.as_key(),
-            project_total_start.elapsed(),
-        ));
-        
+
+        project_timings.push((project.include.as_key(), project_total_start.elapsed()));
+
         // Report cache metrics for this project (only if cache was used)
         if cache_hits + cache_misses > 0 {
             let hit_rate = if cache_hits + cache_misses > 0 {
@@ -173,7 +191,9 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     if let Some(schema_types) = &config.schema_types {
         for st in schema_types {
             let st_start = Instant::now();
-            if let Ok(valid_schema) = graphql_rust::schema::load_and_validate_schema(&config.base_dir, &st.schema) {
+            if let Ok(valid_schema) =
+                graphql_rust::schema::load_and_validate_schema(&config.base_dir, &st.schema)
+            {
                 let g_start = Instant::now();
                 let _ts_code = graphql_rust::features::codegen::generate_schema_types(
                     &valid_schema,
@@ -269,7 +289,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         "TS Generation:".bright_black(),
         ts_gen_time
     );
-    
+
     // Detailed codegen breakdown
     if ts_gen_time > Duration::ZERO {
         println!();
@@ -295,7 +315,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
             codegen_profile.import_generation_time
         );
     }
-    
+
     println!("{}", "--------------------------".bright_black());
     println!("{:<30} {:>10?}", "Total Wall Time:".bold(), total_duration);
 }

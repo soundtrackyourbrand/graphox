@@ -5,8 +5,8 @@
 
 use crate::config::Config;
 use fnv::FnvHashSet;
-use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 
 /// Registers file watchers for schema files, workspace files, and config file
 ///
@@ -19,7 +19,7 @@ pub fn register_file_watchers(client: Client, config: &Config) {
     // Watch the config file itself (graphql.yaml or graphql.yml)
     let config_yaml = config.base_dir.join("graphql.yaml");
     let config_yml = config.base_dir.join("graphql.yml");
-    
+
     if config_yaml.exists() {
         watchers.push(FileSystemWatcher {
             glob_pattern: GlobPattern::String(config_yaml.to_string_lossy().to_string()),

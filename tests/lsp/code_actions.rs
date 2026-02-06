@@ -26,10 +26,11 @@ async fn test_code_action_remove_unused_fragment() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -168,10 +169,11 @@ async fn test_code_action_extract_to_fragment() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -289,10 +291,11 @@ async fn test_code_action_remove_unused_variable() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -407,6 +410,7 @@ async fn test_code_action_remove_type_only() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
@@ -498,10 +502,11 @@ async fn test_code_action_extract_to_fragment_tsx() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 

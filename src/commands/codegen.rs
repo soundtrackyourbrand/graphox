@@ -62,12 +62,12 @@ pub async fn run_codegen(
                         let file_name = e.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                         file_name == "graphql.yaml" || file_name == "graphql.yml"
                     });
-                    
+
                     if has_config_change {
                         let _ = config_tx_clone.blocking_send(());
                         return;
                     }
-                    
+
                     let has_relevant_change = events.iter().any(|e| {
                         if !graphql_rust::utils::is_relevant_file(&e.path) {
                             return false;
@@ -158,12 +158,12 @@ pub async fn run_codegen(
             tokio::select! {
                 _ = config_rx.recv() => {
                     println!("{}", "\nConfiguration file changed, reloading...".bright_yellow());
-                    
+
                     // Reload config
                     if let Some(new_config) = Config::load_from_dir(&config.base_dir) {
                         println!("{}", "Configuration reloaded successfully".bright_green());
                         config = new_config;
-                        
+
                         // Break from inner loop to restart watch with new config
                         // The debouncer will be dropped automatically
                         continue 'watch_loop;
@@ -209,6 +209,18 @@ async fn execute_codegen(
 
     let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
     for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
+        // Skip projects with codegen disabled
+        if !project.codegen_enabled() {
+            if verbose {
+                println!(
+                    "{}: {} (codegen disabled)",
+                    "Skipping project".bright_black(),
+                    project.include.as_key().bright_black()
+                );
+            }
+            continue;
+        }
+
         let project_files = &project_meta.files;
 
         println!("Processing project: {}", project.include.as_key().blue());
@@ -229,40 +241,43 @@ async fn execute_codegen(
             matches.first().and_then(|st| st.import.clone())
         });
 
-        let valid_schema = match graphql_rust::schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                success = false;
-                continue;
-            }
-        };
+        let valid_schema =
+            match graphql_rust::schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{}", e.to_string().red());
+                    success = false;
+                    continue;
+                }
+            };
 
         let project_context =
             Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
 
-        if !clean && project.generate_permissions.unwrap_or(false)
-            && let Some(out_dir) = project_output_dir {
-                let out_dir_path = cfg.base_dir.join(out_dir);
-                std::fs::create_dir_all(&out_dir_path).ok();
-                let permissions_path = out_dir_path.join("permissions.ts");
-                if verbose {
-                    println!(
-                        "{}: {}",
-                        "Generating permissions".bright_black(),
-                        permissions_path.display().to_string().bright_black()
-                    );
-                }
-                let content = graphql_rust::features::codegen::generate_permissions_content(
-                    &valid_schema,
-                    &cfg.scalars,
-                    &schema_import,
+        if !clean
+            && project.generate_permissions.unwrap_or(false)
+            && let Some(out_dir) = project_output_dir
+        {
+            let out_dir_path = cfg.base_dir.join(out_dir);
+            std::fs::create_dir_all(&out_dir_path).ok();
+            let permissions_path = out_dir_path.join("permissions.ts");
+            if verbose {
+                println!(
+                    "{}: {}",
+                    "Generating permissions".bright_black(),
+                    permissions_path.display().to_string().bright_black()
                 );
-                if let Err(e) = std::fs::write(&permissions_path, content) {
-                    eprintln!("{}: {}", "Failed to write permissions".red(), e);
-                    success = false;
-                }
             }
+            let content = graphql_rust::features::codegen::generate_permissions_content(
+                &valid_schema,
+                &cfg.scalars,
+                &schema_import,
+            );
+            if let Err(e) = std::fs::write(&permissions_path, content) {
+                eprintln!("{}: {}", "Failed to write permissions".red(), e);
+                success = false;
+            }
+        }
 
         match execute_project_codegen_entry(
             CodegenParams {
@@ -328,67 +343,66 @@ async fn execute_codegen(
         }
     }
 
-    if !clean
-        && let Some(out_dir) = global_output_dir {
-            let out_dir_path = cfg.base_dir.join(out_dir);
-            let entrypoint_path = out_dir_path.join("graphql.ts");
-            if !all_generated_operations.is_empty() {
-                if verbose {
-                    println!(
-                        "{}: {}",
-                        "Generating entrypoint".bright_black(),
-                        entrypoint_path.display().to_string().bright_black()
-                    );
-                }
-                let content = graphql_rust::features::codegen::generate_entrypoint_content(
-                    &out_dir_path,
-                    &all_generated_operations,
+    if !clean && let Some(out_dir) = global_output_dir {
+        let out_dir_path = cfg.base_dir.join(out_dir);
+        let entrypoint_path = out_dir_path.join("graphql.ts");
+        if !all_generated_operations.is_empty() {
+            if verbose {
+                println!(
+                    "{}: {}",
+                    "Generating entrypoint".bright_black(),
+                    entrypoint_path.display().to_string().bright_black()
                 );
-                if let Err(e) = std::fs::write(&entrypoint_path, content) {
-                    eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
-                    success = false;
-                }
+            }
+            let content = graphql_rust::features::codegen::generate_entrypoint_content(
+                &out_dir_path,
+                &all_generated_operations,
+            );
+            if let Err(e) = std::fs::write(&entrypoint_path, content) {
+                eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
+                success = false;
+            }
 
-                // Generate manifest for SWC plugin
-                let manifest_path = out_dir_path.join("manifest.json");
-                if verbose {
-                    println!(
-                        "{}: {}",
-                        "Generating manifest".bright_black(),
-                        manifest_path.display().to_string().bright_black()
-                    );
-                }
-                let manifest_entries: Vec<_> = all_generated_operations
-                    .iter()
-                    .map(|op| {
-                        let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
-                            .unwrap_or_else(|| op.codegen_path.clone());
-                        let mut path_str = rel_path.to_string_lossy().to_string();
-                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
-                            path_str = format!("./{}", path_str);
-                        }
-                        // Remove .ts extension
-                        let path_no_ext = if path_str.ends_with(".ts") {
-                            &path_str[..path_str.len() - 3]
-                        } else {
-                            &path_str
-                        };
+            // Generate manifest for SWC plugin
+            let manifest_path = out_dir_path.join("manifest.json");
+            if verbose {
+                println!(
+                    "{}: {}",
+                    "Generating manifest".bright_black(),
+                    manifest_path.display().to_string().bright_black()
+                );
+            }
+            let manifest_entries: Vec<_> = all_generated_operations
+                .iter()
+                .map(|op| {
+                    let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
+                        .unwrap_or_else(|| op.codegen_path.clone());
+                    let mut path_str = rel_path.to_string_lossy().to_string();
+                    if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                        path_str = format!("./{}", path_str);
+                    }
+                    // Remove .ts extension
+                    let path_no_ext = if path_str.ends_with(".ts") {
+                        &path_str[..path_str.len() - 3]
+                    } else {
+                        &path_str
+                    };
 
-                        serde_json::json!({
-                            "source": op.source_text,
-                            "path": path_no_ext,
-                            "name": format!("{}Document", op.operation_type_name)
-                        })
+                    serde_json::json!({
+                        "source": op.source_text,
+                        "path": path_no_ext,
+                        "name": format!("{}Document", op.operation_type_name)
                     })
-                    .collect();
+                })
+                .collect();
 
-                let manifest_json = serde_json::to_string_pretty(&manifest_entries).unwrap();
-                if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
-                    eprintln!("{}: {}", "Failed to write manifest".red(), e);
-                    success = false;
-                }
+            let manifest_json = serde_json::to_string_pretty(&manifest_entries).unwrap();
+            if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
+                eprintln!("{}: {}", "Failed to write manifest".red(), e);
+                success = false;
             }
         }
+    }
 
     success
 }
@@ -439,13 +453,14 @@ async fn execute_project_codegen_entry(
     clean: bool,
 ) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, ()> {
     if !clean {
-        let valid_schema = match graphql_rust::schema::load_and_validate_schema(params.base_dir, params.source) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                return Err(());
-            }
-        };
+        let valid_schema =
+            match graphql_rust::schema::load_and_validate_schema(params.base_dir, params.source) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{}", e.to_string().red());
+                    return Err(());
+                }
+            };
 
         // Create shared type cache for all files in this project
         let shared_type_cache = graphql_rust::features::codegen::TypeCache::new();
@@ -486,7 +501,7 @@ async fn execute_project_codegen_entry(
                             for meta in params.global_metadata {
                                 if e.contains(&format!("'{}'", meta.name)) {
                                      let is_local = params.project_files.iter().any(|pf: &PathBuf| {
-                                         std::fs::canonicalize(pf).unwrap_or_else(|_| pf.clone()) == 
+                                         std::fs::canonicalize(pf).unwrap_or_else(|_| pf.clone()) ==
                                          std::fs::canonicalize(&meta.path).unwrap_or_else(|_| PathBuf::from(&meta.path))
                                      });
 

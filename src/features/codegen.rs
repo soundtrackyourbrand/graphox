@@ -1,6 +1,6 @@
 use crate::features::apollo_ast::{
-    get_fragment_fragment_dependencies,
-    serialize_fragment_definition, serialize_operation_definition,
+    get_fragment_fragment_dependencies, serialize_fragment_definition,
+    serialize_operation_definition,
 };
 use apollo_compiler::ast::{OperationType, Type};
 use apollo_compiler::executable::{self, Selection, SelectionSet};
@@ -58,7 +58,7 @@ impl TypeCache {
             self.hits.fetch_add(1, Ordering::Relaxed);
             return cached.clone();
         }
-        
+
         self.misses.fetch_add(1, Ordering::Relaxed);
         let result = compute();
         self.cache.insert(key.to_string(), result.clone());
@@ -66,7 +66,10 @@ impl TypeCache {
     }
 
     pub fn stats(&self) -> (usize, usize) {
-        (self.hits.load(Ordering::Relaxed), self.misses.load(Ordering::Relaxed))
+        (
+            self.hits.load(Ordering::Relaxed),
+            self.misses.load(Ordering::Relaxed),
+        )
     }
 
     pub fn len(&self) -> usize {
@@ -143,7 +146,7 @@ pub fn generate_typescript_with_profile(
 ) -> Result<(String, Vec<OperationGenerated>, CodegenProfile), String> {
     use std::time::Instant;
     let mut profile = CodegenProfile::default();
-    
+
     // Pre-allocate output with estimated capacity
     let mut output = String::with_capacity(4096);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
@@ -250,16 +253,16 @@ pub fn generate_typescript_with_profile(
             let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
                 let op_def = serialize_operation_definition(op);
-                
+
                 // Use cached dependencies when possible to avoid expensive tree traversal
                 let deps = get_operation_deps_cached(op, ctx, doc);
-                
+
                 // Pre-allocate with known capacity to avoid reallocations
                 let estimated_size = deps.len();
                 let mut definitions_parts = Vec::with_capacity(estimated_size + 1);
                 let op_def_str = op_def.to_string();
                 definitions_parts.push(op_def_str);
-                
+
                 // Sort deps once to avoid repeated allocations
                 let mut deps_list: Vec<_> = deps.into_iter().collect();
                 deps_list.sort_unstable(); // unstable sort is faster
@@ -288,7 +291,9 @@ pub fn generate_typescript_with_profile(
                 }
 
                 // Pre-calculate total size for final string
-                let total_size: usize = definitions_parts.iter().map(|s| s.len()).sum::<usize>() + definitions_parts.len() * 2 + 30;
+                let total_size: usize = definitions_parts.iter().map(|s| s.len()).sum::<usize>()
+                    + definitions_parts.len() * 2
+                    + 30;
                 let mut result = String::with_capacity(total_size);
                 result.push_str("{ kind: 'Document', definitions: [");
                 result.push_str(&definitions_parts.join(", "));
@@ -338,7 +343,7 @@ pub fn generate_typescript_with_profile(
                 &mut used_schema_types,
             );
             profile.selection_set_time += sel_start.elapsed();
-            
+
             bodies.push_str("export interface ");
             bodies.push_str(&frag.name);
             bodies.push(' ');
@@ -356,16 +361,16 @@ pub fn generate_typescript_with_profile(
 
                 if !is_type_only {
                     let frag_def = serialize_fragment_definition(frag);
-                    
+
                     // Use cached dependencies to avoid tree traversal
                     let deps = get_fragment_deps_cached(&frag.name, ctx);
-                    
+
                     // Pre-allocate with known capacity
                     let estimated_size = deps.len();
                     let mut definitions_parts = Vec::with_capacity(estimated_size + 1);
                     let frag_def_str = frag_def.to_string();
                     definitions_parts.push(frag_def_str);
-                    
+
                     // Sort deps once
                     let mut deps_list: Vec<_> = deps.into_iter().collect();
                     deps_list.sort_unstable();
@@ -394,7 +399,9 @@ pub fn generate_typescript_with_profile(
                     }
 
                     // Pre-calculate total size
-                    let total_size: usize = definitions_parts.iter().map(|s| s.len()).sum::<usize>() + definitions_parts.len() * 2;
+                    let total_size: usize =
+                        definitions_parts.iter().map(|s| s.len()).sum::<usize>()
+                            + definitions_parts.len() * 2;
                     let mut definitions = String::with_capacity(total_size);
                     definitions.push('[');
                     definitions.push_str(&definitions_parts.join(", "));
@@ -449,7 +456,7 @@ pub fn generate_typescript_with_profile(
     {
         // Use BTreeSet to keep schema types sorted
         let types: std::collections::BTreeSet<_> = used_schema_types.into_iter().collect();
-        
+
         // Pre-allocate string for import line
         let estimated_size = types.len() * 20 + schema_import_path.len() + 30;
         let mut line = String::with_capacity(estimated_size);
@@ -470,7 +477,7 @@ pub fn generate_typescript_with_profile(
 
     // Pre-compute current_file_parent to avoid repeated calls
     let current_file_parent = ctx.current_file_path.parent().unwrap();
-    
+
     // BTreeMap iteration is already sorted, no need to sort
     for (path, names) in &imports {
         let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
@@ -647,20 +654,21 @@ pub fn generate_permissions_content(
         };
 
         if let Some(fields) = fields
-            && let Some(permissions_field) = fields.get("permissions") {
-                let inner_name = permissions_field.ty.inner_named_type();
-                let inner_type = schema.types.get(inner_name.as_str());
-                if let Some(ExtendedType::Enum(_)) = inner_type {
-                    types_with_permissions.push((name, permissions_field));
-                } else {
-                    eprintln!(
-                        "{}: Type '{}' has a 'permissions' field, but its type '{}' is not an enum. Skipping permissions generation for this type.",
-                        "Warning".yellow(),
-                        name.blue(),
-                        inner_name.blue()
-                    );
-                }
+            && let Some(permissions_field) = fields.get("permissions")
+        {
+            let inner_name = permissions_field.ty.inner_named_type();
+            let inner_type = schema.types.get(inner_name.as_str());
+            if let Some(ExtendedType::Enum(_)) = inner_type {
+                types_with_permissions.push((name, permissions_field));
+            } else {
+                eprintln!(
+                    "{}: Type '{}' has a 'permissions' field, but its type '{}' is not an enum. Skipping permissions generation for this type.",
+                    "Warning".yellow(),
+                    name.blue(),
+                    inner_name.blue()
+                );
             }
+        }
     }
 
     if types_with_permissions.is_empty() {
@@ -1233,14 +1241,15 @@ fn get_operation_deps_cached(
     doc: &crate::DocumentState,
 ) -> HashSet<String> {
     let mut all_deps = HashSet::default();
-    
+
     // Collect direct fragment spreads from the operation (single pass)
     collect_direct_fragment_spreads(&operation.selection_set, &mut all_deps);
-    
+
     // Pre-allocate for transitive deps to reduce reallocations
     let initial_size = all_deps.len();
-    let mut transitive_deps = HashSet::with_capacity_and_hasher(initial_size * 2, Default::default());
-    
+    let mut transitive_deps =
+        HashSet::with_capacity_and_hasher(initial_size * 2, Default::default());
+
     // For each direct dependency, add its transitive dependencies from cache
     for frag_name in &all_deps {
         if let Some(cached_transitive) = ctx.fragment_dependencies.get(frag_name) {
@@ -1251,23 +1260,21 @@ fn get_operation_deps_cached(
             if let Some(local_frag) = doc.fragments().iter().find(|f| &f.name == frag_name) {
                 // This fragment is local, compute its deps on the fly
                 if let Some(parsed_frag) = ctx.all_fragments.get(&local_frag.name) {
-                    let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
+                    let frag_deps =
+                        get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
                     transitive_deps.extend(frag_deps);
                 }
             }
         }
     }
-    
+
     // Merge transitive deps into all_deps
     all_deps.extend(transitive_deps);
     all_deps
 }
 
 /// Get fragment dependencies using cache
-fn get_fragment_deps_cached(
-    fragment_name: &str,
-    ctx: &CodegenContext,
-) -> HashSet<String> {
+fn get_fragment_deps_cached(fragment_name: &str, ctx: &CodegenContext) -> HashSet<String> {
     if let Some(cached_deps) = ctx.fragment_dependencies.get(fragment_name) {
         // Use cached dependencies
         cached_deps.iter().cloned().collect()

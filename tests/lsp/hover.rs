@@ -25,10 +25,11 @@ fn create_test_config(dir: &std::path::Path) -> Config {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     }
 }
@@ -220,10 +221,11 @@ async fn test_hover_graphql_description() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -563,10 +565,11 @@ async fn test_hover_argument() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -669,10 +672,11 @@ async fn test_hover_input_object_field() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -862,7 +866,8 @@ async fn test_hover_builtin_typename() {
             m.value
         );
         assert!(
-            m.value.contains("The GraphQL type name of the current selection."),
+            m.value
+                .contains("The GraphQL type name of the current selection."),
             "Should show fallback description for builtin field, got: {}",
             m.value
         );
@@ -944,7 +949,8 @@ async fn test_hover_builtin_schema_fields() {
             m.value
         );
         assert!(
-            m.value.contains("Access the current schema introspection object."),
+            m.value
+                .contains("Access the current schema introspection object."),
             "Should show fallback description for __schema, got: {}",
             m.value
         );

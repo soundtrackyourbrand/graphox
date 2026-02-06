@@ -228,10 +228,11 @@ async fn test_fragment_hover_requirements() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -350,10 +351,11 @@ async fn test_fragment_completion_requirements() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -502,10 +504,11 @@ async fn test_variable_references_including_fragments() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 

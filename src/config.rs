@@ -86,6 +86,7 @@ pub struct ProjectConfig {
     pub output_dir: Option<String>,
     pub import: Option<String>,
     pub generate_permissions: Option<bool>,
+    pub codegen: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -212,20 +213,20 @@ impl Config {
 
             if matched
                 && let Some(exclude) = &project.exclude
-                    && let Some(rel_path) = relative_path
-                {
-                    let mut builder = GlobSetBuilder::new();
-                    for pattern in exclude.patterns() {
-                        if let Ok(glob) = Glob::new(&pattern) {
-                            builder.add(glob);
-                        }
-                    }
-                    if let Ok(set) = builder.build()
-                        && set.is_match(rel_path)
-                    {
-                        matched = false;
+                && let Some(rel_path) = relative_path
+            {
+                let mut builder = GlobSetBuilder::new();
+                for pattern in exclude.patterns() {
+                    if let Ok(glob) = Glob::new(&pattern) {
+                        builder.add(glob);
                     }
                 }
+                if let Ok(set) = builder.build()
+                    && set.is_match(rel_path)
+                {
+                    matched = false;
+                }
+            }
 
             if matched {
                 return Some(project);
@@ -248,6 +249,12 @@ impl Config {
 
     pub fn enable_schema_cache(&self) -> bool {
         self.enable_schema_cache.unwrap_or(true)
+    }
+}
+
+impl ProjectConfig {
+    pub fn codegen_enabled(&self) -> bool {
+        self.codegen.unwrap_or(true)
     }
 }
 
@@ -397,5 +404,40 @@ projects:
             Some("s.graphql".to_string())
         );
         assert_eq!(config.get_schema_for_path(&other_file), None);
+    }
+
+    #[test]
+    #[ntest::timeout(100)]
+    fn test_codegen_disabled() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("graphql.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+projects:
+  - schema: "s1.graphql"
+    include: "src/p1/**/*.ts"
+    codegen: false
+  - schema: "s2.graphql"
+    include: "src/p2/**/*.ts"
+  - schema: "s3.graphql"
+    include: "src/p3/**/*.ts"
+    codegen: true
+"#
+        )
+        .unwrap();
+
+        let config = Config::load_from_dir(dir.path()).unwrap();
+        assert_eq!(config.projects.len(), 3);
+
+        // First project has codegen disabled
+        assert_eq!(config.projects[0].codegen_enabled(), false);
+
+        // Second project has default (enabled)
+        assert_eq!(config.projects[1].codegen_enabled(), true);
+
+        // Third project has codegen explicitly enabled
+        assert_eq!(config.projects[2].codegen_enabled(), true);
     }
 }

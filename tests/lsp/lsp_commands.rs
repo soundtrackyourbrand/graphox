@@ -32,6 +32,7 @@ async fn test_lsp_command_clear_cache() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -41,7 +42,7 @@ async fn test_lsp_command_clear_cache() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -165,6 +166,7 @@ async fn test_lsp_command_run_codegen() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: None, // This test needs codegen enabled
         }],
         schema_types: None,
         scalars: None,
@@ -174,7 +176,7 @@ async fn test_lsp_command_run_codegen() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));

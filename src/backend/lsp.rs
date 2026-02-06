@@ -1,9 +1,9 @@
+use super::fragment_manager;
 use crate::Config;
 use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::features::completion::FragmentCompletionInfo;
 use crate::utils::SEMANTIC_TOKEN_LEGEND;
-use super::fragment_manager;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
@@ -45,7 +45,8 @@ pub struct Backend {
     pub gitignore: Arc<ignore::gitignore::Gitignore>,
     /// Persistent type cache per schema (keyed by schema key)
     /// Shared across all codegen runs for the same schema to maximize cache hits
-    pub type_caches: Arc<DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>,
+    pub type_caches:
+        Arc<DashMap<String, Arc<crate::features::codegen::TypeCache>, ahash::RandomState>>,
     /// Client capabilities for conditional feature enablement
     pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
     /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
@@ -226,21 +227,21 @@ impl Backend {
 
             if let Some(frag) = all_fragments.iter().find(|f| {
                 f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
-            })
-                && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone()) {
-                    // Get variables from this fragment
-                    let local_vars = doc.get_fragment_variable_types(&name, schema);
-                    for (var, ty) in local_vars {
-                        requirements.insert(var, ty);
-                    }
+            }) && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone())
+            {
+                // Get variables from this fragment
+                let local_vars = doc.get_fragment_variable_types(&name, schema);
+                for (var, ty) in local_vars {
+                    requirements.insert(var, ty);
+                }
 
-                    // Get nested fragments
-                    if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
-                        for nested in &def.used_fragments {
-                            stack.push(nested.clone());
-                        }
+                // Get nested fragments
+                if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
+                    for nested in &def.used_fragments {
+                        stack.push(nested.clone());
                     }
                 }
+            }
         }
     }
 
@@ -254,14 +255,13 @@ impl Backend {
     {
         let start = std::time::Instant::now();
         let res = fut.await;
-        
+
         // Extract tracing config before await
         let should_log = {
             let config = self.config.read().unwrap();
-            config.tracing.as_ref()
-                .map(|t| (t.enabled, t.threshold_ms))
+            config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
         };
-        
+
         if let Some((enabled, threshold_ms)) = should_log {
             if enabled {
                 let elapsed = start.elapsed();
@@ -279,10 +279,12 @@ impl Backend {
     }
 
     async fn reload_schema(&self, changed_path: &str) {
-        let supports_progress = self.client_capabilities.read()
+        let supports_progress = self
+            .client_capabilities
+            .read()
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
-        
+
         let config = self.config.read().unwrap().clone();
         let reloaded_keys = super::schema_management::reload_schema(
             changed_path,
@@ -296,11 +298,10 @@ impl Backend {
 
         // Validate documents affected by reloaded schemas
         for key in reloaded_keys {
-            let affected = super::schema_management::get_uris_affected_by_schema(
-                &key,
-                &config,
-                || self.documents.iter().map(|e| e.key().clone()).collect(),
-            );
+            let affected =
+                super::schema_management::get_uris_affected_by_schema(&key, &config, || {
+                    self.documents.iter().map(|e| e.key().clone()).collect()
+                });
             self.validate_uris(affected).await;
         }
     }
@@ -320,23 +321,29 @@ impl Backend {
     }
 
     pub async fn run_codegen(&self) {
-        let supports_progress = self.client_capabilities.read()
+        let supports_progress = self
+            .client_capabilities
+            .read()
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
-        
+
         let config = self.config.read().unwrap().clone();
         super::codegen_runner::run_codegen(
             self.client.clone(),
             config,
             self.type_caches.clone(),
             supports_progress,
-        ).await;
+        )
+        .await;
     }
 
     /// Reloads the configuration file and reinitializes the LSP state
     async fn reload_config(&self) {
         self.client
-            .log_message(MessageType::INFO, "Configuration file changed, reloading...")
+            .log_message(
+                MessageType::INFO,
+                "Configuration file changed, reloading...",
+            )
             .await;
 
         // Get the base directory from current config
@@ -359,24 +366,28 @@ impl Backend {
         // Clear all state
         self.schemas.clear();
         self.validated_schemas.clear();
-        
+
         // Only clear non-open documents to preserve user's open files
-        let open_uris: Vec<_> = self.open_documents.iter().map(|r| r.key().clone()).collect();
+        let open_uris: Vec<_> = self
+            .open_documents
+            .iter()
+            .map(|r| r.key().clone())
+            .collect();
         self.documents.retain(|uri, _| open_uris.contains(uri));
-        
+
         self.fragment_defs.clear();
         self.fragment_spreads.clear();
         self.fragment_dependents.clear();
         self.fragment_definitions.clear();
         self.package_roots.clear();
         self.type_caches.clear();
-        
+
         // Re-register file watchers with new config
         {
             let config = self.config.read().unwrap();
             super::file_watchers::register_file_watchers(self.client.clone(), &config);
         }
-        
+
         // Reload schemas from new config
         let config = self.config.read().unwrap().clone();
         for project in &config.projects {
@@ -390,15 +401,18 @@ impl Backend {
                 }
             }
         }
-        
+
         // Trigger workspace scan to re-index everything
-        let supports_progress = self.client_capabilities.read()
+        let supports_progress = self
+            .client_capabilities
+            .read()
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
-        
+
         // Reset workspace_loaded flag
-        self.workspace_loaded.store(false, std::sync::atomic::Ordering::Relaxed);
-        
+        self.workspace_loaded
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+
         let scan_config = self.config.read().unwrap().clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
@@ -455,7 +469,7 @@ impl Backend {
         } else {
             (true, false) // Default to push if can't read capabilities
         };
-        
+
         let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
             client: &self.client,
@@ -472,13 +486,8 @@ impl Backend {
             fragment_definitions: &self.fragment_definitions,
             supports_progress,
         };
-        super::validation::validate_uris(
-            params,
-            uris,
-            use_push,
-            Some(&self.diagnostic_cache),
-        )
-        .await;
+        super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
+            .await;
     }
 
     pub async fn validate_all_documents(&self) {
@@ -487,7 +496,7 @@ impl Backend {
         } else {
             (true, false) // Default to push if can't read capabilities
         };
-        
+
         let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
             client: &self.client,
@@ -530,40 +539,40 @@ impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         // Extract and store client capabilities
         let client_caps = &params.capabilities;
-        
+
         let mut caps = ClientCapabilities::default();
-        
+
         // Check for pull diagnostics support (LSP 3.17+)
         if let Some(text_document) = &client_caps.text_document {
             caps.supports_pull_diagnostics = text_document.diagnostic.is_some();
         }
-        
+
         // Check for workspace folder support
         if let Some(workspace) = &client_caps.workspace {
             caps.supports_workspace_folders = workspace.workspace_folders.unwrap_or(false);
             caps.supports_configuration = workspace.configuration.unwrap_or(false);
         }
-        
+
         // Check for progress support
         if let Some(window) = &client_caps.window {
             caps.supports_progress = window.work_done_progress.unwrap_or(false);
         }
-        
+
         // Check for semantic tokens support
         if let Some(text_document) = &client_caps.text_document {
             caps.supports_semantic_tokens = text_document.semantic_tokens.is_some();
         }
-        
+
         // Check for inlay hints support (for future implementation)
         if let Some(text_document) = &client_caps.text_document {
             caps.supports_inlay_hints = text_document.inlay_hint.is_some();
         }
-        
+
         // Store capabilities
         if let Ok(mut stored_caps) = self.client_capabilities.write() {
             *stored_caps = caps.clone();
         }
-        
+
         // Log detected capabilities
         self.client
             .log_message(
@@ -578,7 +587,7 @@ impl LanguageServer for Backend {
                 ),
             )
             .await;
-        
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -598,21 +607,19 @@ impl LanguageServer for Backend {
                     file_operations: None,
                 }),
                 semantic_tokens_provider: if caps.supports_semantic_tokens {
-                    Some(
-                        SemanticTokensServerCapabilities::SemanticTokensOptions(
-                            SemanticTokensOptions {
-                                work_done_progress_options: WorkDoneProgressOptions {
-                                    work_done_progress: None,
-                                },
-                                legend: SemanticTokensLegend {
-                                    token_types: SEMANTIC_TOKEN_LEGEND.to_vec(),
-                                    token_modifiers: vec![],
-                                },
-                                range: Some(false),
-                                full: Some(SemanticTokensFullOptions::Bool(true)),
+                    Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions {
+                                work_done_progress: None,
                             },
-                        ),
-                    )
+                            legend: SemanticTokensLegend {
+                                token_types: SEMANTIC_TOKEN_LEGEND.to_vec(),
+                                token_modifiers: vec![],
+                            },
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ))
                 } else {
                     None
                 },
@@ -670,18 +677,18 @@ impl LanguageServer for Backend {
                 }
             })
         };
-        
+
         if let Some(msg) = tracing_msg {
-            self.client
-                .log_message(MessageType::INFO, msg)
-                .await;
+            self.client.log_message(MessageType::INFO, msg).await;
         }
 
         // Spawn workspace scan in background to avoid hanging the LSP
-        let supports_progress = self.client_capabilities.read()
+        let supports_progress = self
+            .client_capabilities
+            .read()
             .map(|caps| caps.supports_progress)
             .unwrap_or(false);
-        
+
         let config = self.config.read().unwrap().clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
@@ -752,10 +759,11 @@ impl LanguageServer for Backend {
                             if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path() {
                                 let config = self.config.read().unwrap();
                                 if let Some(proj) = config.get_project_for_path(&other_p)
-                                    && let Some(import) = &proj.import {
-                                        value.push_str("\n\n---\n");
-                                        value.push_str(&format!("Import: `{}`", import));
-                                    }
+                                    && let Some(import) = &proj.import
+                                {
+                                    value.push_str("\n\n---\n");
+                                    value.push_str(&format!("Import: `{}`", import));
+                                }
                             }
 
                             return Ok(Some(Hover {
@@ -974,11 +982,14 @@ impl LanguageServer for Backend {
             let client = self.client.clone();
             let config = self.config.read().unwrap().clone();
             let type_caches = self.type_caches.clone();
-            let supports_progress = self.client_capabilities.read()
+            let supports_progress = self
+                .client_capabilities
+                .read()
                 .map(|caps| caps.supports_progress)
                 .unwrap_or(false);
             tokio::spawn(async move {
-                super::codegen_runner::run_codegen(client, config, type_caches, supports_progress).await;
+                super::codegen_runner::run_codegen(client, config, type_caches, supports_progress)
+                    .await;
             });
         }
     }
@@ -1001,7 +1012,12 @@ impl LanguageServer for Backend {
             fragment_definitions: &self.fragment_definitions,
         };
 
-        if let Some(result) = super::document_changes::process_document_change(&uri, params.content_changes, version, &change_params) {
+        if let Some(result) = super::document_changes::process_document_change(
+            &uri,
+            params.content_changes,
+            version,
+            &change_params,
+        ) {
             // Validate affected documents
             self.validate_uris(result.uris_to_validate).await;
 
@@ -1011,11 +1027,19 @@ impl LanguageServer for Backend {
                 let client = self.client.clone();
                 let config = self.config.read().unwrap().clone();
                 let type_caches = self.type_caches.clone();
-                let supports_progress = self.client_capabilities.read()
+                let supports_progress = self
+                    .client_capabilities
+                    .read()
                     .map(|caps| caps.supports_progress)
                     .unwrap_or(false);
                 tokio::spawn(async move {
-                    super::codegen_runner::run_codegen(client, config, type_caches, supports_progress).await;
+                    super::codegen_runner::run_codegen(
+                        client,
+                        config,
+                        type_caches,
+                        supports_progress,
+                    )
+                    .await;
                 });
             }
         }
@@ -1493,11 +1517,12 @@ impl LanguageServer for Backend {
                         self.reload_config().await;
                         continue; // Skip other processing since we're doing a full reload
                     }
-                    
+
                     if result.should_reload_schema
-                        && let Some(schema_path) = result.schema_path {
-                            self.reload_schema(&schema_path).await;
-                        }
+                        && let Some(schema_path) = result.schema_path
+                    {
+                        self.reload_schema(&schema_path).await;
+                    }
 
                     if !result.uris_to_validate.is_empty() {
                         self.validate_uris(result.uris_to_validate).await;
@@ -1507,11 +1532,19 @@ impl LanguageServer for Backend {
                         let client = self.client.clone();
                         let config = self.config.read().unwrap().clone();
                         let type_caches = self.type_caches.clone();
-                        let supports_progress = self.client_capabilities.read()
+                        let supports_progress = self
+                            .client_capabilities
+                            .read()
                             .map(|caps| caps.supports_progress)
                             .unwrap_or(false);
                         tokio::spawn(async move {
-                            super::codegen_runner::run_codegen(client, config, type_caches, supports_progress).await;
+                            super::codegen_runner::run_codegen(
+                                client,
+                                config,
+                                type_caches,
+                                supports_progress,
+                            )
+                            .await;
                         });
                     }
                 }
@@ -1552,7 +1585,7 @@ impl LanguageServer for Backend {
         params: DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
         let uri = self.normalize_uri(params.text_document.uri.clone());
-        
+
         // Get the current document version
         let doc_version = if let Some(doc) = self.documents.get(&uri) {
             doc.version
@@ -1568,11 +1601,11 @@ impl LanguageServer for Backend {
                 }),
             ));
         };
-        
+
         // Check if we have cached diagnostics
         if let Some(cached) = self.diagnostic_cache.get(&uri) {
             let (cached_version, cached_diagnostics) = cached.value();
-            
+
             // If the cached version matches the previous result ID, return unchanged
             if let Some(prev_result_id) = &params.previous_result_id {
                 if let Ok(prev_version) = prev_result_id.parse::<i32>() {
@@ -1591,7 +1624,7 @@ impl LanguageServer for Backend {
                     }
                 }
             }
-            
+
             // Return cached diagnostics if version matches
             if *cached_version == doc_version {
                 return Ok(DocumentDiagnosticReportResult::Report(
@@ -1605,11 +1638,11 @@ impl LanguageServer for Backend {
                 ));
             }
         }
-        
+
         // No cache or outdated cache - compute diagnostics
         // Force validation with caching but no push
         self.validate_uris(vec![uri.clone()]).await;
-        
+
         // Retrieve from cache
         if let Some(cached) = self.diagnostic_cache.get(&uri) {
             let (version, diagnostics) = cached.value();
@@ -1623,7 +1656,7 @@ impl LanguageServer for Backend {
                 }),
             ));
         }
-        
+
         // Fallback: return empty diagnostics
         Ok(DocumentDiagnosticReportResult::Report(
             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
@@ -1641,23 +1674,24 @@ impl LanguageServer for Backend {
         params: WorkspaceDiagnosticParams,
     ) -> Result<WorkspaceDiagnosticReportResult> {
         let mut items = Vec::new();
-        
+
         // Get all document URIs
         let all_uris: Vec<Url> = self.documents.iter().map(|e| e.key().clone()).collect();
-        
+
         // Validate all documents (this will cache diagnostics)
         self.validate_all_documents().await;
-        
+
         // Collect diagnostics from cache
         for uri in all_uris {
             if let Some(cached) = self.diagnostic_cache.get(&uri) {
                 let (version, diagnostics) = cached.value();
-                
+
                 // Check if this URI was in the previous result
-                let unchanged = params.previous_result_ids.iter().any(|prev| {
-                    prev.uri == uri && prev.value == version.to_string()
-                });
-                
+                let unchanged = params
+                    .previous_result_ids
+                    .iter()
+                    .any(|prev| prev.uri == uri && prev.value == version.to_string());
+
                 if unchanged {
                     items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
                         WorkspaceUnchangedDocumentDiagnosticReport {
@@ -1683,7 +1717,7 @@ impl LanguageServer for Backend {
                 }
             }
         }
-        
+
         Ok(WorkspaceDiagnosticReportResult::Report(
             WorkspaceDiagnosticReport { items },
         ))
@@ -1708,6 +1742,7 @@ mod tests {
                 output_dir: None,
                 import: None,
                 generate_permissions: None,
+                codegen: None,
             }],
             output_dir: None,
             schema_types: None,

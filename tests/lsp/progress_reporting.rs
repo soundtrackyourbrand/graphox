@@ -18,12 +18,20 @@ async fn test_progress_on_workspace_scan() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! name: String }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
 
     // Create multiple files to trigger progress
     for i in 0..20 {
         let query_path = base_dir.join(format!("query{}.graphql", i));
-        fs::write(&query_path, format!("query GetUser{} {{ user {{ id name }} }}", i)).unwrap();
+        fs::write(
+            &query_path,
+            format!("query GetUser{} {{ user {{ id name }} }}", i),
+        )
+        .unwrap();
     }
 
     let config = Config {
@@ -35,6 +43,7 @@ async fn test_progress_on_workspace_scan() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -44,7 +53,7 @@ async fn test_progress_on_workspace_scan() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -52,7 +61,7 @@ async fn test_progress_on_workspace_scan() {
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let progress_clone = progress_notifications.clone();
-    
+
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "$/progress" {
@@ -99,21 +108,33 @@ async fn test_progress_on_workspace_scan() {
 
     // Verify progress notifications were sent
     let notifications = progress_notifications.lock().unwrap();
-    assert!(!notifications.is_empty(), "Should receive progress notifications for workspace scan");
-    
+    assert!(
+        !notifications.is_empty(),
+        "Should receive progress notifications for workspace scan"
+    );
+
     // Check for begin, report, and end notifications
     let has_begin = notifications.iter().any(|n| {
-        n.get("value").and_then(|v| v.get("kind")).and_then(|k| k.as_str()) == Some("begin")
+        n.get("value")
+            .and_then(|v| v.get("kind"))
+            .and_then(|k| k.as_str())
+            == Some("begin")
     });
-    
+
     let _has_report = notifications.iter().any(|n| {
-        n.get("value").and_then(|v| v.get("kind")).and_then(|k| k.as_str()) == Some("report")
+        n.get("value")
+            .and_then(|v| v.get("kind"))
+            .and_then(|k| k.as_str())
+            == Some("report")
     });
-    
+
     let has_end = notifications.iter().any(|n| {
-        n.get("value").and_then(|v| v.get("kind")).and_then(|k| k.as_str()) == Some("end")
+        n.get("value")
+            .and_then(|v| v.get("kind"))
+            .and_then(|k| k.as_str())
+            == Some("end")
     });
-    
+
     assert!(has_begin, "Should have begin progress notification");
     assert!(has_end, "Should have end progress notification");
     // Report may or may not appear depending on timing
@@ -125,12 +146,20 @@ async fn test_no_progress_without_capability() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! }",
+    )
+    .unwrap();
 
     // Create multiple files
     for i in 0..20 {
         let query_path = base_dir.join(format!("query{}.graphql", i));
-        fs::write(&query_path, format!("query GetUser{} {{ user {{ id }} }}", i)).unwrap();
+        fs::write(
+            &query_path,
+            format!("query GetUser{} {{ user {{ id }} }}", i),
+        )
+        .unwrap();
     }
 
     let config = Config {
@@ -142,6 +171,7 @@ async fn test_no_progress_without_capability() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -151,7 +181,7 @@ async fn test_no_progress_without_capability() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -159,7 +189,7 @@ async fn test_no_progress_without_capability() {
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let progress_clone = progress_notifications.clone();
-    
+
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "$/progress" {
@@ -203,7 +233,10 @@ async fn test_no_progress_without_capability() {
 
     // Verify NO progress notifications were sent
     let notifications = progress_notifications.lock().unwrap();
-    assert!(notifications.is_empty(), "Should NOT receive progress notifications when client doesn't support it");
+    assert!(
+        notifications.is_empty(),
+        "Should NOT receive progress notifications when client doesn't support it"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -229,6 +262,7 @@ async fn test_progress_on_codegen() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: None, // This test needs codegen enabled
         }],
         schema_types: None,
         scalars: None,
@@ -238,7 +272,7 @@ async fn test_progress_on_codegen() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -246,7 +280,7 @@ async fn test_progress_on_codegen() {
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let progress_clone = progress_notifications.clone();
-    
+
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "$/progress" {
@@ -315,20 +349,23 @@ async fn test_progress_on_codegen() {
 
     // Verify codegen progress notifications
     let notifications = progress_notifications.lock().unwrap();
-    
+
     // Check if any progress notification mentions codegen/generating
     let has_codegen_progress = notifications.iter().any(|n| {
         if let Some(value) = n.get("value") {
             if let Some(message) = value.get("message").and_then(|m| m.as_str()) {
-                return message.to_lowercase().contains("generat") || 
-                       message.to_lowercase().contains("typescript") ||
-                       message.to_lowercase().contains("types");
+                return message.to_lowercase().contains("generat")
+                    || message.to_lowercase().contains("typescript")
+                    || message.to_lowercase().contains("types");
             }
         }
         false
     });
-    
-    assert!(has_codegen_progress, "Should receive progress notifications for codegen");
+
+    assert!(
+        has_codegen_progress,
+        "Should receive progress notifications for codegen"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -337,12 +374,20 @@ async fn test_progress_messages_contain_percentage() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { user: User } type User { id: ID! }").unwrap();
+    fs::write(
+        &schema_path,
+        "type Query { user: User } type User { id: ID! }",
+    )
+    .unwrap();
 
     // Create multiple files to ensure progress reporting
     for i in 0..15 {
         let query_path = base_dir.join(format!("query{}.graphql", i));
-        fs::write(&query_path, format!("query GetUser{} {{ user {{ id }} }}", i)).unwrap();
+        fs::write(
+            &query_path,
+            format!("query GetUser{} {{ user {{ id }} }}", i),
+        )
+        .unwrap();
     }
 
     let config = Config {
@@ -354,6 +399,7 @@ async fn test_progress_messages_contain_percentage() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         schema_types: None,
         scalars: None,
@@ -363,7 +409,7 @@ async fn test_progress_messages_contain_percentage() {
         watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -371,7 +417,7 @@ async fn test_progress_messages_contain_percentage() {
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let progress_clone = progress_notifications.clone();
-    
+
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.method() == "$/progress" {
@@ -418,13 +464,16 @@ async fn test_progress_messages_contain_percentage() {
 
     // Check for percentage in progress notifications
     let notifications = progress_notifications.lock().unwrap();
-    
+
     let has_percentage = notifications.iter().any(|n| {
         n.get("value")
             .and_then(|v| v.get("percentage"))
             .and_then(|p| p.as_u64())
             .is_some()
     });
-    
-    assert!(has_percentage, "Progress notifications should include percentage values");
+
+    assert!(
+        has_percentage,
+        "Progress notifications should include percentage values"
+    );
 }

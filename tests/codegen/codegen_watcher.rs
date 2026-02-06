@@ -59,7 +59,8 @@ fn test_codegen_watch_mode() {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(1) {
         if let Ok(content) = fs::read_to_string(&gen_file)
-            && content.contains("name: string | null") {
+            && content.contains("name: string | null")
+        {
             updated = true;
             break;
         }
@@ -135,7 +136,8 @@ fn test_codegen_watch_schema_changes() {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(1) {
         if let Ok(content) = fs::read_to_string(&gen_file)
-            && content.contains("email: string") {
+            && content.contains("email: string")
+        {
             updated = true;
             break;
         }

@@ -453,9 +453,10 @@ impl DocumentState {
                                         }
                                     }
                                 } else if let Some(parent) = nn.parent()
-                                    && parent.kind() == "fragment_name" {
-                                        used_fragments.push(node_text);
-                                    }
+                                    && parent.kind() == "fragment_name"
+                                {
+                                    used_fragments.push(node_text);
+                                }
                             }
                         }
 
@@ -534,9 +535,10 @@ impl DocumentState {
                 let name = self.get_node_text(name_node, offset);
                 if !name.starts_with('$')
                     && let Some(parent) = name_node.parent()
-                        && parent.kind() == "fragment_name" {
-                            spreads.push(name);
-                        }
+                    && parent.kind() == "fragment_name"
+                {
+                    spreads.push(name);
+                }
             }
         }
         spreads
@@ -576,11 +578,11 @@ impl DocumentState {
                             op_type = self.get_node_text(cap.node, offset);
                             is_operation = true;
                         }
-                    } else if cap_name == "symbol.full"
-                        && cap.node.kind() == "operation_definition" {
-                            is_operation = true;
-                            full_node = Some(cap.node);
-                        }
+                    } else if cap_name == "symbol.full" && cap.node.kind() == "operation_definition"
+                    {
+                        is_operation = true;
+                        full_node = Some(cap.node);
+                    }
                 }
 
                 if is_operation {
@@ -634,10 +636,11 @@ impl DocumentState {
                     if cap_name == "symbol.name" {
                         name = Some(self.get_node_text(cap.node, offset));
                     } else if cap_name == "symbol.container"
-                        && cap.node.kind() == "fragment_definition" {
-                            is_fragment = true;
-                            container_node = Some(cap.node);
-                        }
+                        && cap.node.kind() == "fragment_definition"
+                    {
+                        is_fragment = true;
+                        container_node = Some(cap.node);
+                    }
                 }
 
                 if is_fragment
@@ -660,7 +663,7 @@ impl DocumentState {
     ) {
         // Update version
         self.version = version;
-        
+
         if let Some(range) = change.range {
             let start_byte = self.position_to_byte(range.start);
             let old_end_byte = self.position_to_byte(range.end);
@@ -851,21 +854,24 @@ impl DocumentState {
                     if cap_name == "symbol.name" {
                         name = Some(self.get_node_text(cap.node, offset));
                     } else if cap_name == "symbol.container"
-                        && cap.node.kind() == "fragment_definition" {
-                            is_fragment = true;
-                            container_node = Some(cap.node);
-                        }
+                        && cap.node.kind() == "fragment_definition"
+                    {
+                        is_fragment = true;
+                        container_node = Some(cap.node);
+                    }
                 }
 
-                if is_fragment && let Some(n) = name
+                if is_fragment
+                    && let Some(n) = name
                     && n == fragment_name
-                        && let Some(container) = container_node
-                        && let Some(type_name) = self.get_fragment_type_condition(container, offset)
-                            && let Some(type_def) = schema.types.get(type_name.as_str()) {
-                                self.collect_variables_in_fragment(
-                                    container, offset, type_def, schema, &mut vars,
-                                );
-                            }
+                    && let Some(container) = container_node
+                    && let Some(type_name) = self.get_fragment_type_condition(container, offset)
+                    && let Some(type_def) = schema.types.get(type_name.as_str())
+                {
+                    self.collect_variables_in_fragment(
+                        container, offset, type_def, schema, &mut vars,
+                    );
+                }
             }
         }
 
@@ -1024,9 +1030,10 @@ impl DocumentState {
                 }
 
                 if let (Some(aname), Some(vnode)) = (arg_name, value_node)
-                    && let Some(adef) = arg_defs.iter().find(|a| a.name.as_str() == aname) {
-                        self.collect_variables_in_value(vnode, offset, &adef.ty, schema, vars);
-                    }
+                    && let Some(adef) = arg_defs.iter().find(|a| a.name.as_str() == aname)
+                {
+                    self.collect_variables_in_value(vnode, offset, &adef.ty, schema, vars);
+                }
             }
         }
     }
@@ -1054,15 +1061,16 @@ impl DocumentState {
 
                 if let Some(dname) = dir_name
                     && let Some(ddef) = schema.directive_definitions.get(dname.as_str())
-                        && let Some(args_node) = arguments {
-                            self.collect_variables_in_arguments(
-                                args_node,
-                                offset,
-                                &ddef.arguments,
-                                schema,
-                                vars,
-                            );
-                        }
+                    && let Some(args_node) = arguments
+                {
+                    self.collect_variables_in_arguments(
+                        args_node,
+                        offset,
+                        &ddef.arguments,
+                        schema,
+                        vars,
+                    );
+                }
             }
         }
     }
@@ -1087,32 +1095,34 @@ impl DocumentState {
             }
             "object_value" => {
                 if let Some(ty_def) = schema.types.get(expected_type.inner_named_type().as_str())
-                    && let apollo_compiler::schema::ExtendedType::InputObject(input_obj) = ty_def {
-                        let mut cursor = node.walk();
-                        for child in node.children(&mut cursor) {
-                            if child.kind() == "object_field" {
-                                let mut field_name = None;
-                                let mut value_node = None;
-                                let mut of_cursor = child.walk();
-                                for of_child in child.children(&mut of_cursor) {
-                                    if of_child.kind() == "name" {
-                                        field_name = Some(self.get_node_text(of_child, offset));
-                                    } else if of_child.kind() == "value"
-                                        || of_child.kind().ends_with("_value")
-                                    {
-                                        value_node = Some(of_child);
-                                    }
+                    && let apollo_compiler::schema::ExtendedType::InputObject(input_obj) = ty_def
+                {
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "object_field" {
+                            let mut field_name = None;
+                            let mut value_node = None;
+                            let mut of_cursor = child.walk();
+                            for of_child in child.children(&mut of_cursor) {
+                                if of_child.kind() == "name" {
+                                    field_name = Some(self.get_node_text(of_child, offset));
+                                } else if of_child.kind() == "value"
+                                    || of_child.kind().ends_with("_value")
+                                {
+                                    value_node = Some(of_child);
                                 }
+                            }
 
-                                if let (Some(fname), Some(vnode)) = (field_name, value_node)
-                                    && let Some(fdef) = input_obj.fields.get(fname.as_str()) {
-                                        self.collect_variables_in_value(
-                                            vnode, offset, &fdef.ty, schema, vars,
-                                        );
-                                    }
+                            if let (Some(fname), Some(vnode)) = (field_name, value_node)
+                                && let Some(fdef) = input_obj.fields.get(fname.as_str())
+                            {
+                                self.collect_variables_in_value(
+                                    vnode, offset, &fdef.ty, schema, vars,
+                                );
                             }
                         }
                     }
+                }
             }
             "list_value" => {
                 let mut cursor = node.walk();

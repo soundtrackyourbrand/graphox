@@ -38,6 +38,7 @@ async fn test_cross_project_references_and_rename() {
                 output_dir: None,
                 import: None,
                 generate_permissions: None,
+                codegen: Some(false),
             },
             ProjectConfig {
                 schema: SchemaSource::Single("../schema.graphql".to_string()),
@@ -46,11 +47,12 @@ async fn test_cross_project_references_and_rename() {
                 output_dir: None,
                 import: None,
                 generate_permissions: None,
+                codegen: Some(false),
             },
         ],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -218,6 +220,7 @@ async fn test_unrelated_projects_rename_isolation() {
                 output_dir: None,
                 import: None,
                 generate_permissions: None,
+                codegen: Some(false),
             },
             ProjectConfig {
                 schema: SchemaSource::Single("../schema.graphql".to_string()),
@@ -226,11 +229,12 @@ async fn test_unrelated_projects_rename_isolation() {
                 output_dir: None,
                 import: None,
                 generate_permissions: None,
+                codegen: Some(false),
             },
         ],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 

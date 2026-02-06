@@ -14,8 +14,8 @@ use fnv::FnvHashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 
 /// Parameters for validation operations
 pub struct ValidationParams<'a> {
@@ -35,7 +35,7 @@ pub struct ValidationParams<'a> {
 }
 
 /// Validates a list of document URIs and publishes diagnostics
-/// 
+///
 /// If `use_push` is true, diagnostics are pushed via `publishDiagnostics`.
 /// If false, diagnostics are only cached for pull-based retrieval.
 pub async fn validate_uris(
@@ -50,11 +50,14 @@ pub async fn validate_uris(
 
     // Create progress reporter if validating multiple documents
     let progress = if uris.len() > 5 {
-        Some(super::progress::ProgressReporter::new(
-            params.client.clone(),
-            format!("Validating {} documents", uris.len()),
-            params.supports_progress,
-        ).await)
+        Some(
+            super::progress::ProgressReporter::new(
+                params.client.clone(),
+                format!("Validating {} documents", uris.len()),
+                params.supports_progress,
+            )
+            .await,
+        )
     } else {
         None
     };
@@ -69,13 +72,18 @@ pub async fn validate_uris(
             // Skip validating schema files as executable documents
             if let Ok(path) = uri.to_file_path()
                 && let Some(schema_key) = params.config.get_schema_for_path(&path)
-                    && schema_key.contains(&path.to_string_lossy().to_string())
-                        && !params.open_documents.contains(&uri)
-                    {
-                        continue;
-                    }
+                && schema_key.contains(&path.to_string_lossy().to_string())
+                && !params.open_documents.contains(&uri)
+            {
+                continue;
+            }
 
-            let schema = get_schema_for_doc(&uri, params.config, params.validated_schemas, params.valid_empty_schema);
+            let schema = get_schema_for_doc(
+                &uri,
+                params.config,
+                params.validated_schemas,
+                params.valid_empty_schema,
+            );
             let filtered_fragments = get_fragments_for_doc(
                 &doc,
                 params.config,
@@ -91,23 +99,24 @@ pub async fn validate_uris(
                 false,
                 workspace_loaded,
             );
-            
+
             // Cache diagnostics for pull-based diagnostics
             if let Some(cache) = diagnostic_cache {
                 cache.insert(uri.clone(), (doc.version, diagnostics.clone()));
             }
-            
+
             if use_push {
                 to_publish.push((uri.clone(), diagnostics));
             }
-            
+
             // Report progress
             if let Some(ref p) = progress {
                 let percentage = ((idx + 1) * 100 / total) as u32;
                 p.report(
                     format!("Validated {}/{} documents", idx + 1, total),
-                    Some(percentage)
-                ).await;
+                    Some(percentage),
+                )
+                .await;
             }
         }
     }
@@ -158,11 +167,12 @@ pub fn get_affected_uris(
         if let Some(dependents) = fragment_dependents.get(&frag_name) {
             for dep_uri in dependents.value() {
                 if uris_to_validate.insert(dep_uri.clone())
-                    && let Some(doc) = documents.get(dep_uri).map(|r| r.value().clone()) {
-                        for f in doc.fragments() {
-                            to_process.push(f.name.clone());
-                        }
+                    && let Some(doc) = documents.get(dep_uri).map(|r| r.value().clone())
+                {
+                    for f in doc.fragments() {
+                        to_process.push(f.name.clone());
                     }
+                }
             }
         }
     }
@@ -215,11 +225,8 @@ pub fn get_fragments_for_doc(
     fragment_defs: &Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
     package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
 ) -> Vec<FragmentCompletionInfo> {
-    let all_fragments = super::fragment_manager::collect_fragment_metadata(
-        fragment_defs,
-        config,
-        package_roots,
-    );
+    let all_fragments =
+        super::fragment_manager::collect_fragment_metadata(fragment_defs, config, package_roots);
 
     let target_package_root = doc.package_root.as_ref();
     let doc_path = doc.uri.to_file_path().ok();

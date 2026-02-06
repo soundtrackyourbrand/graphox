@@ -8,11 +8,11 @@ pub mod document_changes;
 pub mod file_change_handler;
 pub mod file_watchers;
 pub mod fragment_manager;
+mod lsp;
 pub mod progress;
 pub mod schema_management;
 pub mod validation;
 pub mod workspace_scan;
-mod lsp;
 
 // Re-export the main Backend struct and its implementation
 pub use lsp::Backend;

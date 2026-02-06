@@ -40,7 +40,7 @@
 //! your `graphql.yaml` configuration file.
 
 use crate::config::SchemaSource;
-use apollo_compiler::{validation::Valid, Schema};
+use apollo_compiler::{Schema, validation::Valid};
 use dashmap::DashMap;
 use fnv::FnvHashMap;
 use once_cell::sync::Lazy;

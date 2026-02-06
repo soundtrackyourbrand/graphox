@@ -27,10 +27,11 @@ async fn test_completion_fields() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -121,10 +122,11 @@ async fn test_completion_variables() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -219,10 +221,11 @@ async fn test_completion_fragment_spread() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -312,10 +315,11 @@ async fn test_completion_types_in_fragment() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -410,10 +414,11 @@ async fn test_completion_fragment_spread_acceptance() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -573,10 +578,11 @@ async fn test_completion_directives_on_field() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -666,10 +672,11 @@ async fn test_completion_directives_on_fragment() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -760,10 +767,11 @@ async fn test_completion_introspection_fields() {
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: Some(false),
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: None,
+        lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
 
@@ -834,16 +842,19 @@ async fn test_completion_introspection_fields() {
             items.iter().any(|i| i.label == "users"),
             "Should include regular field 'users'"
         );
-        
+
         // Should have __typename (available on all types)
         assert!(
             items.iter().any(|i| i.label == "__typename"),
             "Should include __typename"
         );
-        
+
         // Should have __schema (Query root only)
         let schema_item = items.iter().find(|i| i.label == "__schema");
-        assert!(schema_item.is_some(), "Should include __schema on Query root");
+        assert!(
+            schema_item.is_some(),
+            "Should include __schema on Query root"
+        );
         if let Some(item) = schema_item {
             assert_eq!(
                 item.detail.as_deref(),
@@ -851,7 +862,7 @@ async fn test_completion_introspection_fields() {
                 "Should have correct type for __schema"
             );
         }
-        
+
         // Should have __type (Query root only)
         let type_item = items.iter().find(|i| i.label == "__type");
         assert!(type_item.is_some(), "Should include __type on Query root");
@@ -921,19 +932,19 @@ async fn test_completion_introspection_fields() {
             items.iter().any(|i| i.label == "username"),
             "Should include regular field 'username'"
         );
-        
+
         // Should still have __typename
         assert!(
             items.iter().any(|i| i.label == "__typename"),
             "Should include __typename on User type"
         );
-        
+
         // Should NOT have __schema (not Query root)
         assert!(
             !items.iter().any(|i| i.label == "__schema"),
             "Should NOT include __schema on non-root User type"
         );
-        
+
         // Should NOT have __type (not Query root)
         assert!(
             !items.iter().any(|i| i.label == "__type"),
