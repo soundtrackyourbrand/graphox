@@ -1,6 +1,6 @@
 use apollo_compiler::Schema;
-use graphql_rust::DocumentState;
 use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::DocumentState;
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::*;
 
@@ -383,11 +383,9 @@ fn test_validation_unions_and_interfaces() {
     "#;
     let doc = create_doc("file:///invalid_union.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.message.contains("not found on type 'SearchResult'"))
-    );
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.message.contains("not found on type 'SearchResult'")));
 
     // Valid: field on interface
     let text = r#"
@@ -425,4 +423,80 @@ fn test_validation_block_strings_and_comments() {
         "Block strings or comments caused issues: {:?}",
         diagnostics
     );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_validation_circular_fragments() {
+    let text = r#"
+        fragment FragA on User { ...FragB }
+        fragment FragB on User { ...FragA }
+    "#;
+    let doc = create_doc("file:///circular.graphql", text);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
+
+    // Expect exactly one circular fragment diagnostic with full message and range
+    let diag = diagnostics
+        .iter()
+        .find(|d| d.code == Some(NumberOrString::String("circular_fragment".to_string())))
+        .expect(&format!(
+            "Expected circular fragment diagnostic, got: {:?}",
+            diagnostics
+        ));
+
+    // Expect an exact diagnostic message including local URIs
+    let uri_path = doc.uri.path();
+    let expected_message = format!(
+        "Circular fragment reference: FragA ({}) -> FragB ({}) -> FragA ({})",
+        uri_path, uri_path, uri_path
+    );
+    assert_eq!(diag.message, expected_message);
+
+    // The diagnostic range should point at the last fragment name mentioned in the message
+    let last_name = "FragA";
+    let start_byte = text.rfind(last_name).unwrap();
+    let end_byte = start_byte + last_name.len();
+    let expected_start = doc.byte_to_position(start_byte);
+    let expected_end = doc.byte_to_position(end_byte);
+    assert_eq!(diag.range.start, expected_start);
+    assert_eq!(diag.range.end, expected_end);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_validation_circular_fragments_three_way() {
+    let text = r#"
+        fragment A on User { ...B }
+        fragment B on User { ...C }
+        fragment C on User { ...A }
+    "#;
+    let doc = create_doc("file:///circular3.graphql", text);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
+
+    let diag = diagnostics
+        .iter()
+        .find(|d| d.code == Some(NumberOrString::String("circular_fragment".to_string())))
+        .expect(&format!(
+            "Expected circular fragment diagnostic for 3-way cycle, got: {:?}",
+            diagnostics
+        ));
+
+    // Expect exact diagnostic message (canonical rotation starts with A)
+    let uri_path = doc.uri.path();
+    let expected_message = format!(
+        "Circular fragment reference: A ({}) -> B ({}) -> C ({}) -> A ({})",
+        uri_path, uri_path, uri_path, uri_path
+    );
+    assert_eq!(diag.message, expected_message);
+
+    // Range should point to the last fragment name mentioned in the message (A)
+    let last_name = "A";
+    let start_byte = text.rfind(last_name).unwrap();
+    let end_byte = start_byte + last_name.len();
+    let expected_start = doc.byte_to_position(start_byte);
+    let expected_end = doc.byte_to_position(end_byte);
+    assert_eq!(diag.range.start, expected_start);
+    assert_eq!(diag.range.end, expected_end);
 }

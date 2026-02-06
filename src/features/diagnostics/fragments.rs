@@ -258,43 +258,133 @@ impl DocumentState {
         trigger_node: Node,
         offset: usize,
     ) -> bool {
-        let mut stack = vec![initial_name.to_string()];
-        let mut initial_exists = false;
+        // Use a DFS traversal to detect cycles and collect used variables.
+        fn dfs(
+            this: &DocumentState,
+            name: &str,
+            ctx: &mut ValidationContext,
+            visited: &mut fnv::FnvHashSet<String>,
+            path: &mut Vec<String>,
+            trigger_node: Node,
+            offset: usize,
+        ) -> bool {
+            // If this fragment is already on the current path, we found a cycle.
+            if path.contains(&name.to_string()) {
+                // Build the cycle using only the relevant slice of the path
+                let start_idx = path.iter().position(|p| p == name).unwrap_or(0);
+                let mut cycle_names: Vec<String> = path[start_idx..].to_vec();
+                // append the repeating fragment at the end to close the cycle
+                cycle_names.push(name.to_string());
 
-        while let Some(name) = stack.pop() {
-            if !visited.insert(name.clone()) {
-                continue;
+                // Build parts with URIs when available
+                let mut cycle_parts: Vec<String> = cycle_names
+                    .iter()
+                    .map(|n| {
+                        let mut part = n.clone();
+                        if let Some(fmeta) = ctx.all_fragments.iter().find(|f| f.name == *n) {
+                            part.push_str(" (");
+                            part.push_str(fmeta.uri.path());
+                            part.push(')');
+                        } else if this.fragments.iter().any(|f| f.name == *n) {
+                            part.push_str(" (");
+                            part.push_str(this.uri.path());
+                            part.push(')');
+                        }
+                        part
+                    })
+                    .collect();
+
+                // Canonicalize the cycle rotation for deterministic messages.
+                // Find the minimal fragment name (lexicographically) among the unique cycle nodes
+                if cycle_parts.len() > 2 {
+                    // exclude the final repeated element when choosing rotation
+                    let unique_len = cycle_parts.len() - 1;
+                    let mut min_idx = 0usize;
+                    for i in 0..unique_len {
+                        // compare by fragment name (before the first space which precedes the URI)
+                        let a = cycle_parts[i].splitn(2, ' ').next().unwrap_or(&cycle_parts[i]);
+                        let b = cycle_parts[min_idx].splitn(2, ' ').next().unwrap_or(&cycle_parts[min_idx]);
+                        if a < b {
+                            min_idx = i;
+                        }
+                    }
+
+                    if min_idx > 0 {
+                        // rotate the unique portion
+                        let mut rotated: Vec<String> = cycle_parts[0..unique_len].to_vec();
+                        rotated.rotate_left(min_idx);
+                        // append the first element again to close the cycle
+                        rotated.push(rotated[0].clone());
+                        cycle_parts = rotated;
+                    }
+                }
+
+                let cycle = cycle_parts.join(" -> ");
+
+                // Choose diagnostic range: prefer the last fragment name occurrence in this document
+                let diag_range = if let Some(last_part) = cycle_parts.last() {
+                    let last_name = last_part.split_whitespace().next().unwrap_or("");
+                    if !last_name.is_empty() {
+                        if let Some(start_byte) = this.rope.to_string().rfind(last_name) {
+                            let end_byte = start_byte + last_name.len();
+                            Range {
+                                start: this.byte_to_position(start_byte),
+                                end: this.byte_to_position(end_byte),
+                            }
+                        } else {
+                            this.translate_to_file_range(trigger_node, offset)
+                        }
+                    } else {
+                        this.translate_to_file_range(trigger_node, offset)
+                    }
+                } else {
+                    this.translate_to_file_range(trigger_node, offset)
+                };
+
+                ctx.diagnostics.push(Diagnostic {
+                    range: diag_range,
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("Circular fragment reference: {}", cycle),
+                    code: Some(NumberOrString::String("circular_fragment".to_string())),
+                    ..Default::default()
+                });
+                return true;
             }
 
+            // Avoid reprocessing fragments we've fully visited
+            if visited.contains(name) {
+                return true;
+            }
+
+            // Find fragment definition either in workspace fragments or this document
+            let mut fragment_exists = false;
             let mut used_variables = None;
             let mut used_fragments = None;
-            let mut fragment_exists = false;
             if let Some(f) = ctx.all_fragments.iter().find(|f| f.name == name) {
                 fragment_exists = true;
                 used_variables = Some(&f.used_variables);
                 used_fragments = Some(&f.used_fragments);
-            } else if let Some(f) = self.fragments.iter().find(|f| f.name == name) {
+            } else if let Some(f) = this.fragments.iter().find(|f| f.name == name) {
                 fragment_exists = true;
                 used_variables = Some(&f.used_variables);
                 used_fragments = Some(&f.used_fragments);
             }
 
-            if name == initial_name {
-                initial_exists = fragment_exists;
-            }
-
             if !fragment_exists {
-                continue;
+                return false;
             }
 
+            // mark as on current path
+            path.push(name.to_string());
+
+            // collect variables
             if let Some(vars) = used_variables {
                 for var in vars {
                     ctx.used_variables.insert(var.clone());
 
-                    // Only report undefined variables if we are in an operation context
                     if !ctx.defined_variables.is_empty() && !ctx.defined_variables.contains(var) {
                         ctx.diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(trigger_node, offset),
+                            range: this.translate_to_file_range(trigger_node, offset),
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!(
                                 "Undefined variable: ${} (required by fragment '{}')",
@@ -307,13 +397,31 @@ impl DocumentState {
                 }
             }
 
+            // Recurse into used fragments
             if let Some(frags) = used_fragments {
                 for frag in frags {
-                    stack.push(frag.clone());
+                    // Recurse - if any recursion reports cycle we propagate
+                    let _ = dfs(this, frag, ctx, visited, path, trigger_node, offset);
                 }
             }
+
+            // finished exploring this node
+            path.pop();
+            visited.insert(name.to_string());
+            true
         }
 
-        initial_exists
+        let mut path = Vec::new();
+        let local_visited = visited;
+        // return whether initial fragment exists
+        dfs(
+            self,
+            initial_name,
+            ctx,
+            local_visited,
+            &mut path,
+            trigger_node,
+            offset,
+        )
     }
 }
