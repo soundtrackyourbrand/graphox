@@ -36,12 +36,23 @@ pub struct FileChangeResult {
 }
 
 /// Processes a single file creation or modification
-pub fn process_file_created_or_changed(
+pub async fn process_file_created_or_changed(
     change_uri: Url,
-    params: &FileChangeParams,
+    params: &FileChangeParams<'_>,
     normalize_uri: impl Fn(Url) -> Url,
 ) -> Option<FileChangeResult> {
-    let path = change_uri.to_file_path().ok()?;
+    let path = match change_uri.to_file_path() {
+        Ok(p) => p,
+        Err(_) => {
+            super::error_logging::log_warning(
+                params.client,
+                "File change handler",
+                format!("Invalid file path in URI: {}", change_uri),
+            )
+            .await;
+            return None;
+        }
+    };
     let path_str = path.to_string_lossy().to_string();
 
     // Check if this is a config file
@@ -75,10 +86,31 @@ pub fn process_file_created_or_changed(
     let mut affected_fragment_names = FnvHashSet::default();
     let mut affected_spread_names = FnvHashSet::default();
 
-    let content = std::fs::read_to_string(&path).ok()?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            super::error_logging::log_warning(
+                params.client,
+                "File change handler",
+                format!("Failed to read file {}: {}", path.display(), e),
+            )
+            .await;
+            return None;
+        }
+    };
+    
     let language = DocumentLanguage::from_uri(&uri);
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&language.get_parser_language()).ok()?;
+    if let Err(e) = parser.set_language(&language.get_parser_language()) {
+        super::error_logging::log_error(
+            params.client,
+            "File change handler",
+            format!("Failed to set parser language: {}", e),
+        )
+        .await;
+        return None;
+    }
+    
     let new_doc = DocumentState::new(uri.clone(), &content, parser);
 
     let old_fragments = params

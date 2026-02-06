@@ -115,7 +115,8 @@ fn scan_and_index_workspace(
             // Also index type definitions (for Go to Definition)
             let query = crate::queries::GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
                 let lang = tree_sitter_graphql::LANGUAGE.into();
-                tree_sitter::Query::new(&lang, crate::queries::GQL_DEFINITION_QUERY).unwrap()
+                tree_sitter::Query::new(&lang, crate::queries::GQL_DEFINITION_QUERY)
+                    .expect("GQL_DEFINITION_QUERY should be a valid tree-sitter query")
             });
             let mut cursor = tree_sitter::QueryCursor::new();
             for block in doc.get_graphql_trees() {
@@ -184,14 +185,25 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
     // Pre-calculate validated schemas to avoid repeated validation
     let mut validated_schemas_map = fnv::FnvHashMap::default();
     for entry in schemas.iter() {
-        if let Ok(valid) = (**entry.value()).clone().validate() {
-            validated_schemas_map.insert(entry.key().clone(), Arc::new(valid));
+        let key = entry.key();
+        match (**entry.value()).clone().validate() {
+            Ok(valid) => {
+                validated_schemas_map.insert(key.clone(), Arc::new(valid));
+            }
+            Err(e) => {
+                client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("Schema validation failed for {}: {}", key, e),
+                    )
+                    .await;
+            }
         }
     }
     let valid_empty_schema = Arc::new(
         <apollo_compiler::Schema as Clone>::clone(empty_schema)
             .validate()
-            .unwrap(),
+            .expect("Empty schema should always be valid"),
     );
 
     // Pre-calculate all fragments info

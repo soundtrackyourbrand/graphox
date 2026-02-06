@@ -79,7 +79,9 @@ pub async fn run_codegen(
         let schema = match crate::schema::load_schema(&config.base_dir, &project.schema) {
             Ok(s) => s,
             Err(e) => {
-                let _ = client.log_message(MessageType::ERROR, e).await;
+                client
+                    .log_message(MessageType::ERROR, format!("Failed to load schema: {}", e))
+                    .await;
                 continue;
             }
         };
@@ -87,7 +89,7 @@ pub async fn run_codegen(
         let valid_schema = match schema.validate() {
             Ok(v) => v,
             Err(e) => {
-                let _ = client
+                client
                     .log_message(
                         MessageType::ERROR,
                         format!(
@@ -151,14 +153,40 @@ pub async fn run_codegen(
                     };
 
                     if let Some(parent) = abs_out_path.parent() {
-                        std::fs::create_dir_all(parent).ok();
+                        if let Err(e) = std::fs::create_dir_all(parent) {
+                            client
+                                .log_message(
+                                    MessageType::ERROR,
+                                    format!(
+                                        "Failed to create output directory {}: {}",
+                                        parent.display(),
+                                        e
+                                    ),
+                                )
+                                .await;
+                            continue;
+                        }
                     }
 
-                    if std::fs::write(&abs_out_path, ts_code).is_ok() {
-                        for op in &mut ops {
-                            op.codegen_path = abs_out_path.clone();
+                    match std::fs::write(&abs_out_path, ts_code) {
+                        Ok(_) => {
+                            for op in &mut ops {
+                                op.codegen_path = abs_out_path.clone();
+                            }
+                            all_generated_operations.extend(ops);
                         }
-                        all_generated_operations.extend(ops);
+                        Err(e) => {
+                            client
+                                .log_message(
+                                    MessageType::ERROR,
+                                    format!(
+                                        "Failed to write generated types to {}: {}",
+                                        abs_out_path.display(),
+                                        e
+                                    ),
+                                )
+                                .await;
+                        }
                     }
                 }
             }
@@ -193,7 +221,18 @@ pub async fn run_codegen(
                 &out_dir_path,
                 &all_generated_operations,
             );
-            let _ = std::fs::write(entrypoint_path, content);
+            if let Err(e) = std::fs::write(&entrypoint_path, content) {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Failed to write entrypoint file {}: {}",
+                            entrypoint_path.display(),
+                            e
+                        ),
+                    )
+                    .await;
+            }
         }
     }
 

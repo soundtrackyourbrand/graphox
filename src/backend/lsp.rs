@@ -66,20 +66,50 @@ impl Backend {
         let fragment_definitions: DashMap<String, FnvHashSet<Url>, ahash::RandomState> =
             DashMap::with_hasher(ahash::RandomState::default());
 
-        let empty_schema =
-            Arc::new(Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap());
-        let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap());
+        let empty_schema = Arc::new(
+            Schema::parse("type Query { _empty: String }", "empty.graphql")
+                .unwrap_or_else(|e| {
+                    super::error_logging::log_error_sync(format!(
+                        "Failed to parse empty schema (this should never happen): {}",
+                        e
+                    ));
+                    // Fallback to absolutely minimal schema
+                    Schema::parse("schema { query: Query } type Query { __typename: String }", "fallback.graphql")
+                        .expect("Critical error: even fallback schema failed to parse")
+                }),
+        );
+        let valid_empty_schema = Arc::new((*empty_schema).clone().validate().unwrap_or_else(|e| {
+            super::error_logging::log_error_sync(format!(
+                "Failed to validate empty schema (this should never happen): {}",
+                e
+            ));
+            // This really should never fail, but provide a panic with clear message
+            panic!("Critical LSP initialization error: empty schema validation failed");
+        }));
 
         // Load project schemas from config
         for project in &config.projects {
             let key = project.schema.as_key();
-            if !schemas.contains_key(&key)
-                && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema)
-            {
-                if let Ok(valid) = (*schema).clone().validate() {
-                    validated_schemas.insert(key.clone(), Arc::new(valid));
+            if !schemas.contains_key(&key) {
+                match Self::load_schema_source(&config.base_dir, &project.schema) {
+                    Some(schema) => {
+                        if let Ok(valid) = (*schema).clone().validate() {
+                            validated_schemas.insert(key.clone(), Arc::new(valid));
+                        } else {
+                            super::error_logging::log_error_sync(format!(
+                                "Schema validation failed for project '{}': schema is invalid",
+                                key
+                            ));
+                        }
+                        schemas.insert(key, schema);
+                    }
+                    None => {
+                        super::error_logging::log_error_sync(format!(
+                            "Failed to load schema for project '{}': schema files may be missing or invalid",
+                            key
+                        ));
+                    }
                 }
-                schemas.insert(key, schema);
             }
         }
 
@@ -1564,6 +1594,7 @@ impl LanguageServer for Backend {
                         &change_params,
                         |uri| self.normalize_uri(uri),
                     )
+                    .await
                 } else if change.typ == FileChangeType::DELETED {
                     super::file_change_handler::process_file_deleted(
                         change.uri,

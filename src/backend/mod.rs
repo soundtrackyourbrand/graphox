@@ -5,6 +5,7 @@
 
 pub mod codegen_runner;
 pub mod document_changes;
+pub mod error_logging;
 pub mod file_change_handler;
 pub mod file_watchers;
 pub mod fragment_manager;
