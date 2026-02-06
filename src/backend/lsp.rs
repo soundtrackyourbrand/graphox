@@ -1526,6 +1526,13 @@ impl LanguageServer for Backend {
                                 actions.push(CodeActionOrCommand::CodeAction(action));
                             }
                         }
+                    } else if code == "no_duplicate_fields" {
+                        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+                            let actions_for_dup = doc.get_duplicate_field_actions(&diagnostic);
+                            for action in actions_for_dup {
+                                actions.push(CodeActionOrCommand::CodeAction(action));
+                            }
+                        }
                     } else if code == "required_field_missing"
                         && let Some(doc) = self.documents.get(uri).map(|r| r.value().clone())
                     {

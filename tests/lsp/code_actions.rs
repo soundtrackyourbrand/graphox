@@ -82,6 +82,40 @@ async fn test_code_action_remove_unused_fragment() {
         .await
         .unwrap();
 
+    // Also create a document with a duplicate field to exercise duplicate-field code action
+    let dup_path = base_dir.join("dup.graphql");
+    let dup_text = "query { me { id id } }";
+    fs::write(&dup_path, dup_text).unwrap();
+    let dup_path = std::fs::canonicalize(dup_path).unwrap();
+    let dup_uri = Url::from_file_path(&dup_path).unwrap();
+
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: dup_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: dup_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // Construct a diagnostic that points to the duplicated `id` field in dup.graphql
+    let dup_diag = Diagnostic {
+        range: Range::new(Position::new(0, 13), Position::new(0, 15)),
+        message: "Duplicate field 'id' in selection set".to_string(),
+        code: Some(NumberOrString::String("no_duplicate_fields".to_string())),
+        ..Default::default()
+    };
+
     // Wait for diagnostics (simulated by just checking if we get any)
     // In this test setup, diagnostics are published to the client (which we don't have a mock for here easily)
     // But we can trigger code_action directly with a diagnostic we construct.
@@ -99,7 +133,7 @@ async fn test_code_action_remove_unused_fragment() {
         },
         range: diagnostic.range,
         context: CodeActionContext {
-            diagnostics: vec![diagnostic],
+            diagnostics: vec![diagnostic.clone()],
             only: None,
             trigger_kind: None,
         },
@@ -118,11 +152,59 @@ async fn test_code_action_remove_unused_fragment() {
     let actions = result.expect("Expected actions");
     assert!(!actions.is_empty());
 
-    if let CodeActionOrCommand::CodeAction(action) = &actions[0] {
-        assert_eq!(action.title, "Remove unused fragment");
+    // Find and verify 'Remove unused fragment' action
+    let unused_action = actions
+        .iter()
+        .find(|a| match a {
+            CodeActionOrCommand::CodeAction(ca) => ca.title == "Remove unused fragment",
+            _ => false,
+        })
+        .expect("Expected 'Remove unused fragment' action");
+
+    if let CodeActionOrCommand::CodeAction(action) = unused_action {
         let edit = action.edit.as_ref().unwrap();
         let changes = edit.changes.as_ref().unwrap();
         assert!(changes.contains_key(&frag_uri));
+    } else {
+        panic!("Expected CodeAction");
+    }
+
+    // Now request code actions for the duplicate document specifically
+    let params_dup = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: dup_uri.clone(),
+        },
+        range: dup_diag.range,
+        context: CodeActionContext {
+            diagnostics: vec![dup_diag.clone()],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let request_dup = Request::build("textDocument/codeAction")
+        .id(2)
+        .params(serde_json::to_value(&params_dup).unwrap())
+        .finish();
+    let response_dup = service.call(request_dup).await.unwrap().unwrap();
+    let result_dup: Option<CodeActionResponse> =
+        serde_json::from_value(response_dup.result().unwrap().clone()).unwrap();
+    let actions_dup = result_dup.expect("Expected actions for dup file");
+
+    let dup_action = actions_dup
+        .iter()
+        .find(|a| match a {
+            CodeActionOrCommand::CodeAction(ca) => ca.title == "Remove duplicate field",
+            _ => false,
+        })
+        .expect("Expected 'Remove duplicate field' action");
+
+    if let CodeActionOrCommand::CodeAction(action) = dup_action {
+        let edit = action.edit.as_ref().unwrap();
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&dup_uri));
     } else {
         panic!("Expected CodeAction");
     }

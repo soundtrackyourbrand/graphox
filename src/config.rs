@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 pub struct RulesConfig {
     pub required_fields: Option<FnvHashMap<String, RequiredFieldRule>>,
     pub unique_operation_name: Option<bool>,
+    pub no_duplicate_fields: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

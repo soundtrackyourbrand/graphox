@@ -255,6 +255,112 @@ impl DocumentState {
         actions
     }
 
+    /// Get code actions for duplicate field diagnostics - remove the duplicated field
+    pub fn get_duplicate_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
+        let mut actions = Vec::new();
+        let range = diagnostic.range;
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let start_byte = self.position_to_byte(range.start);
+            let end_byte = self.position_to_byte(range.end);
+            if start_byte >= offset && end_byte <= offset + block.tree.root_node().end_byte() {
+                // Find the field name node and then the containing selection/field node to remove
+                let local_start = start_byte - offset;
+                let local_end = end_byte - offset;
+                let root = block.tree.root_node();
+                if let Some(mut node) = root.descendant_for_byte_range(local_start, local_end) {
+                    // climb to the field node
+                    while node.kind() != "field" && node.kind() != "selection" {
+                        if let Some(parent) = node.parent() {
+                            node = parent;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if node.kind() == "field" || node.kind() == "selection" {
+                        // Compute a removal range that preserves formatting:
+                        // - If the field starts at the beginning (after indentation) of its line and
+                        //   the text before it on the line is only whitespace, remove that entire line
+                        //   including the trailing newline so no empty line remains.
+                        // - Otherwise, remove exactly the node range.
+                        let abs_start = offset + node.start_byte();
+                        let abs_end = offset + node.end_byte();
+
+                        // Determine start of the line containing the node
+                        let start_pos = self.byte_to_position(abs_start);
+                        let line_start_byte =
+                            self.position_to_byte(Position::new(start_pos.line, 0));
+
+                        let mut remove_start = abs_start;
+                        // If all bytes between line_start_byte and abs_start are whitespace, expand to line start
+                        if line_start_byte < abs_start {
+                            let before_text =
+                                self.rope.byte_slice(line_start_byte..abs_start).to_string();
+                            if before_text.trim().is_empty() {
+                                remove_start = line_start_byte;
+                            }
+                        }
+
+                        // Determine end of next line start to include trailing newline
+                        let total_lines = self.rope.len_lines() as u32;
+                        let end_pos = self.byte_to_position(abs_end);
+                        let mut remove_end = abs_end;
+                        if end_pos.line + 1 < total_lines {
+                            let next_line_start =
+                                self.position_to_byte(Position::new(end_pos.line + 1, 0));
+                            // If the remainder of the line after the node is only whitespace, include the newline
+                            let after_text =
+                                self.rope.byte_slice(abs_end..next_line_start).to_string();
+                            if after_text.trim().is_empty() {
+                                remove_end = next_line_start;
+                            }
+                        }
+
+                        let start_pos = self.byte_to_position(remove_start);
+                        let end_pos = self.byte_to_position(remove_end);
+
+                        let text_range = Range {
+                            start: start_pos,
+                            end: end_pos,
+                        };
+                        let mut changes = std::collections::HashMap::new();
+                        changes.insert(
+                            self.uri.clone(),
+                            vec![TextEdit {
+                                range: text_range,
+                                new_text: String::new(),
+                            }],
+                        );
+
+                        // Build code action and copy diagnostic data if present so clients can
+                        // make informed edits or present richer UI.
+                        let mut ca = CodeAction {
+                            title: "Remove duplicate field".to_string(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![diagnostic.clone()]),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            is_preferred: Some(true),
+                            ..Default::default()
+                        };
+
+                        if let Some(data) = &diagnostic.data {
+                            ca.data = Some(data.clone());
+                        }
+
+                        actions.push(ca);
+                    }
+                }
+            }
+        }
+
+        actions
+    }
+
     /// Get code actions for required field diagnostics - adds the missing required field
     pub fn get_required_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
         let mut actions = Vec::new();
