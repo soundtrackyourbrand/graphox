@@ -51,6 +51,8 @@ pub struct Backend {
     pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
     /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
     pub diagnostic_cache: Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>,
+    /// Throttled codegen runner
+    pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
 }
 
 impl Backend {
@@ -115,10 +117,27 @@ impl Backend {
 
         let gitignore = Arc::new(crate::utils::get_gitignore_matcher(&config.base_dir));
 
+        let config_arc = Arc::new(std::sync::RwLock::new(config));
+        let type_caches = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+
+        // Create codegen throttle if automatic codegen is enabled
+        let codegen_throttle = {
+            let cfg = config_arc.read().unwrap();
+            if cfg.lsp_automatic_codegen() {
+                Some(Arc::new(super::codegen_throttle::CodegenThrottle::new(
+                    client.clone(),
+                    config_arc.clone(),
+                    type_caches.clone(),
+                )))
+            } else {
+                None
+            }
+        };
+
         Self {
             client,
             documents: Arc::new(documents),
-            config: Arc::new(std::sync::RwLock::new(config)),
+            config: config_arc,
 
             schemas: Arc::new(schemas),
             validated_schemas: Arc::new(validated_schemas),
@@ -133,9 +152,10 @@ impl Backend {
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
             gitignore,
-            type_caches: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
+            type_caches,
             client_capabilities: Arc::new(std::sync::RwLock::new(ClientCapabilities::default())),
             diagnostic_cache: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
+            codegen_throttle,
         }
     }
 
@@ -1049,16 +1069,9 @@ impl LanguageServer for Backend {
             self.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
         self.validate_uris(uris_to_validate).await;
 
-        let should_run_codegen = self.config.read().unwrap().lsp_automatic_codegen();
-        if should_run_codegen {
-            let client = self.client.clone();
-            let config = self.config.read().unwrap().clone();
-            let type_caches = self.type_caches.clone();
-            // Disable progress reporting for automatic codegen
-            tokio::spawn(async move {
-                super::codegen_runner::run_codegen(client, config, type_caches, false)
-                    .await;
-            });
+        // Request throttled codegen if enabled
+        if let Some(throttle) = &self.codegen_throttle {
+            throttle.request_codegen();
         }
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -1089,22 +1102,9 @@ impl LanguageServer for Backend {
             // Validate affected documents
             self.validate_uris(result.uris_to_validate).await;
 
-            // Run codegen if enabled
-            let should_run_codegen = self.config.read().unwrap().lsp_automatic_codegen();
-            if should_run_codegen {
-                let client = self.client.clone();
-                let config = self.config.read().unwrap().clone();
-                let type_caches = self.type_caches.clone();
-                // Disable progress reporting for automatic codegen
-                tokio::spawn(async move {
-                    super::codegen_runner::run_codegen(
-                        client,
-                        config,
-                        type_caches,
-                        false,
-                    )
-                    .await;
-                });
+            // Request throttled codegen if enabled
+            if let Some(throttle) = &self.codegen_throttle {
+                throttle.request_codegen();
             }
         }
     }
@@ -1695,20 +1695,11 @@ impl LanguageServer for Backend {
                         self.validate_uris(result.uris_to_validate).await;
                     }
 
+                    // Request throttled codegen if enabled
                     if result.should_run_codegen {
-                        let client = self.client.clone();
-                        let config = self.config.read().unwrap().clone();
-                        let type_caches = self.type_caches.clone();
-                        // Disable progress reporting for automatic codegen
-                        tokio::spawn(async move {
-                            super::codegen_runner::run_codegen(
-                                client,
-                                config,
-                                type_caches,
-                                false,
-                            )
-                            .await;
-                        });
+                        if let Some(throttle) = &self.codegen_throttle {
+                            throttle.request_codegen();
+                        }
                     }
                 }
             }
@@ -2059,6 +2050,7 @@ mod tests {
             timeouts: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
+            lsp_codegen_throttle_ms: None,
             enable_schema_cache: None,
         };
 
@@ -2090,6 +2082,7 @@ mod tests {
             timeouts: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
+            lsp_codegen_throttle_ms: None,
             enable_schema_cache: None,
         };
 

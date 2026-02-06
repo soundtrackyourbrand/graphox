@@ -180,6 +180,7 @@ async fn test_format_code_action_with_baseline() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 

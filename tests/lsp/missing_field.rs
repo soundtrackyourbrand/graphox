@@ -35,6 +35,7 @@ async fn test_missing_field_diagnostic_with_suggestions() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 
@@ -168,6 +169,7 @@ async fn test_missing_field_code_actions() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 

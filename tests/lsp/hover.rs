@@ -30,6 +30,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
         enable_schema_cache: Some(true),
         base_dir: dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     }
 }
@@ -226,6 +227,7 @@ async fn test_hover_graphql_description() {
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 
@@ -570,6 +572,7 @@ async fn test_hover_argument() {
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
@@ -677,6 +680,7 @@ async fn test_hover_input_object_field() {
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 

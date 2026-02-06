@@ -54,6 +54,7 @@ async fn test_progress_on_workspace_scan() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -195,6 +196,7 @@ async fn test_no_progress_without_capability() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -293,6 +295,7 @@ async fn test_progress_on_codegen() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -431,6 +434,7 @@ async fn test_progress_messages_contain_percentage() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 

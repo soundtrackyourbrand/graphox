@@ -37,6 +37,7 @@ async fn test_fragment_references() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 
@@ -171,6 +172,7 @@ async fn test_fragment_references_tsx() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 
@@ -325,6 +327,7 @@ async fn test_fragment_references_exclude_declaration() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     };
 

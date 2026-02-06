@@ -17,6 +17,7 @@ pub struct Config {
     pub timeouts: Option<TimeoutConfig>,
     pub watch_all_files: Option<bool>,
     pub lsp_automatic_codegen: Option<bool>,
+    pub lsp_codegen_throttle_ms: Option<u64>,
     pub enable_schema_cache: Option<bool>,
     #[serde(skip)]
     pub base_dir: PathBuf,
@@ -135,6 +136,7 @@ impl Config {
             timeouts: None,
             watch_all_files: None,
             lsp_automatic_codegen: None,
+            lsp_codegen_throttle_ms: None,
             enable_schema_cache: None,
             base_dir: PathBuf::from("."),
         }
@@ -272,6 +274,10 @@ impl Config {
 
     pub fn lsp_automatic_codegen(&self) -> bool {
         self.lsp_automatic_codegen.unwrap_or(true)
+    }
+
+    pub fn lsp_codegen_throttle_ms(&self) -> u64 {
+        self.lsp_codegen_throttle_ms.unwrap_or(300)
     }
 
     pub fn enable_schema_cache(&self) -> bool {

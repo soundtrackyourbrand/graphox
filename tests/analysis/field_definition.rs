@@ -42,6 +42,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
         }],
         base_dir: dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
         ..Config::new_empty()
     }

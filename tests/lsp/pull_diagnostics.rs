@@ -48,6 +48,7 @@ async fn test_pull_diagnostics_basic() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -213,6 +214,7 @@ async fn test_pull_diagnostics_unchanged() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -374,6 +376,7 @@ async fn test_workspace_diagnostics() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -533,6 +536,7 @@ async fn test_fallback_to_push_diagnostics() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 

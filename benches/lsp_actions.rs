@@ -49,6 +49,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
         projects,
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
+        lsp_codegen_throttle_ms: None,
         watch_all_files: None,
         output_dir: None,
         schema_types: None,
@@ -69,6 +70,8 @@ fn bench_lsp_actions(c: &mut Criterion) {
     // 10 projects, 500 files each = 5000 files
     let config = generate_workspace(&base_dir, 10, 500);
 
+    // Enter the runtime context before creating Backend (which spawns tasks in CodegenThrottle::new)
+    let _guard = rt.enter();
     let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
     let backend = service.inner();
 

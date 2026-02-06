@@ -43,6 +43,7 @@ async fn test_lsp_command_clear_cache() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 
@@ -185,6 +186,7 @@ async fn test_lsp_command_run_codegen() {
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         timeouts: None,
     };
 

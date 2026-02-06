@@ -70,6 +70,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
         enable_schema_cache: Some(false), // Disable for predictable behavior
         base_dir: dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     }
 }

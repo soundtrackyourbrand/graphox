@@ -44,6 +44,7 @@ async fn test_lsp_automatic_codegen() {
         tracing: None,
         watch_all_files: None,
         lsp_automatic_codegen: Some(true),
+        lsp_codegen_throttle_ms: Some(50), // Short throttle for tests
         timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
@@ -252,6 +253,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         tracing: None,
         watch_all_files: None,
         lsp_automatic_codegen: Some(true),
+        lsp_codegen_throttle_ms: Some(50), // Short throttle for tests
         timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),

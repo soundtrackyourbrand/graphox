@@ -102,6 +102,7 @@ output_dir: "__generated__"
 
 # LSP settings
 lsp_automatic_codegen: true  # Auto-run codegen on file changes (default: true)
+lsp_codegen_throttle_ms: 300 # Throttle automatic codegen to prevent storms (default: 300ms)
 watch_all_files: true        # Watch all workspace files (default: true)
 
 # Performance tuning

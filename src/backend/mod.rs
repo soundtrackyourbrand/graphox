@@ -4,6 +4,7 @@
 //! by extracting cohesive submodules for different responsibilities.
 
 pub mod codegen_runner;
+pub mod codegen_throttle;
 pub mod document_changes;
 pub mod error_logging;
 pub mod file_change_handler;

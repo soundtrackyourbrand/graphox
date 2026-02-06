@@ -62,6 +62,7 @@ fn generate_complex_workspace(
         projects,
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
+        lsp_codegen_throttle_ms: None,
         ..Config::new_empty()
     }
 }
@@ -83,6 +84,8 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
         files_per_project,
     );
 
+    // Enter the runtime context before creating Backend (which spawns tasks in CodegenThrottle::new)
+    let _guard = rt.enter();
     let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
     let backend = service.inner();
 
