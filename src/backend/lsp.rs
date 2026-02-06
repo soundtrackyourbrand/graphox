@@ -653,6 +653,7 @@ impl LanguageServer for Backend {
                     None
                 },
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -1341,6 +1342,22 @@ impl LanguageServer for Backend {
         let uri = self.normalize_uri(params.text_document.uri);
         if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
             let ranges = doc.get_folding_ranges();
+            return Ok(if ranges.is_empty() {
+                None
+            } else {
+                Some(ranges)
+            });
+        }
+        Ok(None)
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = self.normalize_uri(params.text_document.uri);
+        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+            let ranges = doc.get_selection_ranges(params.positions);
             return Ok(if ranges.is_empty() {
                 None
             } else {

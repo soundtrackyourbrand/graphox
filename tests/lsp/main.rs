@@ -15,6 +15,7 @@ mod progress_reporting;
 mod pull_diagnostics;
 mod references;
 mod rename;
+mod selection_ranges;
 mod semantic_tokens;
 mod signature_help;
 mod symbols;

@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod folding_range;
 pub mod hover;
 pub mod references;
+pub mod selection_range;
 pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
