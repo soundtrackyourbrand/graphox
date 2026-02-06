@@ -652,6 +652,7 @@ impl LanguageServer for Backend {
                 } else {
                     None
                 },
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -1332,6 +1333,19 @@ impl LanguageServer for Backend {
                 result_id: None,
                 data: tokens,
             })));
+        }
+        Ok(None)
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = self.normalize_uri(params.text_document.uri);
+        if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+            let ranges = doc.get_folding_ranges();
+            return Ok(if ranges.is_empty() {
+                None
+            } else {
+                Some(ranges)
+            });
         }
         Ok(None)
     }

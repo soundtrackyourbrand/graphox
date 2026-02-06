@@ -609,4 +609,3 @@ async fn test_code_action_extract_to_fragment_tsx() {
         assert!(edits.iter().any(|e| e.new_text.contains("...NewFragment")));
     }
 }
-

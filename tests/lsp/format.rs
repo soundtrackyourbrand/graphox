@@ -1,4 +1,7 @@
-use graphql_rust::{Backend, Config, DocumentState, config::{GlobPattern, ProjectConfig, SchemaSource}};
+use graphql_rust::{
+    Backend, Config, DocumentState,
+    config::{GlobPattern, ProjectConfig, SchemaSource},
+};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -27,33 +30,34 @@ fn load_baseline(name: &str) -> String {
 fn format_graphql_from_file(file_content: &str, uri_str: &str) -> Option<String> {
     let uri = Url::parse(uri_str).unwrap();
     let mut parser = tree_sitter::Parser::new();
-    
+
     // Determine language from URI
     let lang = if uri_str.ends_with(".tsx") {
         tree_sitter_typescript::LANGUAGE_TSX
     } else {
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT
     };
-    
+
     parser.set_language(&lang.into()).unwrap();
     let doc = DocumentState::new(uri, file_content, parser);
-    
+
     // Get the first GraphQL block and format it
     if let Some(block) = doc.get_graphql_trees().first() {
         let block_start = block.offset;
         let block_end = block.offset + block.tree.root_node().end_byte();
         let graphql_content = doc.rope.byte_slice(block_start..block_end).to_string();
-        
+
         // Parse and format using apollo-compiler
         let mut parser = apollo_compiler::parser::Parser::new();
         let doc = parser.parse_ast(graphql_content, "inline.graphql");
-        
+
         let formatted = match doc {
-            Ok(document) | Err(apollo_compiler::validation::WithErrors { partial: document, .. }) => {
-                document.to_string()
-            }
+            Ok(document)
+            | Err(apollo_compiler::validation::WithErrors {
+                partial: document, ..
+            }) => document.to_string(),
         };
-        
+
         Some(formatted)
     } else {
         None
@@ -64,10 +68,10 @@ fn format_graphql_from_file(file_content: &str, uri_str: &str) -> Option<String>
 fn test_format_cramped_query() {
     let fixture = load_fixture("cramped_query.ts");
     let expected = load_baseline("cramped_query.expected.graphql");
-    
-    let formatted = format_graphql_from_file(&fixture, "file:///test.ts")
-        .expect("Should find GraphQL block");
-    
+
+    let formatted =
+        format_graphql_from_file(&fixture, "file:///test.ts").expect("Should find GraphQL block");
+
     assert_eq!(
         formatted.trim(),
         expected.trim(),
@@ -79,10 +83,10 @@ fn test_format_cramped_query() {
 fn test_format_cramped_mutation() {
     let fixture = load_fixture("cramped_mutation.tsx");
     let expected = load_baseline("cramped_mutation.expected.graphql");
-    
-    let formatted = format_graphql_from_file(&fixture, "file:///test.tsx")
-        .expect("Should find GraphQL block");
-    
+
+    let formatted =
+        format_graphql_from_file(&fixture, "file:///test.tsx").expect("Should find GraphQL block");
+
     assert_eq!(
         formatted.trim(),
         expected.trim(),
@@ -95,50 +99,54 @@ fn test_format_fragment_spread() {
     let fixture = load_fixture("fragment_spread.ts");
     let expected_fragment = load_baseline("fragment_spread_fragment.expected.graphql");
     let expected_query = load_baseline("fragment_spread_query.expected.graphql");
-    
+
     let uri = Url::parse("file:///test.ts").unwrap();
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()).unwrap();
+    parser
+        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        .unwrap();
     let doc = DocumentState::new(uri, &fixture, parser);
-    
+
     // Should have two GraphQL blocks (fragment and query)
     let blocks = doc.get_graphql_trees();
     assert_eq!(blocks.len(), 2, "Should find 2 GraphQL blocks");
-    
+
     // Format first block (fragment)
     let block1 = &blocks[0];
     let block_start = block1.offset;
     let block_end = block1.offset + block1.tree.root_node().end_byte();
     let graphql_content = doc.rope.byte_slice(block_start..block_end).to_string();
-    
+
     let mut parser = apollo_compiler::parser::Parser::new();
     let parsed = parser.parse_ast(graphql_content, "inline.graphql");
     let formatted1 = match parsed {
-        Ok(document) | Err(apollo_compiler::validation::WithErrors { partial: document, .. }) => {
-            document.to_string()
-        }
+        Ok(document)
+        | Err(apollo_compiler::validation::WithErrors {
+            partial: document, ..
+        }) => document.to_string(),
     };
-    
+
     assert_eq!(
         formatted1.trim(),
         expected_fragment.trim(),
         "Formatted fragment should match baseline"
     );
-    
+
     // Format second block (query)
     let block2 = &blocks[1];
     let block_start = block2.offset;
     let block_end = block2.offset + block2.tree.root_node().end_byte();
     let graphql_content = doc.rope.byte_slice(block_start..block_end).to_string();
-    
+
     let mut parser = apollo_compiler::parser::Parser::new();
     let parsed = parser.parse_ast(graphql_content, "inline.graphql");
     let formatted2 = match parsed {
-        Ok(document) | Err(apollo_compiler::validation::WithErrors { partial: document, .. }) => {
-            document.to_string()
-        }
+        Ok(document)
+        | Err(apollo_compiler::validation::WithErrors {
+            partial: document, ..
+        }) => document.to_string(),
     };
-    
+
     assert_eq!(
         formatted2.trim(),
         expected_query.trim(),
@@ -265,10 +273,10 @@ async fn test_format_code_action_with_baseline() {
 
         assert_eq!(edits.len(), 1);
         let formatted_text = &edits[0].new_text;
-        
+
         // Load expected baseline
         let expected = load_baseline("cramped_query.expected.graphql");
-        
+
         assert_eq!(
             formatted_text.trim(),
             expected.trim(),

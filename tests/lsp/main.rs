@@ -4,6 +4,7 @@ mod completion;
 mod completion_filtering;
 mod config_reload;
 mod cross_file_def;
+mod folding_ranges;
 mod format;
 mod goto_definition;
 mod hover;
