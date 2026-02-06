@@ -100,18 +100,6 @@ projects:
 # Global output directory for generated types
 output_dir: "__generated__"
 
-# LSP settings
-lsp_automatic_codegen: true  # Auto-run codegen on file changes (default: true)
-lsp_codegen_throttle_ms: 300 # Throttle automatic codegen to prevent storms (default: 300ms)
-watch_all_files: true        # Watch all workspace files (default: true)
-
-# Performance tuning
-enable_schema_cache: true    # Enable two-tier schema cache (default: true)
-
-tracing:
-  enabled: true              # Enable LSP request tracing
-  threshold_ms: 20           # Only trace requests exceeding threshold (default: 20ms)
-
 # Custom scalar type mappings
 scalars:
   DateTime: "Date"
@@ -149,6 +137,18 @@ schema_types:
   - schema: "schema.graphql"
     output: "types/schema.ts"
     import: "@workspace/schema"                 # How other generated files should import this generation
+
+# LSP settings
+lsp_automatic_codegen: true  # Auto-run codegen on file changes (default: true)
+lsp_codegen_throttle_ms: 300 # Throttle automatic codegen to prevent storms (default: 300ms)
+watch_all_files: true        # Watch all workspace files (default: true)
+tracing:
+  enabled: true              # Enable LSP request tracing
+  threshold_ms: 20           # Only trace requests exceeding threshold (default: 20ms)
+
+# Codegen settings
+codegen_watch_debounce_ms: 200 # Debounce file changes in watch mode (default: 200ms)
+enable_schema_cache: true      # Enable two-tier schema cache (default: true)
 ```
 
 ### Notes

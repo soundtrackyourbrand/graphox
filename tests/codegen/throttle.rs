@@ -30,6 +30,7 @@ async fn test_codegen_throttle() {
     fs::create_dir(&output_dir).unwrap();
 
     let config = Config {
+        base_dir: base_dir.to_path_buf(),
         output_dir: Some("generated".to_string()),
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
@@ -40,17 +41,10 @@ async fn test_codegen_throttle() {
             generate_permissions: None,
             codegen: None,
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         lsp_automatic_codegen: Some(true),
-        lsp_codegen_throttle_ms: Some(200), // 200ms throttle
-        timeouts: None,
+        lsp_codegen_throttle_ms: Some(200), // Short throttle for tests
         enable_schema_cache: Some(false),
-        base_dir: base_dir.to_path_buf(),
+        ..Default::default()
     };
 
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

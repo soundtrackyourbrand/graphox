@@ -54,6 +54,7 @@ async fn test_lsp_multi_schema_merge() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -156,6 +157,7 @@ async fn test_lsp_multi_schema_extension_first() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -261,6 +263,7 @@ async fn test_lsp_multi_schema_with_docs() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -362,6 +365,7 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -467,6 +471,7 @@ async fn test_lsp_multi_schema_triple_overlap() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -568,6 +573,7 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 

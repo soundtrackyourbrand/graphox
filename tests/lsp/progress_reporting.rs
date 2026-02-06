@@ -55,6 +55,7 @@ async fn test_progress_on_workspace_scan() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -197,6 +198,7 @@ async fn test_no_progress_without_capability() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -296,6 +298,7 @@ async fn test_progress_on_codegen() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -435,6 +438,7 @@ async fn test_progress_messages_contain_percentage() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 

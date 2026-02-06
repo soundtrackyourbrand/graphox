@@ -46,6 +46,7 @@ async fn test_lsp_smart_extract_fragment() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -172,6 +173,7 @@ async fn test_lsp_smart_extract_field() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 

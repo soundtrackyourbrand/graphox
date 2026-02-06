@@ -37,6 +37,7 @@ async fn test_document_highlight_variable_in_operation() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -154,6 +155,7 @@ async fn test_document_highlight_variable_across_fragments_same_file() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -286,6 +288,7 @@ async fn test_document_highlight_variable_in_tsx() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 

@@ -54,6 +54,7 @@ async fn test_cross_project_references_and_rename() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
         ..Config::new_empty()
     };
@@ -238,6 +239,7 @@ async fn test_unrelated_projects_rename_isolation() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
         ..Config::new_empty()
     };

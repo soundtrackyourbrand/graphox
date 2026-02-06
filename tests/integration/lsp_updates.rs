@@ -86,6 +86,7 @@ async fn test_lsp_fragment_collisions() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -317,6 +318,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
 
@@ -505,6 +507,7 @@ async fn test_lsp_fragment_rename_same_project() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
@@ -736,6 +739,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
     };
     let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));

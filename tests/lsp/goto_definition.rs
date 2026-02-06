@@ -39,6 +39,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -235,6 +236,7 @@ async fn test_goto_definition_directive() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -367,6 +369,7 @@ async fn test_goto_definition_variable_in_argument() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 

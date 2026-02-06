@@ -2041,17 +2041,7 @@ mod tests {
                 generate_permissions: None,
                 codegen: None,
             }],
-            output_dir: None,
-            schema_types: None,
-            scalars: None,
-            ignore_deprecations: None,
-            generate_ast_for_fragments: None,
-            tracing: None,
-            timeouts: None,
-            watch_all_files: None,
-            lsp_automatic_codegen: None,
-            lsp_codegen_throttle_ms: None,
-            enable_schema_cache: None,
+            ..Default::default()
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
@@ -2073,17 +2063,7 @@ mod tests {
         let config = Config {
             base_dir: std::env::current_dir().unwrap(),
             projects: vec![],
-            output_dir: None,
-            schema_types: None,
-            scalars: None,
-            ignore_deprecations: None,
-            generate_ast_for_fragments: None,
-            tracing: None,
-            timeouts: None,
-            watch_all_files: None,
-            lsp_automatic_codegen: None,
-            lsp_codegen_throttle_ms: None,
-            enable_schema_cache: None,
+            ..Default::default()
         };
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));

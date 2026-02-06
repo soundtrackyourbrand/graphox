@@ -36,6 +36,7 @@ async fn test_missing_field_diagnostic_with_suggestions() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -170,6 +171,7 @@ async fn test_missing_field_code_actions() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 

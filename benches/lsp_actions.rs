@@ -50,6 +50,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         watch_all_files: None,
         output_dir: None,
         schema_types: None,

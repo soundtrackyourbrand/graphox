@@ -18,6 +18,7 @@ pub struct Config {
     pub watch_all_files: Option<bool>,
     pub lsp_automatic_codegen: Option<bool>,
     pub lsp_codegen_throttle_ms: Option<u64>,
+    pub codegen_watch_debounce_ms: Option<u64>,
     pub enable_schema_cache: Option<bool>,
     #[serde(skip)]
     pub base_dir: PathBuf,
@@ -123,7 +124,27 @@ pub struct SchemaTypeConfig {
     pub import: Option<String>,
 }
 
+impl Default for Config {
+    /// Returns a default Config with all optional fields set to None.
+    /// 
+    /// This is useful for tests where you only need to set specific fields.
+    /// Use the struct update syntax to override specific fields:
+    /// 
+    /// ```rust,ignore
+    /// let config = Config {
+    ///     base_dir: PathBuf::from("/my/project"),
+    ///     projects: vec![...],
+    ///     lsp_automatic_codegen: Some(false),
+    ///     ..Default::default()
+    /// };
+    /// ```
+    fn default() -> Self {
+        Self::new_empty()
+    }
+}
+
 impl Config {
+    /// Creates a new empty config with all fields set to None/default
     pub fn new_empty() -> Self {
         Self {
             output_dir: None,
@@ -137,8 +158,20 @@ impl Config {
             watch_all_files: None,
             lsp_automatic_codegen: None,
             lsp_codegen_throttle_ms: None,
+            codegen_watch_debounce_ms: None,
             enable_schema_cache: None,
             base_dir: PathBuf::from("."),
+        }
+    }
+
+    /// Creates a test config with a base directory and projects
+    /// All optional fields are set to None, making tests resilient to config changes
+    #[cfg(test)]
+    pub fn new_test(base_dir: PathBuf, projects: Vec<ProjectConfig>) -> Self {
+        Self {
+            base_dir,
+            projects,
+            ..Self::new_empty()
         }
     }
 
@@ -278,6 +311,10 @@ impl Config {
 
     pub fn lsp_codegen_throttle_ms(&self) -> u64 {
         self.lsp_codegen_throttle_ms.unwrap_or(300)
+    }
+
+    pub fn codegen_watch_debounce_ms(&self) -> u64 {
+        self.codegen_watch_debounce_ms.unwrap_or(200)
     }
 
     pub fn enable_schema_cache(&self) -> bool {

@@ -235,6 +235,7 @@ async fn test_fragment_hover_requirements() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
         ..Config::new_empty()
     };
@@ -360,6 +361,7 @@ async fn test_fragment_completion_requirements() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
         ..Config::new_empty()
     };
@@ -515,6 +517,7 @@ async fn test_variable_references_including_fragments() {
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         timeouts: None,
         ..Config::new_empty()
     };

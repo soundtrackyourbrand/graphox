@@ -32,6 +32,7 @@ async fn test_code_action_remove_unused_fragment() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -176,6 +177,7 @@ async fn test_code_action_extract_to_fragment() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -299,6 +301,7 @@ async fn test_code_action_remove_unused_variable() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -511,6 +514,7 @@ async fn test_code_action_extract_to_fragment_tsx() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 

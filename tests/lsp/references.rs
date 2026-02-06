@@ -38,6 +38,7 @@ async fn test_fragment_references() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -173,6 +174,7 @@ async fn test_fragment_references_tsx() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -328,6 +330,7 @@ async fn test_fragment_references_exclude_declaration() {
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 

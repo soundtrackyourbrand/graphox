@@ -114,6 +114,7 @@ The schema cache (`src/schema_cache.rs`) provides two-tier caching for performan
 The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/`.
 - **Entrypoint:** A `graphql.ts` file is generated in the root of the `output_dir` providing a type-safe `graphql` function.
 - **Incremental Codegen:** The LSP can automatically run codegen on file changes if `lsp_automatic_codegen` is enabled.
+- **Throttling:** Automatic LSP codegen is throttled (default: 300ms) to prevent storms when many files change. The `codegen --watch` command uses debouncing (default: 200ms) for similar protection.
 
 ### Configuration Handling
 The `Config` struct (in `src/config.rs`) supports complex workspace setups.
@@ -122,6 +123,19 @@ The `Config` struct (in `src/config.rs`) supports complex workspace setups.
 - `scalars`: Mapping of GraphQL scalars to TypeScript types.
 - `tracing`: Configuration for performance tracing.
 - `ignore_deprecations`: List of deprecated fields/types to ignore in validation.
+- `lsp_codegen_throttle_ms`: Throttle delay for automatic LSP codegen (default: 300ms).
+- `codegen_watch_debounce_ms`: Debounce delay for watch mode file changes (default: 200ms).
+
+**Creating Test Configs:** Use the `Default` trait with struct update syntax to make tests resilient to config changes:
+```rust
+let config = Config {
+    base_dir: test_dir.to_path_buf(),
+    projects: vec![...],
+    lsp_automatic_codegen: Some(false), // Only set fields you need
+    ..Default::default() // All other fields default to None
+};
+```
+This pattern prevents tests from breaking when new optional config fields are added.
 
 ## Testing Strategy
 

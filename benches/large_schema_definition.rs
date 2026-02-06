@@ -63,6 +63,7 @@ fn generate_complex_workspace(
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: None,
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     }
 }

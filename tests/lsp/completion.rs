@@ -33,6 +33,7 @@ async fn test_completion_fields() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -129,6 +130,7 @@ async fn test_completion_variables() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -229,6 +231,7 @@ async fn test_completion_fragment_spread() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -324,6 +327,7 @@ async fn test_completion_types_in_fragment() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -424,6 +428,7 @@ async fn test_completion_fragment_spread_acceptance() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -589,6 +594,7 @@ async fn test_completion_directives_on_field() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -684,6 +690,7 @@ async fn test_completion_directives_on_fragment() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 
@@ -780,6 +787,7 @@ async fn test_completion_introspection_fields() {
         base_dir: dir.path().to_path_buf(),
         lsp_automatic_codegen: Some(false),
         lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
         ..Config::new_empty()
     };
 

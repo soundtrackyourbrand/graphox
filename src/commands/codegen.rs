@@ -53,8 +53,9 @@ pub async fn run_codegen(
 
         let config_tx_clone = config_tx.clone();
         let base_dir_for_watcher = config.base_dir.clone();
+        let debounce_ms = config.codegen_watch_debounce_ms();
         let mut debouncer = notify_debouncer_mini::new_debouncer(
-            std::time::Duration::from_millis(200),
+            std::time::Duration::from_millis(debounce_ms),
             move |res: notify_debouncer_mini::DebounceEventResult| match res {
                 Ok(events) => {
                     // Check if config file changed
