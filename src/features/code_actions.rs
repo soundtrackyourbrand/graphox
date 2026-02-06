@@ -212,4 +212,46 @@ impl DocumentState {
         }
         actions
     }
+
+    /// Get code actions for missing field diagnostics - suggests replacing with similar field names
+    pub fn get_missing_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
+        let mut actions = Vec::new();
+
+        // Extract similar fields from diagnostic data
+        let similar_fields: Vec<String> = if let Some(data) = &diagnostic.data {
+            if let Some(fields) = data.get("similar_fields") {
+                serde_json::from_value(fields.clone()).unwrap_or_default()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        // Create a code action for each similar field
+        for similar_field in similar_fields {
+            let mut changes = std::collections::HashMap::new();
+            changes.insert(
+                self.uri.clone(),
+                vec![TextEdit {
+                    range: diagnostic.range,
+                    new_text: similar_field.clone(),
+                }],
+            );
+
+            actions.push(CodeAction {
+                title: format!("Change to '{}'", similar_field),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![diagnostic.clone()]),
+                edit: Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                }),
+                is_preferred: None,
+                ..Default::default()
+            });
+        }
+
+        actions
+    }
 }

@@ -124,13 +124,61 @@ impl DocumentState {
             } else {
                 let type_name = parent_type.name();
 
+                // Find similar field names to suggest
+                let available_fields: Vec<&str> = match parent_type {
+                    ExtendedType::Object(obj) => obj.fields.keys().map(|s| s.as_str()).collect(),
+                    ExtendedType::Interface(iface) => {
+                        iface.fields.keys().map(|s| s.as_str()).collect()
+                    }
+                    _ => vec![],
+                };
+
+                let similar_fields = find_similar_fields(&field_name, &available_fields);
+
+                let message = if similar_fields.is_empty() {
+                    format!("Field '{}' not found on type '{}'", field_name, type_name)
+                } else {
+                    format!(
+                        "Field '{}' not found on type '{}'. Did you mean {}?",
+                        field_name,
+                        type_name,
+                        similar_fields
+                            .iter()
+                            .map(|f| format!("'{}'", f))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+
                 ctx.diagnostics.push(Diagnostic {
                     range: self.translate_to_file_range(name_node, offset),
                     severity: Some(DiagnosticSeverity::ERROR),
-                    message: format!("Field '{}' not found on type '{}'", field_name, type_name),
+                    message,
+                    code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                        "missing_field".to_string(),
+                    )),
+                    data: Some(serde_json::json!({
+                        "similar_fields": similar_fields,
+                    })),
                     ..Default::default()
                 });
             }
         }
     }
+}
+
+/// Find fields with similar names using Jaro-Winkler distance
+/// Returns up to 3 suggestions with similarity > 0.6
+fn find_similar_fields<'a>(field_name: &str, available_fields: &[&'a str]) -> Vec<&'a str> {
+    let mut similarities: Vec<(&str, f64)> = available_fields
+        .iter()
+        .map(|&f| (f, strsim::jaro_winkler(field_name, f)))
+        .filter(|(_, score)| *score > 0.6)
+        .collect();
+
+    // Sort by similarity score (descending)
+    similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Return up to 3 suggestions
+    similarities.iter().take(3).map(|(name, _)| *name).collect()
 }

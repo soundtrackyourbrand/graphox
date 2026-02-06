@@ -1502,6 +1502,13 @@ impl LanguageServer for Backend {
                         is_preferred: Some(true),
                         ..Default::default()
                     }));
+                } else if code == "missing_field" {
+                    if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+                        let field_actions = doc.get_missing_field_actions(&diagnostic);
+                        for action in field_actions {
+                            actions.push(CodeActionOrCommand::CodeAction(action));
+                        }
+                    }
                 }
             }
         }
