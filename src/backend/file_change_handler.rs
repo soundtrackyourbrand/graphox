@@ -5,10 +5,12 @@
 
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
+use crate::types::{
+    DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
+    FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+};
 use crate::utils::{is_path_ignored, is_relevant_file};
-use dashmap::DashMap;
 use fnv::FnvHashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
@@ -17,13 +19,13 @@ use tower_lsp::lsp_types::*;
 pub struct FileChangeParams<'a> {
     pub client: &'a Client,
     pub config: &'a Config,
-    pub documents: &'a Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    pub fragment_defs: &'a Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    pub fragment_spreads: &'a Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    pub package_roots: &'a Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-    pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub operation_names: &'a Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
+    pub documents: &'a DocumentsMap,
+    pub fragment_defs: &'a FragmentDefsMap,
+    pub fragment_spreads: &'a FragmentSpreadsMap,
+    pub package_roots: &'a PackageRootsMap,
+    pub fragment_dependents: &'a FragmentDependentsMap,
+    pub fragment_definitions: &'a FragmentDefinitionsMap,
+    pub operation_names: &'a OperationNamesMap,
     pub gitignore: &'a ignore::gitignore::Gitignore,
 }
 
@@ -334,7 +336,7 @@ fn is_schema_file(path_str: &str, config: &Config) -> bool {
 
 /// Updates fragment definition indices
 fn update_definition_indices(
-    fragment_definitions: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    fragment_definitions: &crate::types::FragmentDefinitionsMap,
     uri: &Url,
     old_fragments: Option<Vec<String>>,
     new_fragments: Vec<String>,
@@ -349,7 +351,7 @@ fn update_definition_indices(
 
 /// Updates fragment dependency indices
 fn update_dependency_indices(
-    fragment_dependents: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    fragment_dependents: &crate::types::FragmentDependentsMap,
     uri: &Url,
     old_spreads: Option<Vec<String>>,
     new_spreads: Vec<String>,

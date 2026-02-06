@@ -7,34 +7,37 @@
 use crate::config::Config;
 use crate::document::DocumentState;
 use crate::features::completion::FragmentCompletionInfo;
+use crate::types::{
+    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
+    FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+};
 use apollo_compiler::Schema;
 use apollo_compiler::validation::Valid;
 use dashmap::{DashMap, DashSet};
 use fnv::FnvHashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 
 /// Type alias for diagnostic cache
-pub type DiagnosticCache = Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>;
+pub type DiagnosticCache = DiagnosticCacheMap;
 
 /// Parameters for validation operations
 pub struct ValidationParams<'a> {
     pub client: &'a Client,
-    pub documents: &'a Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    pub documents: &'a DocumentsMap,
     pub config: &'a Config,
-    pub fragment_defs: &'a Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    pub fragment_spreads: &'a Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    pub package_roots: &'a Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
+    pub fragment_defs: &'a FragmentDefsMap,
+    pub fragment_spreads: &'a FragmentSpreadsMap,
+    pub package_roots: &'a PackageRootsMap,
     pub validated_schemas: &'a Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     pub valid_empty_schema: &'a Arc<Valid<Schema>>,
     pub workspace_loaded: &'a Arc<AtomicBool>,
     pub open_documents: &'a Arc<DashSet<Url, ahash::RandomState>>,
-    pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub operation_names: &'a Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
+    pub fragment_dependents: &'a FragmentDependentsMap,
+    pub fragment_definitions: &'a FragmentDefinitionsMap,
+    pub operation_names: &'a OperationNamesMap,
     pub supports_progress: bool,
 }
 
@@ -168,9 +171,9 @@ pub fn get_affected_uris(
     initial_uri: Url,
     affected_fragment_names: FnvHashSet<String>,
     affected_spread_names: FnvHashSet<String>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    fragment_dependents: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    fragment_definitions: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    documents: &DocumentsMap,
+    fragment_dependents: &FragmentDependentsMap,
+    fragment_definitions: &FragmentDefinitionsMap,
 ) -> Vec<Url> {
     let mut uris_to_validate = FnvHashSet::default();
     uris_to_validate.insert(initial_uri);
@@ -208,9 +211,7 @@ pub fn get_affected_uris(
 }
 
 /// Gets all used fragments across the workspace
-pub fn get_used_fragments(
-    fragment_spreads: &Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-) -> FnvHashSet<String> {
+pub fn get_used_fragments(fragment_spreads: &FragmentSpreadsMap) -> FnvHashSet<String> {
     let mut used = FnvHashSet::default();
     for entry in fragment_spreads.iter() {
         for spread in entry.value() {
@@ -241,8 +242,8 @@ pub fn get_schema_for_doc(
 pub fn get_fragments_for_doc(
     doc: &DocumentState,
     config: &Config,
-    fragment_defs: &Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
+    fragment_defs: &FragmentDefsMap,
+    package_roots: &PackageRootsMap,
 ) -> Vec<FragmentCompletionInfo> {
     let all_fragments =
         super::fragment_manager::collect_fragment_metadata(fragment_defs, config, package_roots);
@@ -289,7 +290,7 @@ fn add_duplicate_operation_diagnostics(
     doc: &DocumentState,
     uri: &Url,
     schema_key: &str,
-    operation_names: &Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
+    operation_names: &OperationNamesMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Check each operation in this document

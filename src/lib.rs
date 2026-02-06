@@ -6,6 +6,7 @@ pub mod features;
 pub mod queries;
 pub mod schema;
 pub mod schema_cache;
+pub mod types;
 pub mod utils;
 
 pub use backend::Backend;

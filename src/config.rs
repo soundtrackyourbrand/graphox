@@ -5,19 +5,10 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct RulesConfig {
     pub required_fields: Option<FnvHashMap<String, RequiredFieldRule>>,
     pub unique_operation_name: Option<bool>,
-}
-
-impl Default for RulesConfig {
-    fn default() -> Self {
-        Self {
-            required_fields: None,
-            unique_operation_name: None,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]

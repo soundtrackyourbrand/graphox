@@ -1,7 +1,10 @@
 use apollo_compiler::Schema;
 use colored::*;
 use fnv::FnvHashMap as HashMap;
+use graphql_rust::config::SchemaSource;
 use graphql_rust::engine::Engine;
+use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::utils;
 use graphql_rust::{Config, DocumentState};
 use std::path::PathBuf;
 use tower_lsp::lsp_types::DiagnosticSeverity;
@@ -20,9 +23,7 @@ pub async fn run_check(config: Config, verbose: bool) {
         }
     }
 
-    let mut global_public_fragments: Vec<
-        graphql_rust::features::completion::FragmentCompletionInfo,
-    > = Vec::new();
+    let mut global_public_fragments: Vec<FragmentCompletionInfo> = Vec::new();
 
     for doc in workspace_metadata.documents.values() {
         let package_root = doc.package_root.clone();
@@ -32,21 +33,19 @@ pub async fn run_check(config: Config, verbose: bool) {
 
         for frag in doc.fragments() {
             if frag.is_public {
-                global_public_fragments.push(
-                    graphql_rust::features::completion::FragmentCompletionInfo {
-                        name: frag.name.clone(),
-                        type_condition: frag.type_condition.clone(),
-                        description: frag.description.clone(),
-                        import_path: project_import.clone(),
-                        is_public: frag.is_public,
-                        is_type_only: frag.is_type_only,
-                        uri: doc.uri.clone(),
-                        package_root: package_root.clone(),
-                        used_variables: frag.used_variables.clone(),
-                        used_fragments: frag.used_fragments.clone(),
-                        requirements: std::collections::BTreeMap::new(),
-                    },
-                );
+                global_public_fragments.push(FragmentCompletionInfo {
+                    name: frag.name.clone(),
+                    type_condition: frag.type_condition.clone(),
+                    description: frag.description.clone(),
+                    import_path: project_import.clone(),
+                    is_public: frag.is_public,
+                    is_type_only: frag.is_type_only,
+                    uri: doc.uri.clone(),
+                    package_root: package_root.clone(),
+                    used_variables: frag.used_variables.clone(),
+                    used_fragments: frag.used_fragments.clone(),
+                    requirements: std::collections::BTreeMap::new(),
+                });
             }
         }
     }
@@ -112,11 +111,11 @@ pub async fn run_check(config: Config, verbose: bool) {
 #[allow(clippy::too_many_arguments)]
 async fn execute_project_check(
     base_dir: &std::path::Path,
-    source: &graphql_rust::config::SchemaSource,
+    source: &SchemaSource,
     project_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
     global_used_fragments: &fnv::FnvHashSet<String>,
-    global_public_fragments: &[graphql_rust::features::completion::FragmentCompletionInfo],
+    global_public_fragments: &[FragmentCompletionInfo],
     config: &Config,
     verbose: bool,
 ) -> bool {
@@ -137,7 +136,7 @@ async fn execute_project_check(
             }
         }
     }
-    let combined_text = graphql_rust::utils::merge_schema_texts(&texts);
+    let combined_text = utils::merge_schema_texts(&texts);
     let schema = match Schema::parse(&combined_text, source.as_key()) {
         Ok(s) => s,
         Err(e) => {
@@ -169,21 +168,19 @@ async fn execute_project_check(
     for path in project_files {
         if let Some(doc) = all_documents.get(path) {
             for frag in doc.fragments() {
-                project_fragments.push(
-                    graphql_rust::features::completion::FragmentCompletionInfo {
-                        name: frag.name.clone(),
-                        type_condition: frag.type_condition.clone(),
-                        description: frag.description.clone(),
-                        import_path: None,
-                        is_public: frag.is_public,
-                        is_type_only: frag.is_type_only,
-                        uri: doc.uri.clone(),
-                        package_root: doc.package_root.clone(),
-                        used_variables: frag.used_variables.clone(),
-                        used_fragments: frag.used_fragments.clone(),
-                        requirements: std::collections::BTreeMap::new(),
-                    },
-                );
+                project_fragments.push(FragmentCompletionInfo {
+                    name: frag.name.clone(),
+                    type_condition: frag.type_condition.clone(),
+                    description: frag.description.clone(),
+                    import_path: None,
+                    is_public: frag.is_public,
+                    is_type_only: frag.is_type_only,
+                    uri: doc.uri.clone(),
+                    package_root: doc.package_root.clone(),
+                    used_variables: frag.used_variables.clone(),
+                    used_fragments: frag.used_fragments.clone(),
+                    requirements: std::collections::BTreeMap::new(),
+                });
             }
         }
     }

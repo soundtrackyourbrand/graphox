@@ -4,8 +4,10 @@
 //! didChange notifications, including fragment tracking and
 //! affected document computation.
 
-use crate::document::DocumentState;
-use dashmap::DashMap;
+use crate::types::{
+    DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
+    FragmentSpreadsMap, PackageRootsMap,
+};
 use fnv::FnvHashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,12 +20,12 @@ pub struct ChangeResult {
 
 /// Parameters for processing document changes
 pub struct DocumentChangeParams<'a> {
-    pub documents: &'a Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    pub fragment_defs: &'a Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    pub fragment_spreads: &'a Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    pub package_roots: &'a Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-    pub fragment_dependents: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub fragment_definitions: &'a Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub documents: &'a DocumentsMap,
+    pub fragment_defs: &'a FragmentDefsMap,
+    pub fragment_spreads: &'a FragmentSpreadsMap,
+    pub package_roots: &'a PackageRootsMap,
+    pub fragment_dependents: &'a FragmentDependentsMap,
+    pub fragment_definitions: &'a FragmentDefinitionsMap,
 }
 
 /// Processes document content changes and updates indices

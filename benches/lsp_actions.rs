@@ -1,4 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
+use graphql_rust::engine;
 use graphql_rust::{
     Backend, Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
@@ -79,7 +80,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
     // Pre-populate documents to simulate an initialized LSP with a large workspace
     rt.block_on(async {
-        let workspace_metadata = graphql_rust::engine::Engine::scan_workspace(&config, |_, _| {});
+        let workspace_metadata = engine::Engine::scan_workspace(&config, |_, _| {});
         for project_meta in workspace_metadata.projects {
             for file_path in project_meta.files {
                 let abs_path = fs::canonicalize(&file_path).unwrap();

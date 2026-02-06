@@ -1,5 +1,6 @@
 // Test to verify that the two-tier schema cache is working correctly
 
+use graphql_rust::schema;
 use graphql_rust::{config::SchemaSource, schema_cache};
 use std::time::Instant;
 use tempfile::tempdir;
@@ -59,12 +60,12 @@ fn test_memory_cache_performance() {
 
     // First load - should be slow (no cache)
     let start = Instant::now();
-    let schema1 = graphql_rust::schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
     let first_load_time = start.elapsed();
 
     // Second load - should be MUCH faster (memory cache hit)
     let start = Instant::now();
-    let schema2 = graphql_rust::schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
     let second_load_time = start.elapsed();
 
     // Verify they're the same Arc (pointer equality)
@@ -93,7 +94,7 @@ fn test_memory_cache_performance() {
 
     // Third load - should use disk cache (slower than memory, faster than first load)
     let start = Instant::now();
-    let _schema3 = graphql_rust::schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let _schema3 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
     let third_load_time = start.elapsed();
 
     println!("Third load (disk cache): {:?}", third_load_time);
@@ -123,7 +124,7 @@ fn test_cache_invalidation_on_file_change() {
     schema_cache::clear_cache().unwrap();
 
     // Load and cache
-    let schema1 = graphql_rust::schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
 
     // Sleep to ensure mtime changes
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -132,7 +133,7 @@ fn test_cache_invalidation_on_file_change() {
     std::fs::write(&schema_path, "type Query { world: String }").unwrap();
 
     // Load again - should invalidate cache and return new schema
-    let schema2 = graphql_rust::schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
 
     // They should NOT be the same Arc (different schemas)
     assert!(

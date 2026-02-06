@@ -1,6 +1,6 @@
 use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::RulesConfig,
-    config::SchemaSource,
+    Backend, Config, config::GlobPattern, config::ProjectConfig, config::RequiredFieldRule,
+    config::RulesConfig, config::SchemaSource,
 };
 use std::fs;
 use tempfile::tempdir;
@@ -284,10 +284,7 @@ async fn test_lsp_required_field_code_action() {
 
     // Create config with required field rule
     let mut required_fields = FnvHashMap::default();
-    required_fields.insert(
-        "requestId".to_string(),
-        graphql_rust::config::RequiredFieldRule::Always(true),
-    );
+    required_fields.insert("requestId".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
         output_dir: None,

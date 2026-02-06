@@ -1,7 +1,12 @@
 use colored::*;
 use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
+use graphql_rust::DocumentState;
 use graphql_rust::config::{Config, SchemaSource};
 use graphql_rust::engine::{Engine, FragmentMetadata, ProjectContext};
+use graphql_rust::features::codegen;
+use graphql_rust::schema;
+use graphql_rust::schema_cache;
+use graphql_rust::utils;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +20,7 @@ struct CodegenParams<'a> {
     project_context: &'a ProjectContext,
     global_metadata: &'a [FragmentMetadata],
     generate_ast_for_fragments: bool,
-    workspace_documents: &'a HashMap<PathBuf, graphql_rust::DocumentState>,
+    workspace_documents: &'a HashMap<PathBuf, DocumentState>,
     generate_permissions: bool,
 }
 
@@ -40,7 +45,7 @@ pub async fn run_codegen(
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
 
-        let gitignore = graphql_rust::utils::get_gitignore_matcher(&config.base_dir);
+        let gitignore = utils::get_gitignore_matcher(&config.base_dir);
         let mut output_dirs = Vec::new();
         if let Some(out) = &config.output_dir {
             output_dirs.push(config.base_dir.join(out));
@@ -70,10 +75,10 @@ pub async fn run_codegen(
                     }
 
                     let has_relevant_change = events.iter().any(|e| {
-                        if !graphql_rust::utils::is_relevant_file(&e.path) {
+                        if !utils::is_relevant_file(&e.path) {
                             return false;
                         }
-                        if graphql_rust::utils::is_path_ignored(&e.path, &gitignore) {
+                        if utils::is_path_ignored(&e.path, &gitignore) {
                             return false;
                         }
                         if output_dirs.iter().any(|d| e.path.starts_with(d)) {
@@ -197,7 +202,7 @@ async fn execute_codegen(
 
     // Clear schema cache if --clean flag is used
     if clean {
-        if let Err(e) = graphql_rust::schema_cache::clear_cache() {
+        if let Err(e) = schema_cache::clear_cache() {
             eprintln!("{}: {}", "Failed to clear schema cache".red(), e);
             success = false;
         } else if verbose {
@@ -242,15 +247,14 @@ async fn execute_codegen(
             matches.first().and_then(|st| st.import.clone())
         });
 
-        let valid_schema =
-            match graphql_rust::schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{}", e.to_string().red());
-                    success = false;
-                    continue;
-                }
-            };
+        let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{}", e.to_string().red());
+                success = false;
+                continue;
+            }
+        };
 
         let project_context =
             Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
@@ -269,11 +273,8 @@ async fn execute_codegen(
                     permissions_path.display().to_string().bright_black()
                 );
             }
-            let content = graphql_rust::features::codegen::generate_permissions_content(
-                &valid_schema,
-                &cfg.scalars,
-                &schema_import,
-            );
+            let content =
+                codegen::generate_permissions_content(&valid_schema, &cfg.scalars, &schema_import);
             if let Err(e) = std::fs::write(&permissions_path, content) {
                 eprintln!("{}: {}", "Failed to write permissions".red(), e);
                 success = false;
@@ -355,10 +356,8 @@ async fn execute_codegen(
                     entrypoint_path.display().to_string().bright_black()
                 );
             }
-            let content = graphql_rust::features::codegen::generate_entrypoint_content(
-                &out_dir_path,
-                &all_generated_operations,
-            );
+            let content =
+                codegen::generate_entrypoint_content(&out_dir_path, &all_generated_operations);
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
                 success = false;
@@ -415,7 +414,7 @@ async fn execute_schema_codegen(
     scalars: &Option<HashMap<String, String>>,
     verbose: bool,
 ) -> bool {
-    let valid_schema = match graphql_rust::schema::load_and_validate_schema(base_dir, source) {
+    let valid_schema = match schema::load_and_validate_schema(base_dir, source) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{}", e.to_string().red());
@@ -423,7 +422,7 @@ async fn execute_schema_codegen(
         }
     };
 
-    let ts_code = graphql_rust::features::codegen::generate_schema_types(&valid_schema, scalars);
+    let ts_code = codegen::generate_schema_types(&valid_schema, scalars);
     let out_path = Path::new(output_path);
 
     if let Some(parent) = out_path.parent() {
@@ -452,19 +451,18 @@ async fn execute_project_codegen_entry(
     params: CodegenParams<'_>,
     verbose: bool,
     clean: bool,
-) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, ()> {
+) -> Result<Vec<codegen::OperationGenerated>, ()> {
     if !clean {
-        let valid_schema =
-            match graphql_rust::schema::load_and_validate_schema(params.base_dir, params.source) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{}", e.to_string().red());
-                    return Err(());
-                }
-            };
+        let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{}", e.to_string().red());
+                return Err(());
+            }
+        };
 
         // Create shared type cache for all files in this project
-        let shared_type_cache = graphql_rust::features::codegen::TypeCache::new();
+        let shared_type_cache = codegen::TypeCache::new();
 
         let results: Vec<_> = params
             .project_files
@@ -474,7 +472,7 @@ async fn execute_project_codegen_entry(
             })
             .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
             .map(|(path, doc)| {
-                let ctx = graphql_rust::features::codegen::CodegenContext::new(
+                let ctx = codegen::CodegenContext::new(
                     &valid_schema,
                     &params.project_context.fragment_to_path,
                     &params.project_context.fragment_to_import,
@@ -544,8 +542,7 @@ async fn execute_project_codegen_entry(
             .project_files
             .par_iter()
             .map(|path| {
-                let out_path =
-                    graphql_rust::utils::get_output_path(path, params.base_dir, params.output_dir);
+                let out_path = utils::get_output_path(path, params.base_dir, params.output_dir);
                 let mut ok = true;
                 if out_path.exists() {
                     if let Err(e) = std::fs::remove_file(&out_path) {
@@ -641,14 +638,14 @@ async fn execute_project_codegen_entry(
 }
 
 fn execute_single_file_codegen(
-    doc: &graphql_rust::DocumentState,
-    ctx: &graphql_rust::features::codegen::CodegenContext<'_>,
+    doc: &DocumentState,
+    ctx: &codegen::CodegenContext<'_>,
     output_dir: Option<&str>,
     base_dir: &Path,
     verbose: bool,
-) -> Result<Vec<graphql_rust::features::codegen::OperationGenerated>, String> {
-    let (ts_code, mut ops) = graphql_rust::features::codegen::generate_typescript(doc, ctx)?;
-    let out_path_raw = graphql_rust::utils::get_output_path(
+) -> Result<Vec<codegen::OperationGenerated>, String> {
+    let (ts_code, mut ops) = codegen::generate_typescript(doc, ctx)?;
+    let out_path_raw = utils::get_output_path(
         doc.uri.to_file_path().unwrap().as_path(),
         base_dir,
         output_dir,

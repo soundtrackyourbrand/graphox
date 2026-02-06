@@ -1,4 +1,5 @@
 use apollo_compiler::Schema;
+use graphql_rust::features::completion::FragmentCompletionInfo;
 use graphql_rust::{Backend, Config, DocumentState};
 use std::fs;
 use tempfile::tempdir;
@@ -81,7 +82,7 @@ fn test_diagnostics_update_on_fragment_change() {
     );
 
     // 2. Fragment provided (simulating it being found in another file)
-    let fragments = vec![graphql_rust::features::completion::FragmentCompletionInfo {
+    let fragments = vec![FragmentCompletionInfo {
         name: "UserFrag".to_string(),
         type_condition: "User".to_string(),
         description: None,
@@ -103,7 +104,7 @@ fn test_diagnostics_update_on_fragment_change() {
     );
 
     // 3. Fragment renamed (simulating rename in another file)
-    let fragments = vec![graphql_rust::features::completion::FragmentCompletionInfo {
+    let fragments = vec![FragmentCompletionInfo {
         name: "UserFragRenamed".to_string(),
         type_condition: "User".to_string(),
         description: None,

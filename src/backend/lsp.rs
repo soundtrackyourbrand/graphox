@@ -3,6 +3,10 @@ use crate::Config;
 use crate::config::SchemaSource;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::features::completion::FragmentCompletionInfo;
+use crate::types::{
+    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
+    FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+};
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
@@ -17,7 +21,7 @@ pub use capabilities::ClientCapabilities;
 
 pub struct Backend {
     pub client: Client,
-    pub documents: Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    pub documents: DocumentsMap,
     pub config: Arc<std::sync::RwLock<Config>>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub empty_schema: Arc<Schema>,
@@ -25,14 +29,14 @@ pub struct Backend {
     pub validated_schemas:
         Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
     // Performance optimizations
-    pub fragment_defs: Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    pub fragment_spreads: Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    pub package_roots: Arc<DashMap<Url, Option<std::path::PathBuf>, ahash::RandomState>>,
-    pub fragment_dependents: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub fragment_definitions: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    pub fragment_defs: FragmentDefsMap,
+    pub fragment_spreads: FragmentSpreadsMap,
+    pub package_roots: PackageRootsMap,
+    pub fragment_dependents: FragmentDependentsMap,
+    pub fragment_definitions: FragmentDefinitionsMap,
     /// Maps operation name -> (project schema key, URI)
     /// Used to detect duplicate operation names within a project
-    pub operation_names: Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
+    pub operation_names: OperationNamesMap,
     pub workspace_loaded: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
@@ -44,7 +48,7 @@ pub struct Backend {
     /// Client capabilities for conditional feature enablement
     pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
     /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
-    pub diagnostic_cache: Arc<DashMap<Url, (i32, Vec<Diagnostic>), ahash::RandomState>>,
+    pub diagnostic_cache: DiagnosticCacheMap,
     /// Throttled codegen runner
     pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
 }
@@ -58,7 +62,8 @@ impl Backend {
 
         let schemas = DashMap::with_hasher(ahash::RandomState::default());
         let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
-        let documents = DashMap::with_hasher(ahash::RandomState::default());
+        let documents: DashMap<Url, Arc<DocumentState>, ahash::RandomState> =
+            DashMap::with_hasher(ahash::RandomState::default());
         let fragment_definitions: DashMap<String, FnvHashSet<Url>, ahash::RandomState> =
             DashMap::with_hasher(ahash::RandomState::default());
 

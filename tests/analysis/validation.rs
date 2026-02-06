@@ -1,5 +1,6 @@
 use apollo_compiler::Schema;
 use graphql_rust::DocumentState;
+use graphql_rust::features::completion::FragmentCompletionInfo;
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::*;
 
@@ -205,7 +206,7 @@ fn test_validation_known_fragment_spread() {
         }
     "#;
     let doc = create_doc("file:///known_spread.graphql", text);
-    let fragments = vec![graphql_rust::features::completion::FragmentCompletionInfo {
+    let fragments = vec![FragmentCompletionInfo {
         name: "KnownFrag".to_string(),
         type_condition: "User".to_string(),
         description: None,

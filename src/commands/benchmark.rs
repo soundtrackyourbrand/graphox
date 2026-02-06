@@ -2,6 +2,8 @@ use colored::*;
 use fnv::FnvHashMap as HashMap;
 use graphql_rust::Config;
 use graphql_rust::engine::Engine;
+use graphql_rust::features::codegen;
+use graphql_rust::schema;
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -35,7 +37,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let mut doc_parse_time = Duration::ZERO;
     let mut ts_gen_time = Duration::ZERO;
     let mut metadata_mapping_time = Duration::ZERO;
-    let mut codegen_profile = graphql_rust::features::codegen::CodegenProfile::default();
+    let mut codegen_profile = codegen::CodegenProfile::default();
 
     let mut project_timings = Vec::new();
     let mut schema_type_timings = Vec::new();
@@ -44,15 +46,14 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
-        let valid_schema =
-            match graphql_rust::schema::load_and_validate_schema(&config.base_dir, &project.schema)
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{}", e.to_string().red());
-                    continue;
-                }
-            };
+        let valid_schema = match schema::load_and_validate_schema(&config.base_dir, &project.schema)
+        {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{}", e.to_string().red());
+                continue;
+            }
+        };
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
@@ -71,7 +72,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         metadata_mapping_time += mm_start.elapsed();
 
         // Create shared type cache for all files in this project
-        let shared_type_cache = graphql_rust::features::codegen::TypeCache::new();
+        let shared_type_cache = codegen::TypeCache::new();
 
         let (
             p_graphql_files,
@@ -93,7 +94,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                             .find(|st| st.schema.as_key() == project.schema.as_key())
                             .and_then(|st| st.import.clone())
                     });
-                    let ctx = graphql_rust::features::codegen::CodegenContext::new(
+                    let ctx = codegen::CodegenContext::new(
                         &valid_schema,
                         project_fragment_to_path,
                         project_fragment_to_import,
@@ -108,7 +109,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                     );
                     let g_start = Instant::now();
                     if let Ok((_ts_code, _ops, profile)) =
-                        graphql_rust::features::codegen::generate_typescript_with_profile(doc, &ctx)
+                        codegen::generate_typescript_with_profile(doc, &ctx)
                     {
                         let g_time = g_start.elapsed();
                         return (
@@ -133,7 +134,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         0,
                         Duration::ZERO,
                         Duration::ZERO,
-                        graphql_rust::features::codegen::CodegenProfile::default(),
+                        codegen::CodegenProfile::default(),
                     )
                 },
                 |a, b| {
@@ -143,7 +144,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         a.2 + b.2,
                         a.3 + b.3,
                         a.4 + b.4,
-                        graphql_rust::features::codegen::CodegenProfile {
+                        codegen::CodegenProfile {
                             parse_time: a.5.parse_time + b.5.parse_time,
                             selection_set_time: a.5.selection_set_time + b.5.selection_set_time,
                             ast_serialization_time: a.5.ast_serialization_time
@@ -191,14 +192,10 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     if let Some(schema_types) = &config.schema_types {
         for st in schema_types {
             let st_start = Instant::now();
-            if let Ok(valid_schema) =
-                graphql_rust::schema::load_and_validate_schema(&config.base_dir, &st.schema)
+            if let Ok(valid_schema) = schema::load_and_validate_schema(&config.base_dir, &st.schema)
             {
                 let g_start = Instant::now();
-                let _ts_code = graphql_rust::features::codegen::generate_schema_types(
-                    &valid_schema,
-                    &config.scalars,
-                );
+                let _ts_code = codegen::generate_schema_types(&valid_schema, &config.scalars);
                 ts_gen_time += g_start.elapsed();
             }
             schema_type_timings.push((st.output.clone(), st_start.elapsed()));

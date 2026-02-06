@@ -5,12 +5,14 @@
 //! documents in parallel.
 
 use crate::config::Config;
-use crate::document::DocumentState;
 use crate::features::completion::FragmentCompletionInfo;
+use crate::types::{
+    DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
+    FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+};
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -21,13 +23,13 @@ use tree_sitter::StreamingIterator;
 pub struct WorkspaceScanParams {
     pub client: Client,
     pub config: Config,
-    pub documents: Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    pub fragment_defs: Arc<DashMap<Url, Vec<crate::document::FragmentDef>, ahash::RandomState>>,
-    pub fragment_spreads: Arc<DashMap<Url, Vec<String>, ahash::RandomState>>,
-    pub package_roots: Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-    pub fragment_dependents: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub fragment_definitions: Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
-    pub operation_names: Arc<DashMap<String, Vec<(String, Url)>, ahash::RandomState>>,
+    pub documents: DocumentsMap,
+    pub fragment_defs: FragmentDefsMap,
+    pub fragment_spreads: FragmentSpreadsMap,
+    pub package_roots: PackageRootsMap,
+    pub fragment_dependents: FragmentDependentsMap,
+    pub fragment_definitions: FragmentDefinitionsMap,
+    pub operation_names: OperationNamesMap,
     pub workspace_loaded: Arc<AtomicBool>,
     pub empty_schema: Arc<Schema>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
