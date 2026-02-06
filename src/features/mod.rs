@@ -5,6 +5,7 @@ pub mod codegen;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
+pub mod document_highlight;
 pub mod folding_range;
 pub mod hover;
 pub mod references;

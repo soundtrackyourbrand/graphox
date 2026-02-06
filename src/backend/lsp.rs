@@ -654,6 +654,7 @@ impl LanguageServer for Backend {
                 },
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -1215,6 +1216,36 @@ impl LanguageServer for Backend {
                 }
 
                 return Ok(Some(all_references));
+            }
+
+            Ok(None)
+        })
+        .await
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        self.with_tracing("document_highlight", async move {
+            let uri = self.normalize_uri(
+                params
+                    .text_document_position_params
+                    .text_document
+                    .uri
+                    .clone(),
+            );
+            let position = params.text_document_position_params.position;
+
+            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                let symbol_name = doc.get_symbol_at_position(position);
+
+                if let Some(name) = symbol_name {
+                    if name.starts_with('$') {
+                        // Get highlights in the current document only
+                        return Ok(doc.get_document_highlights(position));
+                    }
+                }
             }
 
             Ok(None)
