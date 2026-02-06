@@ -209,3 +209,75 @@ export const UserWithEmailFragmentDocument = { /* AST */ };
 
 This prevents warnings about unused fragments for these as the tool is not following use of the typescript types.
 The LSP will warn if you accidentally use a `@type_only` fragment in a query and provide a code action to remove it.
+
+## Development
+
+### Building and Testing
+
+```bash
+# Build the project
+cargo build
+
+# Run all tests
+cargo test
+
+# Run linting
+cargo clippy
+
+# Format code
+cargo fmt
+
+# Run benchmarks
+make benchmark
+
+# Update test baselines
+make update-baselines
+```
+
+### Creating a Release
+
+This project uses automated release workflows to build and publish artifacts for multiple platforms.
+
+**1. Bump the version:**
+
+```bash
+# For bug fixes (0.1.0 → 0.1.1)
+make release-patch
+
+# For new features (0.1.0 → 0.2.0)
+make release-minor
+
+# For breaking changes (0.1.0 → 1.0.0)
+make release-major
+```
+
+The release script will:
+- Update version in `Cargo.toml`, `plugins/swc/Cargo.toml`, and `editors/vscode/package.json`
+- Update `Cargo.lock`
+- Create a commit with message: `chore: bump version to X.Y.Z`
+- Create a git tag: `vX.Y.Z`
+- Ask for confirmation before making changes
+
+**2. Push the changes and tag:**
+
+```bash
+# Push commit and tag together
+git push && git push origin vX.Y.Z
+
+# Or push all tags at once
+git push && git push --tags
+```
+
+**3. GitHub Actions automatically:**
+- Builds binaries for Linux (x86_64, ARM64)
+- Builds binaries for macOS (Intel, Apple Silicon)
+- Builds binaries for Windows (x86_64, ARM64)
+- Builds SWC plugin for all platforms
+- Builds VSCode extension (.vsix)
+- Creates a GitHub Release with all artifacts attached
+
+The release will be available at: `https://github.com/YOUR_USERNAME/graphql-rust/releases`
+
+### VSCode Extension Development
+
+See [editors/vscode/README.md](editors/vscode/README.md) for detailed instructions on building and installing the VSCode extension locally.

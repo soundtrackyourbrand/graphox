@@ -39,7 +39,9 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "install-local": "code --install-extension graphql-rust-*.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "^8.1.0"
@@ -47,6 +49,7 @@
   "devDependencies": {
     "@types/node": "^16.11.7",
     "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^2.22.0",
     "typescript": "^4.9.5"
   }
 }

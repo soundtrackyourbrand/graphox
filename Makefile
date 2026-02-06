@@ -1,4 +1,4 @@
-.PHONY: build test benchmark update-baselines clean help
+.PHONY: build test benchmark update-baselines clean help release-patch release-minor release-major
 
 # Default target
 all: build
@@ -23,6 +23,18 @@ update-baselines: build
 clean:
 	cargo clean
 	rm -rf temp_gen_out
+
+## release-patch: Bump patch version, commit, tag, and push
+release-patch:
+	@./scripts/release.sh patch
+
+## release-minor: Bump minor version, commit, tag, and push
+release-minor:
+	@./scripts/release.sh minor
+
+## release-major: Bump major version, commit, tag, and push
+release-major:
+	@./scripts/release.sh major
 
 ## help: Show this help message
 help:
