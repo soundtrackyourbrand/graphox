@@ -134,7 +134,7 @@ fn bench_multi_file_update(c: &mut Criterion) {
         };
 
         b.iter(|| {
-            doc.apply_change(&change, &mut update_parser);
+            doc.apply_change(&change, &mut update_parser, 0);
         })
     });
 

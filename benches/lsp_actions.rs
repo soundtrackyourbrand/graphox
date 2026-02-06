@@ -41,6 +41,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: None,
         });
     }
 
@@ -235,7 +236,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
                     &schema,
                     &fragments,
                     Some(&used_fragments),
-                    Some(&backend.config),
+                    Some(&backend.config.read().unwrap()),
                     false,
                     true,
                 );

@@ -54,6 +54,7 @@ fn generate_complex_workspace(
             output_dir: None,
             import: None,
             generate_permissions: None,
+            codegen: None,
         });
     }
 
