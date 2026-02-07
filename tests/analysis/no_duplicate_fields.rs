@@ -60,7 +60,10 @@ fn test_shallow_duplicate_fields_check() {
     let found = diags.iter().any(|d| {
         matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
             && d.message == "Duplicate field 'id' in selection set"
-            && d.range == range(0, 16, 0, 18)
+            && {
+                crate::support::assert_diag_range_equals(d, &range(0, 16, 0, 18));
+                true
+            }
     });
 
     assert!(found, "Expected duplicate field diagnostic to be reported for the second 'id'; diags: {:?}", diags);
@@ -118,7 +121,10 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     let found = diags.iter().any(|d| {
         matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
             && d.message == "Duplicate field 'me' in selection set"
-            && d.range == range(0, 37, 0, 39)
+            && {
+                crate::support::assert_diag_range_equals(d, &range(0, 37, 0, 39));
+                true
+            }
     });
 
     assert!(
@@ -162,7 +168,10 @@ fn test_duplicate_fields_with_alias_handling() {
     let found2 = diags2.iter().any(|d| {
         matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
             && d.message == "Duplicate field 'a' in selection set"
-            && d.range == range(0, 22, 0, 24)
+            && {
+                crate::support::assert_diag_range_equals(d, &range(0, 22, 0, 24));
+                true
+            }
     });
     assert!(found2, "Expected duplicate alias diagnostic; diags: {:?}", diags2);
 }
@@ -226,7 +235,10 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     assert!(diags_a.iter().any(|d| {
         matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
             && d.message == "Duplicate field 'id' in selection set"
-            && d.range == range(0, 30, 0, 32)
+            && {
+                crate::support::assert_diag_range_equals(d, &range(0, 30, 0, 32));
+                true
+            }
     }));
 
     // B: duplicate across inline fragment and sibling -> should NOT trigger (shallow-only)
@@ -244,7 +256,10 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     assert!(diags_d.iter().any(|d| {
         matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
             && d.message == "Duplicate field 'friends' in selection set"
-            && d.range == range(0, 38, 0, 45)
+            && {
+                crate::support::assert_diag_range_equals(d, &range(0, 38, 0, 45));
+                true
+            }
     }));
 }
 

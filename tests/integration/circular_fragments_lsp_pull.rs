@@ -123,14 +123,13 @@ async fn test_lsp_pull_circular_fragments() {
                 "Should have diagnostics for circular fragments"
             );
 
-            let found = report.full_document_diagnostic_report.items.iter().any(|it| {
+            let diag = report.full_document_diagnostic_report.items.iter().find(|it| {
                 it.message.contains("Circular fragment reference")
                     || it.message.contains("circular_fragment")
-            });
-            assert!(
-                found,
-                "Expected circular fragment diagnostic in pull report"
-            );
+            }).expect("Expected circular fragment diagnostic in pull report");
+            
+            assert_eq!(diag.range.start.character, 19); // ...|FragA } (line 0)
+            assert_eq!(diag.range.end.character, 24);
         }
         _ => panic!("Expected full diagnostic report from pull request"),
     }

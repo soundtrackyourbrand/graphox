@@ -42,6 +42,9 @@ async fn test_missing_field_diagnostic_with_suggestions() {
                 Some(NumberOrString::String("missing_field".to_string()))
             );
 
+            // Verify range
+            assert_eq!(missing_field_diag.range, range(0, 18, 0, 21));
+
             // Verify data contains similar_fields
             if let Some(data) = &missing_field_diag.data {
                 let similar_fields: Vec<String> = serde_json::from_value::<Vec<String>>(

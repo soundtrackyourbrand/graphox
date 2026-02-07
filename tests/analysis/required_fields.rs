@@ -7,7 +7,7 @@ use graphql_rust::{
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString};
 
 use crate::support::{
-    assert_diag_message_equals, assert_no_diagnostics, create_doc, get_valid_schema,
+    assert_diag_message_equals, assert_no_diagnostics, create_doc, get_valid_schema, range,
 };
 
 #[test]
@@ -68,9 +68,12 @@ fn test_required_field_missing_always_true() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    let expected = "Required field 'users' must be selected in query operations";
-    let d = assert_diag_message_equals(&diagnostics, expected);
+    let expected_msg = "Required field 'users' must be selected in query operations";
+    let d = assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
+    // Range should point at the query operation name because the field is missing from the root
+    let expected_range = range(1, 8, 6, 9);
+    crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
 #[test]
@@ -133,9 +136,11 @@ fn test_required_field_specific_operation_query() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    let expected = "Required field 'users' must be selected in query operations";
-    let d = assert_diag_message_equals(&diagnostics, expected);
+    let expected_msg = "Required field 'users' must be selected in query operations";
+    let d = assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
+    let expected_range = range(1, 8, 6, 9);
+    crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
 #[test]
@@ -332,9 +337,11 @@ fn test_multiple_required_fields() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    let expected = "Required field 'posts' must be selected in query operations";
-    let d = assert_diag_message_equals(&diagnostics, expected);
+    let expected_msg = "Required field 'posts' must be selected in query operations";
+    let d = assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
+    let expected_range = range(1, 8, 6, 9);
+    crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
 #[test]

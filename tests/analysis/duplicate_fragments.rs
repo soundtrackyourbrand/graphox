@@ -185,7 +185,7 @@ fn test_public_duplicate_across_workspace_reports_error() {
     let expected_message =
         "Duplicate public fragment name: 'PublicFrag'. Public fragments must have unique names across the workspace."
             .to_string();
-    let _diag = diagnostics
+    let diag = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
         .unwrap_or_else(|| {
@@ -194,6 +194,9 @@ fn test_public_duplicate_across_workspace_reports_error() {
                 diagnostics
             )
         });
+
+    let expected_range = crate::support::range_for_token(&doc, &std::fs::read_to_string(&frag_a_path).unwrap(), "PublicFrag");
+    crate::support::assert_diag_range_equals(diag, &expected_range);
 }
 
 #[test]

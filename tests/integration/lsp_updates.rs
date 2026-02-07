@@ -1,4 +1,4 @@
-use crate::support::{self, lsp_did_open, lsp_initialize_sequence, lsp_send_notification};
+use crate::support::{self, lsp_did_open, lsp_initialize_sequence, lsp_send_notification, range};
 use futures_util::StreamExt;
 use graphql_rust::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
@@ -163,24 +163,26 @@ async fn test_lsp_fragment_collisions() {
 
     // Check private collision in pkg_a
     let d_a = diags.get(&uri_a).unwrap();
-    assert!(d_a.iter().any(|d| {
+    let diag = d_a.iter().find(|d| {
         d.message
             .contains("Duplicate fragment name: 'DuplicateFrag'")
-    }));
+    }).expect("Should find duplicate fragment diagnostic");
+    assert_eq!(diag.range, range(0, 9, 0, 22));
 
     // Check shadowing in shadow.graphql
     let d_d = diags.get(&uri_d).unwrap();
-    assert!(
-        d_d.iter()
-            .any(|d| d.message.contains("shadows a public fragment"))
-    );
+    let diag = d_d.iter()
+            .find(|d| d.message.contains("shadows a public fragment"))
+            .expect("Should find shadowing hint");
+    assert_eq!(diag.range, range(0, 9, 0, 19)); // fragment |PublicFrag
 
     // Check public collision
     let d_e = diags.get(&uri_e).unwrap();
-    assert!(d_e.iter().any(|d| {
+    let diag = d_e.iter().find(|d| {
         d.message
             .contains("Duplicate public fragment name: 'PublicCollision'")
-    }));
+    }).expect("Should find public collision diagnostic");
+    assert_eq!(diag.range, range(0, 9, 0, 24));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

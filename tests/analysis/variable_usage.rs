@@ -1,6 +1,7 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
-    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, range,
+    write_project_file,
 };
 use apollo_compiler::Schema;
 use tower_lsp::lsp_types::*;
@@ -95,9 +96,11 @@ fn test_variable_unused_even_with_fragments() {
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
     // Expect exact diagnostic message for the unused variable
-    let expected = "Unused variable: $unused";
-    let d = crate::support::assert_diag_message_equals(&diagnostics, expected);
+    let expected_msg = "Unused variable: $unused";
+    let d = crate::support::assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
+    let expected_range = crate::support::range_for_token(&doc, query_text, "$unused: String");
+    crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
 #[test]
@@ -121,9 +124,11 @@ fn test_undefined_variable_direct() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    let expected = "Undefined variable: $undefined";
-    let d = crate::support::assert_diag_message_equals(&diagnostics, expected);
+    let expected_msg = "Undefined variable: $undefined";
+    let d = crate::support::assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
+    let expected_range = crate::support::range_for_token(&doc, query_text, "$undefined");
+    crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
 #[test]
@@ -151,9 +156,11 @@ fn test_undefined_variable_in_fragment_spread() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    let expected = "Undefined variable: $admin (required by fragment 'UserFields')";
-    let d = crate::support::assert_diag_message_equals(&diagnostics, expected);
+    let expected_msg = "Undefined variable: $admin (required by fragment 'UserFields')";
+    let d = crate::support::assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
+    let expected_range = range(3, 19, 3, 29); // ...UserFields
+    crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
 #[tokio::test]

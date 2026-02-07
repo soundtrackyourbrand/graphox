@@ -68,15 +68,16 @@ async fn test_lsp_circular_fragment_diagnostic() {
 
     let last = push_diags.last().unwrap();
     let diags = &last["diagnostics"];
-    let found = diags.as_array().unwrap().iter().any(|d| {
+    let found_diag = diags.as_array().unwrap().iter().find(|d| {
         d["message"]
             .as_str()
             .unwrap_or("")
             .contains("Circular fragment reference")
             || d["code"] == serde_json::json!({"value": "circular_fragment"})
-    });
-    assert!(
-        found,
-        "Expected circular fragment diagnostic in LSP push diags"
-    );
+    }).expect("Expected circular fragment diagnostic");
+    
+    // Range should point to the last fragment name in cycle
+    let range = found_diag["range"].clone();
+    assert_eq!(range["start"]["character"], 29); // ...|FragA } (line 1)
+    assert_eq!(range["end"]["character"], 34);
 }
