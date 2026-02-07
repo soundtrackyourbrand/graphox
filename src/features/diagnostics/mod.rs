@@ -111,37 +111,35 @@ impl DocumentState {
         }
 
         // After validating tree nodes, optionally run cross-operation checks within this document.
-        if let Some(cfg) = config {
-            if let Some(rules) = &cfg.rules {
-                if let Some(true) = rules.unique_operation_name {
-                    // Detect duplicate operation names within this document and report diagnostics.
-                    use std::collections::HashMap;
-                    let mut counts: HashMap<String, usize> = HashMap::new();
-                    for op in &self.operations {
-                        if let Some(name) = &op.name {
-                            *counts.entry(name.clone()).or_insert(0) += 1;
-                        }
-                    }
+        if let Some(cfg) = config
+            && let Some(rules) = &cfg.rules
+            && let Some(true) = rules.unique_operation_name {
+            // Detect duplicate operation names within this document and report diagnostics.
+            use std::collections::HashMap;
+            let mut counts: HashMap<String, usize> = HashMap::new();
+            for op in &self.operations {
+                if let Some(name) = &op.name {
+                    *counts.entry(name.clone()).or_insert(0) += 1;
+                }
+            }
 
-                    for (name, cnt) in counts.into_iter() {
-                        if cnt > 1 {
-                            // point the diagnostic at the last occurrence of the operation name in the document
-                            let text = self.rope.to_string();
-                            if let Some(start_byte) = text.rfind(&name) {
-                                let end_byte = start_byte + name.len();
-                                let range = Range {
-                                    start: self.byte_to_position(start_byte),
-                                    end: self.byte_to_position(end_byte),
-                                };
-                                // Use shared helper to push diagnostic (keeps message/code consistent)
-                                push_duplicate_operation_diagnostic(
-                                    &mut diagnostics,
-                                    range,
-                                    &name,
-                                    None,
-                                );
-                            }
-                        }
+            for (name, cnt) in counts.into_iter() {
+                if cnt > 1 {
+                    // point the diagnostic at the last occurrence of the operation name in the document
+                    let text = self.rope.to_string();
+                    if let Some(start_byte) = text.rfind(&name) {
+                        let end_byte = start_byte + name.len();
+                        let range = Range {
+                            start: self.byte_to_position(start_byte),
+                            end: self.byte_to_position(end_byte),
+                        };
+                        // Use shared helper to push diagnostic (keeps message/code consistent)
+                        push_duplicate_operation_diagnostic(
+                            &mut diagnostics,
+                            range,
+                            &name,
+                            None,
+                        );
                     }
                 }
             }

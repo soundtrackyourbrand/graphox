@@ -215,9 +215,7 @@ impl DocumentState {
 
             let field_def = match parent_type {
                 ExtendedType::Object(obj) => obj.fields.get(actual_field_name.as_str()),
-                ExtendedType::Interface(iface) => {
-                    iface.fields.get(actual_field_name.as_str())
-                }
+                ExtendedType::Interface(iface) => iface.fields.get(actual_field_name.as_str()),
                 _ => None,
             };
 
@@ -273,7 +271,10 @@ impl DocumentState {
                 let similar_fields = find_similar_fields(&actual_field_name, &available_fields);
 
                 let message = if similar_fields.is_empty() {
-                    format!("Field '{}' not found on type '{}'", actual_field_name, type_name)
+                    format!(
+                        "Field '{}' not found on type '{}'",
+                        actual_field_name, type_name
+                    )
                 } else {
                     format!(
                         "Field '{}' not found on type '{}'. Did you mean {}?",
@@ -295,8 +296,8 @@ impl DocumentState {
                         "missing_field".to_string(),
                     )),
                     data: Some(serde_json::json!({
-                                    "similar_fields": similar_fields,
-                                })),
+                        "similar_fields": similar_fields,
+                    })),
                     ..Default::default()
                 });
             }

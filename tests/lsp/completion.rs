@@ -113,6 +113,421 @@ async fn test_completion_fields() {
 }
 
 #[tokio::test]
+async fn test_inline_fragment_completion_inserts_braces_when_missing() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "query {\n  users {\n    ... on \n  }\n}\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Cursor after '... on '
+    let position = Position::new(2, 11);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        let item = items.iter().find(|i| i.label == "User").expect("Expected 'User' completion");
+
+        // Apply completion
+        let mut final_text = text.to_string();
+        if let Some(edit) = &item.text_edit {
+            match edit {
+                CompletionTextEdit::Edit(text_edit) => {
+                    // Manual application of text edit for test assertion
+                    let lines: Vec<&str> = final_text.split('\n').collect();
+                    let start_line = text_edit.range.start.line as usize;
+                    let start_char = text_edit.range.start.character as usize;
+                    let end_line = text_edit.range.end.line as usize;
+                    let end_char = text_edit.range.end.character as usize;
+
+                    let mut new_content = String::new();
+                    for (i, line) in lines.iter().enumerate() {
+                        if i < start_line {
+                            new_content.push_str(line);
+                            new_content.push('\n');
+                        } else if i == start_line {
+                            new_content.push_str(&line[..start_char]);
+                            new_content.push_str(&text_edit.new_text);
+                            if i == end_line {
+                                new_content.push_str(&line[end_char..]);
+                                if i < lines.len() - 1 { new_content.push('\n'); }
+                            }
+                        } else if i > end_line {
+                            new_content.push_str(line);
+                            if i < lines.len() - 1 { new_content.push('\n'); }
+                        } else if i == end_line {
+                            new_content.push_str(&line[end_char..]);
+                            if i < lines.len() - 1 { new_content.push('\n'); }
+                        }
+                    }
+                    final_text = new_content;
+                }
+                _ => panic!("Expected standard text edit"),
+            }
+        } else {
+            // Fallback to insert_text or label. If insert_text is a snippet, emulate snippet by removing $0
+            let mut insert_text = item.insert_text.as_ref().unwrap_or(&item.label).to_string();
+            insert_text = insert_text.replace("$0", "");
+            let lines: Vec<&str> = final_text.split('\n').collect();
+            let mut new_content = String::new();
+            for (i, line) in lines.iter().enumerate() {
+                if i == position.line as usize {
+                    new_content.push_str(&line[..position.character as usize]);
+                    new_content.push_str(&insert_text);
+                    new_content.push_str(&line[position.character as usize..]);
+                } else {
+                    new_content.push_str(line);
+                }
+                if i < lines.len() - 1 { new_content.push('\n'); }
+            }
+            final_text = new_content;
+        }
+        // Assert final text
+        assert_eq!(final_text, "query {\n  users {\n    ... on User {\n      \n    }\n  }\n}\n");
+
+        // Assert final cursor position: should be inside the braces where $0 was in the snippet
+        if let Some(insert_text) = &item.insert_text {
+            if insert_text.contains("$0") {
+                let before = insert_text.split("$0").next().unwrap();
+                let lines_before = before.matches('\n').count() as u32;
+                let last_line = before.lines().last().unwrap_or("");
+                let start_pos = match &item.text_edit {
+                    Some(CompletionTextEdit::Edit(te)) => te.range.start,
+                    _ => position,
+                };
+                let expected_line = start_pos.line + lines_before;
+                let expected_char = if lines_before > 0 {
+                    last_line.chars().count() as u32
+                } else {
+                    start_pos.character + last_line.chars().count() as u32
+                };
+                // For this test, the expected cursor should be at (3, 4) relative to file: verify
+                assert_eq!(Position::new(expected_line, expected_char), Position::new(3, 6));
+            }
+        }
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_inline_fragment_completion_no_braces_when_present() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "query {\n  users {\n    ... on  { id }\n  }\n}\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Cursor after '... on '
+    let position = Position::new(2, 11);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        let item = items.iter().find(|i| i.label == "User").expect("Expected 'User' completion");
+
+        // Apply completion
+        let mut final_text = text.to_string();
+        if let Some(edit) = &item.text_edit {
+            match edit {
+                CompletionTextEdit::Edit(text_edit) => {
+                    let lines: Vec<&str> = final_text.split('\n').collect();
+                    let start_line = text_edit.range.start.line as usize;
+                    let start_char = text_edit.range.start.character as usize;
+                    let end_line = text_edit.range.end.line as usize;
+                    let end_char = text_edit.range.end.character as usize;
+
+                    let mut new_content = String::new();
+                    for (i, line) in lines.iter().enumerate() {
+                        if i < start_line {
+                            new_content.push_str(line);
+                            new_content.push('\n');
+                        } else if i == start_line {
+                            new_content.push_str(&line[..start_char]);
+                            new_content.push_str(&text_edit.new_text);
+                            if i == end_line {
+                                new_content.push_str(&line[end_char..]);
+                                if i < lines.len() - 1 { new_content.push('\n'); }
+                            }
+                        } else if i > end_line {
+                            new_content.push_str(line);
+                            if i < lines.len() - 1 { new_content.push('\n'); }
+                        } else if i == end_line {
+                            new_content.push_str(&line[end_char..]);
+                            if i < lines.len() - 1 { new_content.push('\n'); }
+                        }
+                    }
+                    final_text = new_content;
+                }
+                _ => panic!("Expected standard text edit"),
+            }
+        } else {
+            let insert_text = item.insert_text.as_ref().unwrap_or(&item.label);
+            let lines: Vec<&str> = final_text.split('\n').collect();
+            let mut new_content = String::new();
+            for (i, line) in lines.iter().enumerate() {
+                if i == position.line as usize {
+                    new_content.push_str(&line[..position.character as usize]);
+                    new_content.push_str(insert_text);
+                    new_content.push_str(&line[position.character as usize..]);
+                } else {
+                    new_content.push_str(line);
+                }
+                if i < lines.len() - 1 { new_content.push('\n'); }
+            }
+            final_text = new_content;
+        }
+
+        assert_eq!(final_text, "query {\n  users {\n    ... on User { id }\n  }\n}\n");
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_inline_fragment_completion_tsx_inserts_braces_when_missing() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    let text = "const q = graphql(/* GraphQL */ `\nquery {\n  users {\n    ... on \n  }\n}\n`);\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Cursor in file line corresponding to the inner GraphQL line with inline fragment (file line 3)
+    let position = Position::new(3, 11);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        let item = items.iter().find(|i| i.label == "User").expect("Expected 'User' completion");
+
+        let mut final_text = text.to_string();
+        if let Some(edit) = &item.text_edit {
+            match edit {
+                CompletionTextEdit::Edit(text_edit) => {
+                    let lines: Vec<&str> = final_text.split('\n').collect();
+                    let start_line = text_edit.range.start.line as usize;
+                    let start_char = text_edit.range.start.character as usize;
+                    let end_line = text_edit.range.end.line as usize;
+                    let end_char = text_edit.range.end.character as usize;
+
+                    let mut new_content = String::new();
+                    for (i, line) in lines.iter().enumerate() {
+                        if i < start_line { new_content.push_str(line); new_content.push('\n'); }
+                        else if i == start_line {
+                            new_content.push_str(&line[..start_char]); new_content.push_str(&text_edit.new_text);
+                            if i == end_line { new_content.push_str(&line[end_char..]); if i < lines.len() - 1 { new_content.push('\n'); } }
+                        } else if i > end_line { new_content.push_str(line); if i < lines.len() - 1 { new_content.push('\n'); } }
+                        else if i == end_line { new_content.push_str(&line[end_char..]); if i < lines.len() - 1 { new_content.push('\n'); } }
+                    }
+                    final_text = new_content;
+                }
+                _ => panic!("Expected standard text edit"),
+            }
+        } else {
+            let mut insert_text = item.insert_text.as_ref().unwrap_or(&item.label).to_string();
+            insert_text = insert_text.replace("$0", "");
+            let lines: Vec<&str> = final_text.split('\n').collect();
+            let mut new_content = String::new();
+            for (i, line) in lines.iter().enumerate() {
+                if i == position.line as usize {
+                    new_content.push_str(&line[..position.character as usize]);
+                    new_content.push_str(&insert_text);
+                    new_content.push_str(&line[position.character as usize..]);
+                } else { new_content.push_str(line); }
+                if i < lines.len() - 1 { new_content.push('\n'); }
+            }
+            final_text = new_content;
+        }
+
+        // Expect the snippet expanded (with $0 removed)
+        assert!(final_text.contains("... on User {"));
+
+        // Assert final cursor position when snippet provided
+        if let Some(insert_text) = &item.insert_text {
+            if insert_text.contains("$0") {
+                let before = insert_text.split("$0").next().unwrap();
+                let lines_before = before.matches('\n').count() as u32;
+                let last_line = before.lines().last().unwrap_or("");
+                let start_pos = match &item.text_edit {
+                    Some(CompletionTextEdit::Edit(te)) => te.range.start,
+                    _ => position,
+                };
+                let expected_line = start_pos.line + lines_before;
+                let expected_char = if lines_before > 0 {
+                    last_line.chars().count() as u32
+                } else {
+                    start_pos.character + last_line.chars().count() as u32
+                };
+                assert_eq!(Position::new(expected_line, expected_char), Position::new(4, 6));
+            }
+        }
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_inline_fragment_completion_tsx_no_braces_when_present() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { users: [User!]! } type User { id: ID! username: String! }").unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    let text = "const q = graphql(/* GraphQL */ `\nquery {\n  users {\n    ... on  { id }\n  }\n}\n`);\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    let position = Position::new(3, 11);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        let item = items.iter().find(|i| i.label == "User").expect("Expected 'User' completion");
+
+        if item.text_edit.is_none() {
+            let insert_text = item.insert_text.as_ref().unwrap_or(&item.label);
+            assert!(!insert_text.contains('{'));
+        }
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
 async fn test_completion_variables() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");

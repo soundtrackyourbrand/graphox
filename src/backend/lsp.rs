@@ -8,6 +8,7 @@ use crate::types::{
     FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
 use apollo_compiler::Schema;
+use env_logger;
 use dashmap::DashMap;
 use fnv::FnvHashSet;
 use rayon::prelude::*;
@@ -55,6 +56,9 @@ pub struct Backend {
 
 impl Backend {
     pub fn new(client: Client, mut config: Config) -> Self {
+        // Initialize logging backend if not already initialized.
+        // This is intentionally best-effort to avoid double-init panics in tests.
+        let _ = env_logger::try_init();
         // Canonicalize base_dir to ensure consistency on macOS
         if let Ok(canon) = std::fs::canonicalize(&config.base_dir) {
             config.base_dir = canon;
@@ -853,6 +857,7 @@ impl LanguageServer for Backend {
             if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = self.get_schema_for_doc(&uri);
                 let mut fragments = self.get_fragments_for_doc(&doc);
+                log::trace!("completion: fragments for doc {} = {:?}", doc.uri, fragments.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
 
                 for f in &mut fragments {
                     f.requirements =
@@ -860,6 +865,10 @@ impl LanguageServer for Backend {
                 }
 
                 let items = doc.get_completion_items(position, &schema, fragments);
+                log::trace!(
+                    "completion: produced items = {:?}",
+                    items.iter().map(|i| i.label.clone()).collect::<Vec<_>>()
+                );
                 return Ok(Some(CompletionResponse::Array(items)));
             }
 

@@ -196,6 +196,11 @@ impl DocumentState {
                     let field_name = self.get_node_text(node, offset);
 
                     let mut search_type = self.find_parent_type_for_node(parent, offset, schema);
+                    // Fallback: sometimes the immediate parent node doesn't provide enough
+                    // context (parser quirks). Try the parent's parent as a heuristic.
+                    if search_type.is_none() && let Some(grand) = parent.parent() {
+                        search_type = self.find_parent_type_for_node(grand, offset, schema);
+                    }
 
                     if parent.kind() == "argument" {
                         if let Some(field_node) = parent.parent().and_then(|p| p.parent()) {
@@ -548,6 +553,7 @@ impl DocumentState {
         field_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location> {
+        // searching for field definition in tree
         let mut cursor = QueryCursor::new();
 
         for block in self.get_graphql_trees() {

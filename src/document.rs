@@ -196,7 +196,8 @@ impl DocumentState {
         while let Some(m) = ts_matches.next() {
             let mut gql_node = None;
 
-            for cap in m.captures {
+            for i in 0..m.captures.len() {
+                let cap = &m.captures[i];
                 if cap.index == gql_content_idx {
                     gql_node = Some(cap.node);
                     break;
@@ -231,10 +232,39 @@ impl DocumentState {
                     continue;
                 }
 
-                let start_byte = node.start_byte() + 1;
-                let end_byte = node.end_byte() - 1;
-                let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
+                // For template literals, the content is inside backticks. We compute
+                // start/end bytes for the inner content and verify they are within bounds.
+                let mut start_byte = node.start_byte() + 1;
+                let mut end_byte = node.end_byte() - 1;
 
+                if start_byte >= end_byte {
+                    let mut found = false;
+                    for i in 0..node.named_child_count() {
+                        if let Some(child) = node.named_child(i as u32) {
+                            let kind = child.kind();
+                            if (kind.contains("template") || kind.contains("string"))
+                                && child.end_byte() > child.start_byte() + 2
+                            {
+                                start_byte = child.start_byte() + 1;
+                                end_byte = child.end_byte() - 1;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if !found && let Some(child) = node.named_child(0u32) {
+                        start_byte = child.start_byte() + 1;
+                        end_byte = child.end_byte() - 1;
+                    }
+                }
+
+                let doc_len = self.rope.len_bytes();
+                if start_byte > doc_len || end_byte > doc_len || start_byte >= end_byte {
+                    continue;
+                }
+
+                let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
                 let masked_gql = mask_interpolations(&raw_gql);
 
                 if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
@@ -245,6 +275,7 @@ impl DocumentState {
                 }
             }
         }
+
         gql_blocks
     }
 
@@ -390,28 +421,6 @@ impl DocumentState {
         let start = node.start_byte() + offset;
         let end = node.end_byte() + offset;
         cursor_offset >= start && cursor_offset <= end
-    }
-
-    /// Gets the absolute byte range for a node (including offset).
-    pub(crate) fn get_absolute_byte_range(
-        &self,
-        node: Node,
-        offset: usize,
-    ) -> std::ops::Range<usize> {
-        (node.start_byte() + offset)..(node.end_byte() + offset)
-    }
-
-    /// Finds the child node that contains the cursor position.
-    pub(crate) fn find_child_at_cursor<'a>(
-        &self,
-        parent: Node<'a>,
-        offset: usize,
-        cursor_offset: usize,
-    ) -> Option<Node<'a>> {
-        let mut cursor = parent.walk();
-        parent
-            .children(&mut cursor)
-            .find(|child| self.is_cursor_in_node_range(*child, offset, cursor_offset))
     }
 
     /// Extracts the operation type from an operation_definition node.
@@ -852,10 +861,22 @@ impl DocumentState {
         let mut path = Vec::new();
         let mut curr = node;
 
-        // Collect ancestors that define or change the current type
+        // Collect ancestors that define or change the current type. We intentionally do NOT
+        // include the starting node itself here — callers that pass a child (eg. `name`) will
+        // have their parent (eg. `field`) included by this traversal; callers that pass a
+        // `field` node directly expect the parent type (the type that contains the field) to
+        // be returned, so including the starting `field` node would incorrectly descend into
+        // the field's own type. This matches historical behavior.
         while let Some(parent) = curr.parent() {
             match parent.kind() {
-                "field" | "inline_fragment" | "operation_definition" | "fragment_definition" => {
+                // Also include selection and selection_set so we can handle parser-produced ERROR nodes
+                // that live directly under a selection_set when the inline fragment is incomplete.
+                "field"
+                | "inline_fragment"
+                | "operation_definition"
+                | "fragment_definition"
+                | "selection_set"
+                | "selection" => {
                     path.push((parent.kind(), parent));
                 }
                 _ => {}
@@ -871,7 +892,6 @@ impl DocumentState {
             match kind {
                 "operation_definition" => {
                     let op_type_str = self.get_operation_type(node, offset);
-
                     let op = match op_type_str.as_str() {
                         "mutation" => apollo_compiler::ast::OperationType::Mutation,
                         "subscription" => apollo_compiler::ast::OperationType::Subscription,
@@ -884,30 +904,80 @@ impl DocumentState {
                     current_type = schema.types.get(root_name.as_str()).cloned();
                 }
                 "fragment_definition" => {
-                    let type_name = self.get_fragment_type_condition(node, offset)?;
-                    current_type = schema.types.get(type_name.as_str()).cloned();
+                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
+                        current_type = schema.types.get(type_name.as_str()).cloned();
+                    }
                 }
                 "field" => {
-                    let parent_type = current_type?;
-                    let field_name = self
-                        .extract_field_components(node)
-                        .name
-                        .map(|n| self.get_node_text(n, offset))?;
-                    let field_def = match &parent_type {
-                        ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-                        ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
-                        _ => None,
-                    }?;
-                    current_type = schema
-                        .types
-                        .get(field_def.ty.inner_named_type().as_str())
-                        .cloned();
+                    if let Some(parent_type) = current_type.clone()
+                        && let Some(field_name_node) = self.extract_field_components(node).name {
+                        let field_name = self.get_node_text(field_name_node, offset);
+                        let field_def = match &parent_type {
+                            ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                            ExtendedType::Interface(iface) => {
+                                iface.fields.get(field_name.as_str())
+                            }
+                            _ => None,
+                        };
+                        if let Some(field_def) = field_def {
+                            current_type = schema
+                                .types
+                                .get(field_def.ty.inner_named_type().as_str())
+                                .cloned();
+                        } else {
+                            current_type = None;
+                        }
+                    }
+                }
+                "selection_set" => {
+                    if let Some(parent) = node.parent() {
+                        match parent.kind() {
+                            "field" => {
+                                    if let Some(parent_type) = current_type.clone()
+                                        && let Some(field_name) = self
+                                            .extract_field_components(parent)
+                                            .name
+                                            .map(|n| self.get_node_text(n, offset))
+                                        && let Some(field_def) = match &parent_type {
+                                            ExtendedType::Object(obj) => {
+                                                obj.fields.get(field_name.as_str())
+                                            }
+                                            ExtendedType::Interface(iface) => {
+                                                iface.fields.get(field_name.as_str())
+                                            }
+                                            _ => None,
+                                        } {
+                                            current_type = schema
+                                                .types
+                                                .get(field_def.ty.inner_named_type().as_str())
+                                                .cloned();
+                                        }
+                                    }
+                            "inline_fragment" => {
+                                if let Some(type_name) =
+                                    self.get_fragment_type_condition(parent, offset)
+                                {
+                                    current_type = schema.types.get(type_name.as_str()).cloned();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "selection" => {
+                    let mut walker = node.walk();
+                    for child in node.children(&mut walker) {
+                        if child.kind() == "inline_fragment"
+                            && let Some(type_name) = self.get_fragment_type_condition(child, offset)
+                        {
+                            current_type = schema.types.get(type_name.as_str()).cloned();
+                        }
+                    }
                 }
                 "inline_fragment" => {
                     if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
                         current_type = schema.types.get(type_name.as_str()).cloned();
                     }
-                    // if no type condition, current_type remains unchanged (inherited)
                 }
                 _ => {}
             }
