@@ -99,8 +99,14 @@ async fn test_completion_fields() {
         serde_json::from_value(response.result().unwrap().clone()).unwrap();
 
     if let Some(CompletionResponse::Array(items)) = result {
-        assert!(items.iter().any(|i| i.label == "id"));
-        assert!(items.iter().any(|i| i.label == "username"));
+        // Verify labels and metadata (kind/detail)
+        let id_item = items.iter().find(|i| i.label == "id").expect("Expected 'id' completion");
+        assert_eq!(id_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(id_item.detail.as_deref(), Some("ID!"));
+
+        let username_item = items.iter().find(|i| i.label == "username").expect("Expected 'username' completion");
+        assert_eq!(username_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(username_item.detail.as_deref(), Some("String!"));
     } else {
         panic!("Expected array of completions");
     }
@@ -969,4 +975,844 @@ async fn test_completion_introspection_fields() {
     } else {
         panic!("Expected array of completions");
     }
+}
+
+// New tests for completion triggering in various empty-line/empty-selection scenarios
+#[tokio::test]
+async fn test_completion_trigger_on_new_empty_line_in_selection() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! email: String }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize")
+        .params(serde_json::to_value(&init_params).unwrap())
+        .id(0)
+        .finish();
+    service.call(request).await.unwrap().unwrap();
+    service
+        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .await
+        .unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "query {\n  users {\n    id\n    \n  }\n}\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service
+        .call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish())
+        .await
+        .unwrap();
+
+    // Request completions at the empty new line inside selection (line 3, column 4)
+    let position = Position::new(2, 4); // 0-based: line 2 contains the empty line after id
+    // Note: depending on exact whitespace counting, column 4 is after indentation
+    let params = CompletionParams {
+        text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+        context: None,
+    };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "id"));
+        assert!(items.iter().any(|i| i.label == "username"));
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_completion_trigger_after_typing_first_character() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! email: String }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    // Put a single character 'u' on the new line to simulate typing
+    let text = "query {\n  users {\n    id\n    u\n  }\n}\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Request completions after the 'u' we typed (line 3, column 5)
+    let position = Position::new(2, 5);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        // Should include username (filtered by prefix 'u')
+        let username_item = items.iter().find(|i| i.label == "username").expect("Expected 'username' completion");
+        assert_eq!(username_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(username_item.detail.as_deref(), Some("String!"));
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_completion_in_completely_empty_selection_set() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "query { users { } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Request completions at the empty selection position
+    let position = Position::new(0, 16);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        let id_item = items.iter().find(|i| i.label == "id").expect("Expected 'id' completion");
+        assert_eq!(id_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(id_item.detail.as_deref(), Some("ID!"));
+
+        let username_item = items.iter().find(|i| i.label == "username").expect("Expected 'username' completion");
+        assert_eq!(username_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(username_item.detail.as_deref(), Some("String!"));
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+// Embedded GraphQL in TSX/TypeScript - similar scenarios as GraphQL-only tests
+#[tokio::test]
+async fn test_completion_tsx_trigger_on_new_empty_line_in_selection() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! email: String }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize")
+        .params(serde_json::to_value(&init_params).unwrap())
+        .id(0)
+        .finish();
+    service.call(request).await.unwrap().unwrap();
+    service
+        .call(Request::build("initialized").params(serde_json::json!({})).finish())
+        .await
+        .unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    let text = "const q = graphql(/* GraphQL */ `\nquery {\n  users {\n    id\n    \n  }\n}\n`);\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } };
+    service
+        .call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish())
+        .await
+        .unwrap();
+
+    // Request completions at the empty new line inside selection. The empty line is at file line 4 (0-based), col 4
+    let position = Position::new(4, 4);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "id"));
+        assert!(items.iter().any(|i| i.label == "username"));
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_completion_tsx_trigger_after_typing_first_character() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! email: String }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    // Put a single character 'u' on the new line to simulate typing
+    let text = "const q = graphql(/* GraphQL */ `\nquery {\n  users {\n    id\n    u\n  }\n}\n`);\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Request completions after the 'u' we typed (line 4, column 5)
+    let position = Position::new(4, 5);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        // Should include username (filtered by prefix 'u')
+        let username_item = items.iter().find(|i| i.label == "username").expect("Expected 'username' completion");
+        assert_eq!(username_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(username_item.detail.as_deref(), Some("String!"));
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_completion_tsx_in_completely_empty_selection_set() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! } type User { id: ID! username: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    let text = "const q = graphql(/* GraphQL */ `\nquery { users { } }\n`);\n";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // Request completions at the empty selection position. The users selection braces are on line 1 -> position line 1, col 16
+    let position = Position::new(1, 16);
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+
+    if let Some(CompletionResponse::Array(items)) = result {
+        let id_item = items.iter().find(|i| i.label == "id").expect("Expected 'id' completion");
+        assert_eq!(id_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(id_item.detail.as_deref(), Some("ID!"));
+
+        let username_item = items.iter().find(|i| i.label == "username").expect("Expected 'username' completion");
+        assert_eq!(username_item.kind, Some(CompletionItemKind::FIELD));
+        assert_eq!(username_item.detail.as_deref(), Some("String!"));
+    } else {
+        panic!("Expected array of completions");
+    }
+}
+
+#[tokio::test]
+async fn test_completion_selection_set_type_filtering() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! posts: [Post!]! } type User { id: ID! username: String! } type Post { id: ID! title: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+
+    // Initialize
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "query { users {  } posts {  } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // completions in users selection (label should include 'username' but not 'title')
+    let users_pos = Position::new(0, 15); // around users { | }
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: users_pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "username"));
+        assert!(!items.iter().any(|i| i.label == "title"));
+    } else { panic!("Expected array of completions"); }
+
+    // completions in posts selection (label should include 'title' but not 'username')
+    let posts_pos = Position::new(0, 26); // around posts { | }
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: posts_pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(2).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "title"));
+        assert!(!items.iter().any(|i| i.label == "username"));
+    } else { panic!("Expected array of completions"); }
+}
+
+// Interface fragment spread filtering
+#[tokio::test]
+async fn test_fragment_spread_interface_filtering() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { nodeA: A nodeB: B } interface Node { id: ID! } type A implements Node { id: ID! name: String! } type B implements Node { id: ID! title: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "fragment OnNode on Node { id } fragment OnA on A { name } fragment OnB on B { title } query { nodeA { ... } nodeB { ... } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } }).unwrap()).finish()).await.unwrap();
+
+    let file_text = text;
+    let dot_idx = file_text.find("nodeA { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "nodeA { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let users_pos = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: users_pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnA"));
+        assert!(items.iter().any(|i| i.label == "OnNode"));
+        assert!(!items.iter().any(|i| i.label == "OnB"));
+        // ensure no field completions are present for '...'
+        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::FIELD)));
+    } else { panic!("Expected array of completions"); }
+
+    // nodeB position
+    let dot_idx = file_text.find("nodeB { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "nodeB { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let posts_pos = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: posts_pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(2).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnB"));
+        assert!(items.iter().any(|i| i.label == "OnNode"));
+        assert!(!items.iter().any(|i| i.label == "OnA"));
+        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::FIELD)));
+    } else { panic!("Expected array of completions"); }
+}
+
+// Union fragment spread filtering
+#[tokio::test]
+async fn test_fragment_spread_union_filtering_extended() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { itemA: A itemB: B } type A { id: ID! name: String! } type B { id: ID! title: String! } union Item = A | B",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "fragment OnItem on Item { id } fragment OnA on A { name } fragment OnB on B { title } query { itemA { ... } itemB { ... } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } }).unwrap()).finish()).await.unwrap();
+
+    let file_text = text;
+    // itemA
+    let dot_idx = file_text.find("itemA { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "itemA { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let pos_a = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: pos_a }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnA"));
+        assert!(items.iter().any(|i| i.label == "OnItem"));
+        assert!(!items.iter().any(|i| i.label == "OnB"));
+    } else { panic!("Expected array of completions"); }
+
+    // itemB
+    let dot_idx = file_text.find("itemB { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "itemB { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let pos_b = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: pos_b }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(2).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnB"));
+        assert!(items.iter().any(|i| i.label == "OnItem"));
+        assert!(!items.iter().any(|i| i.label == "OnA"));
+    } else { panic!("Expected array of completions"); }
+}
+
+// Embedded TSX: interface fragment spreads
+#[tokio::test]
+async fn test_embedded_fragment_spreads_interface_tsx() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { node: A item: B } interface Node { id: ID! } type A implements Node { id: ID! name: String! } type B implements Node { id: ID! title: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    let text = r#"const q = graphql(/* GraphQL */ `fragment OnNode on Node { id } fragment OnA on A { name } fragment OnB on B { title } query { node { ... } item { ... } }`);"#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } }).unwrap()).finish()).await.unwrap();
+
+    let file_text = text.to_string();
+    let dot_idx = file_text.find("node { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "node { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let pos = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnA"));
+        assert!(items.iter().any(|i| i.label == "OnNode"));
+        assert!(!items.iter().any(|i| i.label == "OnB"));
+    } else { panic!("Expected array of completions"); }
+}
+
+// Embedded TSX: union fragment spreads
+#[tokio::test]
+async fn test_embedded_fragment_spreads_union_tsx() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { item: A other: B } type A { id: ID! name: String! } type B { id: ID! title: String! } union Item = A | B",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.tsx".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.tsx");
+    let text = r#"const q = graphql(/* GraphQL */ `fragment OnItem on Item { id } fragment OnA on A { name } fragment OnB on B { title } query { item { ... } other { ... } }`);"#;
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "typescript".to_string(), version: 1, text: text.to_string(), } }).unwrap()).finish()).await.unwrap();
+
+    let file_text = text.to_string();
+    let dot_idx = file_text.find("item { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "item { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let pos = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnA"));
+        assert!(items.iter().any(|i| i.label == "OnItem"));
+        assert!(!items.iter().any(|i| i.label == "OnB"));
+    } else { panic!("Expected array of completions"); }
+}
+
+#[tokio::test]
+async fn test_completion_fragment_spread_type_filtering() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { users: [User!]! posts: [Post!]! } type User { id: ID! username: String! } type Post { id: ID! title: String! }",
+    )
+    .unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("test.graphql".to_string()),
+            exclude: None,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: Some(false),
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: dir.path().to_path_buf(),
+        lsp_automatic_codegen: Some(false),
+        lsp_codegen_throttle_ms: None,
+        codegen_watch_debounce_ms: None,
+        ..Config::new_empty()
+    };
+
+    // create a file with two fragments and a query using ... in users
+    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let init_params = InitializeParams { ..Default::default() };
+    let request = Request::build("initialize").params(serde_json::to_value(&init_params).unwrap()).id(0).finish();
+    service.call(request).await.unwrap().unwrap();
+    service.call(Request::build("initialized").params(serde_json::json!({})).finish()).await.unwrap();
+
+    let query_path = dir.path().join("test.graphql");
+    let text = "fragment OnUser on User { id } fragment OnPost on Post { id } query { users { ... } posts { ... } }";
+    fs::write(&query_path, text).unwrap();
+    let query_path = std::fs::canonicalize(query_path).unwrap();
+    let uri = Url::from_file_path(&query_path).unwrap();
+
+    let params = DidOpenTextDocumentParams { text_document: TextDocumentItem { uri: uri.clone(), language_id: "graphql".to_string(), version: 1, text: text.to_string(), } };
+    service.call(Request::build("textDocument/didOpen").params(serde_json::to_value(&params).unwrap()).finish()).await.unwrap();
+
+    // completions after ... in users should include OnUser but not OnPost or fields
+    // compute approximate position by finding index of the first '...' occurrence
+    let file_text = text.clone();
+    let dot_idx = file_text.find("users { ...").unwrap();
+    // count lines and columns up to dot_idx
+    let prefix = &file_text[..dot_idx + "users { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let users_pos = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: users_pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(1).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnUser"));
+        assert!(!items.iter().any(|i| i.label == "OnPost"));
+        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::FIELD)));
+    } else { panic!("Expected array of completions"); }
+
+    // completions after ... in posts should include OnPost but not OnUser
+    let dot_idx = file_text.find("posts { ...").unwrap();
+    let prefix = &file_text[..dot_idx + "posts { ".len() + 3];
+    let line = prefix.matches('\n').count();
+    let col = prefix.lines().last().map(|l| l.chars().count()).unwrap_or(0);
+    let posts_pos = Position::new(line as u32, col as u32);
+
+    let params = CompletionParams { text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position: posts_pos }, work_done_progress_params: Default::default(), partial_result_params: Default::default(), context: None };
+    let request = Request::build("textDocument/completion").id(2).params(serde_json::to_value(&params).unwrap()).finish();
+    let response = service.call(request).await.unwrap().unwrap();
+    let result: Option<CompletionResponse> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    if let Some(CompletionResponse::Array(items)) = result {
+        assert!(items.iter().any(|i| i.label == "OnPost"));
+        assert!(!items.iter().any(|i| i.label == "OnUser"));
+        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::FIELD)));
+    } else { panic!("Expected array of completions"); }
 }
