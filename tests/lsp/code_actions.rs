@@ -1,112 +1,40 @@
+use crate::support::{
+    create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
+    lsp_request_code_actions, range,
+};
 use graphql_rust::{
-    Backend, Config,
+    Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use tempfile::tempdir;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
+use crate::support::{make_temp_project_with_schema, write_project_file};
 
 #[tokio::test]
+#[ntest::timeout(100)]
 async fn test_code_action_remove_unused_fragment() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
+    let schema = "type Query { me: String }";
+    let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    // tweak config for timeouts/watch behavior used in test
+    config.watch_all_files = Some(false);
+    config.timeouts = Some(graphql_rust::config::TimeoutConfig {
+        workspace_scan_ms: 50,
+        lsp_request_ms: 50,
+    });
 
-    fs::write(base_dir.join("package.json"), "{}").unwrap();
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { me: String }").unwrap();
+    let (mut service, _backend) = create_initialized_lsp_service(config).await;
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let frag_path = base_dir.join("unused.graphql");
     let frag_text = "fragment Unused on Query { me }";
-    fs::write(&frag_path, frag_text).unwrap();
-    let frag_path = std::fs::canonicalize(frag_path).unwrap();
-    let frag_uri = Url::from_file_path(&frag_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: frag_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: frag_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let frag_uri = write_project_file(&dir, "unused.graphql", frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
 
     // Also create a document with a duplicate field to exercise duplicate-field code action
-    let dup_path = base_dir.join("dup.graphql");
     let dup_text = "query { me { id id } }";
-    fs::write(&dup_path, dup_text).unwrap();
-    let dup_path = std::fs::canonicalize(dup_path).unwrap();
-    let dup_uri = Url::from_file_path(&dup_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: dup_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: dup_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let dup_uri = write_project_file(&dir, "dup.graphql", dup_text);
+    lsp_did_open(&mut service, dup_uri.clone(), "graphql", 1, dup_text).await;
 
     // Construct a diagnostic that points to the duplicated `id` field in dup.graphql
     let dup_diag = Diagnostic {
@@ -141,33 +69,17 @@ async fn test_code_action_remove_unused_fragment() {
         partial_result_params: Default::default(),
     };
 
-    let request = Request::build("textDocument/codeAction")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CodeActionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let actions = result.expect("Expected actions");
+    let actions = lsp_request_code_actions(&mut service, params, 1)
+        .await
+        .expect("Expected actions");
     assert!(!actions.is_empty());
 
     // Find and verify 'Remove unused fragment' action
-    let unused_action = actions
-        .iter()
-        .find(|a| match a {
-            CodeActionOrCommand::CodeAction(ca) => ca.title == "Remove unused fragment",
-            _ => false,
-        })
+    let ca = find_code_action_by_title(&actions, "Remove unused fragment")
         .expect("Expected 'Remove unused fragment' action");
-
-    if let CodeActionOrCommand::CodeAction(action) = unused_action {
-        let edit = action.edit.as_ref().unwrap();
-        let changes = edit.changes.as_ref().unwrap();
-        assert!(changes.contains_key(&frag_uri));
-    } else {
-        panic!("Expected CodeAction");
-    }
+    let edit = ca.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    assert!(changes.contains_key(&frag_uri));
 
     // Now request code actions for the duplicate document specifically
     let params_dup = CodeActionParams {
@@ -184,55 +96,35 @@ async fn test_code_action_remove_unused_fragment() {
         partial_result_params: Default::default(),
     };
 
-    let request_dup = Request::build("textDocument/codeAction")
-        .id(2)
-        .params(serde_json::to_value(&params_dup).unwrap())
-        .finish();
-    let response_dup = service.call(request_dup).await.unwrap().unwrap();
-    let result_dup: Option<CodeActionResponse> =
-        serde_json::from_value(response_dup.result().unwrap().clone()).unwrap();
-    let actions_dup = result_dup.expect("Expected actions for dup file");
-
-    let dup_action = actions_dup
-        .iter()
-        .find(|a| match a {
-            CodeActionOrCommand::CodeAction(ca) => ca.title == "Remove duplicate field",
-            _ => false,
-        })
+    let actions_dup = lsp_request_code_actions(&mut service, params_dup, 2)
+        .await
+        .expect("Expected actions for dup file");
+    let ca_dup = find_code_action_by_title(&actions_dup, "Remove duplicate field")
         .expect("Expected 'Remove duplicate field' action");
+    let edit = ca_dup.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    assert!(changes.contains_key(&dup_uri));
 
-    if let CodeActionOrCommand::CodeAction(action) = dup_action {
-        let edit = action.edit.as_ref().unwrap();
-        let changes = edit.changes.as_ref().unwrap();
-        assert!(changes.contains_key(&dup_uri));
-    } else {
-        panic!("Expected CodeAction");
-    }
-
-    let mark_type_only_action = actions
+    let mark_ca = actions
         .iter()
-        .find(|a| {
+        .filter_map(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title.starts_with("Mark fragment as @type_only")
+                Some(ca)
             } else {
-                false
+                None
             }
         })
+        .find(|ca| ca.title.starts_with("Mark fragment as @type_only"))
         .expect("Should find 'Mark fragment as @type_only' action");
-
-    if let CodeActionOrCommand::CodeAction(action) = mark_type_only_action {
-        let edit = action.edit.as_ref().unwrap();
-        let changes = edit.changes.as_ref().unwrap();
-        let edits = &changes[&frag_uri];
-        assert_eq!(edits[0].new_text, " @type_only");
-        assert_eq!(
-            edits[0].range,
-            Range::new(Position::new(0, 24), Position::new(0, 24))
-        );
-    }
+    let edit = mark_ca.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    let edits = &changes[&frag_uri];
+    assert_eq!(edits[0].new_text, " @type_only");
+    assert_eq!(edits[0].range, range(0, 24, 0, 24));
 }
 
 #[tokio::test]
+#[ntest::timeout(100)]
 async fn test_code_action_extract_to_fragment() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -263,26 +155,7 @@ async fn test_code_action_extract_to_fragment() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name } }";
@@ -361,6 +234,7 @@ async fn test_code_action_extract_to_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(100)]
 async fn test_code_action_remove_unused_variable() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -387,7 +261,7 @@ async fn test_code_action_remove_unused_variable() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     service
         .call(
@@ -482,6 +356,7 @@ async fn test_code_action_remove_unused_variable() {
 }
 
 #[tokio::test]
+#[ntest::timeout(100)]
 async fn test_code_action_remove_type_only() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -505,7 +380,7 @@ async fn test_code_action_remove_type_only() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     service
         .call(
@@ -570,6 +445,7 @@ async fn test_code_action_remove_type_only() {
 }
 
 #[tokio::test]
+#[ntest::timeout(100)]
 async fn test_code_action_extract_to_fragment_tsx() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -600,7 +476,7 @@ async fn test_code_action_extract_to_fragment_tsx() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     service
         .call(

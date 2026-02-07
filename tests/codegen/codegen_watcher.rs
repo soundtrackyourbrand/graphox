@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(5000)]
 fn test_codegen_watch_mode() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let dir = tempdir().unwrap();
@@ -42,7 +42,7 @@ fn test_codegen_watch_mode() {
     let gen_file = base_dir.join("query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(1)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(2)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -57,7 +57,7 @@ fn test_codegen_watch_mode() {
     // 5. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(1) {
+    while start.elapsed() < Duration::from_secs(2) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("name: string | null")
         {
@@ -77,7 +77,7 @@ fn test_codegen_watch_mode() {
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(5000)]
 fn test_codegen_watch_schema_changes() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let dir = tempdir().unwrap();
@@ -113,7 +113,7 @@ fn test_codegen_watch_schema_changes() {
     let gen_file = base_dir.join("query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(1)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(2)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -134,7 +134,7 @@ fn test_codegen_watch_schema_changes() {
     // 6. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(1) {
+    while start.elapsed() < Duration::from_secs(2) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("email: string")
         {

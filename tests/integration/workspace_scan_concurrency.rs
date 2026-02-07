@@ -1,13 +1,13 @@
 use futures_util::StreamExt;
 use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tokio::time::Duration;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
+use crate::support;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
@@ -57,7 +57,7 @@ async fn test_workspace_scan_concurrency() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let progress_updates = Arc::new(Mutex::new(Vec::new()));
@@ -65,17 +65,17 @@ async fn test_workspace_scan_concurrency() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "window/logMessage" {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
                 let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                    serde_json::from_value(msg.get("params").cloned().unwrap_or(serde_json::Value::Null)).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
-            } else if msg.method() == "$/progress" {
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
                 progress_updates_clone
                     .lock()
                     .unwrap()
-                    .push(msg.params().unwrap().clone());
+                    .push(msg.get("params").cloned().unwrap_or(serde_json::Value::Null));
             }
         }
     });

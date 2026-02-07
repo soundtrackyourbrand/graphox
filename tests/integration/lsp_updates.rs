@@ -1,12 +1,12 @@
 use futures_util::StreamExt;
 use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::LspService;
+use crate::support;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
@@ -91,7 +91,7 @@ async fn test_lsp_fragment_collisions() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(
         std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
@@ -99,16 +99,16 @@ async fn test_lsp_fragment_collisions() {
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params: PublishDiagnosticsParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params: PublishDiagnosticsParams = serde_json::from_value(params_json).unwrap();
                 received_diags_clone
                     .lock()
                     .unwrap()
                     .insert(params.uri, params.diagnostics);
-            } else if msg.method() == "window/logMessage" {
-                let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
@@ -323,18 +323,18 @@ async fn test_lsp_diagnostics_on_schema_change() {
         timeouts: None,
         rules: None,
     };
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
-            } else if msg.method() == "window/logMessage" {
-                let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
@@ -506,18 +506,18 @@ async fn test_lsp_fragment_rename_same_project() {
         timeouts: None,
         rules: None,
     };
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
-            } else if msg.method() == "window/logMessage" {
-                let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
@@ -739,18 +739,18 @@ async fn test_lsp_fragment_rename_cross_project() {
         timeouts: None,
         rules: None,
     };
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
-            } else if msg.method() == "window/logMessage" {
-                let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }

@@ -1,8 +1,7 @@
-use graphql_rust::{Backend, Config};
+use graphql_rust::{Config};
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
@@ -40,7 +39,7 @@ projects:
     fs::write(&query_path, "query GetUser { user { id name } }").unwrap();
 
     let config = Config::load_from_dir(&base_dir).unwrap();
-    let (mut service, _messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _messages) = crate::support::create_service(config);
 
     // Initialize
     let init_params = InitializeParams {
@@ -160,7 +159,7 @@ projects:
     fs::write(&query_path, "query GetUser { user { id } }").unwrap();
 
     let config = Config::load_from_dir(&base_dir).unwrap();
-    let (mut service, _messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _messages) = crate::support::create_service(config);
 
     // Initialize
     service
@@ -259,7 +258,7 @@ projects:
     .unwrap();
 
     let config = Config::load_from_dir(&base_dir).unwrap();
-    let (mut service, _messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _messages) = crate::support::create_service(config);
 
     // Initialize
     service

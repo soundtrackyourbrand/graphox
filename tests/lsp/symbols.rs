@@ -1,14 +1,6 @@
-use graphql_rust::DocumentState;
 use tower_lsp::lsp_types::*;
 
-fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
-}
+use crate::support::create_doc;
 
 #[test]
 fn test_document_symbols() {
@@ -61,12 +53,7 @@ fn test_document_symbols_tsx() {
             `;
         }
     "#;
-    let uri = Url::parse("file:///test.tsx").unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::LANGUAGE_TSX.into())
-        .unwrap();
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.tsx", text);
     let symbols = doc.get_symbols();
 
     assert!(symbols.iter().any(|s| s.name == "GetUser"));

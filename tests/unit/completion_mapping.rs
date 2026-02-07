@@ -1,4 +1,5 @@
 use crate::document::{DocumentLanguage, DocumentState};
+use crate::support::create_doc;
 use tower_lsp::lsp_types::Position;
 use tree_sitter::Parser;
 
@@ -10,7 +11,7 @@ fn mapping_graphql_in_tsx_template_literal() {
     parser
         .set_language(tree_sitter_typescript::LANGUAGE_TSX.into())
         .unwrap();
-    let doc = DocumentState::new(uri, src, parser);
+    let doc = create_doc(uri.as_str(), src);
 
     // Expect exactly one graphql block and its offsets to map inside the file
     let blocks = doc.get_graphql_trees();

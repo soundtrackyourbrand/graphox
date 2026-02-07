@@ -1,4 +1,4 @@
-use crate::document::{DocumentState};
+use crate::document::DocumentState;
 use apollo_compiler::{Schema, ast, schema};
 use tower_lsp::lsp_types::*;
 use tree_sitter::Node;
@@ -40,8 +40,11 @@ impl DocumentState {
                 block_end
             };
 
-            if byte_offset >= offset && byte_offset <= allowed_end
-                && let Some(items) = self.find_completions_in_tree(root, offset, byte_offset, schema, &fragments) {
+            if byte_offset >= offset
+                && byte_offset <= allowed_end
+                && let Some(items) =
+                    self.find_completions_in_tree(root, offset, byte_offset, schema, &fragments)
+            {
                 return items;
             }
         }
@@ -65,23 +68,39 @@ impl DocumentState {
             local_byte
         };
 
-        let start_node = root.descendant_for_byte_range(clamped_local.saturating_sub(1), clamped_local);
+        let start_node =
+            root.descendant_for_byte_range(clamped_local.saturating_sub(1), clamped_local);
 
         // Handle inline fragment type completion after '... on '
         if self.is_after_on(cursor_offset) {
-            let context_node = start_node.and_then(|n| {
-                self.find_ancestor_by_kinds(n, &["selection_set", "field", "inline_fragment", "selection"])
-            }).or(Some(root));
+            let context_node = start_node
+                .and_then(|n| {
+                    self.find_ancestor_by_kinds(
+                        n,
+                        &["selection_set", "field", "inline_fragment", "selection"],
+                    )
+                })
+                .or(Some(root));
 
             if let Some(context) = context_node
-                && let Some(mut parent_type) = self.find_parent_type_for_node(context, offset, schema) {
+                && let Some(mut parent_type) =
+                    self.find_parent_type_for_node(context, offset, schema)
+            {
                 // Fallback for broken trees where selection_set is attached to the wrong parent
-                    if (parent_type.name() == "Query" || parent_type.name() == "Mutation" || parent_type.name() == "Subscription") 
-                        && context.kind() == "selection_set"
-                        && let Some(preceding_type) = self.find_preceding_field_type(context, offset, cursor_offset, &parent_type, schema)
-                    {
-                        parent_type = preceding_type;
-                    }
+                if (parent_type.name() == "Query"
+                    || parent_type.name() == "Mutation"
+                    || parent_type.name() == "Subscription")
+                    && context.kind() == "selection_set"
+                    && let Some(preceding_type) = self.find_preceding_field_type(
+                        context,
+                        offset,
+                        cursor_offset,
+                        &parent_type,
+                        schema,
+                    )
+                {
+                    parent_type = preceding_type;
+                }
 
                 let has_selection_set = self.has_trailing_selection_set(cursor_offset);
                 return Some(self.get_applicable_type_completions(
@@ -97,26 +116,34 @@ impl DocumentState {
         while let Some(node) = curr {
             // Try directive completions
             if (self.is_after_at(cursor_offset) || node.kind() == "directive")
-                && let Some(items) = self.try_directive_completions(node, offset, schema) {
+                && let Some(items) = self.try_directive_completions(node, offset, schema)
+            {
                 return Some(items);
             }
 
             // Try fragment spreads after dots
             if self.is_after_dots(cursor_offset)
-                && let Some(items) = self.complete_selection_set_at_node(node, offset, cursor_offset, schema, fragments) {
-                let filtered: Vec<_> = items.into_iter().filter(|i| i.kind == Some(CompletionItemKind::SNIPPET)).collect();
-                if !filtered.is_empty() { return Some(filtered); }
+                && let Some(items) = self.complete_selection_set_at_node(
+                    node,
+                    offset,
+                    cursor_offset,
+                    schema,
+                    fragments,
+                )
+            {
+                let filtered: Vec<_> = items
+                    .into_iter()
+                    .filter(|i| i.kind == Some(CompletionItemKind::SNIPPET))
+                    .collect();
+                if !filtered.is_empty() {
+                    return Some(filtered);
+                }
             }
 
             // Try node-specific completions
-            if let Some(items) = self.try_node_kind_completions(
-                node,
-                root,
-                offset,
-                cursor_offset,
-                schema,
-                fragments,
-            ) {
+            if let Some(items) =
+                self.try_node_kind_completions(node, root, offset, cursor_offset, schema, fragments)
+            {
                 return Some(items);
             }
 
@@ -126,7 +153,14 @@ impl DocumentState {
         None
     }
 
-    fn find_preceding_field_type(&self, selection_set: Node, offset: usize, cursor_offset: usize, current_type: &schema::ExtendedType, schema: &Schema) -> Option<schema::ExtendedType> {
+    fn find_preceding_field_type(
+        &self,
+        selection_set: Node,
+        offset: usize,
+        cursor_offset: usize,
+        current_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Option<schema::ExtendedType> {
         let mut cursor = selection_set.walk();
         let mut last_field = None;
         for child in selection_set.children(&mut cursor) {
@@ -148,7 +182,8 @@ impl DocumentState {
         }
 
         if let Some(field) = last_field
-            && let Some(name_node) = self.extract_field_components(field).name {
+            && let Some(name_node) = self.extract_field_components(field).name
+        {
             let field_name = self.get_node_text(name_node, offset);
             let field_def = match current_type {
                 schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
@@ -156,7 +191,10 @@ impl DocumentState {
                 _ => None,
             };
             if let Some(fdef) = field_def {
-                return schema.types.get(fdef.ty.inner_named_type().as_str()).cloned();
+                return schema
+                    .types
+                    .get(fdef.ty.inner_named_type().as_str())
+                    .cloned();
             }
         }
         None
@@ -165,7 +203,9 @@ impl DocumentState {
     fn has_trailing_selection_set(&self, cursor_offset: usize) -> bool {
         let remaining = self.rope.byte_slice(cursor_offset..).to_string();
         for c in remaining.chars() {
-            if c.is_whitespace() { continue; }
+            if c.is_whitespace() {
+                continue;
+            }
             return c == '{';
         }
         false
@@ -283,9 +323,14 @@ impl DocumentState {
         match current.kind() {
             "type_condition" | "named_type" => {
                 if self.is_after_on(cursor_offset)
-                    && let Some(inline_node) = self.find_ancestor_by_kind(current, "inline_fragment")
-                    && let Some(parent_type) = self.find_parent_type_for_node(inline_node, offset, schema) {
-                    let has_sel = self.find_child_by_kind(inline_node, "selection_set").is_some();
+                    && let Some(inline_node) =
+                        self.find_ancestor_by_kind(current, "inline_fragment")
+                    && let Some(parent_type) =
+                        self.find_parent_type_for_node(inline_node, offset, schema)
+                {
+                    let has_sel = self
+                        .find_child_by_kind(inline_node, "selection_set")
+                        .is_some();
                     return Some(self.get_applicable_type_completions(
                         &parent_type,
                         schema,
@@ -374,33 +419,36 @@ impl DocumentState {
                             );
                         }
                         "field" => {
-                        if let Some(containing_type) =
-                            self.find_parent_type_for_node(parent, offset, schema)
-                            && let Some(field_name_node) = self.extract_field_components(parent).name
-                        {
-                            let field_name = self.get_node_text(field_name_node, offset);
-                            let field_def = match &containing_type {
-                                schema::ExtendedType::Object(obj) => {
-                                    obj.fields.get(field_name.as_str())
-                                }
-                                schema::ExtendedType::Interface(iface) => {
-                                    iface.fields.get(field_name.as_str())
-                                }
-                                _ => None,
-                            };
+                            if let Some(containing_type) =
+                                self.find_parent_type_for_node(parent, offset, schema)
+                                && let Some(field_name_node) =
+                                    self.extract_field_components(parent).name
+                            {
+                                let field_name = self.get_node_text(field_name_node, offset);
+                                let field_def = match &containing_type {
+                                    schema::ExtendedType::Object(obj) => {
+                                        obj.fields.get(field_name.as_str())
+                                    }
+                                    schema::ExtendedType::Interface(iface) => {
+                                        iface.fields.get(field_name.as_str())
+                                    }
+                                    _ => None,
+                                };
 
-                            if let Some(fdef) = field_def
-                                && let Some(field_type_def) = schema.types.get(fdef.ty.inner_named_type().as_str()) {
-                                return self.complete_selection_set_recursive(
-                                    node,
-                                    offset,
-                                    cursor_offset,
-                                    field_type_def,
-                                    schema,
-                                    fragments,
-                                );
+                                if let Some(fdef) = field_def
+                                    && let Some(field_type_def) =
+                                        schema.types.get(fdef.ty.inner_named_type().as_str())
+                                {
+                                    return self.complete_selection_set_recursive(
+                                        node,
+                                        offset,
+                                        cursor_offset,
+                                        field_type_def,
+                                        schema,
+                                        fragments,
+                                    );
+                                }
                             }
-                        }
                             return None;
                         }
                         _ => return None,
@@ -679,24 +727,41 @@ impl DocumentState {
             .filter(|f| {
                 if let Some(parent) = expected_type {
                     let parent_name = parent.name();
-                    if f.type_condition == parent_name.as_str() { return true; }
+                    if f.type_condition == parent_name.as_str() {
+                        return true;
+                    }
 
                     match parent {
                         schema::ExtendedType::Object(obj) => {
-                            if obj.implements_interfaces.iter().any(|i| i.as_str() == f.type_condition) { return true; }
+                            if obj
+                                .implements_interfaces
+                                .iter()
+                                .any(|i| i.as_str() == f.type_condition)
+                            {
+                                return true;
+                            }
                         }
                         schema::ExtendedType::Interface(iface) => {
-                            if iface.implements_interfaces.iter().any(|i| i.as_str() == f.type_condition) { return true; }
+                            if iface
+                                .implements_interfaces
+                                .iter()
+                                .any(|i| i.as_str() == f.type_condition)
+                            {
+                                return true;
+                            }
                         }
                         schema::ExtendedType::Union(union) => {
-                            if union.members.iter().any(|m| m.as_str() == f.type_condition) { return true; }
+                            if union.members.iter().any(|m| m.as_str() == f.type_condition) {
+                                return true;
+                            }
                         }
                         _ => {}
                     }
 
                     if let Some(frag_type) = schema.types.get(f.type_condition.as_str())
                         && let schema::ExtendedType::Union(u) = frag_type
-                        && u.members.iter().any(|m| m.as_str() == parent_name.as_str()) {
+                        && u.members.iter().any(|m| m.as_str() == parent_name.as_str())
+                    {
                         return true;
                     }
                     false
@@ -707,20 +772,26 @@ impl DocumentState {
             .map(|f| {
                 let mut documentation = f.description.clone().unwrap_or_default();
                 if !f.requirements.is_empty() {
-                    if !documentation.is_empty() { documentation.push_str("\n\n---\n"); }
+                    if !documentation.is_empty() {
+                        documentation.push_str("\n\n---\n");
+                    }
                     documentation.push_str("**Requires Variables:**\n");
                     for (var, ty) in &f.requirements {
                         documentation.push_str(&format!("- `${}`: `{}`\n", var, ty));
                     }
                 }
                 if let Some(import) = &f.import_path {
-                    if !documentation.is_empty() { documentation.push_str("\n\n---\n"); }
+                    if !documentation.is_empty() {
+                        documentation.push_str("\n\n---\n");
+                    }
                     documentation.push_str(&format!("Import: `{}`", import));
                 }
                 CompletionItem {
                     label: f.name.clone(),
                     kind: Some(CompletionItemKind::SNIPPET),
-                    documentation: if documentation.is_empty() { None } else {
+                    documentation: if documentation.is_empty() {
+                        None
+                    } else {
                         Some(Documentation::MarkupContent(MarkupContent {
                             kind: MarkupKind::Markdown,
                             value: documentation,
@@ -784,14 +855,18 @@ impl DocumentState {
                 label: "__schema".to_string(),
                 kind: Some(CompletionItemKind::FIELD),
                 detail: Some("__Schema!".to_string()),
-                documentation: Some(Documentation::String("Access the current schema introspection object.".to_string())),
+                documentation: Some(Documentation::String(
+                    "Access the current schema introspection object.".to_string(),
+                )),
                 ..Default::default()
             });
             items.push(CompletionItem {
                 label: "__type".to_string(),
                 kind: Some(CompletionItemKind::FIELD),
                 detail: Some("__Type".to_string()),
-                documentation: Some(Documentation::String("Look up a type definition by its name.".to_string())),
+                documentation: Some(Documentation::String(
+                    "Look up a type definition by its name.".to_string(),
+                )),
                 ..Default::default()
             });
         }
@@ -799,7 +874,8 @@ impl DocumentState {
     }
 
     fn is_query_root(ty: &schema::ExtendedType, schema: &Schema) -> bool {
-        schema.root_operation(ast::OperationType::Query)
+        schema
+            .root_operation(ast::OperationType::Query)
             .and_then(|root_name| schema.types.get(root_name.as_str()))
             .map(|root_type| root_type.name() == ty.name())
             .unwrap_or(false)
@@ -808,7 +884,9 @@ impl DocumentState {
     fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
         let mut items = Vec::new();
         for (name, def) in &schema.types {
-            if name.starts_with("__") { continue; }
+            if name.starts_with("__") {
+                continue;
+            }
             let kind = match def {
                 schema::ExtendedType::Object(_) => Some(CompletionItemKind::CLASS),
                 schema::ExtendedType::Interface(_) => Some(CompletionItemKind::INTERFACE),
@@ -841,25 +919,55 @@ impl DocumentState {
     ) -> Vec<CompletionItem> {
         let mut items = Vec::new();
         for (name, def) in &schema.types {
-            if name.starts_with("__") { continue; }
+            if name.starts_with("__") {
+                continue;
+            }
             let mut include = false;
             match parent {
                 schema::ExtendedType::Object(obj) => {
-                    if obj.name.as_str() == name.as_str() { include = true; }
-                    if obj.implements_interfaces.iter().any(|i| i.as_str() == name.as_str()) { include = true; }
+                    if obj.name.as_str() == name.as_str() {
+                        include = true;
+                    }
+                    if obj
+                        .implements_interfaces
+                        .iter()
+                        .any(|i| i.as_str() == name.as_str())
+                    {
+                        include = true;
+                    }
                     if let schema::ExtendedType::Union(u) = def
-                        && u.members.iter().any(|m| m.as_str() == obj.name.as_str()) { include = true; }
+                        && u.members.iter().any(|m| m.as_str() == obj.name.as_str())
+                    {
+                        include = true;
+                    }
                 }
                 schema::ExtendedType::Interface(iface) => {
                     if let schema::ExtendedType::Object(o) = def
-                        && o.implements_interfaces.iter().any(|i| i.as_str() == iface.name.as_str()) { include = true; }
-                    if iface.name.as_str() == name.as_str() { include = true; }
+                        && o.implements_interfaces
+                            .iter()
+                            .any(|i| i.as_str() == iface.name.as_str())
+                    {
+                        include = true;
+                    }
+                    if iface.name.as_str() == name.as_str() {
+                        include = true;
+                    }
                     if let schema::ExtendedType::Interface(subiface) = def
-                        && subiface.implements_interfaces.iter().any(|i| i.as_str() == iface.name.as_str()) { include = true; }
+                        && subiface
+                            .implements_interfaces
+                            .iter()
+                            .any(|i| i.as_str() == iface.name.as_str())
+                    {
+                        include = true;
+                    }
                 }
                 schema::ExtendedType::Union(u) => {
-                    if u.members.iter().any(|m| m.as_str() == name.as_str()) { include = true; }
-                    if u.name.as_str() == name.as_str() { include = true; }
+                    if u.members.iter().any(|m| m.as_str() == name.as_str()) {
+                        include = true;
+                    }
+                    if u.name.as_str() == name.as_str() {
+                        include = true;
+                    }
                 }
                 _ => {}
             }
@@ -896,19 +1004,28 @@ impl DocumentState {
                     let line_slice = self.rope.byte_slice(line_start..cursor_offset).to_string();
                     let mut indent = String::new();
                     for c in line_slice.chars() {
-                        if c.is_whitespace() { indent.push(c); }
-                        else { break; }
+                        if c.is_whitespace() {
+                            indent.push(c);
+                        } else {
+                            break;
+                        }
                     }
                     let snippet = format!("{} {{\n{}  $0\n{}}}", name, indent, indent);
                     item.insert_text = Some(snippet.clone());
                     item.insert_text_format = Some(InsertTextFormat::SNIPPET);
                     item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
-                        range: Range { start: start_pos, end: end_pos },
+                        range: Range {
+                            start: start_pos,
+                            end: end_pos,
+                        },
                         new_text: snippet.replace("$0", ""),
                     }));
                 } else {
                     item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
-                        range: Range { start: start_pos, end: end_pos },
+                        range: Range {
+                            start: start_pos,
+                            end: end_pos,
+                        },
                         new_text: name.to_string(),
                     }));
                 }
@@ -921,12 +1038,18 @@ impl DocumentState {
     fn get_prefix_at_cursor(&self, cursor_offset: usize) -> (usize, usize) {
         let max_scan = 64usize;
         let search_start = cursor_offset.saturating_sub(max_scan);
-        let slice = self.rope.byte_slice(search_start..cursor_offset).to_string();
+        let slice = self
+            .rope
+            .byte_slice(search_start..cursor_offset)
+            .to_string();
         let bytes = slice.as_bytes();
         let mut i = bytes.len();
         while i > 0 {
             let b = bytes[i - 1];
-            if b == b'_' || b.is_ascii_alphanumeric() { i -= 1; continue; }
+            if b == b'_' || b.is_ascii_alphanumeric() {
+                i -= 1;
+                continue;
+            }
             break;
         }
         (bytes.len() - i, search_start + i)
@@ -953,12 +1076,20 @@ impl DocumentState {
                 });
             }
         }
-        if matches!(location, ast::DirectiveLocation::FragmentDefinition | ast::DirectiveLocation::InlineFragment | ast::DirectiveLocation::FragmentSpread) {
+        if matches!(
+            location,
+            ast::DirectiveLocation::FragmentDefinition
+                | ast::DirectiveLocation::InlineFragment
+                | ast::DirectiveLocation::FragmentSpread
+        ) {
             if !items.iter().any(|i| i.label == "public") {
                 items.push(CompletionItem {
                     label: "public".to_string(),
                     kind: Some(CompletionItemKind::FUNCTION),
-                    documentation: Some(Documentation::MarkupContent(MarkupContent { kind: MarkupKind::Markdown, value: "Marks the fragment as public for codegen".to_string() })),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: "Marks the fragment as public for codegen".to_string(),
+                    })),
                     ..Default::default()
                 });
             }
@@ -966,7 +1097,10 @@ impl DocumentState {
                 items.push(CompletionItem {
                     label: "type_only".to_string(),
                     kind: Some(CompletionItemKind::FUNCTION),
-                    documentation: Some(Documentation::MarkupContent(MarkupContent { kind: MarkupKind::Markdown, value: "Marks the fragment as type-only for codegen".to_string() })),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: "Marks the fragment as type-only for codegen".to_string(),
+                    })),
                     ..Default::default()
                 });
             }
@@ -975,7 +1109,9 @@ impl DocumentState {
     }
 
     fn is_after_at(&self, cursor_offset: usize) -> bool {
-        if cursor_offset == 0 { return false; }
+        if cursor_offset == 0 {
+            return false;
+        }
         self.rope.char(self.rope.byte_to_char(cursor_offset - 1)) == '@'
     }
 
@@ -984,11 +1120,16 @@ impl DocumentState {
         let mut curr = cursor_offset;
         while curr > 0 {
             let c = self.rope.char(self.rope.byte_to_char(curr - 1));
-            if c.is_whitespace() { curr -= 1; continue; }
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
             if c == '.' {
                 dot_count += 1;
                 curr -= 1;
-                if dot_count == 3 { return true; }
+                if dot_count == 3 {
+                    return true;
+                }
                 continue;
             }
             break;
@@ -1001,9 +1142,16 @@ impl DocumentState {
         let mut curr = cursor_offset;
         while curr > 0 {
             let c = self.rope.char(self.rope.byte_to_char(curr - 1));
-            if c.is_whitespace() { curr -= 1; continue; }
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
             if !found_n {
-                if c == 'n' || c == 'N' { found_n = true; curr -= 1; continue; }
+                if c == 'n' || c == 'N' {
+                    found_n = true;
+                    curr -= 1;
+                    continue;
+                }
                 return false;
             } else {
                 if c == 'o' || c == 'O' {
@@ -1044,7 +1192,7 @@ mod tests {
         let offset = doc.get_graphql_trees()[0].offset;
         assert!(doc.is_after_on(offset + 7)); // After 'on '
         assert!(doc.is_after_on(offset + 6)); // Exactly after 'on'
-        
+
         let doc2 = create_doc("const q = graphql(`person `);");
         let offset2 = doc2.get_graphql_trees()[0].offset;
         assert!(!doc2.is_after_on(offset2 + 7)); // Should NOT match 'person'

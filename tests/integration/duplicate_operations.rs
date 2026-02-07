@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use graphql_rust::{
     Config,
     config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource},
@@ -6,21 +7,16 @@ use graphql_rust::{
 use std::fs;
 use tempfile::tempdir;
 
+use crate::support::create_doc;
+use tower_lsp::lsp_types::Url;
+
 #[tokio::test]
 #[ntest::timeout(5000)]
 async fn test_document_operations_extraction() {
-    use graphql_rust::DocumentState;
-    use tower_lsp::lsp_types::Url;
-
     let query_text = "query GetUser { user(id: \"1\") { id name } }";
     let uri = Url::parse("file:///test/query.graphql").unwrap();
 
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, query_text, parser);
+    let doc = create_doc(uri.as_str(), query_text);
 
     assert_eq!(doc.operations().len(), 1, "Should extract 1 operation");
     assert_eq!(doc.operations()[0].name, Some("GetUser".to_string()));

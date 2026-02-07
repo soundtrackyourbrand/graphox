@@ -616,7 +616,7 @@ async fn test_alias_allowed_and_duplicate_code_action_removes_later() {
         // Apply the edits to the content using a document-aware approach: create a DocumentState and apply
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(tree_sitter_graphql::LANGUAGE.into()).unwrap();
-        let mut doc = graphql_rust::DocumentState::new(dup_uri.clone(), dup_text, parser);
+        let mut doc = create_doc(dup_uri.as_str(), &dup_text);
 
         if let Some(text_edits) = &edits.get(0) {
             // Each TextEdit produced by our code action should be applicable via apply_change

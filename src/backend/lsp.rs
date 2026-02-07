@@ -8,8 +8,8 @@ use crate::types::{
     FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
 use apollo_compiler::Schema;
-use env_logger;
 use dashmap::DashMap;
+use env_logger;
 use fnv::FnvHashSet;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -857,7 +857,11 @@ impl LanguageServer for Backend {
             if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = self.get_schema_for_doc(&uri);
                 let mut fragments = self.get_fragments_for_doc(&doc);
-                log::trace!("completion: fragments for doc {} = {:?}", doc.uri, fragments.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
+                log::trace!(
+                    "completion: fragments for doc {} = {:?}",
+                    doc.uri,
+                    fragments.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+                );
 
                 for f in &mut fragments {
                     f.requirements =

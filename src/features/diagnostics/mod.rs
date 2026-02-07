@@ -113,7 +113,8 @@ impl DocumentState {
         // After validating tree nodes, optionally run cross-operation checks within this document.
         if let Some(cfg) = config
             && let Some(rules) = &cfg.rules
-            && let Some(true) = rules.unique_operation_name {
+            && let Some(true) = rules.unique_operation_name
+        {
             // Detect duplicate operation names within this document and report diagnostics.
             use std::collections::HashMap;
             let mut counts: HashMap<String, usize> = HashMap::new();
@@ -134,12 +135,7 @@ impl DocumentState {
                             end: self.byte_to_position(end_byte),
                         };
                         // Use shared helper to push diagnostic (keeps message/code consistent)
-                        push_duplicate_operation_diagnostic(
-                            &mut diagnostics,
-                            range,
-                            &name,
-                            None,
-                        );
+                        push_duplicate_operation_diagnostic(&mut diagnostics, range, &name, None);
                     }
                 }
             }

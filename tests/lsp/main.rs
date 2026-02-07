@@ -25,3 +25,6 @@ mod signature_help;
 mod symbols;
 mod timeouts;
 mod workspace_symbols;
+
+#[path = "../support/mod.rs"]
+mod support;

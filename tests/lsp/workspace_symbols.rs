@@ -1,113 +1,22 @@
-use graphql_rust::{
-    Backend, Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
-};
-use std::fs;
-use tempfile::tempdir;
-use tower_lsp::LspService;
+use crate::support;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test]
 async fn test_workspace_symbols() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
-
-    fs::write(base_dir.join("package.json"), "{}").unwrap();
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { me: String }").unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let (dir, config) = support::make_temp_project_with_schema("type Query { me: String }", "**/*.graphql");
+    let (mut service, _handle) = support::create_initialized_lsp_service(config).await;
 
     // 1. Open File A with symbol "UserFields"
-    let path_a = base_dir.join("a.graphql");
     let text_a = "fragment UserFields on User { id }";
-    fs::write(&path_a, text_a).unwrap();
-    let path_a = std::fs::canonicalize(path_a).unwrap();
-    let uri_a = Url::from_file_path(&path_a).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri_a.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text_a.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri_a = support::write_project_file(&dir, "a.graphql", text_a);
+    support::lsp_did_open(&mut service, uri_a.clone(), "graphql", 1, text_a).await;
 
     // 2. Open File B with symbol "GetMe"
-    let path_b = base_dir.join("b.graphql");
     let text_b = "query GetMe { me }";
-    fs::write(&path_b, text_b).unwrap();
-    let path_b = std::fs::canonicalize(path_b).unwrap();
-    let uri_b = Url::from_file_path(&path_b).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri_b.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text_b.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri_b = support::write_project_file(&dir, "b.graphql", text_b);
+    support::lsp_did_open(&mut service, uri_b.clone(), "graphql", 1, text_b).await;
 
     // 3. Search for "User"
     let params = WorkspaceSymbolParams {

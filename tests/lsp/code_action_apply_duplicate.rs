@@ -1,3 +1,6 @@
+use crate::support::{
+    make_temp_project_with_schema, create_initialized_lsp_service, write_project_file, lsp_did_open,
+};
 use graphql_rust::{Backend, Config, config::{GlobPattern, ProjectConfig, SchemaSource}};
 use std::fs;
 use tempfile::tempdir;
@@ -7,74 +10,13 @@ use tower_lsp::lsp_types::*;
 
 #[tokio::test]
 async fn test_apply_remove_duplicate_field_code_action() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
+    let schema = "type Query { me: User } type User { id: ID name: String }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    fs::write(base_dir.join("package.json"), "{}").unwrap();
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { me: User } type User { id: ID name: String }").unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let dup_path = base_dir.join("dup.graphql");
     let dup_text = "query { me { id id name } }";
-    fs::write(&dup_path, dup_text).unwrap();
-    let dup_path = std::fs::canonicalize(dup_path).unwrap();
-    let dup_uri = Url::from_file_path(&dup_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: dup_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: dup_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let dup_uri = write_project_file(&dir, "dup.graphql", dup_text);
+    lsp_did_open(&mut service, dup_uri.clone(), "graphql", 1, dup_text).await;
 
     // Construct a diagnostic that points to the duplicated `id` field in dup.graphql
     let dup_diag = Diagnostic {

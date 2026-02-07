@@ -1,13 +1,12 @@
-use graphql_rust::{Backend, Config};
+use graphql_rust::Config;
 use std::path::Path;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test]
 async fn test_lsp_fragment_scoping() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, Config::new_empty()));
+    let (mut service, _) = crate::support::create_service(Config::new_empty());
 
     // Initialize
     let init_params = InitializeParams {
@@ -150,7 +149,7 @@ async fn test_lsp_fragment_scoping() {
 
 #[tokio::test]
 async fn test_lsp_package_isolation() {
-    let (mut service, _) = LspService::new(|client| Backend::new(client, Config::new_empty()));
+    let (mut service, _) = crate::support::create_service(Config::new_empty());
 
     // Initialize
     let init_params = InitializeParams {

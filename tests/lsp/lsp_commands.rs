@@ -1,12 +1,12 @@
 use futures_util::StreamExt;
 use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
+use crate::support;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
@@ -49,15 +49,15 @@ async fn test_lsp_command_clear_cache() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -194,7 +194,7 @@ async fn test_lsp_command_run_codegen() {
         rules: None,
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = support::create_service(config);
     service
         .call(
             Request::build("initialize")

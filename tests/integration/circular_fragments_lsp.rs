@@ -8,6 +8,7 @@ use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
+use crate::support;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_circular_fragment_diagnostic() {
@@ -40,19 +41,19 @@ async fn test_lsp_circular_fragment_diagnostic() {
         ..Config::default()
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track push diagnostics
     let received_push_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
                 received_push_diags_clone
                     .lock()
                     .unwrap()
-                    .push(params.clone());
+                    .push(params);
             }
         }
     });

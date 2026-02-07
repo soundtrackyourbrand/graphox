@@ -2,6 +2,9 @@
 
 You are an agentic coding assistant working on `graphql-rust`, a comprehensive Rust toolset for GraphQL development. It provides a Language Server (LSP), TypeScript type generation (codegen), and validation utilities.
 
+All modifying git actions MUST be handled by the user. Never commit and never even suggest committing.
+
+
 ## Build, Lint, and Test Commands
 
 - **Build:** `cargo build`
@@ -23,6 +26,9 @@ You are an agentic coding assistant working on `graphql-rust`, a comprehensive R
 The core logic relies on **Tree-sitter** for incremental parsing and **apollo-compiler** for GraphQL schema validation and semantic analysis. The workspace also includes plugins (e.g., `plugins/swc`) for integration with other tools.
 
 ## Code Style & Conventions
+
+### Comments
+Comments should be used to explain why something is done, not what is being done (the code should be clear enough to convey the "what"). Avoid comments that simply restate the code or add no new information.
 
 ### Language & Tooling
 - **Rust Edition:** 2024.

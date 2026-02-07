@@ -1,41 +1,14 @@
 use apollo_compiler::Schema;
 use fnv::FnvHashMap;
 use graphql_rust::{
-    Config, DocumentState,
+    Config,
     config::{RequiredFieldRule, RulesConfig},
 };
-use std::sync::OnceLock;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString};
 
-// Shared schema for tests
-static SCHEMA: OnceLock<Schema> = OnceLock::new();
-static VALID_SCHEMA: OnceLock<apollo_compiler::validation::Valid<Schema>> = OnceLock::new();
-
-fn get_schema() -> &'static Schema {
-    SCHEMA.get_or_init(|| {
-        let schema_content = std::fs::read_to_string("tests/fixtures/simple_schema.graphql")
-            .expect("Failed to read schema file");
-        Schema::parse(&schema_content, "schema.graphql").expect("Failed to parse schema")
-    })
-}
-
-fn get_valid_schema() -> &'static apollo_compiler::validation::Valid<Schema> {
-    VALID_SCHEMA.get_or_init(|| {
-        get_schema()
-            .clone()
-            .validate()
-            .expect("Schema validation failed")
-    })
-}
-
-fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
-}
+use crate::support::{
+    assert_diag_message_equals, assert_no_diagnostics, create_doc, get_valid_schema,
+};
 
 #[test]
 #[ntest::timeout(100)]
@@ -64,18 +37,8 @@ fn test_required_field_always_true() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    // Should have no errors because 'users' is selected
-    let required_field_errors: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.code == Some(NumberOrString::String("required_field_missing".to_string())))
-        .collect();
-
-    assert!(
-        required_field_errors.is_empty(),
-        "Expected no required field errors, got: {:?}",
-        required_field_errors
-    );
+    // Expect no diagnostics
+    assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
@@ -105,21 +68,8 @@ fn test_required_field_missing_always_true() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    // Should have an error because 'users' is not selected
-    let required_field_error = diagnostics
-        .iter()
-        .find(|d| d.code == Some(NumberOrString::String("required_field_missing".to_string())));
-
-    assert!(
-        required_field_error.is_some(),
-        "Expected required field error"
-    );
-    let d = required_field_error.unwrap();
-    assert_eq!(
-        d.message,
-        "Required field 'users' must be selected in query operations"
-    );
+    let expected = "Required field 'users' must be selected in query operations";
+    let d = assert_diag_message_equals(&diagnostics, expected);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
@@ -150,17 +100,7 @@ fn test_required_field_always_false() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    // Should have no errors because rule is disabled
-    let required_field_errors: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.code == Some(NumberOrString::String("required_field_missing".to_string())))
-        .collect();
-
-    assert!(
-        required_field_errors.is_empty(),
-        "Expected no required field errors when rule is disabled"
-    );
+    assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
@@ -193,21 +133,9 @@ fn test_required_field_specific_operation_query() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    // Should have an error because 'users' is not selected in a query
-    let required_field_error = diagnostics
-        .iter()
-        .find(|d| d.code == Some(NumberOrString::String("required_field_missing".to_string())));
-
-    assert!(
-        required_field_error.is_some(),
-        "Expected required field error for query operation"
-    );
-    let d = required_field_error.unwrap();
-    assert_eq!(
-        d.message,
-        "Required field 'users' must be selected in query operations"
-    );
+    let expected = "Required field 'users' must be selected in query operations";
+    let d = assert_diag_message_equals(&diagnostics, expected);
+    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[test]
@@ -404,22 +332,9 @@ fn test_multiple_required_fields() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    // Should have one error for missing 'posts'
-    let required_field_errors: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.code == Some(NumberOrString::String("required_field_missing".to_string())))
-        .collect();
-
-    assert_eq!(
-        required_field_errors.len(),
-        1,
-        "Expected exactly one required field error"
-    );
-    assert_eq!(
-        required_field_errors[0].message,
-        "Required field 'posts' must be selected in query operations"
-    );
+    let expected = "Required field 'posts' must be selected in query operations";
+    let d = assert_diag_message_equals(&diagnostics, expected);
+    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[test]

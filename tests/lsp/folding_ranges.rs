@@ -1,14 +1,7 @@
-use graphql_rust::DocumentState;
-use tower_lsp::lsp_types::*;
+#![allow(unused_imports)]
+use tower_lsp::lsp_types::FoldingRangeKind;
 
-fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
-}
+use crate::support::create_doc;
 
 #[test]
 fn test_folding_ranges_operation() {
@@ -158,12 +151,7 @@ const query = gql`
     }
 `;
     "#;
-    let uri = Url::parse("file:///test.tsx").unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::LANGUAGE_TSX.into())
-        .unwrap();
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.tsx", text);
     let ranges = doc.get_folding_ranges();
 
     // Should extract GraphQL from TSX and provide folding ranges

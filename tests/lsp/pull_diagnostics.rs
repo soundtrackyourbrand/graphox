@@ -1,13 +1,13 @@
 use futures_util::StreamExt;
 use graphql_rust::{
-    Backend, Config,
+    Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
+use crate::support;
 use tempfile::tempdir;
 use tokio::time::Duration;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
@@ -44,19 +44,19 @@ async fn test_pull_diagnostics_basic() {
         ..Config::default()
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track push diagnostics (should not receive any when using pull)
     let received_push_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
                 received_push_diags_clone
                     .lock()
                     .unwrap()
-                    .push(params.clone());
+                    .push(params);
             }
         }
     });
@@ -203,7 +203,7 @@ async fn test_pull_diagnostics_unchanged() {
         ..Config::default()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _handle) = support::create_service(config);
 
     // Initialize with pull diagnostics capability
     let init_params = InitializeParams {
@@ -357,7 +357,7 @@ async fn test_workspace_diagnostics() {
         ..Config::default()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _handle) = support::create_service(config);
 
     // Initialize with pull diagnostics capability
     let init_params = InitializeParams {
@@ -510,19 +510,19 @@ async fn test_fallback_to_push_diagnostics() {
         ..Config::default()
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track push diagnostics
     let received_push_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
                 received_push_diags_clone
                     .lock()
                     .unwrap()
-                    .push(params.clone());
+                    .push(params);
             }
         }
     });
@@ -579,8 +579,20 @@ async fn test_fallback_to_push_diagnostics() {
         .await
         .unwrap();
 
-    // Wait for validation
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Wait for validation (poll for diagnostics)
+    let start = tokio::time::Instant::now();
+    loop {
+        {
+            let push_diags = received_push_diags.lock().unwrap();
+            if !push_diags.is_empty() {
+                break;
+            }
+        }
+        if start.elapsed() > Duration::from_secs(2) {
+            panic!("Timed out waiting for push diagnostics");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 
     // Verify push diagnostics WERE sent (fallback behavior)
     let push_diags = received_push_diags.lock().unwrap();

@@ -7,6 +7,7 @@ use tokio::time::{Duration, sleep};
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
+use crate::support;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(1000)]
@@ -50,7 +51,7 @@ async fn test_lsp_duplicate_fragments_same_project_via_config() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(
         std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
@@ -58,16 +59,16 @@ async fn test_lsp_duplicate_fragments_same_project_via_config() {
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
                 let params: PublishDiagnosticsParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                    serde_json::from_value(msg.get("params").cloned().unwrap_or(serde_json::Value::Null)).unwrap();
                 received_diags_clone
                     .lock()
                     .unwrap()
                     .insert(params.uri, params.diagnostics);
-            } else if msg.method() == "window/logMessage" {
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
                 let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                    serde_json::from_value(msg.get("params").cloned().unwrap_or(serde_json::Value::Null)).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
@@ -202,7 +203,7 @@ async fn test_lsp_private_duplicates_different_projects_no_error() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
     let received_diags = Arc::new(Mutex::new(
         std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
@@ -210,16 +211,16 @@ async fn test_lsp_private_duplicates_different_projects_no_error() {
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
                 let params: PublishDiagnosticsParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                    serde_json::from_value(msg.get("params").cloned().unwrap_or(serde_json::Value::Null)).unwrap();
                 received_diags_clone
                     .lock()
                     .unwrap()
                     .insert(params.uri, params.diagnostics);
-            } else if msg.method() == "window/logMessage" {
+            } else if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
                 let params: LogMessageParams =
-                    serde_json::from_value(msg.params().unwrap().clone()).unwrap();
+                    serde_json::from_value(msg.get("params").cloned().unwrap_or(serde_json::Value::Null)).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }

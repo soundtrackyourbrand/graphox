@@ -1,15 +1,15 @@
 use futures_util::StreamExt;
 use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
+use crate::support;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_merge() {
@@ -59,14 +59,14 @@ async fn test_lsp_multi_schema_merge() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -163,14 +163,14 @@ async fn test_lsp_multi_schema_extension_first() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -270,14 +270,14 @@ async fn test_lsp_multi_schema_with_docs() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -363,14 +363,14 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         ..Config::default()
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -470,14 +470,14 @@ async fn test_lsp_multi_schema_triple_overlap() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -573,14 +573,14 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "textDocument/publishDiagnostics" {
-                let params = msg.params().unwrap();
-                received_diags_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
             }
         }
     });

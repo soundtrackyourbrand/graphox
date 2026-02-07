@@ -1,5 +1,5 @@
-use graphql_rust::{DocumentLanguage, DocumentState};
-use tower_lsp::lsp_types::Url;
+use super::support::create_doc;
+// No direct Url or DocumentLanguage use in this test; rely on support::create_doc
 
 #[test]
 #[ntest::timeout(100)]
@@ -23,14 +23,7 @@ fn test_user_repro_pattern() {
         `)
     "#;
 
-    let uri = Url::parse("file:///test.tsx").unwrap();
-    let language = DocumentLanguage::from_uri(&uri);
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&language.get_parser_language())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.tsx", text);
     let blocks = doc.get_graphql_trees();
 
     assert_eq!(
@@ -85,13 +78,7 @@ fn test_graphql_tag_repro() {
         const q = graphql`query { foo }`;
     "#;
 
-    let uri = Url::parse("file:///test.ts").unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.ts", text);
     let blocks = doc.get_graphql_trees();
 
     assert_eq!(
@@ -131,14 +118,7 @@ fn test_multiple_graphql_blocks_fragment_spreads() {
         `);
     "#;
 
-    let uri = Url::parse("file:///test.ts").unwrap();
-    let language = DocumentLanguage::from_uri(&uri);
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&language.get_parser_language())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.ts", text);
     let blocks = doc.get_graphql_trees();
 
     assert_eq!(blocks.len(), 3, "Should have found 3 GraphQL blocks");
@@ -180,14 +160,7 @@ fn test_multiple_graphql_blocks_variables_fragment_interaction() {
         `);
     "#;
 
-    let uri = Url::parse("file:///test.ts").unwrap();
-    let language = DocumentLanguage::from_uri(&uri);
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&language.get_parser_language())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.ts", text);
 
     // 1. Check fragment extraction (metadata)
     let fragments = doc.fragments();

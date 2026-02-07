@@ -1,41 +1,12 @@
 use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
-use graphql_rust::DocumentState;
-use std::sync::OnceLock;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
 
-#[path = "common.rs"]
-mod common;
+use super::common;
+
+use crate::support::{create_doc, get_valid_schema};
 
 // Shared schema for tests
-static SCHEMA: OnceLock<Schema> = OnceLock::new();
-static VALID_SCHEMA: OnceLock<apollo_compiler::validation::Valid<Schema>> = OnceLock::new();
-
-fn get_schema() -> &'static Schema {
-    SCHEMA.get_or_init(|| {
-        let schema_content = std::fs::read_to_string("tests/fixtures/simple_schema.graphql")
-            .expect("Failed to read schema file");
-        Schema::parse(&schema_content, "schema.graphql").expect("Failed to parse schema")
-    })
-}
-
-fn get_valid_schema() -> &'static apollo_compiler::validation::Valid<Schema> {
-    VALID_SCHEMA.get_or_init(|| {
-        get_schema()
-            .clone()
-            .validate()
-            .expect("Schema validation failed")
-    })
-}
-
-fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
-}
 
 #[test]
 #[ntest::timeout(100)]
@@ -82,10 +53,12 @@ fn test_validation_missing_field() {
     let error = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected 'not found' error '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected 'not found' error '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     assert_eq!(error.severity, Some(DiagnosticSeverity::ERROR));
     // Range should point at the field name occurrence
     let expected = common::range_for_token(&doc, text, "nonExistentField");
@@ -112,10 +85,12 @@ fn test_validation_deprecated_field() {
     let warning = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected 'deprecated' warning '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected 'deprecated' warning '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
     // Range should point at the field name
     let expected = common::range_for_token(&doc, text, "oldField");
@@ -148,10 +123,12 @@ fn test_validation_nested_missing_field() {
     let error = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected nested missing field error '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected nested missing field error '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     // Range should point at the missing field
     let expected = common::range_for_token(&doc, text, "missingInAuthor");
     assert_eq!(error.range.start, expected.start);
@@ -178,10 +155,12 @@ fn test_validation_fragment() {
     let error = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected fragment error '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected fragment error '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     let expected = common::range_for_token(&doc, text, "missingInFragment");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
@@ -211,10 +190,12 @@ fn test_validation_inline_fragment() {
     let error = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected inline fragment error '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected inline fragment error '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     let expected = common::range_for_token(&doc, text, "nonExistentOnUser");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
@@ -238,10 +219,12 @@ fn test_validation_unknown_fragment_spread() {
     let error = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected unknown fragment error '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected unknown fragment error '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     let expected = common::range_for_token(&doc, text, "UnknownFrag");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
@@ -379,10 +362,12 @@ fn test_validation_input_field_deprecation() {
     let warning = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected input deprecation warning '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected input deprecation warning '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
     // Range should point at oldField occurrence
     let expected = common::range_for_token(&doc, text, "oldField");
@@ -447,10 +432,12 @@ fn test_validation_unions_and_interfaces() {
     let error = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected union missing field error '{}', got: {:?}",
-            expected_message, diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected union missing field error '{}', got: {:?}",
+                expected_message, diagnostics
+            )
+        });
     let expected = common::range_for_token(&doc, text, "id");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
@@ -530,10 +517,12 @@ fn test_validation_circular_fragments() {
     let diag = diagnostics
         .iter()
         .find(|d| d.code == Some(NumberOrString::String("circular_fragment".to_string())))
-        .expect(&format!(
-            "Expected circular fragment diagnostic, got: {:?}",
-            diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected circular fragment diagnostic, got: {:?}",
+                diagnostics
+            )
+        });
 
     // Expect an exact diagnostic message including local URIs
     let uri_path = doc.uri.path();
@@ -565,10 +554,12 @@ fn test_validation_circular_fragments_three_way() {
     let diag = diagnostics
         .iter()
         .find(|d| d.code == Some(NumberOrString::String("circular_fragment".to_string())))
-        .expect(&format!(
-            "Expected circular fragment diagnostic for 3-way cycle, got: {:?}",
-            diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected circular fragment diagnostic for 3-way cycle, got: {:?}",
+                diagnostics
+            )
+        });
 
     // Expect exact diagnostic message (canonical rotation starts with A)
     let uri_path = doc.uri.path();

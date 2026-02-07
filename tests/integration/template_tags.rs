@@ -1,5 +1,4 @@
-use graphql_rust::DocumentState;
-use tower_lsp::lsp_types::Url;
+use crate::support::create_doc;
 
 #[test]
 #[ntest::timeout(100)]
@@ -21,13 +20,7 @@ fn test_template_extraction_variants() {
         const q5 = /*   GraphQL   */ `query { qux }`;
     "#;
 
-    let uri = Url::parse("file:///test.ts").unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.ts", text);
     let blocks = doc.get_graphql_trees();
 
     assert_eq!(
@@ -63,13 +56,7 @@ fn test_template_deduplication() {
         const q1 = gql`query { foo }`;
     "#;
 
-    let uri = Url::parse("file:///test.ts").unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, text, parser);
+    let doc = create_doc("file:///test.ts", text);
     let blocks = doc.get_graphql_trees();
 
     assert_eq!(

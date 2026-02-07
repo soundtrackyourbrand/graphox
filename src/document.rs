@@ -910,13 +910,12 @@ impl DocumentState {
                 }
                 "field" => {
                     if let Some(parent_type) = current_type.clone()
-                        && let Some(field_name_node) = self.extract_field_components(node).name {
+                        && let Some(field_name_node) = self.extract_field_components(node).name
+                    {
                         let field_name = self.get_node_text(field_name_node, offset);
                         let field_def = match &parent_type {
                             ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-                            ExtendedType::Interface(iface) => {
-                                iface.fields.get(field_name.as_str())
-                            }
+                            ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
                             _ => None,
                         };
                         if let Some(field_def) = field_def {
@@ -933,26 +932,27 @@ impl DocumentState {
                     if let Some(parent) = node.parent() {
                         match parent.kind() {
                             "field" => {
-                                    if let Some(parent_type) = current_type.clone()
-                                        && let Some(field_name) = self
-                                            .extract_field_components(parent)
-                                            .name
-                                            .map(|n| self.get_node_text(n, offset))
-                                        && let Some(field_def) = match &parent_type {
-                                            ExtendedType::Object(obj) => {
-                                                obj.fields.get(field_name.as_str())
-                                            }
-                                            ExtendedType::Interface(iface) => {
-                                                iface.fields.get(field_name.as_str())
-                                            }
-                                            _ => None,
-                                        } {
-                                            current_type = schema
-                                                .types
-                                                .get(field_def.ty.inner_named_type().as_str())
-                                                .cloned();
+                                if let Some(parent_type) = current_type.clone()
+                                    && let Some(field_name) = self
+                                        .extract_field_components(parent)
+                                        .name
+                                        .map(|n| self.get_node_text(n, offset))
+                                    && let Some(field_def) = match &parent_type {
+                                        ExtendedType::Object(obj) => {
+                                            obj.fields.get(field_name.as_str())
                                         }
+                                        ExtendedType::Interface(iface) => {
+                                            iface.fields.get(field_name.as_str())
+                                        }
+                                        _ => None,
                                     }
+                                {
+                                    current_type = schema
+                                        .types
+                                        .get(field_def.ty.inner_named_type().as_str())
+                                        .cloned();
+                                }
+                            }
                             "inline_fragment" => {
                                 if let Some(type_name) =
                                     self.get_fragment_type_condition(parent, offset)

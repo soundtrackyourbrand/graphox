@@ -1,50 +1,27 @@
 use apollo_compiler::Schema;
-use graphql_rust::DocumentState;
-use std::sync::OnceLock;
 use tokio::time::{Duration, sleep};
 use tower_lsp::lsp_types::NumberOrString;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{
+    CompletionParams, CompletionResponse, DiagnosticSeverity, DidOpenTextDocumentParams,
+    Documentation, Hover, HoverContents, HoverParams, InitializeParams, Location, ReferenceContext,
+    ReferenceParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Url,
+};
 
-static SCHEMA: OnceLock<Schema> = OnceLock::new();
-static VALID_SCHEMA: OnceLock<apollo_compiler::validation::Valid<Schema>> = OnceLock::new();
-
-fn get_schema() -> &'static Schema {
-    SCHEMA.get_or_init(|| {
-        let schema_content = r#"
-            type User {
-                id: ID!
-                username: String!
-                email: String!
-            }
-            type Query {
-                user(id: ID): User
-            }
-        "#;
-        Schema::parse(schema_content, "schema.graphql").expect("Failed to parse schema")
-    })
-}
-
-fn get_valid_schema() -> &'static apollo_compiler::validation::Valid<Schema> {
-    VALID_SCHEMA.get_or_init(|| {
-        get_schema()
-            .clone()
-            .validate()
-            .expect("Schema validation failed")
-    })
-}
-
-fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
-}
+use super::support::{
+    assert_diag_message_equals, assert_no_diagnostics, create_doc, get_valid_schema, pos,
+};
 
 #[test]
 fn test_variable_used_in_fragment_spread() {
-    let schema = get_valid_schema();
+    let schema_content = r#"
+        type User { id: ID! username: String }
+        type Query { user(id: ID): User }
+        directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = r#"
         query GetUser($id: ID, $admin: Boolean) {
@@ -60,24 +37,21 @@ fn test_variable_used_in_fragment_spread() {
     "#;
 
     let doc = create_doc("file:///test.graphql", query_text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-
-    // Prefer exact diagnostic codes for determinism
-    let unused_vars: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
-        .collect();
-
-    assert!(
-        unused_vars.is_empty(),
-        "Expected no unused variables, but found: {:?}",
-        unused_vars
-    );
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+    assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
 fn test_variable_used_transitively_in_nested_fragments() {
-    let schema = get_valid_schema();
+    let schema_content = r#"
+        type User { id: ID! username: String }
+        type Query { user(id: ID): User }
+        directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = r#"
         query GetUser($id: ID, $admin: Boolean) {
@@ -96,23 +70,20 @@ fn test_variable_used_transitively_in_nested_fragments() {
     "#;
 
     let doc = create_doc("file:///test.graphql", query_text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-
-    let unused_vars: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
-        .collect();
-
-    assert!(
-        unused_vars.is_empty(),
-        "Expected no unused variables in transitive case, but found: {:?}",
-        unused_vars
-    );
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+    assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
 fn test_variable_unused_even_with_fragments() {
-    let schema = get_valid_schema();
+    let schema_content = r#"
+        type User { id: ID! username: String }
+        type Query { user(id: ID): User }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = r#"
         query GetUser($id: ID, $unused: String) {
@@ -128,23 +99,23 @@ fn test_variable_unused_even_with_fragments() {
     "#;
 
     let doc = create_doc("file:///test.graphql", query_text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-
-    let unused_vars: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "unused_variable"))
-        .collect();
-
-    assert_eq!(
-        unused_vars.len(),
-        1,
-        "Expected one unused variable ($unused)"
-    );
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+    // Expect exact diagnostic message for the unused variable
+    let expected = "Unused variable: $unused";
+    let d = assert_diag_message_equals(&diagnostics, expected);
+    assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
 }
 
 #[test]
 fn test_undefined_variable_direct() {
-    let schema = get_valid_schema();
+    let schema_content = r#"
+        type User { id: ID! username: String }
+        type Query { user(id: ID): User }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = r#"
         query GetUser($id: ID) {
@@ -155,21 +126,22 @@ fn test_undefined_variable_direct() {
     "#;
 
     let doc = create_doc("file:///test.graphql", query_text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-
-    let errors: Vec<_> = diagnostics
-        .iter()
-        .filter(
-            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "undefined_variable"),
-        )
-        .collect();
-
-    assert_eq!(errors.len(), 1, "Expected one undefined variable error");
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+    let expected = "Undefined variable: $undefined";
+    let d = assert_diag_message_equals(&diagnostics, expected);
+    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[test]
 fn test_undefined_variable_in_fragment_spread() {
-    let schema = get_valid_schema();
+    let schema_content = r#"
+        type User { id: ID! username: String }
+        type Query { user(id: ID): User }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
 
     let query_text = r#"
         query GetUser($id: ID) {
@@ -184,20 +156,10 @@ fn test_undefined_variable_in_fragment_spread() {
     "#;
 
     let doc = create_doc("file:///test.graphql", query_text);
-    let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-
-    let errors: Vec<_> = diagnostics
-        .iter()
-        .filter(
-            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "undefined_variable"),
-        )
-        .collect();
-
-    assert_eq!(
-        errors.len(),
-        1,
-        "Expected one undefined variable error from fragment usage"
-    );
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+    let expected = "Undefined variable: $admin (required by fragment 'UserFields')";
+    let d = assert_diag_message_equals(&diagnostics, expected);
+    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[tokio::test]
@@ -297,7 +259,7 @@ async fn test_fragment_hover_requirements() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: Position::new(0, 18),
+            position: pos(0, 18),
         },
         work_done_progress_params: Default::default(),
     };
@@ -423,7 +385,7 @@ async fn test_fragment_completion_requirements() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: Position::new(0, 16),
+            position: pos(0, 16),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -583,7 +545,7 @@ async fn test_variable_references_including_fragments() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: Position::new(1, 21),
+            position: pos(1, 21),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -629,19 +591,7 @@ fn test_fragment_variables_not_undefined_in_isolation() {
 
     let doc = create_doc("file:///test.graphql", frag_text);
     let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-
-    let errors: Vec<_> = diagnostics
-        .iter()
-        .filter(
-            |d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "undefined_variable"),
-        )
-        .collect();
-
-    assert!(
-        errors.is_empty(),
-        "Expected no undefined variable error for fragment in isolation, but found: {:?}",
-        errors
-    );
+    assert_no_diagnostics(&diagnostics);
 }
 
 #[test]

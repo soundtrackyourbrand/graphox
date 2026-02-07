@@ -1,14 +1,17 @@
+#![allow(unused_imports)]
+#![allow(clippy::single_component_path_imports)]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::duplicate_mod)]
+#![allow(clippy::collapsible_if)]
+
 use apollo_compiler::Schema;
 use graphql_rust::DocumentState;
+// DocumentState not referenced directly; tests use `create_doc` helper
+use crate::support::create_doc;
 use tower_lsp::lsp_types::*;
 
 fn create_ts_doc(text: &str) -> DocumentState {
-    let uri = Url::parse("file:///test.ts").unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
+    create_doc("file:///test.ts", text)
 }
 
 #[test]

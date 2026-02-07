@@ -1,21 +1,13 @@
+use super::common;
 use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
 use graphql_rust::DocumentState;
 use std::path::PathBuf;
-#[path = "common.rs"]
-mod common;
 use tempfile::tempdir;
 use tower_lsp::lsp_types::NumberOrString;
 use tower_lsp::lsp_types::*;
 
-fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    DocumentState::new(uri, text, parser)
-}
+use crate::support::create_doc;
 
 #[test]
 #[ntest::timeout(100)]
@@ -64,10 +56,7 @@ fn test_private_duplicate_same_package_root_reports_error() {
     let diag = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected duplicate fragment error, got: {:?}",
-            diagnostics
-        ));
+        .unwrap_or_else(|| panic!("Expected duplicate fragment error, got: {:?}", diagnostics));
 
     // Range should point at fragment name in this document
     let last_name = "DuplicateFrag";
@@ -156,10 +145,12 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     let diag = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected duplicate fragment error with project config, got: {:?}",
-            diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected duplicate fragment error with project config, got: {:?}",
+                diagnostics
+            )
+        });
 
     // Range should point at fragment name in this document
     let last_name = "DuplicateFrag";
@@ -217,10 +208,12 @@ fn test_public_duplicate_across_workspace_reports_error() {
     let diag = diagnostics
         .iter()
         .find(|d| d.message == expected_message)
-        .expect(&format!(
-            "Expected duplicate public fragment error, got: {:?}",
-            diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected duplicate public fragment error, got: {:?}",
+                diagnostics
+            )
+        });
 
     // Range should point at fragment name in this document
     let last_name = "PublicFrag";
@@ -289,10 +282,12 @@ fn test_private_shadows_public_emits_hint() {
             d.severity == Some(tower_lsp::lsp_types::DiagnosticSeverity::HINT)
                 && d.message == expected_message
         })
-        .expect(&format!(
-            "Expected hint about shadowing public fragment, got: {:?}",
-            diagnostics
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected hint about shadowing public fragment, got: {:?}",
+                diagnostics
+            )
+        });
 
     // Range should point at fragment name in this document
     let last_name = "PublicFrag";

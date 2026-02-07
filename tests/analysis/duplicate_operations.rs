@@ -1,12 +1,11 @@
+use crate::support::create_doc;
 use apollo_compiler::Schema;
 use graphql_rust::{
-    Config, DocumentState,
+    Config,
     config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource},
 };
 use tempfile::tempdir;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
-#[path = "common.rs"]
-mod common;
 
 fn get_schema() -> apollo_compiler::validation::Valid<Schema> {
     let schema_text = r#"
@@ -49,12 +48,7 @@ fn test_duplicate_operation_names_same_file() {
     std::fs::write(&file_path, content).unwrap();
 
     let uri = Url::from_file_path(&file_path).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, content, parser);
+    let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
     let config = Config {
@@ -118,12 +112,7 @@ fn test_unique_operation_names_no_error() {
     std::fs::write(&file_path, content).unwrap();
 
     let uri = Url::from_file_path(&file_path).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, content, parser);
+    let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
     let config = Config {
@@ -185,12 +174,7 @@ fn test_duplicate_operation_rule_disabled() {
     std::fs::write(&file_path, content).unwrap();
 
     let uri = Url::from_file_path(&file_path).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, content, parser);
+    let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
     let config = Config {
@@ -251,12 +235,7 @@ fn test_duplicate_operation_no_rules_config() {
     std::fs::write(&file_path, content).unwrap();
 
     let uri = Url::from_file_path(&file_path).unwrap();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(uri, content, parser);
+    let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
     let config = Config {

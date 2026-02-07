@@ -1,6 +1,6 @@
 use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
-use graphql_rust::{Backend, Config, DocumentState};
+use graphql_rust::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::LspService;
@@ -8,13 +8,7 @@ use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
-fn create_parser() -> tree_sitter::Parser {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-    parser
-}
+use crate::support::create_doc;
 
 #[test]
 #[ntest::timeout(1000)]
@@ -26,8 +20,7 @@ fn test_diagnostics_update_on_schema_change() {
         .unwrap();
 
     let query_text = "query { me { id name } }";
-    let uri = Url::parse("file:///query.graphql").unwrap();
-    let doc = DocumentState::new(uri.clone(), query_text, create_parser());
+    let doc = create_doc("file:///query.graphql", query_text);
 
     // Initially valid
     let diagnostics = doc.get_semantic_diagnostics(&schema_v1, &[], None, None, false, true);
@@ -60,7 +53,7 @@ fn test_diagnostics_update_on_schema_change() {
 
     // Query fixed: use 'fullName'
     let query_text_v2 = "query { me { id fullName } }";
-    let doc_v2 = DocumentState::new(uri, query_text_v2, create_parser());
+    let doc_v2 = create_doc("file:///query.graphql", query_text_v2);
     let diagnostics = doc_v2.get_semantic_diagnostics(&schema_v2, &[], None, None, false, true);
     assert!(diagnostics.is_empty(), "Should be valid after fixing query");
 }
@@ -76,7 +69,7 @@ fn test_diagnostics_update_on_fragment_change() {
 
     let query_text = "query { me { ...UserFrag } }";
     let query_uri = Url::parse("file:///query.graphql").unwrap();
-    let query_doc = DocumentState::new(query_uri, query_text, create_parser());
+    let query_doc = create_doc(query_uri.as_str(), query_text);
 
     // 1. Missing fragment
     let diagnostics = query_doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);

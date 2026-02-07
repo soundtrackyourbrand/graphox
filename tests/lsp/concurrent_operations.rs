@@ -80,7 +80,7 @@ fn create_test_config(dir: &std::path::Path) -> Config {
 async fn test_concurrent_document_operations() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     // Initialize
     let init_params = InitializeParams {
@@ -203,7 +203,7 @@ async fn test_concurrent_document_operations() {
 async fn test_concurrent_completion_requests() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     // Initialize
     let init_params = InitializeParams {
@@ -294,7 +294,7 @@ async fn test_concurrent_completion_requests() {
 async fn test_concurrent_mixed_operations() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     // Initialize
     let init_params = InitializeParams {
@@ -534,7 +534,7 @@ async fn test_concurrent_mixed_operations() {
 async fn test_concurrent_document_changes() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     // Initialize
     let init_params = InitializeParams {
@@ -684,7 +684,7 @@ async fn test_concurrent_document_changes() {
 async fn test_concurrent_cross_file_references() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     // Initialize
     let init_params = InitializeParams {

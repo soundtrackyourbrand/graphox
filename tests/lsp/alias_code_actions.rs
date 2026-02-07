@@ -1,3 +1,6 @@
+use crate::support::{
+    make_temp_project_with_schema, create_initialized_lsp_service, write_project_file, lsp_did_open,
+};
 use graphql_rust::{
     Backend, Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
@@ -11,81 +14,17 @@ use tower_service::Service;
 
 #[tokio::test]
 async fn test_missing_field_code_action_with_alias() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
+    let schema = "type User { id: ID! name: String! email: String! username: String! } type Query { user: User }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    fs::write(base_dir.join("package.json"), "{}").unwrap();
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String! email: String! username: String! } type Query { user: User }",
-    )
-    .unwrap();
+    // write additional files
+    write_project_file(&dir, "package.json", "{}");
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
     // Alias 'a' targets a misspelled field 'usrname'
     let query_text = "query { user { id a: usrname } }";
-    fs::write(&query_path, query_text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let query_uri = Url::from_file_path(&query_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Construct a diagnostic pointing at the inner (misspelled) name `usrname`
     let start = query_text.find("usrname").expect("token exists");
@@ -171,7 +110,7 @@ async fn test_duplicate_field_code_action_alias_collision() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     service
         .call(

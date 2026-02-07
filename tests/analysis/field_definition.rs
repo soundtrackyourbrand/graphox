@@ -74,7 +74,7 @@ async fn initialize_service(service: &mut LspService<Backend>) {
 async fn test_goto_definition_fields_and_extensions() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     initialize_service(&mut service).await;
 

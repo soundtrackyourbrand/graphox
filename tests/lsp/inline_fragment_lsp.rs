@@ -1,68 +1,19 @@
-use graphql_rust::{
-    Backend, Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
-};
 use std::fs;
-use tempfile::tempdir;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
-fn create_test_config(dir: &std::path::Path) -> Config {
-    let schema_path = dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        r#"
-        type Query { search: [SearchResult!]! }
-        union SearchResult = User | Post
-        type User { id: ID!, username: String! }
-        type Post { id: ID!, title: String! }
-        "#,
-    )
-    .unwrap();
-
-    Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        base_dir: dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    }
-}
-
-async fn initialize_service(service: &mut LspService<Backend>) {
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-}
+// Use shared helpers from tests/support/mod.rs; local helpers removed.
 
 #[tokio::test]
 async fn test_hover_inside_inline_fragment() {
-    let dir = tempdir().unwrap();
-    let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    initialize_service(&mut service).await;
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
+        "**/*.graphql",
+    );
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    config.base_dir = dir.path().to_path_buf();
+    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
 
     let query_path = dir.path().join("query.graphql");
     let text = r#"
@@ -196,11 +147,13 @@ async fn test_hover_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_goto_definition_inside_inline_fragment() {
-    let dir = tempdir().unwrap();
-    let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    initialize_service(&mut service).await;
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
+        "**/*.graphql",
+    );
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    config.base_dir = dir.path().to_path_buf();
+    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
 
     let query_path = dir.path().join("query.graphql");
     let text = r#"
@@ -282,11 +235,13 @@ async fn test_goto_definition_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_completion_inside_inline_fragment() {
-    let dir = tempdir().unwrap();
-    let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    initialize_service(&mut service).await;
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
+        "**/*.graphql",
+    );
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    config.base_dir = dir.path().to_path_buf();
+    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
 
     let query_path = dir.path().join("query.graphql");
     let text = r#"
@@ -378,11 +333,13 @@ async fn test_completion_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_references_inside_inline_fragment() {
-    let dir = tempdir().unwrap();
-    let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    initialize_service(&mut service).await;
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
+        "**/*.graphql",
+    );
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    config.base_dir = dir.path().to_path_buf();
+    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
 
     let query_path = dir.path().join("query.graphql");
     let text = r#"
@@ -471,11 +428,13 @@ async fn test_references_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_rename_inside_inline_fragment() {
-    let dir = tempdir().unwrap();
-    let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    initialize_service(&mut service).await;
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
+        "**/*.graphql",
+    );
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    config.base_dir = dir.path().to_path_buf();
+    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
 
     let query_path = dir.path().join("query.graphql");
     let text = r#"
@@ -564,11 +523,13 @@ async fn test_rename_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_goto_definition_field_in_schema() {
-    let dir = tempdir().unwrap();
-    let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    initialize_service(&mut service).await;
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
+        "**/*.graphql",
+    );
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    config.base_dir = dir.path().to_path_buf();
+    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
 
     // Open schema first so it's in documents
     let schema_path = dir.path().join("schema.graphql");

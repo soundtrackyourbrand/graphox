@@ -1,10 +1,9 @@
 use graphql_rust::{
-    Backend, Config,
+    Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use tempfile::tempdir;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
@@ -71,7 +70,7 @@ async fn test_cross_project_docs_and_imports() {
         ..Config::new_empty()
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     service
         .call(

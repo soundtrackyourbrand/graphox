@@ -1,13 +1,13 @@
 use futures_util::StreamExt;
 use graphql_rust::{
-    Backend, Config,
+    Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
+use crate::support;
 use tempfile::tempdir;
 use tokio::time::Duration;
-use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
@@ -60,7 +60,7 @@ async fn test_progress_on_workspace_scan() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -68,10 +68,9 @@ async fn test_progress_on_workspace_scan() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress"
-                && let Some(params) = msg.params()
-            {
-                progress_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                progress_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -204,7 +203,7 @@ async fn test_no_progress_without_capability() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -212,10 +211,9 @@ async fn test_no_progress_without_capability() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress"
-                && let Some(params) = msg.params()
-            {
-                progress_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                progress_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -305,7 +303,7 @@ async fn test_progress_on_codegen() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -313,10 +311,9 @@ async fn test_progress_on_codegen() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress"
-                && let Some(params) = msg.params()
-            {
-                progress_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                progress_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -446,7 +443,7 @@ async fn test_progress_messages_contain_percentage() {
         rules: None,
     };
 
-    let (mut service, mut messages) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
     // Track progress notifications
     let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -454,10 +451,9 @@ async fn test_progress_messages_contain_percentage() {
 
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.method() == "$/progress"
-                && let Some(params) = msg.params()
-            {
-                progress_clone.lock().unwrap().push(params.clone());
+            if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
+                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                progress_clone.lock().unwrap().push(params);
             }
         }
     });

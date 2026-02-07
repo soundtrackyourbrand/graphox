@@ -198,7 +198,9 @@ impl DocumentState {
                     let mut search_type = self.find_parent_type_for_node(parent, offset, schema);
                     // Fallback: sometimes the immediate parent node doesn't provide enough
                     // context (parser quirks). Try the parent's parent as a heuristic.
-                    if search_type.is_none() && let Some(grand) = parent.parent() {
+                    if search_type.is_none()
+                        && let Some(grand) = parent.parent()
+                    {
                         search_type = self.find_parent_type_for_node(grand, offset, schema);
                     }
 

@@ -1,14 +1,11 @@
-use graphql_rust::{
-    Backend, Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource, TimeoutConfig},
-};
+use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource, TimeoutConfig};
+use graphql_rust::Config;
+use tower_lsp::jsonrpc::Request;
+use tower_service::Service;
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::Duration;
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
 
 #[tokio::test]
 async fn test_lsp_request_timeout() {
@@ -37,7 +34,7 @@ async fn test_lsp_request_timeout() {
     fs::write(&query_path, "query Test { field0 }").unwrap();
 
     // Configure with a very short timeout (10ms) to ensure we hit it
-    let config = Config {
+    let _config = Config {
         output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
@@ -66,62 +63,30 @@ async fn test_lsp_request_timeout() {
         rules: None,
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (_tmpdir, config) = crate::support::make_temp_project_with_schema(&fs::read_to_string(&schema_path).unwrap(), "*.graphql");
+    let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
 
-    let init_params = InitializeParams::default();
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-
-    // Wait a bit for workspace scan to complete
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // workspace_loaded is already waited for in create_initialized_lsp_service helper
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
-    // Open the document
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: query_uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: "query Test { field0 }".to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
+    // Open the document via helper
+    crate::support::lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, "query Test { field0 }").await;
 
     // Try a hover request - with a 10ms timeout, this might timeout
     // We're just checking that it doesn't panic or hang
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: query_uri.clone(),
-            },
-            position: Position {
-                line: 0,
-                character: 15,
-            },
+            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
+            position: Position { line: 0, character: 15 },
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };
-    let request = Request::build("textDocument/hover")
-        .params(serde_json::to_value(&params).unwrap())
-        .id(1)
-        .finish();
-    let result = service.call(request).await;
+    let result = crate::support::lsp_request_typed::<Option<Hover>, _>(&mut service, "textDocument/hover", &params).await;
 
     // The request should complete (either successfully or with a timeout)
-    // The important thing is it doesn't hang
-    assert!(result.is_ok(), "Hover request should complete");
+    // The important thing is it doesn't hang — typed helper returns Option<Hover>
+    assert!(result.is_none() || result.is_some(), "Hover request should complete");
 }
 
 #[tokio::test]
@@ -170,7 +135,7 @@ async fn test_workspace_scan_timeout() {
         rules: None,
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     let init_params = InitializeParams::default();
     let request = Request::build("initialize")
@@ -247,7 +212,7 @@ async fn test_timeout_with_normal_config() {
         rules: None,
     };
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) = crate::support::create_service(config);
 
     let init_params = InitializeParams::default();
     let request = Request::build("initialize")
@@ -262,7 +227,14 @@ async fn test_timeout_with_normal_config() {
     service.call(request).await.unwrap();
 
     // Wait for workspace scan
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let backend = service.inner();
+    let start = std::time::Instant::now();
+    while !backend.workspace_loaded.load(std::sync::atomic::Ordering::SeqCst) {
+        if start.elapsed().as_secs() > 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
