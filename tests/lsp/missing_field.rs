@@ -1,5 +1,5 @@
 use crate::support::{
-    create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
+    create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
     lsp_request_code_actions, lsp_request_diagnostics, make_temp_project_with_schema, range,
     write_project_file,
 };
@@ -21,43 +21,37 @@ async fn test_missing_field_diagnostic_with_suggestions() {
     // Request diagnostics
     let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
 
-    // Check that we got a diagnostic about the missing field
-    match result {
-        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) => {
-            let diagnostics = &full_report.full_document_diagnostic_report.items;
-            let missing_field_diag = diagnostics
-                .iter()
-                .find(|d| {
-                    d.message.contains("Field 'nam' not found")
-                        && d.message.contains("Did you mean")
-                })
-                .expect("Should find missing field diagnostic with suggestions");
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) = result {
+        let diagnostics = &full_report.full_document_diagnostic_report.items;
+        
+        assert_eq!(diagnostics.len(), 1);
+        let missing_field_diag = &diagnostics[0];
+        
+        assert!(missing_field_diag.message.contains("Field 'nam' not found"));
+        assert!(missing_field_diag.message.contains("Did you mean 'name'"));
 
-            // Verify the diagnostic has suggestions
-            assert!(missing_field_diag.message.contains("'name'"));
+        // Verify the diagnostic has the correct code
+        assert_eq!(
+            missing_field_diag.code,
+            Some(NumberOrString::String("missing_field".to_string()))
+        );
 
-            // Verify the diagnostic has the correct code
-            assert_eq!(
-                missing_field_diag.code,
-                Some(NumberOrString::String("missing_field".to_string()))
-            );
+        // Verify range
+        let doc = create_doc(query_uri.as_str(), text);
+        assert_eq!(missing_field_diag.range, crate::support::range_for_token(&doc, text, "nam"));
 
-            // Verify range
-            assert_eq!(missing_field_diag.range, range(0, 18, 0, 21));
-
-            // Verify data contains similar_fields
-            if let Some(data) = &missing_field_diag.data {
-                let similar_fields: Vec<String> = serde_json::from_value::<Vec<String>>(
-                    data.get("similar_fields").unwrap().clone(),
-                )
-                .unwrap();
-                assert!(!similar_fields.is_empty());
-                assert!(similar_fields.contains(&"name".to_string()));
-            } else {
-                panic!("Diagnostic should have data with similar_fields");
-            }
+        // Verify data contains similar_fields
+        if let Some(data) = &missing_field_diag.data {
+            let similar_fields: Vec<String> = serde_json::from_value::<Vec<String>>(
+                data.get("similar_fields").unwrap().clone(),
+            )
+            .unwrap();
+            assert_eq!(similar_fields, vec!["name".to_string()]);
+        } else {
+            panic!("Diagnostic should have data with similar_fields");
         }
-        _ => panic!("Expected full diagnostic report"),
+    } else {
+        panic!("Expected full diagnostic report");
     }
 }
 

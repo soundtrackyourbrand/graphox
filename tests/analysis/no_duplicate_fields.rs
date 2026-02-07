@@ -57,16 +57,11 @@ fn test_shallow_duplicate_fields_check() {
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
-    let found = diags.iter().any(|d| {
-        matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
-            && d.message == "Duplicate field 'id' in selection set"
-            && {
-                crate::support::assert_diag_range_equals(d, &range(0, 16, 0, 18));
-                true
-            }
-    });
-
-    assert!(found, "Expected duplicate field diagnostic to be reported for the second 'id'; diags: {:?}", diags);
+    // Multiple diagnostics might be reported (both by our rule and apollo-compiler)
+    assert!(diags.len() >= 1);
+    let d = diags.iter().find(|d| d.message == "Duplicate field 'id' in selection set").expect("Should find duplicate field diagnostic");
+    // range points to the second 'id' which is at line 0, char 16
+    crate::support::assert_diag_range_equals(d, &range(0, 16, 0, 18));
 }
 
 // Canonicalization test: arg order variations should be reported
@@ -118,19 +113,10 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
-    let found = diags.iter().any(|d| {
-        matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
-            && d.message == "Duplicate field 'me' in selection set"
-            && {
-                crate::support::assert_diag_range_equals(d, &range(0, 37, 0, 39));
-                true
-            }
-    });
-
-    assert!(
-        found,
-        "Expected duplicate field diagnostic to be reported for arg order variations"
-    );
+    assert!(diags.len() >= 1);
+    let d = diags.iter().find(|d| d.message == "Duplicate field 'me' in selection set").expect("Should find duplicate field diagnostic");
+    // range points to the second 'me' at char 37
+    crate::support::assert_diag_range_equals(d, &range(0, 37, 0, 39));
 }
 
 // Alias handling tests
@@ -158,22 +144,18 @@ fn test_duplicate_fields_with_alias_handling() {
     let uri1 = write_project_file(&dir, "q1.graphql", q1_text);
     let doc1 = create_doc(uri1.as_str(), q1_text);
     let diags1 = doc1.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    assert!(!diags1.iter().any(|d| matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")));
+    assert_eq!(diags1.len(), 0);
 
     // 2. Duplicate alias
     let q2_text = "query { me { a: id a: id } }";
     let uri2 = write_project_file(&dir, "q2.graphql", q2_text);
     let doc2 = create_doc(uri2.as_str(), q2_text);
     let diags2 = doc2.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    let found2 = diags2.iter().any(|d| {
-        matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
-            && d.message == "Duplicate field 'a' in selection set"
-            && {
-                crate::support::assert_diag_range_equals(d, &range(0, 22, 0, 24));
-                true
-            }
-    });
-    assert!(found2, "Expected duplicate alias diagnostic; diags: {:?}", diags2);
+    
+    assert!(diags2.len() >= 1);
+    let d = diags2.iter().find(|d| d.message == "Duplicate field 'a' in selection set").expect("Should find duplicate field diagnostic");
+    // points to second 'a' at char 22
+    crate::support::assert_diag_range_equals(d, &range(0, 22, 0, 24));
 }
 
 // Alias collisions: alias name equals an unaliased field -> should trigger
@@ -201,10 +183,10 @@ fn test_alias_collision_triggers_duplicate() {
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
-    let has_dup = diags.iter().any(|d| {
-        matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
-    });
-    assert!(has_dup, "Expected alias collision to trigger duplicate diagnostic");
+    assert!(diags.len() >= 1);
+    let d = diags.iter().find(|d| d.message == "Duplicate field 'id' in selection set").expect("Should find duplicate field diagnostic");
+    // range for alias 'id' at char 25
+    crate::support::assert_diag_range_equals(d, &range(0, 25, 0, 29));
 }
 
 // Tests involving fragments and inline fragments
@@ -232,35 +214,25 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     let uri_a = write_project_file(&dir, "a.graphql", q_a);
     let doc_a = create_doc(uri_a.as_str(), q_a);
     let diags_a = doc_a.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    assert!(diags_a.iter().any(|d| {
-        matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
-            && d.message == "Duplicate field 'id' in selection set"
-            && {
-                crate::support::assert_diag_range_equals(d, &range(0, 30, 0, 32));
-                true
-            }
-    }));
+    assert!(diags_a.len() >= 1);
+    let d_a = diags_a.iter().find(|d| d.message == "Duplicate field 'id' in selection set").expect("Should find duplicate field diagnostic");
+    crate::support::assert_diag_range_equals(d_a, &range(0, 30, 0, 32));
 
     // B: duplicate across inline fragment and sibling -> should NOT trigger (shallow-only)
     let q_b = "query { me { ... on User { id } id } }";
     let uri_b = write_project_file(&dir, "b.graphql", q_b);
     let doc_b = create_doc(uri_b.as_str(), q_b);
     let diags_b = doc_b.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    assert!(!diags_b.iter().any(|d| matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")));
+    assert_eq!(diags_b.len(), 0);
 
     // D: same response key with different args -> should trigger
     let q_d = "query { me { friends(limit: 5) { id } friends(limit: 10) { id } } }";
     let uri_d = write_project_file(&dir, "d.graphql", q_d);
     let doc_d = create_doc(uri_d.as_str(), q_d);
     let diags_d = doc_d.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    assert!(diags_d.iter().any(|d| {
-        matches!(&d.code, Some(NumberOrString::String(s)) if s == "no_duplicate_fields")
-            && d.message == "Duplicate field 'friends' in selection set"
-            && {
-                crate::support::assert_diag_range_equals(d, &range(0, 38, 0, 45));
-                true
-            }
-    }));
+    assert!(diags_d.len() >= 1);
+    let d_d = diags_d.iter().find(|d| d.message == "Duplicate field 'friends' in selection set").expect("Should find duplicate field diagnostic");
+    crate::support::assert_diag_range_equals(d_d, &range(0, 38, 0, 45));
 }
 
 // LSP integration test

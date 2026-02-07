@@ -44,24 +44,14 @@ fn test_validation_missing_field() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let expected_message = format!(
-        "Field '{}' not found on type '{}'",
-        "nonExistentField", "User"
+    assert_eq!(diagnostics.len(), 1);
+    let error = &diagnostics[0];
+    assert_eq!(
+        error.message,
+        "Field 'nonExistentField' not found on type 'User'"
     );
-    let error = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected 'not found' error '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
     assert_eq!(error.severity, Some(DiagnosticSeverity::ERROR));
-    // Range should point at the field name occurrence
-    let expected = crate::support::range_for_token(&doc, text, "nonExistentField");
-    assert_eq!(error.range.start, expected.start);
-    assert_eq!(error.range.end, expected.end);
+    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "nonExistentField"));
 }
 
 #[test]
@@ -79,21 +69,11 @@ fn test_validation_deprecated_field() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let expected_message = "Field 'oldField' is deprecated: Use username instead".to_string();
-    let warning = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected 'deprecated' warning '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
+    assert_eq!(diagnostics.len(), 1);
+    let warning = &diagnostics[0];
+    assert_eq!(warning.message, "Field 'oldField' is deprecated: Use username instead");
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
-    // Range should point at the field name
-    let expected = crate::support::range_for_token(&doc, text, "oldField");
-    assert_eq!(warning.range.start, expected.start);
-    assert_eq!(warning.range.end, expected.end);
+    crate::support::assert_diag_range_equals(warning, &crate::support::range_for_token(&doc, text, "oldField"));
 }
 
 #[test]
@@ -114,23 +94,13 @@ fn test_validation_nested_missing_field() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let expected_message = format!(
-        "Field '{}' not found on type '{}'",
-        "missingInAuthor", "User"
+    assert_eq!(diagnostics.len(), 1);
+    let error = &diagnostics[0];
+    assert_eq!(
+        error.message,
+        "Field 'missingInAuthor' not found on type 'User'"
     );
-    let error = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected nested missing field error '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
-    // Range should point at the missing field
-    let expected = crate::support::range_for_token(&doc, text, "missingInAuthor");
-    assert_eq!(error.range.start, expected.start);
-    assert_eq!(error.range.end, expected.end);
+    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "missingInAuthor"));
 }
 
 #[test]
@@ -146,22 +116,13 @@ fn test_validation_fragment() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let expected_message = format!(
-        "Field '{}' not found on type '{}'",
-        "missingInFragment", "User"
+    assert_eq!(diagnostics.len(), 1);
+    let error = &diagnostics[0];
+    assert_eq!(
+        error.message,
+        "Field 'missingInFragment' not found on type 'User'"
     );
-    let error = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected fragment error '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
-    let expected = crate::support::range_for_token(&doc, text, "missingInFragment");
-    assert_eq!(error.range.start, expected.start);
-    assert_eq!(error.range.end, expected.end);
+    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "missingInFragment"));
 }
 
 #[test]
@@ -181,22 +142,13 @@ fn test_validation_inline_fragment() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let expected_message = format!(
-        "Field '{}' not found on type '{}'",
-        "nonExistentOnUser", "User"
+    assert_eq!(diagnostics.len(), 1);
+    let error = &diagnostics[0];
+    assert_eq!(
+        error.message,
+        "Field 'nonExistentOnUser' not found on type 'User'"
     );
-    let error = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected inline fragment error '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
-    let expected = crate::support::range_for_token(&doc, text, "nonExistentOnUser");
-    assert_eq!(error.range.start, expected.start);
-    assert_eq!(error.range.end, expected.end);
+    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "nonExistentOnUser"));
 }
 
 #[test]
@@ -213,19 +165,10 @@ fn test_validation_unknown_fragment_spread() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let expected_message = "Unknown fragment: UnknownFrag".to_string();
-    let error = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected unknown fragment error '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
-    let expected = crate::support::range_for_token(&doc, text, "UnknownFrag");
-    assert_eq!(error.range.start, expected.start);
-    assert_eq!(error.range.end, expected.end);
+    assert_eq!(diagnostics.len(), 1);
+    let error = &diagnostics[0];
+    assert_eq!(error.message, "Unknown fragment: UnknownFrag");
+    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "UnknownFrag"));
 }
 
 #[test]
@@ -316,22 +259,14 @@ fn test_type_only_fragment_used() {
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[], Some(&used_fragments), None, false, true);
 
-    let warning = diagnostics
-        .iter()
-        .find(|d| d.code == Some(NumberOrString::String("type_only_used".to_string())));
-    assert!(
-        warning.is_some(),
-        "Expected warning for @type_only fragment being used"
-    );
-    let w = warning.unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    let warning = &diagnostics[0];
+    assert_eq!(warning.code, Some(NumberOrString::String("type_only_used".to_string())));
     assert_eq!(
-        w.message,
+        warning.message,
         "Fragment 'UserFrag' is used but marked with @type_only. Remove @type_only to resolve this warning."
     );
-    
-    // Range should point to the @type_only directive
-    let expected_range = crate::support::range_for_token(&doc, text, "@type_only");
-    assert_eq!(w.range, expected_range);
+    crate::support::assert_diag_range_equals(warning, &crate::support::range_for_token(&doc, text, "@type_only"));
 }
 
 #[test]
@@ -360,21 +295,11 @@ fn test_validation_input_field_deprecation() {
     let doc = create_doc("file:///input_deprecated.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
-    let expected_message = "Input field 'oldField' is deprecated: Use newField".to_string();
-    let warning = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected input deprecation warning '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
+    assert_eq!(diagnostics.len(), 1);
+    let warning = &diagnostics[0];
+    assert_eq!(warning.message, "Input field 'oldField' is deprecated: Use newField");
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
-    // Range should point at oldField occurrence
-    let expected = crate::support::range_for_token(&doc, text, "oldField");
-    assert_eq!(warning.range.start, expected.start);
-    assert_eq!(warning.range.end, expected.end);
+    crate::support::assert_diag_range_equals(warning, &crate::support::range_for_token(&doc, text, "oldField"));
 }
 
 #[test]
@@ -430,19 +355,10 @@ fn test_validation_unions_and_interfaces() {
     "#;
     let doc = create_doc("file:///invalid_union.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    let expected_message = "Field 'id' not found on type 'SearchResult'".to_string();
-    let error = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected union missing field error '{}', got: {:?}",
-                expected_message, diagnostics
-            )
-        });
-    let expected = crate::support::range_for_token(&doc, text, "id");
-    assert_eq!(error.range.start, expected.start);
-    assert_eq!(error.range.end, expected.end);
+    assert_eq!(diagnostics.len(), 1);
+    let error = &diagnostics[0];
+    assert_eq!(error.message, "Field 'id' not found on type 'SearchResult'");
+    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "id"));
 
     // Valid: field on interface
     let text = r#"

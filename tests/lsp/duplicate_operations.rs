@@ -1,7 +1,7 @@
 use crate::support::{
-    create_initialized_lsp_service, create_lsp_service_with_socket, lsp_did_open,
+    create_doc, create_initialized_lsp_service, create_lsp_service_with_socket, lsp_did_open,
     lsp_initialize_sequence, lsp_request_diagnostics, lsp_request_typed,
-    make_temp_project_with_schema, range, write_project_file,
+    make_temp_project_with_schema, write_project_file,
 };
 use futures_util::StreamExt;
 use graphql_rust::config::RulesConfig;
@@ -82,13 +82,14 @@ async fn test_duplicate_operation_names_cross_file() {
         {
             let diagnostics = &full_report.full_document_diagnostic_report.items;
             last_diags_json = Some(serde_json::to_string_pretty(&diagnostics).unwrap_or_default());
-            if let Some(d) = diagnostics
-                .iter()
-                .find(|d| d.message.contains("Duplicate operation name 'GetUser'"))
-            {
-                found_dup = true;
-                assert_eq!(d.range, range(0, 6, 0, 13));
-                break;
+            if diagnostics.len() == 1 {
+                let d = &diagnostics[0];
+                if d.message.contains("Duplicate operation name 'GetUser'") {
+                    found_dup = true;
+                    let doc = create_doc(query1_uri.as_str(), query1_text);
+                    assert_eq!(d.range, crate::support::range_for_token(&doc, query1_text, "GetUser"));
+                    break;
+                }
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -123,13 +124,14 @@ async fn test_duplicate_operation_names_cross_file() {
         {
             let diagnostics = &full_report.full_document_diagnostic_report.items;
             last_diags_json2 = Some(serde_json::to_string_pretty(&diagnostics).unwrap_or_default());
-            if let Some(d) = diagnostics
-                .iter()
-                .find(|d| d.message.contains("Duplicate operation name 'GetUser'"))
-            {
-                found_dup2 = true;
-                assert_eq!(d.range, range(0, 6, 0, 13));
-                break;
+            if diagnostics.len() == 1 {
+                let d = &diagnostics[0];
+                if d.message.contains("Duplicate operation name 'GetUser'") {
+                    found_dup2 = true;
+                    let doc = create_doc(query2_uri.as_str(), query2_text);
+                    assert_eq!(d.range, crate::support::range_for_token(&doc, query2_text, "GetUser"));
+                    break;
+                }
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

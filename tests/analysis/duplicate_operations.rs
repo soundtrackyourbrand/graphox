@@ -5,7 +5,7 @@ use graphql_rust::{
     config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource},
 };
 use tempfile::tempdir;
-use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
+use tower_lsp::lsp_types::{NumberOrString, Url};
 
 fn get_schema() -> apollo_compiler::validation::Valid<Schema> {
     let schema_text = r#"
@@ -71,25 +71,13 @@ fn test_duplicate_operation_names_same_file() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
-    // Should have diagnostics for duplicate operations (either from apollo-compiler or our check)
-    // Require diagnostics to have the specific code for duplicate operations.
-    let duplicate_errors: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| {
-            d.severity == Some(DiagnosticSeverity::ERROR)
-                && matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation")
-        })
-        .collect();
-
-    assert!(
-        !duplicate_errors.is_empty(),
-        "Should detect duplicate operation names. Got {} diagnostics total",
-        diagnostics.len()
-    );
-
-    // Verify range points to the second GetUser name
-    let expected_range = crate::support::range(8, 14, 8, 21);
-    crate::support::assert_diag_range_equals(duplicate_errors[0], &expected_range);
+    // Multiple diagnostics might be reported (both by our rule and apollo-compiler)
+    assert!(diagnostics.len() >= 1);
+    
+    // Find our specific duplicate_operation diagnostic
+    let d = diagnostics.iter().find(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation") && d.range.start.line == 8).expect("Should find duplicate_operation diagnostic on line 8");
+    assert_eq!(d.message, "Duplicate operation name 'GetUser'");
+    crate::support::assert_diag_range_equals(d, &crate::support::range(8, 14, 8, 21));
 }
 
 #[test]

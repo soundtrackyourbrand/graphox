@@ -67,17 +67,22 @@ async fn test_lsp_circular_fragment_diagnostic() {
     assert!(!push_diags.is_empty(), "Expected push diagnostics");
 
     let last = push_diags.last().unwrap();
-    let diags = &last["diagnostics"];
-    let found_diag = diags.as_array().unwrap().iter().find(|d| {
-        d["message"]
-            .as_str()
-            .unwrap_or("")
-            .contains("Circular fragment reference")
-            || d["code"] == serde_json::json!({"value": "circular_fragment"})
-    }).expect("Expected circular fragment diagnostic");
+    let diags = last["diagnostics"].as_array().unwrap();
+    assert_eq!(diags.len(), 2);
     
-    // Range should point to the last fragment name in cycle
-    let range = found_diag["range"].clone();
-    assert_eq!(range["start"]["character"], 29); // ...|FragA } (line 1)
-    assert_eq!(range["end"]["character"], 34);
+    let doc = crate::support::create_doc(frag_uri.as_str(), frag_text);
+
+    // Diag 1: FragB in FragA (line 0)
+    let diag1 = diags.iter().find(|d| d["range"]["start"]["line"] == 0).unwrap();
+    assert!(diag1["message"].as_str().unwrap().contains("Circular fragment reference"));
+    let expected1 = crate::support::range_for_token(&doc, frag_text, "FragB");
+    assert_eq!(diag1["range"]["start"]["character"], expected1.start.character);
+    assert_eq!(diag1["range"]["end"]["character"], expected1.end.character);
+
+    // Diag 2: FragA in FragB (line 1)
+    let diag2 = diags.iter().find(|d| d["range"]["start"]["line"] == 1).unwrap();
+    assert!(diag2["message"].as_str().unwrap().contains("Circular fragment reference"));
+    let expected2 = crate::support::range(1, 28, 1, 33);
+    assert_eq!(diag2["range"]["start"]["character"], expected2.start.character);
+    assert_eq!(diag2["range"]["end"]["character"], expected2.end.character);
 }

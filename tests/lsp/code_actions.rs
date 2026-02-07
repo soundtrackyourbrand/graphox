@@ -1,5 +1,5 @@
 use crate::support::{
-    create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
+    create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
     lsp_request_code_actions, make_temp_project_with_schema, range, write_project_file,
 };
 use tower_lsp::lsp_types::*;
@@ -28,15 +28,17 @@ async fn test_code_action_remove_unused_fragment() {
     lsp_did_open(&mut service, dup_uri.clone(), "graphql", 1, dup_text).await;
 
     // Construct a diagnostic that points to the duplicated `id` field in dup.graphql
+    let doc_dup = create_doc(dup_uri.as_str(), dup_text);
     let dup_diag = Diagnostic {
-        range: range(0, 13, 0, 15),
+        range: crate::support::range_for_token(&doc_dup, dup_text, "id"),
         message: "Duplicate field 'id' in selection set".to_string(),
         code: Some(NumberOrString::String("no_duplicate_fields".to_string())),
         ..Default::default()
     };
 
+    let doc_unused = create_doc(frag_uri.as_str(), frag_text);
     let diagnostic = Diagnostic {
-        range: range(0, 9, 0, 15),
+        range: crate::support::range_for_token(&doc_unused, frag_text, "Unused"),
         message: "Unused fragment: Unused".to_string(),
         code: Some(NumberOrString::String("unused_fragment".to_string())),
         ..Default::default()
@@ -170,8 +172,9 @@ async fn test_code_action_remove_unused_variable() {
     let query_uri = write_project_file(&dir, "query.graphql", query_text);
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
+    let doc = create_doc(query_uri.as_str(), query_text);
     let diagnostic = Diagnostic {
-        range: range(0, 21, 0, 28), // "$unused"
+        range: crate::support::range_for_token(&doc, query_text, "unused"),
         message: "Unused variable: $unused".to_string(),
         code: Some(NumberOrString::String("unused_variable".to_string())),
         ..Default::default()
@@ -211,9 +214,13 @@ async fn test_code_action_remove_type_only() {
 
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let frag_uri = Url::parse("file:///test.graphql").unwrap();
+    let frag_text = "fragment F on Query @type_only { me }";
+    let frag_uri = write_project_file(&_dir, "test.graphql", frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+
+    let doc = create_doc(frag_uri.as_str(), frag_text);
     let diagnostic = Diagnostic {
-        range: range(0, 25, 0, 35), // "@type_only"
+        range: crate::support::range_for_token(&doc, frag_text, "@type_only"),
         message: "Fragment 'F' is used but marked with @type_only".to_string(),
         code: Some(NumberOrString::String("type_only_used".to_string())),
         ..Default::default()

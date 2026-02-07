@@ -118,18 +118,16 @@ async fn test_lsp_pull_circular_fragments() {
 
     match result {
         DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
-            assert!(
-                !report.full_document_diagnostic_report.items.is_empty(),
-                "Should have diagnostics for circular fragments"
-            );
-
-            let diag = report.full_document_diagnostic_report.items.iter().find(|it| {
-                it.message.contains("Circular fragment reference")
-                    || it.message.contains("circular_fragment")
-            }).expect("Expected circular fragment diagnostic in pull report");
+            let items = &report.full_document_diagnostic_report.items;
+            // query.graphql uses FragA, which starts a cycle.
+            // Expected diagnostics: 1 (on the spread ...FragA in query.graphql)
+            assert_eq!(items.len(), 1);
+            let diag = &items[0];
             
-            assert_eq!(diag.range.start.character, 19); // ...|FragA } (line 0)
-            assert_eq!(diag.range.end.character, 24);
+            assert!(diag.message.contains("Circular fragment reference"));
+            
+            let doc = crate::support::create_doc(diag_params.text_document.uri.as_str(), query_text);
+            assert_eq!(diag.range, crate::support::range_for_token(&doc, query_text, "FragA"));
         }
         _ => panic!("Expected full diagnostic report from pull request"),
     }

@@ -16,11 +16,12 @@ fn test_private_duplicate_same_package_root_reports_error() {
     let frag_a_path = pkg.join("a.graphql");
     let frag_b_path = pkg.join("b.graphql");
 
-    std::fs::write(&frag_a_path, "fragment DuplicateFrag on User { id }").unwrap();
+    let text_a = "fragment DuplicateFrag on User { id }";
+    std::fs::write(&frag_a_path, text_a).unwrap();
     std::fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let doc = create_doc(uri_a.as_str(), &std::fs::read_to_string(&frag_a_path).unwrap());
+    let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
         "type User { id: ID! name: String } type Query { me: User }",
@@ -46,19 +47,13 @@ fn test_private_duplicate_same_package_root_reports_error() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    let expected_message =
-        "Duplicate fragment name: 'DuplicateFrag' in the same project.".to_string();
-    let diag = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| panic!("Expected duplicate fragment error, got: {:?}", diagnostics));
-
-    // Range should point at fragment name in this document
-    let last_name = "DuplicateFrag";
-    let text = std::fs::read_to_string(&frag_a_path).unwrap();
-    let expected = crate::support::range_for_token(&doc, &text, last_name);
-    assert_eq!(diag.range.start, expected.start);
-    assert_eq!(diag.range.end, expected.end);
+    assert_eq!(diagnostics.len(), 1);
+    let diag = &diagnostics[0];
+    assert_eq!(
+        diag.message,
+        "Duplicate fragment name: 'DuplicateFrag' in the same project."
+    );
+    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"));
 }
 
 #[test]
@@ -76,11 +71,12 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
 
-    std::fs::write(&frag_a_path, "fragment DuplicateFrag on User { id }").unwrap();
+    let text_a = "fragment DuplicateFrag on User { id }";
+    std::fs::write(&frag_a_path, text_a).unwrap();
     std::fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let doc = create_doc(uri_a.as_str(), &std::fs::read_to_string(&frag_a_path).unwrap());
+    let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
         "type User { id: ID! name: String } type Query { me: User }",
@@ -123,19 +119,13 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[other_frag], None, Some(&config), false, true);
 
-    let expected_message =
-        "Duplicate fragment name: 'DuplicateFrag' in the same project.".to_string();
-    let diag = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected duplicate fragment error with project config, got: {:?}",
-                diagnostics
-            )
-        });
-
-    assert_eq!(diag.range.start.line, 0);
+    assert_eq!(diagnostics.len(), 1);
+    let diag = &diagnostics[0];
+    assert_eq!(
+        diag.message,
+        "Duplicate fragment name: 'DuplicateFrag' in the same project."
+    );
+    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"));
 }
 
 #[test]
@@ -152,11 +142,12 @@ fn test_public_duplicate_across_workspace_reports_error() {
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
 
-    std::fs::write(&frag_a_path, "fragment PublicFrag on User @public { id }").unwrap();
+    let text_a = "fragment PublicFrag on User @public { id }";
+    std::fs::write(&frag_a_path, text_a).unwrap();
     std::fs::write(&frag_b_path, "fragment PublicFrag on User @public { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let doc = create_doc(uri_a.as_str(), &std::fs::read_to_string(&frag_a_path).unwrap());
+    let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
         "type User { id: ID! name: String } type Query { me: User }",
@@ -182,21 +173,13 @@ fn test_public_duplicate_across_workspace_reports_error() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    let expected_message =
+    assert_eq!(diagnostics.len(), 1);
+    let diag = &diagnostics[0];
+    assert_eq!(
+        diag.message,
         "Duplicate public fragment name: 'PublicFrag'. Public fragments must have unique names across the workspace."
-            .to_string();
-    let diag = diagnostics
-        .iter()
-        .find(|d| d.message == expected_message)
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected public duplicate error across workspace, got: {:?}",
-                diagnostics
-            )
-        });
-
-    let expected_range = crate::support::range_for_token(&doc, &std::fs::read_to_string(&frag_a_path).unwrap(), "PublicFrag");
-    crate::support::assert_diag_range_equals(diag, &expected_range);
+    );
+    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "PublicFrag"));
 }
 
 #[test]
@@ -213,11 +196,12 @@ fn test_private_shadows_public_emits_hint() {
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
 
-    std::fs::write(&frag_a_path, "fragment Shadowed on User { id }").unwrap();
+    let text_a = "fragment Shadowed on User { id }";
+    std::fs::write(&frag_a_path, text_a).unwrap();
     std::fs::write(&frag_b_path, "fragment Shadowed on User @public { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let doc = create_doc(uri_a.as_str(), &std::fs::read_to_string(&frag_a_path).unwrap());
+    let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
         "type User { id: ID! name: String } type Query { me: User }",
@@ -243,11 +227,11 @@ fn test_private_shadows_public_emits_hint() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[public_frag], None, None, false, true);
 
-    let found = diagnostics.iter().any(|d| {
-        d.message.contains("shadows a public fragment")
-            && d.severity == Some(DiagnosticSeverity::HINT)
-    });
-    assert!(found, "Expected shadowing hint, got: {:?}", diagnostics);
+    assert_eq!(diagnostics.len(), 1);
+    let diag = &diagnostics[0];
+    assert!(diag.message.contains("shadows a public fragment"));
+    assert_eq!(diag.severity, Some(DiagnosticSeverity::HINT));
+    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "Shadowed"));
 }
 
 #[test]

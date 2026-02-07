@@ -1,4 +1,4 @@
-use crate::support::{self, lsp_did_open, lsp_initialize_sequence, lsp_send_notification, range};
+use crate::support::{self, lsp_did_open, lsp_initialize_sequence, lsp_send_notification};
 use futures_util::StreamExt;
 use graphql_rust::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
@@ -163,26 +163,25 @@ async fn test_lsp_fragment_collisions() {
 
     // Check private collision in pkg_a
     let d_a = diags.get(&uri_a).unwrap();
-    let diag = d_a.iter().find(|d| {
-        d.message
-            .contains("Duplicate fragment name: 'DuplicateFrag'")
-    }).expect("Should find duplicate fragment diagnostic");
-    assert_eq!(diag.range, range(0, 9, 0, 22));
+    assert!(d_a.len() >= 1);
+    let diag = d_a.iter().find(|d| d.message.contains("Duplicate fragment name: 'DuplicateFrag'")).expect("Should find our duplicate fragment diagnostic");
+    let doc_a = crate::support::create_doc(uri_a.as_str(), &fs::read_to_string(&frag_a_path).unwrap());
+    assert_eq!(diag.range, crate::support::range_for_token(&doc_a, &fs::read_to_string(&frag_a_path).unwrap(), "DuplicateFrag"));
 
     // Check shadowing in shadow.graphql
     let d_d = diags.get(&uri_d).unwrap();
-    let diag = d_d.iter()
-            .find(|d| d.message.contains("shadows a public fragment"))
-            .expect("Should find shadowing hint");
-    assert_eq!(diag.range, range(0, 9, 0, 19)); // fragment |PublicFrag
+    assert!(d_d.len() >= 1);
+    let diag = d_d.iter().find(|d| d.message.contains("shadows a public fragment")).expect("Should find shadowing hint");
+    assert_eq!(diag.severity, Some(DiagnosticSeverity::HINT));
+    let doc_d = crate::support::create_doc(uri_d.as_str(), &fs::read_to_string(&frag_d_path).unwrap());
+    assert_eq!(diag.range, crate::support::range_for_token(&doc_d, &fs::read_to_string(&frag_d_path).unwrap(), "PublicFrag"));
 
     // Check public collision
     let d_e = diags.get(&uri_e).unwrap();
-    let diag = d_e.iter().find(|d| {
-        d.message
-            .contains("Duplicate public fragment name: 'PublicCollision'")
-    }).expect("Should find public collision diagnostic");
-    assert_eq!(diag.range, range(0, 9, 0, 24));
+    assert!(d_e.len() >= 1);
+    let diag = d_e.iter().find(|d| d.message.contains("Duplicate public fragment name: 'PublicCollision'")).expect("Should find public collision diagnostic");
+    let doc_e = crate::support::create_doc(uri_e.as_str(), &fs::read_to_string(&frag_e_path).unwrap());
+    assert_eq!(diag.range, crate::support::range_for_token(&doc_e, &fs::read_to_string(&frag_e_path).unwrap(), "PublicCollision"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
