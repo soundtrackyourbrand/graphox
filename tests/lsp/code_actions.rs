@@ -36,7 +36,7 @@ async fn test_code_action_remove_unused_fragment() {
     };
 
     let diagnostic = Diagnostic {
-        range: range(0, 0, 0, 31),
+        range: range(0, 9, 0, 15),
         message: "Unused fragment: Unused".to_string(),
         code: Some(NumberOrString::String("unused_fragment".to_string())),
         ..Default::default()
@@ -171,7 +171,7 @@ async fn test_code_action_remove_unused_variable() {
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     let diagnostic = Diagnostic {
-        range: range(0, 20, 0, 36), // "$unused: String"
+        range: range(0, 21, 0, 28), // "$unused"
         message: "Unused variable: $unused".to_string(),
         code: Some(NumberOrString::String("unused_variable".to_string())),
         ..Default::default()

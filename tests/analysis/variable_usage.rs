@@ -99,7 +99,7 @@ fn test_variable_unused_even_with_fragments() {
     let expected_msg = "Unused variable: $unused";
     let d = crate::support::assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
-    let expected_range = crate::support::range_for_token(&doc, query_text, "$unused: String");
+    let expected_range = crate::support::range_for_token(&doc, query_text, "$unused");
     crate::support::assert_diag_range_equals(d, &expected_range);
 }
 
@@ -127,7 +127,7 @@ fn test_undefined_variable_direct() {
     let expected_msg = "Undefined variable: $undefined";
     let d = crate::support::assert_diag_message_equals(&diagnostics, expected_msg);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    let expected_range = crate::support::range_for_token(&doc, query_text, "$undefined");
+    let expected_range = range(2, 22, 2, 31); // undefined
     crate::support::assert_diag_range_equals(d, &expected_range);
 }
 

@@ -395,7 +395,6 @@ fn find_operation_range(doc: &DocumentState, operation_name: &str) -> Option<Ran
                 let cap_name = query.capture_names()[cap.index as usize];
                 if cap_name == "symbol.name" {
                     name = Some(doc.get_node_text(cap.node, block.offset));
-                } else if cap_name == "symbol.full" && cap.node.kind() == "operation_definition" {
                     op_node = Some(cap.node);
                 }
             }

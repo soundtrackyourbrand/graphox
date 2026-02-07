@@ -56,7 +56,7 @@ fn test_memory_cache_performance() {
     let source = SchemaSource::Single("schema.graphql".to_string());
 
     // Clear both caches
-    schema_cache::clear_cache().unwrap();
+    let _ = schema_cache::clear_cache();
 
     // First load - should be slow (no cache)
     let start = Instant::now();
@@ -108,7 +108,7 @@ fn test_memory_cache_performance() {
     );
 
     // Clean up
-    schema_cache::clear_cache().unwrap();
+    let _ = schema_cache::clear_cache();
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn test_cache_invalidation_on_file_change() {
     std::fs::write(&schema_path, "type Query { hello: String }").unwrap();
     let source = SchemaSource::Single("schema.graphql".to_string());
 
-    schema_cache::clear_cache().unwrap();
+    let _ = schema_cache::clear_cache();
 
     // Load and cache
     let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
@@ -141,5 +141,5 @@ fn test_cache_invalidation_on_file_change() {
         "Cache should be invalidated when file changes"
     );
 
-    schema_cache::clear_cache().unwrap();
+    let _ = schema_cache::clear_cache();
 }

@@ -97,7 +97,7 @@ impl DocumentState {
                                             && self.get_node_text(n_child, offset) == *name
                                         {
                                             ctx.diagnostics.push(Diagnostic {
-                                                range: self.translate_to_file_range(child, offset),
+                                                range: self.translate_to_file_range(v_child, offset),
                                                 severity: Some(DiagnosticSeverity::WARNING),
                                                 message: format!("Unused variable: ${}", name),
                                                 code: Some(NumberOrString::String(
@@ -129,6 +129,13 @@ impl DocumentState {
             && let Some(required_fields) = &rules.required_fields
             && let Some(operation_type) = &ctx.current_operation_type
         {
+            // Find the name node of the operation for the diagnostic range
+            let mut cursor = node.walk();
+            let name_node = node.children(&mut cursor).find(|c| c.kind() == "name");
+            let range = name_node
+                .map(|n| self.translate_to_file_range(n, offset))
+                .unwrap_or_else(|| self.translate_to_file_range(node, offset));
+
             // Check each required field
             for (field_name, rule) in required_fields {
                 // Check if this rule applies to the current operation type
@@ -136,7 +143,7 @@ impl DocumentState {
                     // Check if the field was selected
                     if !ctx.selected_fields.contains(field_name) {
                         ctx.diagnostics.push(Diagnostic {
-                            range: self.translate_to_file_range(node, offset),
+                            range,
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!(
                                 "Required field '{}' must be selected in {} operations",

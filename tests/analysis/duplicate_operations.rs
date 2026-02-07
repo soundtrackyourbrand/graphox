@@ -87,8 +87,8 @@ fn test_duplicate_operation_names_same_file() {
         diagnostics.len()
     );
 
-    // Verify range points to the second GetUser occurrence
-    let expected_range = crate::support::range_for_token(&doc, content, "GetUser");
+    // Verify range points to the second GetUser name
+    let expected_range = crate::support::range(8, 14, 8, 21);
     crate::support::assert_diag_range_equals(duplicate_errors[0], &expected_range);
 }
 

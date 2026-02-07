@@ -50,7 +50,7 @@ impl DocumentState {
 
             if !is_used && ctx.workspace_loaded && !is_type_only {
                 ctx.diagnostics.push(Diagnostic {
-                    range: self.translate_to_file_range(node, offset),
+                    range: self.translate_to_file_range(name_node, offset),
                     severity: Some(DiagnosticSeverity::WARNING),
                     message: format!("Unused fragment: {}", name),
                     code: Some(NumberOrString::String("unused_fragment".to_string())),
@@ -324,28 +324,8 @@ impl DocumentState {
 
                 let cycle = cycle_parts.join(" -> ");
 
-                // Choose diagnostic range: prefer the last fragment name occurrence in this document
-                let diag_range = if let Some(last_part) = cycle_parts.last() {
-                    let last_name = last_part.split_whitespace().next().unwrap_or("");
-                    if !last_name.is_empty() {
-                        if let Some(start_byte) = this.rope.to_string().rfind(last_name) {
-                            let end_byte = start_byte + last_name.len();
-                            Range {
-                                start: this.byte_to_position(start_byte),
-                                end: this.byte_to_position(end_byte),
-                            }
-                        } else {
-                            this.translate_to_file_range(trigger_node, offset)
-                        }
-                    } else {
-                        this.translate_to_file_range(trigger_node, offset)
-                    }
-                } else {
-                    this.translate_to_file_range(trigger_node, offset)
-                };
-
                 ctx.diagnostics.push(Diagnostic {
-                    range: diag_range,
+                    range: this.translate_to_file_range(trigger_node, offset),
                     severity: Some(DiagnosticSeverity::ERROR),
                     message: format!("Circular fragment reference: {}", cycle),
                     code: Some(NumberOrString::String("circular_fragment".to_string())),

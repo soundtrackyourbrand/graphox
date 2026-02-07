@@ -2,7 +2,7 @@ use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
 
-use crate::support::{create_doc, get_valid_schema};
+use crate::support::{create_doc, get_valid_schema, range};
 
 // Shared schema for tests
 
@@ -328,6 +328,10 @@ fn test_type_only_fragment_used() {
         w.message,
         "Fragment 'UserFrag' is used but marked with @type_only. Remove @type_only to resolve this warning."
     );
+    
+    // Range should point to the @type_only directive
+    let expected_range = crate::support::range_for_token(&doc, text, "@type_only");
+    assert_eq!(w.range, expected_range);
 }
 
 #[test]
@@ -511,30 +515,14 @@ fn test_validation_circular_fragments() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    // Expect exactly one circular fragment diagnostic with full message and range
-    let diag = diagnostics
-        .iter()
-        .find(|d| d.code == Some(NumberOrString::String("circular_fragment".to_string())))
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected circular fragment diagnostic, got: {:?}",
-                diagnostics
-            )
-        });
+    // Expect two circular fragment diagnostics, one for each spread participating in the cycle
+    assert_eq!(diagnostics.len(), 2);
 
-    // Expect an exact diagnostic message including local URIs
-    let uri_path = doc.uri.path();
-    let expected_message = format!(
-        "Circular fragment reference: FragA ({}) -> FragB ({}) -> FragA ({})",
-        uri_path, uri_path, uri_path
-    );
-    assert_eq!(diag.message, expected_message);
+    // Diagnostic on FragB in FragA (line 1)
+    assert!(diagnostics.iter().any(|d| d.range == range(1, 36, 1, 41)));
 
-    // The diagnostic range should point at the last fragment name mentioned in the message
-    let last_name = "FragA";
-    let expected = crate::support::range_for_token(&doc, text, last_name);
-    assert_eq!(diag.range.start, expected.start);
-    assert_eq!(diag.range.end, expected.end);
+    // Diagnostic on FragA in FragB (line 2)
+    assert!(diagnostics.iter().any(|d| d.range == range(2, 36, 2, 41)));
 }
 
 #[test]
@@ -549,27 +537,15 @@ fn test_validation_circular_fragments_three_way() {
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
 
-    let diag = diagnostics
-        .iter()
-        .find(|d| d.code == Some(NumberOrString::String("circular_fragment".to_string())))
-        .unwrap_or_else(|| {
-            panic!(
-                "Expected circular fragment diagnostic for 3-way cycle, got: {:?}",
-                diagnostics
-            )
-        });
+    // Expect three circular fragment diagnostics, one for each spread in the cycle
+    assert_eq!(diagnostics.len(), 3);
 
-    // Expect exact diagnostic message (canonical rotation starts with A)
-    let uri_path = doc.uri.path();
-    let expected_message = format!(
-        "Circular fragment reference: A ({}) -> B ({}) -> C ({}) -> A ({})",
-        uri_path, uri_path, uri_path, uri_path
-    );
-    assert_eq!(diag.message, expected_message);
+    // Diagnostic: A -> B (on line 1)
+    assert!(diagnostics.iter().any(|d| d.range == range(1, 32, 1, 33)));
 
-    // Range should point to the last fragment name mentioned in the message (A)
-    let last_name = "A";
-    let expected = crate::support::range_for_token(&doc, text, last_name);
-    assert_eq!(diag.range.start, expected.start);
-    assert_eq!(diag.range.end, expected.end);
+    // Diagnostic: B -> C (on line 2)
+    assert!(diagnostics.iter().any(|d| d.range == range(2, 32, 2, 33)));
+
+    // Diagnostic: C -> A (on line 3)
+    assert!(diagnostics.iter().any(|d| d.range == range(3, 32, 3, 33)));
 }

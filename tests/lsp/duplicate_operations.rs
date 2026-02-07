@@ -87,7 +87,7 @@ async fn test_duplicate_operation_names_cross_file() {
                 .find(|d| d.message.contains("Duplicate operation name 'GetUser'"))
             {
                 found_dup = true;
-                assert_eq!(d.range, range(0, 0, 0, 43));
+                assert_eq!(d.range, range(0, 6, 0, 13));
                 break;
             }
         }
@@ -128,7 +128,7 @@ async fn test_duplicate_operation_names_cross_file() {
                 .find(|d| d.message.contains("Duplicate operation name 'GetUser'"))
             {
                 found_dup2 = true;
-                assert_eq!(d.range, range(0, 0, 0, 38));
+                assert_eq!(d.range, range(0, 6, 0, 13));
                 break;
             }
         }
