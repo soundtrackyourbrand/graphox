@@ -282,8 +282,41 @@ pub fn clear_cache() -> Result<(), String> {
     let cache_dir = get_cache_dir();
 
     if cache_dir.exists() {
-        fs::remove_dir_all(&cache_dir)
-            .map_err(|e| format!("Failed to clear cache directory: {}", e))?;
+        // Attempt to remove the cache directory; on some platforms (macOS)
+        // remove_dir_all can fail transiently with "Directory not empty" if
+        // files are still being accessed. Try several strategies and retries
+        // before giving up to make tests more reliable.
+        let mut last_err: Option<std::io::Error> = None;
+        for attempt in 0..5 {
+            match fs::remove_dir_all(&cache_dir) {
+                Ok(_) => {
+                    last_err = None;
+                    break;
+                }
+                Err(e) => {
+                    last_err = Some(e);
+
+                    // Try to remove contents manually and retry
+                    if let Ok(entries) = fs::read_dir(&cache_dir) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            let _ = if p.is_file() {
+                                fs::remove_file(&p)
+                            } else {
+                                fs::remove_dir_all(&p)
+                            };
+                        }
+                    }
+
+                    // Small backoff before retrying
+                    std::thread::sleep(std::time::Duration::from_millis(5 * (attempt + 1) as u64));
+                }
+            }
+        }
+
+        if let Some(e) = last_err {
+            return Err(format!("Failed to clear cache directory: {}", e));
+        }
     }
 
     Ok(())
