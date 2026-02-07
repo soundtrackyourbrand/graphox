@@ -1,22 +1,23 @@
-use crate::support;
-use tower_lsp::jsonrpc::Request;
+use crate::support::{
+    create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
+    write_project_file,
+};
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
 
 #[tokio::test]
 async fn test_workspace_symbols() {
-    let (dir, config) = support::make_temp_project_with_schema("type Query { me: String }", "**/*.graphql");
-    let (mut service, _handle) = support::create_initialized_lsp_service(config).await;
+    let (dir, config) = make_temp_project_with_schema("type Query { me: String }", "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Open File A with symbol "UserFields"
     let text_a = "fragment UserFields on User { id }";
-    let uri_a = support::write_project_file(&dir, "a.graphql", text_a);
-    support::lsp_did_open(&mut service, uri_a.clone(), "graphql", 1, text_a).await;
+    let uri_a = write_project_file(&dir, "a.graphql", text_a);
+    lsp_did_open(&mut service, uri_a.clone(), "graphql", 1, text_a).await;
 
     // 2. Open File B with symbol "GetMe"
     let text_b = "query GetMe { me }";
-    let uri_b = support::write_project_file(&dir, "b.graphql", text_b);
-    support::lsp_did_open(&mut service, uri_b.clone(), "graphql", 1, text_b).await;
+    let uri_b = write_project_file(&dir, "b.graphql", text_b);
+    lsp_did_open(&mut service, uri_b.clone(), "graphql", 1, text_b).await;
 
     // 3. Search for "User"
     let params = WorkspaceSymbolParams {
@@ -24,13 +25,8 @@ async fn test_workspace_symbols() {
         ..Default::default()
     };
 
-    let request = Request::build("workspace/symbol")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Vec<SymbolInformation>> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "workspace/symbol", &params).await;
 
     let symbols = result.expect("Expected symbols");
     assert!(
@@ -46,13 +42,8 @@ async fn test_workspace_symbols() {
         ..Default::default()
     };
 
-    let request = Request::build("workspace/symbol")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Vec<SymbolInformation>> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "workspace/symbol", &params).await;
 
     let symbols = result.expect("Expected symbols");
     assert!(

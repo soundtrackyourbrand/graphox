@@ -1,15 +1,9 @@
+use crate::support::{
+    create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
+};
 use apollo_compiler::Schema;
-use tokio::time::{Duration, sleep};
-use tower_lsp::lsp_types::NumberOrString;
-use tower_lsp::lsp_types::{
-    CompletionParams, CompletionResponse, DiagnosticSeverity, DidOpenTextDocumentParams,
-    Documentation, Hover, HoverContents, HoverParams, InitializeParams, Location, ReferenceContext,
-    ReferenceParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Url,
-};
-
-use super::support::{
-    assert_diag_message_equals, assert_no_diagnostics, create_doc, get_valid_schema, pos,
-};
+use tower_lsp::lsp_types::*;
 
 #[test]
 fn test_variable_used_in_fragment_spread() {
@@ -38,7 +32,7 @@ fn test_variable_used_in_fragment_spread() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    assert_no_diagnostics(&diagnostics);
+    crate::support::assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
@@ -71,7 +65,7 @@ fn test_variable_used_transitively_in_nested_fragments() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    assert_no_diagnostics(&diagnostics);
+    crate::support::assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
@@ -102,7 +96,7 @@ fn test_variable_unused_even_with_fragments() {
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
     // Expect exact diagnostic message for the unused variable
     let expected = "Unused variable: $unused";
-    let d = assert_diag_message_equals(&diagnostics, expected);
+    let d = crate::support::assert_diag_message_equals(&diagnostics, expected);
     assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
 }
 
@@ -128,7 +122,7 @@ fn test_undefined_variable_direct() {
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
     let expected = "Undefined variable: $undefined";
-    let d = assert_diag_message_equals(&diagnostics, expected);
+    let d = crate::support::assert_diag_message_equals(&diagnostics, expected);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
@@ -158,118 +152,26 @@ fn test_undefined_variable_in_fragment_spread() {
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
     let expected = "Undefined variable: $admin (required by fragment 'UserFields')";
-    let d = assert_diag_message_equals(&diagnostics, expected);
+    let d = crate::support::assert_diag_message_equals(&diagnostics, expected);
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[tokio::test]
 async fn test_fragment_hover_requirements() {
-    use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-    use graphql_rust::{Backend, Config};
-    use std::fs;
-    use tempfile::tempdir;
-    use tower_lsp::LspService;
-    use tower_service::Service;
+    let schema = "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
 
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }",
-    )
-    .unwrap();
-
-    let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFields on User { friend(id: $friendId) { name } }";
-    fs::write(&frag_path, frag_text).unwrap();
+    write_project_file(&dir, "frag.graphql", frag_text);
 
-    let query_path = base_dir.join("query.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
     let query_text = "query { me { ...UserFields } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    sleep(Duration::from_millis(10)).await;
-
-    let query_uri = Url::from_file_path(query_path).unwrap();
-
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Hover over ...UserFields
-    // query { me { ...UserFields } }
-    // 0123456789012345678
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: query_uri.clone(),
-            },
-            position: pos(0, 18),
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = tower_lsp::jsonrpc::Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, query_uri.clone(), pos(0, 18)).await;
 
     let hover = result.expect("Expected hover");
     let value = match hover.contents {
@@ -290,120 +192,22 @@ async fn test_fragment_hover_requirements() {
 
 #[tokio::test]
 async fn test_fragment_completion_requirements() {
-    use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-    use graphql_rust::{Backend, Config};
-    use std::fs;
-    use tempfile::tempdir;
-    use tower_lsp::LspService;
-    use tower_service::Service;
+    let schema = "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
 
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }",
-    )
-    .unwrap();
-
-    let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFields on User { friend(id: $friendId) { name } }";
-    fs::write(&frag_path, frag_text).unwrap();
+    write_project_file(&dir, "frag.graphql", frag_text);
 
-    let query_path = base_dir.join("query.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
     let query_text = "query { me { ... } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    sleep(Duration::from_millis(10)).await;
-
-    let query_uri = Url::from_file_path(query_path).unwrap();
-
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Completion after ...
-    // query { me { ... } }
-    // 01234567890123456
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: query_uri.clone(),
-            },
-            position: pos(0, 16),
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
+    let result = lsp_request_completion(&mut service, query_uri.clone(), pos(0, 16)).await;
 
-    let request = tower_lsp::jsonrpc::Request::build("textDocument/completion")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let completion = match result.expect("Expected completion") {
-        CompletionResponse::Array(items) => items,
-        _ => panic!("Expected array of items"),
-    };
+    let completion = crate::support::completion_items_array(&result);
 
     let item = completion
         .iter()
@@ -443,24 +247,12 @@ fn test_variable_in_directive_requirement() {
 
 #[tokio::test]
 async fn test_variable_references_including_fragments() {
-    use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-    use graphql_rust::{Backend, Config};
-    use std::fs;
-    use tempfile::tempdir;
-    use tower_lsp::LspService;
-    use tower_service::Service;
+    let schema = "type User { id: ID! name: String } type Query { me: User } directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
 
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type User { id: ID! name: String } type Query { me: User } directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT").unwrap();
-
-    let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFields on User { name @include(if: $admin) }";
-    fs::write(&frag_path, frag_text).unwrap();
+    let frag_uri = write_project_file(&dir, "frag.graphql", frag_text);
 
-    let query_path = base_dir.join("query.graphql");
     let query_text = r#"
         query GetMe($admin: Boolean!) {
             me {
@@ -469,77 +261,15 @@ async fn test_variable_references_including_fragments() {
             }
         }
     "#;
-    fs::write(&query_path, query_text).unwrap();
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    // Wait for scan
-    sleep(Duration::from_millis(10)).await;
-
-    let query_uri = Url::from_file_path(query_path).unwrap();
-    let frag_uri = Url::from_file_path(frag_path).unwrap();
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
     // Open files
-    service
-        .call(
-            tower_lsp::jsonrpc::Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
 
     // Request references for $admin in GetMe
-    // query GetMe($admin: Boolean!)
-    // 01234567890123456789
-    // Position(1, 21) is on $admin
     let params = ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
@@ -554,13 +284,8 @@ async fn test_variable_references_including_fragments() {
         },
     };
 
-    let request = tower_lsp::jsonrpc::Request::build("textDocument/references")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Vec<Location>> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "textDocument/references", &params).await;
 
     let locations = result.expect("Expected locations");
 
@@ -580,7 +305,7 @@ async fn test_variable_references_including_fragments() {
 
 #[test]
 fn test_fragment_variables_not_undefined_in_isolation() {
-    let schema = get_valid_schema();
+    let schema = crate::support::get_valid_schema();
 
     let frag_text = r#"
         fragment UserFields on User {
@@ -591,7 +316,7 @@ fn test_fragment_variables_not_undefined_in_isolation() {
 
     let doc = create_doc("file:///test.graphql", frag_text);
     let diagnostics = doc.get_semantic_diagnostics(schema, &[], None, None, false, true);
-    assert_no_diagnostics(&diagnostics);
+    crate::support::assert_no_diagnostics(&diagnostics);
 }
 
 #[test]

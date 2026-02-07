@@ -241,30 +241,14 @@ impl Config {
             None
         }?;
 
-        let content = fs::read_to_string(&config_path).unwrap_or_else(|e| {
-            eprintln!(
-                "{}: Failed to read config file {}: {}",
-                "Error".red(),
-                config_path.display().to_string().blue(),
-                e.to_string().red()
-            );
-            std::process::exit(1);
-        });
+        let content = fs::read_to_string(&config_path).ok()?;
 
         match serde_yaml::from_str::<Config>(&content) {
             Ok(mut config) => {
                 config.base_dir = dir.to_path_buf();
                 Some(config)
             }
-            Err(e) => {
-                eprintln!(
-                    "{}: Failed to parse config file {}: {}",
-                    "Error".red(),
-                    config_path.display().to_string().blue(),
-                    e.to_string().red()
-                );
-                std::process::exit(1);
-            }
+            Err(_) => None,
         }
     }
 

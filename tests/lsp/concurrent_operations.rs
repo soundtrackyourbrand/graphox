@@ -1,22 +1,18 @@
-use graphql_rust::{
-    Backend, Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+use crate::support::{
+    create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
+    pos, write_project_file_at,
 };
+use graphql_rust::Config;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 /// Helper to create a test config with a schema
 fn create_test_config(dir: &std::path::Path) -> Config {
-    let schema_path = dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        r#"
+    let schema_text = r#"
         type Query {
             users: [User!]!
             user(id: ID!): User
@@ -53,53 +49,23 @@ fn create_test_config(dir: &std::path::Path) -> Config {
             createPost(title: String!, content: String!): Post
             createComment(postId: ID!, text: String!): Comment
         }
-        "#,
-    )
-    .unwrap();
+        "#;
 
-    Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(false), // Disable for predictable behavior
-        base_dir: dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    }
+    let (_, mut config) = make_temp_project_with_schema(schema_text, "**/*.graphql");
+    config.base_dir = dir.to_path_buf();
+    config.enable_schema_cache = Some(false);
+    config
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn test_concurrent_document_operations() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
+    let (service, _handle) = create_initialized_lsp_service(config).await;
 
     // Create multiple GraphQL files
     let file_count = 20;
-    let mut uris = Vec::new();
+    let mut uris: Vec<(Url, String)> = Vec::new();
 
     for i in 0..file_count {
         let query_path = dir.path().join(format!("query_{}.graphql", i));
@@ -126,26 +92,15 @@ async fn test_concurrent_document_operations() {
     }
 
     // Concurrently open all documents
-    let service = Arc::new(tokio::sync::Mutex::new(service));
+    let service_arc = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
 
     for (uri, text) in uris.clone() {
-        let service = Arc::clone(&service);
+        let service = Arc::clone(&service_arc);
         let task = tokio::spawn(async move {
-            let params = DidOpenTextDocumentParams {
-                text_document: TextDocumentItem {
-                    uri: uri.clone(),
-                    language_id: "graphql".to_string(),
-                    version: 1,
-                    text: text.clone(),
-                },
-            };
-            let request = Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(&params).unwrap())
-                .finish();
-
             let mut svc = service.lock().await;
-            svc.call(request).await
+            lsp_did_open(&mut svc, uri, "graphql", 1, &text).await;
+            Ok::<(), tower_lsp::jsonrpc::Error>(())
         });
         tasks.push(task);
     }
@@ -163,29 +118,24 @@ async fn test_concurrent_document_operations() {
     // Now perform concurrent LSP operations on all documents
     let mut tasks = Vec::new();
 
-    for (i, (uri, _)) in uris.iter().enumerate() {
-        let service = Arc::clone(&service);
+    for (uri, _) in uris.iter() {
+        let service = Arc::clone(&service_arc);
         let uri = uri.clone();
-        let request_id = i as i64 + 100;
 
         // Hover request
         let task = tokio::spawn(async move {
-            let position = Position::new(3, 20); // Over "username"
             let params = HoverParams {
                 text_document_position_params: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier { uri: uri.clone() },
-                    position,
+                    text_document: TextDocumentIdentifier { uri },
+                    position: pos(3, 20), // Over "username"
                 },
                 work_done_progress_params: Default::default(),
             };
 
-            let request = Request::build("textDocument/hover")
-                .id(request_id)
-                .params(serde_json::to_value(&params).unwrap())
-                .finish();
-
             let mut svc = service.lock().await;
-            svc.call(request).await
+            let result: Option<Hover> =
+                lsp_request_typed(&mut svc, "textDocument/hover", &params).await;
+            Ok::<Option<Hover>, tower_lsp::jsonrpc::Error>(result)
         });
         tasks.push(task);
     }
@@ -203,73 +153,43 @@ async fn test_concurrent_document_operations() {
 async fn test_concurrent_completion_requests() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Create a test file
-    let query_path = dir.path().join("test.graphql");
     let text = "query { users {  } }";
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
+    let uri = write_project_file_at(dir.path(), "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Allow a brief moment for async processing
     sleep(Duration::from_millis(10)).await;
 
-    let service = Arc::new(tokio::sync::Mutex::new(service));
+    let service_arc = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
 
     // Fire 50 concurrent completion requests at the same position
-    for i in 0..50 {
-        let service = Arc::clone(&service);
+    for _ in 0..50 {
+        let service = Arc::clone(&service_arc);
         let uri = uri.clone();
 
         let task = tokio::spawn(async move {
-            let position = Position::new(0, 16); // Inside "users { | }"
             let params = CompletionParams {
                 text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier { uri: uri.clone() },
-                    position,
+                    text_document: TextDocumentIdentifier { uri },
+                    position: pos(0, 16), // Inside "users { | }"
                 },
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
                 context: None,
             };
 
-            let request = Request::build("textDocument/completion")
-                .id(i + 1000)
-                .params(serde_json::to_value(&params).unwrap())
-                .finish();
-
             let mut svc = service.lock().await;
-            svc.call(request).await
+            let result = lsp_request_typed::<CompletionResponse, _>(
+                &mut svc,
+                "textDocument/completion",
+                &params,
+            )
+            .await;
+            Ok::<CompletionResponse, tower_lsp::jsonrpc::Error>(result)
         });
         tasks.push(task);
     }
@@ -294,29 +214,13 @@ async fn test_concurrent_completion_requests() {
 async fn test_concurrent_mixed_operations() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Create multiple files
     let file_count = 10;
-    let mut uris = Vec::new();
+    let mut uris: Vec<(Url, String)> = Vec::new();
 
     for i in 0..file_count {
-        let query_path = dir.path().join(format!("file_{}.graphql", i));
         let text = format!(
             r#"
             fragment PostFields{} on Post {{
@@ -337,130 +241,102 @@ async fn test_concurrent_mixed_operations() {
             "#,
             i, i, i
         );
-        fs::write(&query_path, &text).unwrap();
-        let query_path = std::fs::canonicalize(query_path).unwrap();
-        let uri = Url::from_file_path(&query_path).unwrap();
+        let uri = write_project_file_at(dir.path(), &format!("file_{}.graphql", i), &text);
         uris.push((uri, text));
     }
 
     // Open all documents
     for (uri, text) in &uris {
-        let params = DidOpenTextDocumentParams {
-            text_document: TextDocumentItem {
-                uri: uri.clone(),
-                language_id: "graphql".to_string(),
-                version: 1,
-                text: text.clone(),
-            },
-        };
-        let request = Request::build("textDocument/didOpen")
-            .params(serde_json::to_value(&params).unwrap())
-            .finish();
-        service.call(request).await.unwrap();
+        lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
     }
 
     // Allow a brief moment for async processing
     sleep(Duration::from_millis(10)).await;
 
-    let service = Arc::new(tokio::sync::Mutex::new(service));
+    let service_arc = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
-    let mut request_id = 2000;
 
     // Mix different types of concurrent requests
     for (i, (uri, _)) in uris.iter().enumerate() {
-        let service = Arc::clone(&service);
+        let service = Arc::clone(&service_arc);
         let uri = uri.clone();
 
         // Hover
-        let hover_task = {
+        tasks.push(tokio::spawn({
             let service = Arc::clone(&service);
             let uri = uri.clone();
-            let id = request_id;
-            request_id += 1;
-            tokio::spawn(async move {
-                let position = Position::new(3, 20);
+            async move {
                 let params = HoverParams {
                     text_document_position_params: TextDocumentPositionParams {
                         text_document: TextDocumentIdentifier { uri },
-                        position,
+                        position: pos(3, 20),
                     },
                     work_done_progress_params: Default::default(),
                 };
-                let request = Request::build("textDocument/hover")
-                    .id(id)
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
-            })
-        };
-        tasks.push(hover_task);
+                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
+                Ok::<(), tower_lsp::jsonrpc::Error>(())
+            }
+        }));
 
         // Completion
-        let completion_task = {
+        tasks.push(tokio::spawn({
             let service = Arc::clone(&service);
             let uri = uri.clone();
-            let id = request_id;
-            request_id += 1;
-            tokio::spawn(async move {
-                let position = Position::new(3, 20);
+            async move {
                 let params = CompletionParams {
                     text_document_position: TextDocumentPositionParams {
                         text_document: TextDocumentIdentifier { uri },
-                        position,
+                        position: pos(3, 20),
                     },
                     work_done_progress_params: Default::default(),
                     partial_result_params: Default::default(),
                     context: None,
                 };
-                let request = Request::build("textDocument/completion")
-                    .id(id)
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
-            })
-        };
-        tasks.push(completion_task);
+                lsp_request_typed::<CompletionResponse, _>(
+                    &mut svc,
+                    "textDocument/completion",
+                    &params,
+                )
+                .await;
+                Ok::<(), tower_lsp::jsonrpc::Error>(())
+            }
+        }));
 
         // Definition
-        let definition_task = {
+        tasks.push(tokio::spawn({
             let service = Arc::clone(&service);
             let uri = uri.clone();
-            let id = request_id;
-            request_id += 1;
-            tokio::spawn(async move {
-                let position = Position::new(10, 25); // Over fragment spread
+            async move {
                 let params = GotoDefinitionParams {
                     text_document_position_params: TextDocumentPositionParams {
                         text_document: TextDocumentIdentifier { uri },
-                        position,
+                        position: pos(10, 25), // Over fragment spread
                     },
                     work_done_progress_params: Default::default(),
                     partial_result_params: Default::default(),
                 };
-                let request = Request::build("textDocument/definition")
-                    .id(id)
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
-            })
-        };
-        tasks.push(definition_task);
+                lsp_request_typed::<Option<GotoDefinitionResponse>, _>(
+                    &mut svc,
+                    "textDocument/definition",
+                    &params,
+                )
+                .await;
+                Ok::<(), tower_lsp::jsonrpc::Error>(())
+            }
+        }));
 
         // References
-        let references_task = {
+        tasks.push(tokio::spawn({
             let service = Arc::clone(&service);
             let uri = uri.clone();
-            let id = request_id;
-            request_id += 1;
-            tokio::spawn(async move {
-                let position = Position::new(2, 25); // Over fragment name
+            async move {
                 let params = ReferenceParams {
                     text_document_position: TextDocumentPositionParams {
                         text_document: TextDocumentIdentifier { uri },
-                        position,
+                        position: pos(2, 25), // Over fragment name
                     },
                     work_done_progress_params: Default::default(),
                     partial_result_params: Default::default(),
@@ -468,38 +344,38 @@ async fn test_concurrent_mixed_operations() {
                         include_declaration: true,
                     },
                 };
-                let request = Request::build("textDocument/references")
-                    .id(id)
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
-            })
-        };
-        tasks.push(references_task);
+                lsp_request_typed::<Option<Vec<Location>>, _>(
+                    &mut svc,
+                    "textDocument/references",
+                    &params,
+                )
+                .await;
+                Ok::<(), tower_lsp::jsonrpc::Error>(())
+            }
+        }));
 
         // Document symbols (every other file)
         if i % 2 == 0 {
-            let symbols_task = {
+            tasks.push(tokio::spawn({
                 let service = Arc::clone(&service);
                 let uri = uri.clone();
-                let id = request_id;
-                request_id += 1;
-                tokio::spawn(async move {
+                async move {
                     let params = DocumentSymbolParams {
                         text_document: TextDocumentIdentifier { uri },
                         work_done_progress_params: Default::default(),
                         partial_result_params: Default::default(),
                     };
-                    let request = Request::build("textDocument/documentSymbol")
-                        .id(id)
-                        .params(serde_json::to_value(&params).unwrap())
-                        .finish();
                     let mut svc = service.lock().await;
-                    svc.call(request).await
-                })
-            };
-            tasks.push(symbols_task);
+                    lsp_request_typed::<Option<DocumentSymbolResponse>, _>(
+                        &mut svc,
+                        "textDocument/documentSymbol",
+                        &params,
+                    )
+                    .await;
+                    Ok::<(), tower_lsp::jsonrpc::Error>(())
+                }
+            }));
         }
     }
 
@@ -534,24 +410,8 @@ async fn test_concurrent_mixed_operations() {
 async fn test_concurrent_document_changes() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = crate::support::create_service(config);
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-
-    let query_path = dir.path().join("test.graphql");
     let initial_text = r#"
         fragment UserFields on User {
             id
@@ -563,29 +423,15 @@ async fn test_concurrent_document_changes() {
             }
         }
     "#;
-    fs::write(&query_path, initial_text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file_at(dir.path(), "test.graphql", initial_text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, initial_text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: initial_text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    let service = Arc::new(tokio::sync::Mutex::new(service));
+    let service_arc = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
 
     // Simulate rapid concurrent document changes and reads
     for i in 0..30 {
-        let service = Arc::clone(&service);
+        let service = Arc::clone(&service_arc);
         let uri = uri.clone();
 
         let task = tokio::spawn(async move {
@@ -610,7 +456,7 @@ async fn test_concurrent_document_changes() {
                 let params = DidChangeTextDocumentParams {
                     text_document: VersionedTextDocumentIdentifier {
                         uri: uri.clone(),
-                        version: (i + 2) as i32,
+                        version: (i + 2),
                     },
                     content_changes: vec![TextDocumentContentChangeEvent {
                         range: None,
@@ -618,45 +464,34 @@ async fn test_concurrent_document_changes() {
                         text: new_text,
                     }],
                 };
-                let request = Request::build("textDocument/didChange")
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
+                svc.call(tower_lsp::jsonrpc::Request::build("textDocument/didChange").params(serde_json::to_value(&params).unwrap()).finish()).await
             } else if i % 3 == 1 {
                 // Completion during changes
-                let position = Position::new(3, 20);
                 let params = CompletionParams {
                     text_document_position: TextDocumentPositionParams {
                         text_document: TextDocumentIdentifier { uri },
-                        position,
+                        position: pos(3, 20),
                     },
                     work_done_progress_params: Default::default(),
                     partial_result_params: Default::default(),
                     context: None,
                 };
-                let request = Request::build("textDocument/completion")
-                    .id(i + 3000)
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
+                lsp_request_typed::<CompletionResponse, _>(&mut svc, "textDocument/completion", &params).await;
+                Ok(None)
             } else {
                 // Hover during changes
-                let position = Position::new(3, 20);
                 let params = HoverParams {
                     text_document_position_params: TextDocumentPositionParams {
                         text_document: TextDocumentIdentifier { uri },
-                        position,
+                        position: pos(3, 20),
                     },
                     work_done_progress_params: Default::default(),
                 };
-                let request = Request::build("textDocument/hover")
-                    .id(i + 3000)
-                    .params(serde_json::to_value(&params).unwrap())
-                    .finish();
                 let mut svc = service.lock().await;
-                svc.call(request).await
+                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
+                Ok(None)
             }
         });
         tasks.push(task);
@@ -684,25 +519,9 @@ async fn test_concurrent_document_changes() {
 async fn test_concurrent_cross_file_references() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Create a fragment file
-    let fragment_path = dir.path().join("fragments.graphql");
     let fragment_text = r#"
         fragment UserFields on User {
             id
@@ -716,14 +535,12 @@ async fn test_concurrent_cross_file_references() {
             content
         }
     "#;
-    fs::write(&fragment_path, fragment_text).unwrap();
-    let fragment_path = std::fs::canonicalize(fragment_path).unwrap();
-    let fragment_uri = Url::from_file_path(&fragment_path).unwrap();
+    let fragment_uri = write_project_file_at(dir.path(), "fragments.graphql", fragment_text);
+    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
 
     // Create multiple query files that use the fragments
-    let mut query_uris = Vec::new();
+    let mut query_uris: Vec<(Url, String)> = Vec::new();
     for i in 0..15 {
-        let query_path = dir.path().join(format!("query_{}.graphql", i));
         let query_text = r#"
             query GetData {
                 users {
@@ -734,59 +551,31 @@ async fn test_concurrent_cross_file_references() {
                 }
             }
         "#;
-        fs::write(&query_path, query_text).unwrap();
-        let query_path = std::fs::canonicalize(query_path).unwrap();
-        let uri = Url::from_file_path(&query_path).unwrap();
+        let uri = write_project_file_at(dir.path(), &format!("query_{}.graphql", i), query_text);
         query_uris.push((uri, query_text.to_string()));
     }
 
-    // Open fragment file
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: fragment_uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: fragment_text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
     // Open all query files
     for (uri, text) in &query_uris {
-        let params = DidOpenTextDocumentParams {
-            text_document: TextDocumentItem {
-                uri: uri.clone(),
-                language_id: "graphql".to_string(),
-                version: 1,
-                text: text.clone(),
-            },
-        };
-        let request = Request::build("textDocument/didOpen")
-            .params(serde_json::to_value(&params).unwrap())
-            .finish();
-        service.call(request).await.unwrap();
+        lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
     }
 
     // Allow workspace scan to complete
     sleep(Duration::from_millis(10)).await;
 
-    let service = Arc::new(tokio::sync::Mutex::new(service));
+    let service_arc = Arc::new(tokio::sync::Mutex::new(service));
     let mut tasks = Vec::new();
 
     // Concurrently request references for fragments from multiple files
-    for (i, (uri, _)) in query_uris.iter().enumerate() {
+    for (uri, _) in query_uris.iter() {
         // Find references to UserFields
-        let service1 = Arc::clone(&service);
+        let service1 = Arc::clone(&service_arc);
         let uri1 = uri.clone();
-        let task = tokio::spawn(async move {
-            let position = Position::new(4, 25); // Over UserFields spread
+        tasks.push(tokio::spawn(async move {
             let params = ReferenceParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier { uri: uri1 },
-                    position,
+                    position: pos(4, 25), // Over UserFields spread
                 },
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
@@ -794,36 +583,27 @@ async fn test_concurrent_cross_file_references() {
                     include_declaration: true,
                 },
             };
-            let request = Request::build("textDocument/references")
-                .id((i as i64) + 4000)
-                .params(serde_json::to_value(&params).unwrap())
-                .finish();
             let mut svc = service1.lock().await;
-            svc.call(request).await
-        });
-        tasks.push(task);
+            lsp_request_typed::<Option<Vec<Location>>, _>(&mut svc, "textDocument/references", &params).await;
+            Ok::<(), tower_lsp::jsonrpc::Error>(())
+        }));
 
         // Also request definition
-        let service2 = Arc::clone(&service);
+        let service2 = Arc::clone(&service_arc);
         let uri2 = uri.clone();
-        let def_task = tokio::spawn(async move {
-            let position = Position::new(4, 25);
+        tasks.push(tokio::spawn(async move {
             let params = GotoDefinitionParams {
                 text_document_position_params: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier { uri: uri2 },
-                    position,
+                    position: pos(4, 25),
                 },
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
             };
-            let request = Request::build("textDocument/definition")
-                .id((i as i64) + 5000)
-                .params(serde_json::to_value(&params).unwrap())
-                .finish();
             let mut svc = service2.lock().await;
-            svc.call(request).await
-        });
-        tasks.push(def_task);
+            lsp_request_typed::<Option<GotoDefinitionResponse>, _>(&mut svc, "textDocument/definition", &params).await;
+            Ok::<(), tower_lsp::jsonrpc::Error>(())
+        }));
     }
 
     println!("Executing {} concurrent cross-file operations", tasks.len());
@@ -852,24 +632,8 @@ async fn test_concurrent_cross_file_references() {
 async fn test_high_volume_concurrent_requests() {
     let dir = tempdir().unwrap();
     let config = create_test_config(dir.path());
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-
-    let query_path = dir.path().join("test.graphql");
     let text = r#"
         query {
             users {
@@ -883,26 +647,12 @@ async fn test_high_volume_concurrent_requests() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
+    let uri = write_project_file_at(dir.path(), "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     sleep(Duration::from_millis(10)).await;
 
-    let service = Arc::new(tokio::sync::Mutex::new(service));
+    let service_arc = Arc::new(tokio::sync::Mutex::new(service));
     let request_count = 100;
     let mut tasks = Vec::new();
 
@@ -910,47 +660,36 @@ async fn test_high_volume_concurrent_requests() {
 
     // Fire a very high volume of concurrent requests
     for i in 0..request_count {
-        let service = Arc::clone(&service);
+        let service = Arc::clone(&service_arc);
         let uri = uri.clone();
 
         let task = tokio::spawn(async move {
             let operation = i % 4;
+            let mut svc = service.lock().await;
             match operation {
                 0 => {
                     // Hover
-                    let position = Position::new(4, 20);
                     let params = HoverParams {
                         text_document_position_params: TextDocumentPositionParams {
                             text_document: TextDocumentIdentifier { uri },
-                            position,
+                            position: pos(4, 20),
                         },
                         work_done_progress_params: Default::default(),
                     };
-                    let request = Request::build("textDocument/hover")
-                        .id(i + 6000)
-                        .params(serde_json::to_value(&params).unwrap())
-                        .finish();
-                    let mut svc = service.lock().await;
-                    svc.call(request).await
+                    lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
                 }
                 1 => {
                     // Completion
-                    let position = Position::new(4, 20);
                     let params = CompletionParams {
                         text_document_position: TextDocumentPositionParams {
                             text_document: TextDocumentIdentifier { uri },
-                            position,
+                            position: pos(4, 20),
                         },
                         work_done_progress_params: Default::default(),
                         partial_result_params: Default::default(),
                         context: None,
                     };
-                    let request = Request::build("textDocument/completion")
-                        .id(i + 6000)
-                        .params(serde_json::to_value(&params).unwrap())
-                        .finish();
-                    let mut svc = service.lock().await;
-                    svc.call(request).await
+                    lsp_request_typed::<CompletionResponse, _>(&mut svc, "textDocument/completion", &params).await;
                 }
                 2 => {
                     // Document symbols
@@ -959,12 +698,7 @@ async fn test_high_volume_concurrent_requests() {
                         work_done_progress_params: Default::default(),
                         partial_result_params: Default::default(),
                     };
-                    let request = Request::build("textDocument/documentSymbol")
-                        .id(i + 6000)
-                        .params(serde_json::to_value(&params).unwrap())
-                        .finish();
-                    let mut svc = service.lock().await;
-                    svc.call(request).await
+                    lsp_request_typed::<Option<DocumentSymbolResponse>, _>(&mut svc, "textDocument/documentSymbol", &params).await;
                 }
                 _ => {
                     // Semantic tokens
@@ -973,14 +707,10 @@ async fn test_high_volume_concurrent_requests() {
                         work_done_progress_params: Default::default(),
                         partial_result_params: Default::default(),
                     };
-                    let request = Request::build("textDocument/semanticTokens/full")
-                        .id(i + 6000)
-                        .params(serde_json::to_value(&params).unwrap())
-                        .finish();
-                    let mut svc = service.lock().await;
-                    svc.call(request).await
+                    lsp_request_typed::<Option<SemanticTokensResult>, _>(&mut svc, "textDocument/semanticTokens/full", &params).await;
                 }
             }
+            Ok::<(), tower_lsp::jsonrpc::Error>(())
         });
         tasks.push(task);
     }

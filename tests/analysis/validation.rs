@@ -2,8 +2,6 @@ use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
 
-use super::common;
-
 use crate::support::{create_doc, get_valid_schema};
 
 // Shared schema for tests
@@ -61,7 +59,7 @@ fn test_validation_missing_field() {
         });
     assert_eq!(error.severity, Some(DiagnosticSeverity::ERROR));
     // Range should point at the field name occurrence
-    let expected = common::range_for_token(&doc, text, "nonExistentField");
+    let expected = crate::support::range_for_token(&doc, text, "nonExistentField");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
 }
@@ -93,7 +91,7 @@ fn test_validation_deprecated_field() {
         });
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
     // Range should point at the field name
-    let expected = common::range_for_token(&doc, text, "oldField");
+    let expected = crate::support::range_for_token(&doc, text, "oldField");
     assert_eq!(warning.range.start, expected.start);
     assert_eq!(warning.range.end, expected.end);
 }
@@ -130,7 +128,7 @@ fn test_validation_nested_missing_field() {
             )
         });
     // Range should point at the missing field
-    let expected = common::range_for_token(&doc, text, "missingInAuthor");
+    let expected = crate::support::range_for_token(&doc, text, "missingInAuthor");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
 }
@@ -161,7 +159,7 @@ fn test_validation_fragment() {
                 expected_message, diagnostics
             )
         });
-    let expected = common::range_for_token(&doc, text, "missingInFragment");
+    let expected = crate::support::range_for_token(&doc, text, "missingInFragment");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
 }
@@ -196,7 +194,7 @@ fn test_validation_inline_fragment() {
                 expected_message, diagnostics
             )
         });
-    let expected = common::range_for_token(&doc, text, "nonExistentOnUser");
+    let expected = crate::support::range_for_token(&doc, text, "nonExistentOnUser");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
 }
@@ -225,7 +223,7 @@ fn test_validation_unknown_fragment_spread() {
                 expected_message, diagnostics
             )
         });
-    let expected = common::range_for_token(&doc, text, "UnknownFrag");
+    let expected = crate::support::range_for_token(&doc, text, "UnknownFrag");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
 }
@@ -370,7 +368,7 @@ fn test_validation_input_field_deprecation() {
         });
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
     // Range should point at oldField occurrence
-    let expected = common::range_for_token(&doc, text, "oldField");
+    let expected = crate::support::range_for_token(&doc, text, "oldField");
     assert_eq!(warning.range.start, expected.start);
     assert_eq!(warning.range.end, expected.end);
 }
@@ -438,7 +436,7 @@ fn test_validation_unions_and_interfaces() {
                 expected_message, diagnostics
             )
         });
-    let expected = common::range_for_token(&doc, text, "id");
+    let expected = crate::support::range_for_token(&doc, text, "id");
     assert_eq!(error.range.start, expected.start);
     assert_eq!(error.range.end, expected.end);
 
@@ -534,7 +532,7 @@ fn test_validation_circular_fragments() {
 
     // The diagnostic range should point at the last fragment name mentioned in the message
     let last_name = "FragA";
-    let expected = common::range_for_token(&doc, text, last_name);
+    let expected = crate::support::range_for_token(&doc, text, last_name);
     assert_eq!(diag.range.start, expected.start);
     assert_eq!(diag.range.end, expected.end);
 }
@@ -571,7 +569,7 @@ fn test_validation_circular_fragments_three_way() {
 
     // Range should point to the last fragment name mentioned in the message (A)
     let last_name = "A";
-    let expected = common::range_for_token(&doc, text, last_name);
+    let expected = crate::support::range_for_token(&doc, text, last_name);
     assert_eq!(diag.range.start, expected.start);
     assert_eq!(diag.range.end, expected.end);
 }

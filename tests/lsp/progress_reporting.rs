@@ -1,11 +1,11 @@
+use crate::support::{self};
 use futures_util::StreamExt;
 use graphql_rust::{
-    Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
+    Config,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
-use crate::support;
 use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::jsonrpc::Request;
@@ -35,7 +35,6 @@ async fn test_progress_on_workspace_scan() {
     }
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
@@ -45,19 +44,10 @@ async fn test_progress_on_workspace_scan() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -136,13 +126,6 @@ async fn test_progress_on_workspace_scan() {
             == Some("begin")
     });
 
-    let _has_report = notifications.iter().any(|n| {
-        n.get("value")
-            .and_then(|v| v.get("kind"))
-            .and_then(|k| k.as_str())
-            == Some("report")
-    });
-
     let has_end = notifications.iter().any(|n| {
         n.get("value")
             .and_then(|v| v.get("kind"))
@@ -152,7 +135,6 @@ async fn test_progress_on_workspace_scan() {
 
     assert!(has_begin, "Should have begin progress notification");
     assert!(has_end, "Should have end progress notification");
-    // Report may or may not appear depending on timing
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -178,7 +160,6 @@ async fn test_no_progress_without_capability() {
     }
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
@@ -188,19 +169,10 @@ async fn test_no_progress_without_capability() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -272,7 +244,8 @@ async fn test_progress_on_codegen() {
     fs::write(&schema_path, "type Query { me: String }").unwrap();
 
     let query_path = base_dir.join("query.graphql");
-    fs::write(&query_path, "query GetMe { me }").unwrap();
+    let query_text = "query GetMe { me }";
+    fs::write(&query_path, query_text).unwrap();
 
     let output_dir = "generated";
     fs::create_dir(base_dir.join(output_dir)).unwrap();
@@ -288,19 +261,10 @@ async fn test_progress_on_codegen() {
             generate_permissions: None,
             codegen: None, // This test needs codegen enabled
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -418,7 +382,6 @@ async fn test_progress_messages_contain_percentage() {
     }
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
@@ -428,19 +391,10 @@ async fn test_progress_messages_contain_percentage() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);

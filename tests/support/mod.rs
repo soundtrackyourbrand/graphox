@@ -301,6 +301,7 @@ pub fn make_temp_project_with_schema(
     let dir = TempDir::new().expect("failed to create tempdir");
     let schema_path = dir.path().join("schema.graphql");
     fs::write(&schema_path, schema_text).expect("write schema");
+    fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
 
     let config = Config {
         base_dir: dir.path().to_path_buf(),
@@ -356,6 +357,21 @@ pub fn completion_items_array(
     }
 }
 
+/// Send an LSP notification.
+pub async fn lsp_send_notification<P>(
+    service: &mut LspService<LspBackend>,
+    method: &'static str,
+    params: &P,
+) where
+    P: serde::Serialize,
+{
+    let request = Request::build(method)
+        .params(serde_json::to_value(params).unwrap())
+        .finish();
+
+    let _ = Service::call(service, request).await.unwrap();
+}
+
 /// Generic helper to send an arbitrary LSP request and parse the typed response.
 /// Useful for tests that need to call non-trivial methods without writing
 /// the Request building/parsing boilerplate each time.
@@ -377,6 +393,11 @@ where
         Ok(res) => res.unwrap(),
         Err(e) => panic!("LSP request failed: {}", e),
     };
+
+    if let Some(err) = response.error() {
+        panic!("LSP Error response for {}: {:?}", method, err);
+    }
+
     serde_json::from_value(response.result().unwrap().clone()).unwrap()
 }
 
@@ -401,7 +422,12 @@ pub fn find_code_action_or_command_by_title(
 /// Write a file inside `dir` at `rel` and return a `Url` to the file. Convenience
 /// wrapper used by tests that build temporary project layouts.
 pub fn write_project_file(dir: &TempDir, rel: &str, contents: &str) -> Url {
-    let path = dir.path().join(rel);
+    write_project_file_at(dir.path(), rel, contents)
+}
+
+/// Variant of `write_project_file` that takes a `Path` instead of a `TempDir`.
+pub fn write_project_file_at(dir: &Path, rel: &str, contents: &str) -> Url {
+    let path = dir.join(rel);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create dirs");
     }
@@ -451,66 +477,75 @@ pub fn apply_completion_item(
 ) -> (String, Option<Position>) {
     use tower_lsp::lsp_types::CompletionTextEdit;
 
+    let mut new_text = original.to_string();
+    let mut snippet_text = None;
+    let mut start_pos = position;
+
     // If item has a TextEdit, apply it
-    if let Some(te) = &item.text_edit
-        && let CompletionTextEdit::Edit(text_edit) = te {
-            let new = apply_text_edit(original, &text_edit.clone());
-            return (new, None);
+    if let Some(te) = &item.text_edit {
+        match te {
+            CompletionTextEdit::Edit(text_edit) => {
+                new_text = apply_text_edit(original, text_edit);
+                snippet_text = Some(text_edit.new_text.clone());
+                start_pos = text_edit.range.start;
+            }
+            CompletionTextEdit::InsertAndReplace(_) => {
+                // Not handled yet, fallback to original behavior for now
+            }
         }
+    } else {
+        // Otherwise, use insert_text or label at position
+        let insert_text = item.insert_text.as_deref().unwrap_or(&item.label);
+        snippet_text = Some(insert_text.to_string());
 
-    // Otherwise, insert insert_text or label at position
-    let insert_text = item
-        .insert_text.as_deref()
-        .unwrap_or(&item.label);
-
-    // Handle snippet $0
-    if insert_text.contains("$0") {
-        let before = insert_text.split("$0").next().unwrap_or("");
-        let lines_before = before.matches('\n').count() as u32;
-        let last_line = before.lines().last().unwrap_or("");
-
-        // Build new text by inserting the text at the given position
         let mut lines: Vec<String> = original.split('\n').map(|s| s.to_string()).collect();
         let line_idx = position.line as usize;
         if line_idx >= lines.len() {
-            // append
             let mut s = original.to_string();
-            s.push_str(&insert_text.replace("$0", ""));
-            return (s, None);
+            s.push_str(insert_text);
+            new_text = s;
+        } else {
+            let line = &lines[line_idx];
+            let char_idx = position.character as usize;
+            let prefix = &line[..char_idx.min(line.len())];
+            let suffix = &line[char_idx.min(line.len())..];
+            lines[line_idx] = format!("{}{}{}", prefix, insert_text, suffix);
+            new_text = lines.join("\n");
         }
-        let line = &lines[line_idx];
-        let char_idx = position.character as usize;
-        let prefix = &line[..char_idx.min(line.len())];
-        let suffix = &line[char_idx.min(line.len())..];
-        let inserted = insert_text.replace("$0", "");
-        lines[line_idx] = format!("{}{}{}", prefix, inserted, suffix);
-        let new = lines.join("\n");
+    }
 
-        // Compute new cursor position
-        let expected_line = position.line + lines_before;
+    // If we have a snippet, compute the new position
+    // Special case: if text_edit didn't have $0 but insert_text did, use insert_text for snippet calculation
+    let effective_snippet = if let Some(ref s) = snippet_text
+        && s.contains("$0")
+    {
+        Some(s.clone())
+    } else {
+        item.insert_text
+            .as_ref()
+            .filter(|s| s.contains("$0"))
+            .cloned()
+    };
+
+    if let Some(snippet) = effective_snippet {
+        let before = snippet.split("$0").next().unwrap_or("");
+        let lines_before = before.matches('\n').count() as u32;
+        let last_line = before.lines().last().unwrap_or("");
+
+        let expected_line = start_pos.line + lines_before;
         let expected_char = if lines_before > 0 {
             last_line.chars().count() as u32
         } else {
-            position.character + last_line.chars().count() as u32
+            start_pos.character + last_line.chars().count() as u32
         };
 
-        return (new, Some(pos(expected_line, expected_char)));
+        // Also make sure to remove $0 from the final text if it was applied via insert_text logic
+        // (apply_text_edit doesn't know about $0)
+        let final_content = new_text.replace("$0", "");
+        return (final_content, Some(pos(expected_line, expected_char)));
     }
 
-    // Simple insertion
-    let mut lines: Vec<String> = original.split('\n').map(|s| s.to_string()).collect();
-    let line_idx = position.line as usize;
-    if line_idx >= lines.len() {
-        let mut s = original.to_string();
-        s.push_str(insert_text);
-        return (s, None);
-    }
-    let line = &lines[line_idx];
-    let char_idx = position.character as usize;
-    let prefix = &line[..char_idx.min(line.len())];
-    let suffix = &line[char_idx.min(line.len())..];
-    lines[line_idx] = format!("{}{}{}", prefix, insert_text, suffix);
-    (lines.join("\n"), None)
+    (new_text, None)
 }
 
 /// Convenience constructor for LSP positions.

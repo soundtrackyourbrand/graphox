@@ -1,21 +1,19 @@
+use crate::support::{
+    completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
+};
 use std::fs;
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
-
-// Use shared helpers from tests/support/mod.rs; local helpers removed.
 
 #[tokio::test]
 async fn test_hover_inside_inline_fragment() {
-    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+    let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
-    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("query.graphql");
     let text = r#"
         query {
             search {
@@ -25,62 +23,11 @@ async fn test_hover_inside_inline_fragment() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "query.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    // Hover over 'username' inside the inline fragment
-    let username_pos = text.find("username").unwrap();
-    let position = {
-        let mut line = 0;
-        let mut col = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == username_pos {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        Position::new(line, col)
-    };
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    // Hover over 'username' inside the inline fragment (line 4, column 20 is approximate, let's use exact)
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(4, 20)).await;
 
     assert!(
         result.is_some(),
@@ -97,38 +44,7 @@ async fn test_hover_inside_inline_fragment() {
     }
 
     // Hover over 'User' type condition
-    let user_pos = text.find("User").unwrap();
-    let position = {
-        let mut line = 0;
-        let mut col = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == user_pos {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        Position::new(line, col)
-    };
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(3, 23)).await;
 
     assert!(
         result.is_some(),
@@ -147,15 +63,13 @@ async fn test_hover_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_goto_definition_inside_inline_fragment() {
-    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+    let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
-    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("query.graphql");
     let text = r#"
         fragment UserFields on User {
             id
@@ -168,64 +82,21 @@ async fn test_goto_definition_inside_inline_fragment() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri = write_project_file(&dir, "query.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Go to definition for 'UserFields' inside the inline fragment
-    let spread_pos = text.rfind("UserFields").unwrap();
-    let position = {
-        let mut line = 0;
-        let mut col = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == spread_pos {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        Position::new(line, col)
-    };
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
+            position: pos(7, 23),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let request = Request::build("textDocument/definition")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
 
     assert!(
         result.is_some(),
@@ -235,15 +106,13 @@ async fn test_goto_definition_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_completion_inside_inline_fragment() {
-    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+    let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
-    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("query.graphql");
     let text = r#"
         query {
             search {
@@ -253,70 +122,12 @@ async fn test_completion_inside_inline_fragment() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri = write_project_file(&dir, "query.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Completion inside the inline fragment
-    let pos1 = text.find("{").unwrap(); // first {
-    let pos2 = text[pos1 + 1..].find("{").unwrap() + pos1 + 1; // second {
-    let pos3 = text[pos2 + 1..].find("{").unwrap() + pos2 + 1; // third { (inside User)
-
-    let position = {
-        let mut line = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == pos3 + 1 {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-            }
-        }
-        Position::new(line + 1, 20) // One line after the bracket
-    };
-
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
-
-    let request = Request::build("textDocument/completion")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: CompletionResponse =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let items = match result {
-        CompletionResponse::Array(arr) => arr,
-        CompletionResponse::List(list) => list.items,
-    };
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(4, 20)).await;
+    let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(
@@ -333,15 +144,13 @@ async fn test_completion_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_references_inside_inline_fragment() {
-    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+    let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
-    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("query.graphql");
     let text = r#"
         fragment UserFields on User {
             id
@@ -354,52 +163,14 @@ async fn test_references_inside_inline_fragment() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri = write_project_file(&dir, "query.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Find references for 'UserFields'
-    let def_pos = text.find("UserFields").unwrap();
-    let position = {
-        let mut line = 0;
-        let mut col = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == def_pos {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        Position::new(line, col)
-    };
-
     let params = ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
+            position: pos(1, 17),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -408,14 +179,8 @@ async fn test_references_inside_inline_fragment() {
         },
     };
 
-    let request = Request::build("textDocument/references")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<Vec<Location>> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "textDocument/references", &params).await;
 
     let locations = result.expect("Expected locations");
     // Should find the definition and the spread inside the inline fragment
@@ -428,15 +193,13 @@ async fn test_references_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_rename_inside_inline_fragment() {
-    let (dir, mut config) = crate::support::make_temp_project_with_schema(
+    let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
-    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("query.graphql");
     let text = r#"
         fragment UserFields on User {
             id
@@ -449,65 +212,21 @@ async fn test_rename_inside_inline_fragment() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri = write_project_file(&dir, "query.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Rename 'UserFields'
-    let def_pos = text.find("UserFields").unwrap();
-    let position = {
-        let mut line = 0;
-        let mut col = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == def_pos {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        Position::new(line, col)
-    };
-
     let params = RenameParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
+            position: pos(1, 17),
         },
         new_name: "RenamedUserFields".to_string(),
         work_done_progress_params: Default::default(),
     };
 
-    let request = Request::build("textDocument/rename")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<WorkspaceEdit> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "textDocument/rename", &params).await;
 
     let edit = result.expect("Expected workspace edit");
     let changes = edit.changes.expect("Expected changes");
@@ -523,39 +242,16 @@ async fn test_rename_inside_inline_fragment() {
 
 #[tokio::test]
 async fn test_goto_definition_field_in_schema() {
-    let (dir, mut config) = crate::support::make_temp_project_with_schema(
-        "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
-        "**/*.graphql",
-    );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    let schema_text = "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ";
+    let (dir, mut config) = make_temp_project_with_schema(schema_text, "**/*.graphql");
     config.base_dir = dir.path().to_path_buf();
-    let (mut service, _) = crate::support::create_initialized_lsp_service(config).await;
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
     // Open schema first so it's in documents
     let schema_path = dir.path().join("schema.graphql");
-    let schema_text = fs::read_to_string(&schema_path).unwrap();
-    let schema_uri = Url::from_file_path(&schema_path).unwrap();
+    let schema_uri = Url::from_file_path(fs::canonicalize(&schema_path).unwrap()).unwrap();
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
 
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: schema_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: schema_text,
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let query_path = dir.path().join("query.graphql");
     let text = r#"
         query {
             search {
@@ -565,64 +261,21 @@ async fn test_goto_definition_field_in_schema() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri = write_project_file(&dir, "query.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Go to definition for 'username'
-    let username_pos = text.find("username").unwrap();
-    let position = {
-        let mut line = 0;
-        let mut col = 0;
-        for (i, c) in text.chars().enumerate() {
-            if i == username_pos {
-                break;
-            }
-            if c == '\n' {
-                line += 1;
-                col = 0;
-            } else {
-                col += 1;
-            }
-        }
-        Position::new(line, col)
-    };
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
+            position: pos(4, 20),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let request = Request::build("textDocument/definition")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
 
     assert!(
         result.is_some(),

@@ -1,15 +1,13 @@
+use crate::support::{self, lsp_did_open, lsp_request_typed};
 use futures_util::StreamExt;
-use graphql_rust::{Backend, Config};
 use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphql_rust::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tokio::time::Duration;
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
-use crate::support;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_pull_circular_fragments() {
@@ -37,7 +35,6 @@ async fn test_lsp_pull_circular_fragments() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
@@ -49,7 +46,7 @@ async fn test_lsp_pull_circular_fragments() {
         }],
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        ..Config::default()
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -59,12 +56,10 @@ async fn test_lsp_pull_circular_fragments() {
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
                 let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
-                received_push_diags_clone
-                    .lock()
-                    .unwrap()
-                    .push(params);
+                received_push_diags_clone.lock().unwrap().push(params);
             }
         }
     });
@@ -84,22 +79,12 @@ async fn test_lsp_pull_circular_fragments() {
         ..Default::default()
     };
 
-    let response = service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(&init_params).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let result: InitializeResult = serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
+    let result: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
     assert!(result.capabilities.diagnostic_provider.is_some());
 
     service
         .call(
-            Request::build("initialized")
+            tower_lsp::jsonrpc::Request::build("initialized")
                 .params(serde_json::json!({}))
                 .finish(),
         )
@@ -107,30 +92,13 @@ async fn test_lsp_pull_circular_fragments() {
         .unwrap();
 
     // Open the files
-    for (uri, text) in [
-        (frag_a_path.clone(), frag_a_text.to_string()),
-        (frag_b_path.clone(), frag_b_text.to_string()),
-        (query_path.clone(), query_text.to_string()),
+    for (path, text) in [
+        (&frag_a_path, frag_a_text),
+        (&frag_b_path, frag_b_text),
+        (&query_path, query_text),
     ] {
-        let url = Url::from_file_path(uri).unwrap();
-        service
-            .call(
-                Request::build("textDocument/didOpen")
-                    .params(
-                        serde_json::to_value(DidOpenTextDocumentParams {
-                            text_document: TextDocumentItem {
-                                uri: url.clone(),
-                                language_id: "graphql".to_string(),
-                                version: 1,
-                                text,
-                            },
-                        })
-                        .unwrap(),
-                    )
-                    .finish(),
-            )
-            .await
-            .unwrap();
+        let url = Url::from_file_path(path).unwrap();
+        lsp_did_open(&mut service, url, "graphql", 1, text).await;
     }
 
     // Wait for validation
@@ -145,17 +113,8 @@ async fn test_lsp_pull_circular_fragments() {
         partial_result_params: Default::default(),
     };
 
-    let response = service
-        .call(
-            Request::build("textDocument/diagnostic")
-                .params(serde_json::to_value(&diag_params).unwrap())
-                .id(1)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let result: DocumentDiagnosticReportResult = serde_json::from_value(response.unwrap().result().unwrap().clone()).unwrap();
+    let result: DocumentDiagnosticReportResult =
+        lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
 
     match result {
         DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
@@ -164,18 +123,15 @@ async fn test_lsp_pull_circular_fragments() {
                 "Should have diagnostics for circular fragments"
             );
 
-            let found = report
-                .full_document_diagnostic_report
-                .items
-                .iter()
-                .any(|it| it.message.contains("Circular fragment reference") || it.message.contains("circular_fragment"));
-            assert!(found, "Expected circular fragment diagnostic in pull report");
+            let found = report.full_document_diagnostic_report.items.iter().any(|it| {
+                it.message.contains("Circular fragment reference")
+                    || it.message.contains("circular_fragment")
+            });
+            assert!(
+                found,
+                "Expected circular fragment diagnostic in pull report"
+            );
         }
         _ => panic!("Expected full diagnostic report from pull request"),
     }
-
-    // Also ensure we didn't receive empty push diagnostics only
-    let push_diags = received_push_diags.lock().unwrap();
-    // It's ok whether push diagnostics were sent; at least pull returned the diagnostic.
-    assert!(push_diags.len() >= 0);
 }

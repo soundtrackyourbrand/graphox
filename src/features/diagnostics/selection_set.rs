@@ -103,20 +103,24 @@ impl DocumentState {
                 && let Some(true) = rules.no_duplicate_fields
             {
                 // Only consider shallow duplicates within the same selection set level
-                // We use depth to ensure we only check within the current selection set
                 if depth >= 1 {
-                    // Track seen names locally per selection set via a temporary set on the context
-                    // We don't want this to span fragments, so this check is only per invocation
-                    // of validate_selection_set; implement by using a synthetic key combining
-                    // the parent node's start_byte and current depth.
-                    // For simplicity, we do a local scan of sibling fields here.
-                    if let Some(parent) = field_node.parent() {
-                        // Scan siblings for earlier occurrences of the same response key
-                        // We consider two fields to be equivalent (and therefore NOT duplicates)
-                        // if they have the same response key (alias or name), identical
-                        // arguments text (or both absent), and identical selection sets (or both absent).
-                        // If a prior sibling has the same response key but different arguments or selection
-                        // set, we treat that as a duplicate conflict.
+                    // Find the parent selection set and our "unit" node (either selection or field)
+                    let (parent, unit_node) = if let Some(p) = field_node.parent() {
+                        if p.kind() == "selection" {
+                            if let Some(pp) = p.parent() {
+                                (pp, p)
+                            } else {
+                                (p, field_node)
+                            }
+                        } else {
+                            (p, field_node)
+                        }
+                    } else {
+                        // fallback
+                        (field_node, field_node)
+                    };
+
+                    if parent.kind() == "selection_set" {
                         let mut seen_conflict = false;
                         let mut cursor = parent.walk();
 
@@ -129,52 +133,58 @@ impl DocumentState {
                             .unwrap_or_default();
 
                         for sibling in parent.children(&mut cursor) {
-                            if sibling.id() == field_node.id() {
+                            if sibling.id() == unit_node.id() {
                                 // stop scanning once we reach ourselves
                                 break;
                             }
 
                             if sibling.kind() == "selection" || sibling.kind() == "field" {
-                                // find sibling response key (alias or name), args, and selection text
-                                let mut s_cursor = sibling.walk();
-                                let mut sibling_key = None;
-                                let mut sibling_args = String::new();
-                                let mut sibling_sel = String::new();
-
-                                for s_child in sibling.children(&mut s_cursor) {
-                                    if s_child.kind() == "alias" {
-                                        // alias node contains a name child
-                                        let mut a_cursor = s_child.walk();
-                                        for a_child in s_child.children(&mut a_cursor) {
-                                            if a_child.kind() == "name" {
-                                                sibling_key =
-                                                    Some(self.get_node_text(a_child, offset));
-                                                break;
-                                            }
+                                // If sibling is a selection, we need to look at its child field
+                                let target_node = if sibling.kind() == "selection" {
+                                    let mut found = None;
+                                    let mut s_cursor = sibling.walk();
+                                    for s_child in sibling.children(&mut s_cursor) {
+                                        if s_child.kind() == "field" {
+                                            found = Some(s_child);
+                                            break;
                                         }
-                                    } else if s_child.kind() == "name" {
-                                        if sibling_key.is_none() {
-                                            sibling_key = Some(self.get_node_text(s_child, offset));
-                                        }
-                                    } else if s_child.kind() == "arguments" {
-                                        sibling_args = self.get_node_text(s_child, offset);
-                                    } else if s_child.kind() == "selection_set" {
-                                        sibling_sel = self.get_node_text(s_child, offset);
                                     }
-                                }
+                                    found
+                                } else {
+                                    Some(sibling)
+                                };
 
-                                if let Some(s_key) = sibling_key
-                                    && s_key == response_key
-                                {
-                                    // same response key; check if args and selection match
-                                    if sibling_args != field_args_text
-                                        || sibling_sel != field_sel_text
-                                    {
-                                        seen_conflict = true;
-                                        break;
-                                    } else {
-                                        // identical field occurrence (same args/selection): ignore
-                                        // continue scanning
+                                if let Some(target) = target_node {
+                                    // find sibling response key (alias or name)
+                                    let mut s_cursor = target.walk();
+                                    let mut sibling_key = None;
+
+                                    for s_child in target.children(&mut s_cursor) {
+                                        if s_child.kind() == "alias" {
+                                            // alias node contains a name child
+                                            let mut a_cursor = s_child.walk();
+                                            for a_child in s_child.children(&mut a_cursor) {
+                                                if a_child.kind() == "name" {
+                                                    sibling_key =
+                                                        Some(self.get_node_text(a_child, offset));
+                                                    break;
+                                                }
+                                            }
+                                        } else if s_child.kind() == "name"
+                                            && sibling_key.is_none() {
+                                                sibling_key =
+                                                    Some(self.get_node_text(s_child, offset));
+                                            }
+                                    }
+
+                                    if let Some(s_key) = sibling_key {
+                                        println!("    SIBLING KEY: {}, CURRENT KEY: {}", s_key, response_key);
+                                        if s_key == response_key {
+                                            // same response key; treated as duplicate
+                                            seen_conflict = true;
+                                            println!("    CONFLICT FOUND!");
+                                            break;
+                                        }
                                     }
                                 }
                             }

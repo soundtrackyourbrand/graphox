@@ -1,13 +1,14 @@
+use crate::support::{self, lsp_did_open, lsp_request_hover, pos};
 use futures_util::StreamExt;
 use graphql_rust::{
-    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    config::{GlobPattern, ProjectConfig, SchemaSource},
+    Config,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::jsonrpc::Request;
-use crate::support;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
@@ -32,7 +33,6 @@ async fn test_workspace_scan_concurrency() {
     }
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
@@ -42,19 +42,10 @@ async fn test_workspace_scan_concurrency() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -113,49 +104,13 @@ async fn test_workspace_scan_concurrency() {
     // The scan is now running in the background.
 
     // 2. Immediately open a new file
-    let new_file_path = base_dir.join("new_file.graphql");
     let new_file_text = "query NewQuery { me { name } }";
-    fs::write(&new_file_path, new_file_text).unwrap();
-    let new_file_uri = Url::from_file_path(&new_file_path).unwrap();
+    let new_file_uri = crate::support::write_project_file_at(&base_dir, "new_file.graphql", new_file_text);
 
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: new_file_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: new_file_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, new_file_uri.clone(), "graphql", 1, new_file_text).await;
 
     // 3. Request hover immediately
-    let hover_params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: new_file_uri.clone(),
-            },
-            position: Position::new(0, 22), // on 'name'
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let hover_request = Request::build("textDocument/hover")
-        .id(2)
-        .params(serde_json::to_value(&hover_params).unwrap())
-        .finish();
-
-    let hover_response = service.call(hover_request).await.unwrap().unwrap();
-    let hover_result: Option<Hover> =
-        serde_json::from_value(hover_response.result().unwrap().clone()).unwrap();
+    let hover_result = lsp_request_hover(&mut service, new_file_uri.clone(), pos(0, 22)).await;
 
     assert!(
         hover_result.is_some(),

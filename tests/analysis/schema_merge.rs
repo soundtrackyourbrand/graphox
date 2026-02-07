@@ -1,15 +1,13 @@
+use crate::support::{self, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
 use graphql_rust::{
-    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    config::GlobPattern, config::ProjectConfig, config::SchemaSource, Config,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
-use tokio::time::{Duration, sleep};
-use tower_lsp::jsonrpc::Request;
+use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
-use crate::support;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_merge() {
@@ -31,7 +29,6 @@ async fn test_lsp_multi_schema_merge() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Multiple(vec![
                 "schema1.graphql".to_string(),
@@ -44,19 +41,10 @@ async fn test_lsp_multi_schema_merge() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -71,38 +59,13 @@ async fn test_lsp_multi_schema_merge() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // If merging works, diagnostics should be empty.
-    sleep(Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty(), "Should have received diagnostics");
@@ -135,7 +98,6 @@ async fn test_lsp_multi_schema_extension_first() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Multiple(vec![
                 "schema1.graphql".to_string(),
@@ -148,19 +110,10 @@ async fn test_lsp_multi_schema_extension_first() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -175,37 +128,12 @@ async fn test_lsp_multi_schema_extension_first() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    sleep(Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -242,7 +170,6 @@ async fn test_lsp_multi_schema_with_docs() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Multiple(vec![
                 "schema1.graphql".to_string(),
@@ -255,19 +182,10 @@ async fn test_lsp_multi_schema_with_docs() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -282,37 +200,12 @@ async fn test_lsp_multi_schema_with_docs() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    sleep(Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -345,7 +238,6 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Multiple(vec![
                 "schema1.graphql".to_string(),
@@ -358,9 +250,10 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
             generate_permissions: None,
             codegen: Some(false),
         }],
+        enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        ..Config::default()
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -375,37 +268,12 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    sleep(Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -441,7 +309,6 @@ async fn test_lsp_multi_schema_triple_overlap() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Multiple(vec![
                 "schema1.graphql".to_string(),
@@ -455,19 +322,10 @@ async fn test_lsp_multi_schema_triple_overlap() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -482,37 +340,12 @@ async fn test_lsp_multi_schema_triple_overlap() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    sleep(Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());
@@ -545,7 +378,6 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Multiple(vec![
                 "schema1.graphql".to_string(),
@@ -558,19 +390,10 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -585,37 +408,12 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    sleep(Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
     assert!(!diags.is_empty());

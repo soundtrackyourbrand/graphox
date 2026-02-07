@@ -1,6 +1,5 @@
 use graphql_rust::Config;
 use std::fs;
-use std::io::Write;
 use tempfile::tempdir;
 
 #[test]
@@ -8,16 +7,15 @@ use tempfile::tempdir;
 fn test_config_multiple_schemas() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("graphql.yaml");
-    let mut file = fs::File::create(config_path).unwrap();
-    writeln!(
-        file,
+    fs::write(
+        config_path,
         r#"
 projects:
   - schema:
       - base.graphql
       - extension.graphql
     include: "src/**/*.ts"
-"#
+"#,
     )
     .unwrap();
 
@@ -33,11 +31,12 @@ projects:
 async fn test_multiple_schemas_loading() {
     let dir = tempdir().unwrap();
 
-    let base_path = dir.path().join("base.graphql");
-    fs::write(&base_path, "type Query { foo: String }").unwrap();
-
-    let ext_path = dir.path().join("extension.graphql");
-    fs::write(&ext_path, "extend type Query { bar: Int }").unwrap();
+    fs::write(dir.path().join("base.graphql"), "type Query { foo: String }").unwrap();
+    fs::write(
+        dir.path().join("extension.graphql"),
+        "extend type Query { bar: Int }",
+    )
+    .unwrap();
 
     let config_path = dir.path().join("graphql.yaml");
     fs::write(
@@ -53,10 +52,11 @@ projects:
     .unwrap();
 
     let config = Config::load_from_dir(dir.path()).expect("Should load config");
-    let (_service, _) =
-        tower_lsp::LspService::new(|client| graphql_rust::Backend::new(client, config.clone()));
+    let (mut service, _) = crate::support::create_service(config);
+    crate::support::lsp_initialize_sequence(&mut service).await;
 
-    // Check if the backend loaded the merged schema
-    // We can't easily access the backend from the service here without some tricks,
-    // but we can test the load_schema_source directly if we want.
+    // Check if the backend loaded the merged schema via the backend instance
+    let backend = service.inner();
+    let config_read = backend.config.read().unwrap();
+    assert_eq!(config_read.projects[0].schema.files().len(), 2);
 }

@@ -1,153 +1,45 @@
-use graphql_rust::{
-    Backend, Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+use crate::support::{
+    completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
 };
-use std::fs;
-use tempfile::tempdir;
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
 
 #[tokio::test]
 async fn test_lsp_multi_schema_support() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
-
-    // 1. Create base.graphql
-    let base_path = base_dir.join("base.graphql");
-    fs::write(
-        &base_path,
-        "type User { id: ID! name: String } type Query { me: User }",
-    )
-    .unwrap();
+    let schema_text = "type User { id: ID! name: String } type Query { me: User }";
+    let (dir, mut config) = make_temp_project_with_schema(schema_text, "query.graphql");
 
     // 2. Create ext.graphql
-    let ext_path = base_dir.join("ext.graphql");
-    fs::write(&ext_path, "extend type User { email: String }").unwrap();
+    write_project_file(&dir, "ext.graphql", "extend type User { email: String }");
 
-    let query_path = base_dir.join("query.graphql");
+    // 4. Update Config
+    config.projects[0].schema = graphql_rust::config::SchemaSource::Multiple(vec![
+        "schema.graphql".to_string(),
+        "ext.graphql".to_string(),
+    ]);
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
     let query_text = "query { me { id name email } }";
-    fs::write(&query_path, query_text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let query_uri = Url::from_file_path(&query_path).unwrap();
-
-    // 4. Create Config
-    let config = Config {
-        output_dir: None,
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "base.graphql".to_string(),
-                "ext.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
-    };
-
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-
-    // Open document
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: query_uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: query_text.to_string(),
-        },
-    };
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(&params).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // 5. Test Completion for 'email' (from ext.graphql)
-    // query { me { id name e| } }
-    let position = Position::new(0, 23);
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: query_uri.clone(),
-            },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
-    let request = Request::build("textDocument/completion")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    // query { me { id name email } }
+    let result = lsp_request_completion(&mut service, query_uri.clone(), pos(0, 23)).await;
+    let items = completion_items_array(&result);
 
-    if let Some(CompletionResponse::Array(items)) = result {
-        assert!(
-            items.iter().any(|i| i.label == "email"),
-            "Should suggest 'email' from extension schema"
-        );
-        assert!(
-            items.iter().any(|i| i.label == "name"),
-            "Should suggest 'name' from base schema"
-        );
-    } else {
-        panic!("Expected completions");
-    }
+    assert!(
+        items.iter().any(|i| i.label == "email"),
+        "Should suggest 'email' from extension schema"
+    );
+    assert!(
+        items.iter().any(|i| i.label == "name"),
+        "Should suggest 'name' from base schema"
+    );
 
     // 6. Test Hover for 'email'
-    let position = Position::new(0, 23);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: query_uri.clone(),
-            },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-    let request = Request::build("textDocument/hover")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, query_uri.clone(), pos(0, 23)).await;
 
     assert!(result.is_some());
     let hover = result.unwrap();
@@ -159,95 +51,41 @@ async fn test_lsp_multi_schema_support() {
     }
 
     // 7. Test Go to Definition for 'id' (from base.graphql)
-    let position = Position::new(0, 15); // on 'id'
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position,
+            position: pos(0, 15), // on 'id'
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
-    let request = Request::build("textDocument/definition")
-        .id(3)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let _result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let _: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
 
     // 8. Test Fragments and @public check
-    // Create frag.graphql
-    let frag_path = base_dir.join("frag.graphql");
     let frag_text = "fragment UserFields on User { id name }";
-    fs::write(&frag_path, frag_text).unwrap();
-    let frag_path = std::fs::canonicalize(frag_path).unwrap();
-    let frag_uri = Url::from_file_path(&frag_path).unwrap();
-
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: frag_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: frag_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let frag_uri = write_project_file(&dir, "frag.graphql", frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
 
     // Use fragment in query
     let query_text_2 = "query { me { ...UserFields } }";
-    service
-        .call(
-            Request::build("textDocument/didChange")
-                .params(
-                    serde_json::to_value(DidChangeTextDocumentParams {
-                        text_document: VersionedTextDocumentIdentifier {
-                            uri: query_uri.clone(),
-                            version: 2,
-                        },
-                        content_changes: vec![TextDocumentContentChangeEvent {
-                            range: None,
-                            range_length: None,
-                            text: query_text_2.to_string(),
-                        }],
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 2, query_text_2).await;
 
     // Goto Definition for UserFields
-    let position = Position::new(0, 18);
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position,
+            position: pos(0, 18),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
-    let request = Request::build("textDocument/definition")
-        .id(4)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
     let result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
 
     match result {
         Some(GotoDefinitionResponse::Scalar(loc)) => {

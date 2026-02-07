@@ -1,5 +1,7 @@
+mod duplicate_fragments;
 mod duplicate_operations;
 mod field_definition;
+mod no_duplicate_fields;
 mod required_fields;
 mod schema_extensions;
 mod schema_merge;
@@ -10,6 +12,3 @@ mod variable_usage;
 
 #[path = "../support/mod.rs"]
 mod support;
-
-#[path = "common.rs"]
-mod common;

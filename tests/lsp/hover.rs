@@ -1,16 +1,8 @@
 use crate::support::{
-    lsp_did_open, pos, make_temp_project_with_schema,
-    create_initialized_lsp_service, write_project_file,
+    create_initialized_lsp_service, lsp_did_open, lsp_request_hover, make_temp_project_with_schema,
+    pos, write_project_file,
 };
-use graphql_rust::{
-    Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
-};
-use std::fs;
-use tempfile::tempdir;
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
 
 // Tests use helpers from tests/support/mod.rs to create temporary projects and
 // initialize LSP services. This avoids repeating setup boilerplate.
@@ -38,22 +30,7 @@ async fn test_hover_fragment_spread() {
     lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // 2. Request hover over 'UserFields' in the spread
-    let position = pos(8, 20);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(8, 20)).await;
 
     assert!(result.is_some(), "Hover should return something");
     let hover = result.unwrap();
@@ -93,22 +70,7 @@ async fn test_hover_schema_type() {
     let uri = write_project_file(&dir, "hover_schema.graphql", text);
     lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let position = pos(2, 13);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 13)).await;
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -129,7 +91,6 @@ async fn test_hover_graphql_description() {
     "#;
 
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    // keep default config but we can tweak if needed
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -138,63 +99,14 @@ async fn test_hover_graphql_description() {
         }
     "#;
     let uri = write_project_file(&dir, "hover_desc.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    // Hover over 'someField' to see documentation of its argument type or field
-    // Actually the previous test hovered over type definition.
-    // Let's just open the schema itself.
     let schema_path = dir.path().join("schema.graphql");
     let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
-    let schema_text = fs::read_to_string(&schema_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: schema_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: schema_text,
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let schema_text = std::fs::read_to_string(&schema_path).unwrap();
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let position = pos(2, 15); // "type DocumentedType"
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: schema_uri.clone(),
-            },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, schema_uri.clone(), pos(2, 15)).await;
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -213,12 +125,9 @@ async fn test_hover_schema_field() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    // 1. Open file
-    let query_path = dir.path().join("hover_field.graphql");
     let text = r#"
         query {
             users {
@@ -226,39 +135,10 @@ async fn test_hover_schema_field() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "hover_field.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    let position = pos(3, 17);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(3, 17)).await;
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -281,12 +161,10 @@ async fn test_hover_variable() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Open file with variable
-    let query_path = dir.path().join("hover_var.graphql");
     let text = r#"
         query GetUser($id: ID!) {
             users {
@@ -294,40 +172,11 @@ async fn test_hover_variable() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
+    let uri = write_project_file(&dir, "hover_var.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Hover over '$id' in the variable definition
-    let position = pos(1, 22); // $id: ID!
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(1, 22)).await;
 
     assert!(
         result.is_some(),
@@ -354,42 +203,10 @@ async fn test_hover_variable() {
             }
         }
     "#;
-    fs::write(dir.path().join("hover_var_usage.graphql"), text_with_usage).unwrap();
-    let query_path_usage =
-        std::fs::canonicalize(dir.path().join("hover_var_usage.graphql")).unwrap();
-    let uri_usage = Url::from_file_path(&query_path_usage).unwrap();
+    let uri_usage = write_project_file(&dir, "hover_var_usage.graphql", text_with_usage);
+    lsp_did_open(&mut service, uri_usage.clone(), "graphql", 1, text_with_usage).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri_usage.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text_with_usage.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    let position = pos(2, 22); // $id in node(id: $id)
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier {
-                uri: uri_usage.clone(),
-            },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri_usage.clone(), pos(2, 22)).await;
 
     assert!(
         result.is_some(),
@@ -411,50 +228,12 @@ async fn test_hover_variable() {
 
 #[tokio::test]
 async fn test_hover_argument() {
-    let dir = tempdir().unwrap();
-    let schema_path = dir.path().join("schema.graphql");
-    fs::write(
-        &schema_path,
+    let (dir, config) = make_temp_project_with_schema(
         "type Query { user(id: ID!): User } type User { id: ID! username: String! }",
-    )
-    .unwrap();
+        "**/*.graphql",
+    );
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-
-    // 1. Open file
-    let query_path = dir.path().join("hover_arg.graphql");
     let text = r#"
         query {
             user(id: "1") {
@@ -462,39 +241,10 @@ async fn test_hover_argument() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "hover_arg.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    let position = pos(2, 17); // "id" in "user(id: \"1\")"
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 17)).await;
 
     assert!(
         result.is_some(),
@@ -518,53 +268,15 @@ async fn test_hover_argument() {
 
 #[tokio::test]
 async fn test_hover_input_object_field() {
-    let dir = tempdir().unwrap();
-    let schema_path = dir.path().join("schema.graphql");
-    fs::write(
-        &schema_path,
+    let (dir, config) = make_temp_project_with_schema(
         "type Query { createUser(input: CreateUserInput!): User } \
          input CreateUserInput { username: String! age: Int } \
          type User { id: ID! username: String! }",
-    )
-    .unwrap();
+        "**/*.graphql",
+    );
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
+    let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    let request = Request::build("initialize")
-        .params(serde_json::to_value(&init_params).unwrap())
-        .id(0)
-        .finish();
-    service.call(request).await.unwrap().unwrap();
-
-    let request = Request::build("initialized")
-        .params(serde_json::json!({}))
-        .finish();
-    service.call(request).await.unwrap();
-
-    // 1. Open file
-    let query_path = dir.path().join("hover_input.graphql");
     let text = r#"
         query {
             createUser(input: { username: "emma", age: 25 }) {
@@ -572,39 +284,11 @@ async fn test_hover_input_object_field() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
+    let uri = write_project_file(&dir, "hover_input.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Hover over 'username' in the input object
-    let position = pos(2, 35); // "username" in "input: { username: \"emma\""
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 35)).await;
 
     assert!(
         result.is_some(),
@@ -626,21 +310,7 @@ async fn test_hover_input_object_field() {
     }
 
     // Hover over 'age'
-    let position = pos(2, 52); // "age" in "age: 25"
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 52)).await;
 
     assert!(
         result.is_some(),
@@ -668,11 +338,9 @@ async fn test_hover_builtin_typename() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("hover_typename.graphql");
     let text = r#"
         query {
             users {
@@ -680,39 +348,10 @@ async fn test_hover_builtin_typename() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(&query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "hover_typename.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    let position = pos(3, 20);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(3, 20)).await;
 
     let hover = result.expect("hover should succeed");
     if let HoverContents::Markup(m) = hover.contents {
@@ -738,11 +377,9 @@ async fn test_hover_builtin_schema_fields() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    fs::write(dir.path().join("package.json"), "{}").unwrap();
     config.base_dir = dir.path().to_path_buf();
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let query_path = dir.path().join("hover_schema_fields.graphql");
     let text = r#"
         query {
             __schema {
@@ -755,38 +392,10 @@ async fn test_hover_builtin_schema_fields() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(&query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "hover_schema_fields.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    let request = Request::build("textDocument/didOpen")
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    service.call(request).await.unwrap();
-
-    let schema_position = pos(2, 14);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position: schema_position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 14)).await;
     let hover = result.expect("hover should succeed for __schema");
     if let HoverContents::Markup(m) = hover.contents {
         assert!(
@@ -804,21 +413,7 @@ async fn test_hover_builtin_schema_fields() {
         panic!("Expected Markup contents");
     }
 
-    let type_position = pos(7, 14);
-    let params = HoverParams {
-        text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position: type_position,
-        },
-        work_done_progress_params: Default::default(),
-    };
-
-    let request = Request::build("textDocument/hover")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<Hover> = serde_json::from_value(response.result().unwrap().clone()).unwrap();
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(7, 14)).await;
     let hover = result.expect("hover should succeed for __type");
     if let HoverContents::Markup(m) = hover.contents {
         assert!(
@@ -835,3 +430,4 @@ async fn test_hover_builtin_schema_fields() {
         panic!("Expected Markup contents");
     }
 }
+

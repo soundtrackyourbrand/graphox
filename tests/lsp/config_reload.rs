@@ -1,4 +1,5 @@
-use graphql_rust::{Config};
+use crate::support::{create_service, lsp_did_open, lsp_initialize_sequence};
+use graphql_rust::Config;
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
@@ -36,37 +37,13 @@ projects:
     .unwrap();
 
     let query_path = base_dir.join("query.graphql");
-    fs::write(&query_path, "query GetUser { user { id name } }").unwrap();
+    let query_text = "query GetUser { user { id name } }";
+    fs::write(&query_path, query_text).unwrap();
 
     let config = Config::load_from_dir(&base_dir).unwrap();
-    let (mut service, _messages) = crate::support::create_service(config);
+    let (mut service, _handle) = create_service(config);
 
-    // Initialize
-    let init_params = InitializeParams {
-        capabilities: ClientCapabilities::default(),
-        ..Default::default()
-    };
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(init_params).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    // Wait for initialization to complete
-    sleep(Duration::from_millis(10)).await;
+    lsp_initialize_sequence(&mut service).await;
 
     // Modify config file - add output_dir
     fs::write(
@@ -102,28 +79,7 @@ projects:
 
     // Verify LSP still works by opening a document
     let doc_uri = Url::from_file_path(&query_path).unwrap();
-    let open_result = service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: doc_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: fs::read_to_string(&query_path).unwrap(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await;
-
-    assert!(
-        open_result.is_ok(),
-        "LSP should continue to work after config reload"
-    );
+    lsp_did_open(&mut service, doc_uri, "graphql", 1, query_text).await;
 }
 
 /// This test verifies that invalid config changes are handled gracefully.
@@ -156,31 +112,13 @@ projects:
     .unwrap();
 
     let query_path = base_dir.join("query.graphql");
-    fs::write(&query_path, "query GetUser { user { id } }").unwrap();
+    let query_text = "query GetUser { user { id } }";
+    fs::write(&query_path, query_text).unwrap();
 
     let config = Config::load_from_dir(&base_dir).unwrap();
-    let (mut service, _messages) = crate::support::create_service(config);
+    let (mut service, _handle) = create_service(config);
 
-    // Initialize
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    sleep(Duration::from_millis(10)).await;
+    lsp_initialize_sequence(&mut service).await;
 
     // Write invalid YAML to config file
     fs::write(&config_path, "this is not valid yaml: [unclosed bracket").unwrap();
@@ -209,28 +147,7 @@ projects:
 
     // LSP should still work with old config - test by opening a document
     let doc_uri = Url::from_file_path(&query_path).unwrap();
-    let open_result = service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: doc_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: fs::read_to_string(&query_path).unwrap(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await;
-
-    assert!(
-        open_result.is_ok(),
-        "LSP should continue to work with old config after failed reload"
-    );
+    lsp_did_open(&mut service, doc_uri, "graphql", 1, query_text).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -258,28 +175,9 @@ projects:
     .unwrap();
 
     let config = Config::load_from_dir(&base_dir).unwrap();
-    let (mut service, _messages) = crate::support::create_service(config);
+    let (mut service, _handle) = create_service(config);
 
-    // Initialize
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    sleep(Duration::from_millis(10)).await;
+    lsp_initialize_sequence(&mut service).await;
 
     // Change a schema file (not config)
     fs::write(

@@ -1,10 +1,12 @@
+use crate::support::{
+    self, create_initialized_lsp_service, lsp_did_open, lsp_initialize_sequence,
+};
 use futures_util::StreamExt;
 use graphql_rust::{
-    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    config::GlobPattern, config::ProjectConfig, config::SchemaSource, Config,
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
-use crate::support;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
 use tower_lsp::jsonrpc::Request;
@@ -24,7 +26,6 @@ async fn test_lsp_command_clear_cache() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
@@ -34,19 +35,10 @@ async fn test_lsp_command_clear_cache() {
             generate_permissions: None,
             codegen: Some(false),
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -62,44 +54,10 @@ async fn test_lsp_command_clear_cache() {
         }
     });
 
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_initialize_sequence(&mut service).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(
-                    serde_json::to_value(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: query_uri.clone(),
-                            language_id: "graphql".to_string(),
-                            version: 1,
-                            text: query_text.to_string(),
-                        },
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Initial diagnostics (should be empty)
     sleep(Duration::from_millis(10)).await;
@@ -179,40 +137,13 @@ async fn test_lsp_command_run_codegen() {
             generate_permissions: None,
             codegen: None, // This test needs codegen enabled
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        rules: None,
+        ..Config::new_empty()
     };
 
-    let (mut service, _) = support::create_service(config);
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Trigger run codegen
     let params = ExecuteCommandParams {

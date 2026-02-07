@@ -1,10 +1,9 @@
 use crate::support::{
-    lsp_did_open, lsp_request_diagnostics, range, make_temp_project_with_schema,
-    create_initialized_lsp_service, write_project_file,
+    create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
+    lsp_request_code_actions, lsp_request_diagnostics, make_temp_project_with_schema, range,
+    write_project_file,
 };
-use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
-use tower_service::Service;
 
 #[tokio::test]
 async fn test_missing_field_diagnostic_with_suggestions() {
@@ -96,52 +95,25 @@ async fn test_missing_field_code_actions() {
         partial_result_params: Default::default(),
     };
 
-    let request = Request::build("textDocument/codeAction")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CodeActionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
+    let result = lsp_request_code_actions(&mut service, params, 1).await;
     let actions = result.expect("Expected actions");
 
     // Should have code actions for "username" and "name"
-    let username_action = actions
-        .iter()
-        .find(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Change to 'username'"
-            } else {
-                false
-            }
-        })
+    let ca_username = find_code_action_by_title(&actions, "Change to 'username'")
         .expect("Should find 'Change to username' action");
 
-    if let CodeActionOrCommand::CodeAction(action) = username_action {
-        assert_eq!(action.kind, Some(CodeActionKind::QUICKFIX));
-        let edit = action.edit.as_ref().unwrap();
-        let changes = edit.changes.as_ref().unwrap();
-        let edits = &changes[&query_uri];
-        assert_eq!(edits[0].new_text, "username");
-        assert_eq!(edits[0].range, range(0, 19, 0, 26));
-    }
+    assert_eq!(ca_username.kind, Some(CodeActionKind::QUICKFIX));
+    let edit = ca_username.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    let edits = &changes[&query_uri];
+    assert_eq!(edits[0].new_text, "username");
+    assert_eq!(edits[0].range, range(0, 19, 0, 26));
 
-    let name_action = actions
-        .iter()
-        .find(|a| {
-            if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Change to 'name'"
-            } else {
-                false
-            }
-        })
+    let ca_name = find_code_action_by_title(&actions, "Change to 'name'")
         .expect("Should find 'Change to name' action");
 
-    if let CodeActionOrCommand::CodeAction(action) = name_action {
-        let edit = action.edit.as_ref().unwrap();
-        let changes = edit.changes.as_ref().unwrap();
-        let edits = &changes[&query_uri];
-        assert_eq!(edits[0].new_text, "name");
-    }
+    let edit = ca_name.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    let edits = &changes[&query_uri];
+    assert_eq!(edits[0].new_text, "name");
 }

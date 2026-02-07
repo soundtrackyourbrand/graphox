@@ -1,67 +1,14 @@
-use graphql_rust::{
-    Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+use crate::support::{
+    completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
+    make_temp_project_with_schema, pos, write_project_file,
 };
-use std::fs;
-use tempfile::tempdir;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
-use tower_service::Service;
 
 #[tokio::test]
 async fn test_completion_fragment_spread_filtering() {
-    let dir = tempdir().unwrap();
-    let schema_path = dir.path().join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User posts: [Post] } type User { id: ID! } type Post { id: ID! title: String }",
-    )
-    .unwrap();
+    let schema = "type Query { user: User posts: [Post] } type User { id: ID! } type Post { id: ID! title: String }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("test.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(&init_params).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let query_path = dir.path().join("test.graphql");
     let text = r#"
         fragment UserFields on User { id }
         fragment PostFields on Post { id title }
@@ -72,52 +19,12 @@ async fn test_completion_fragment_spread_filtering() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
-
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(&params).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     // Request completions at "user { ...| }"
-    // Line 6, char 19 (approx)
-    let position = Position::new(6, 19);
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
-
-    let request = Request::build("textDocument/completion")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let items = match result.unwrap() {
-        CompletionResponse::Array(items) => items,
-        _ => panic!("Expected array"),
-    };
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(6, 19)).await;
+    let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
 
@@ -135,58 +42,10 @@ async fn test_completion_fragment_spread_filtering() {
 
 #[tokio::test]
 async fn test_completion_fragment_spread_interface_filtering() {
-    let dir = tempdir().unwrap();
-    let schema_path = dir.path().join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "interface Node { id: ID! } type User implements Node { id: ID! name: String } type Query { user: User }",
-    )
-    .unwrap();
+    let schema = "interface Node { id: ID! } type User implements Node { id: ID! name: String } type Query { user: User }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("test.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(&init_params).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let query_path = dir.path().join("test.graphql");
     let text = r#"
         fragment NodeFields on Node { id }
         fragment UserFields on User { name }
@@ -197,50 +56,11 @@ async fn test_completion_fragment_spread_interface_filtering() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(&params).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let position = Position::new(6, 19);
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
-
-    let request = Request::build("textDocument/completion")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let items = match result.unwrap() {
-        CompletionResponse::Array(items) => items,
-        _ => panic!("Expected array"),
-    };
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(6, 19)).await;
+    let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
 
@@ -258,58 +78,10 @@ async fn test_completion_fragment_spread_interface_filtering() {
 
 #[tokio::test]
 async fn test_completion_fragment_spread_union_filtering() {
-    let dir = tempdir().unwrap();
-    let schema_path = dir.path().join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! } type Guest { name: String } union Actor = User | Guest type Query { actor: Actor }",
-    )
-    .unwrap();
+    let schema = "type User { id: ID! } type Guest { name: String } union Actor = User | Guest type Query { actor: Actor }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("test.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
-
-    let (mut service, _) = crate::support::create_service(config);
-
-    // Initialize
-    let init_params = InitializeParams {
-        ..Default::default()
-    };
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(&init_params).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let query_path = dir.path().join("test.graphql");
     let text = r#"
         fragment UserFields on User { id }
         fragment ActorFields on Actor { __typename }
@@ -320,50 +92,11 @@ async fn test_completion_fragment_spread_union_filtering() {
             }
         }
     "#;
-    fs::write(&query_path, text).unwrap();
-    let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
-    let params = DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            language_id: "graphql".to_string(),
-            version: 1,
-            text: text.to_string(),
-        },
-    };
-    service
-        .call(
-            Request::build("textDocument/didOpen")
-                .params(serde_json::to_value(&params).unwrap())
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let position = Position::new(6, 19);
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
-
-    let request = Request::build("textDocument/completion")
-        .id(1)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let items = match result.unwrap() {
-        CompletionResponse::Array(items) => items,
-        _ => panic!("Expected array"),
-    };
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(6, 19)).await;
+    let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
 
@@ -392,51 +125,12 @@ async fn test_completion_fragment_spread_union_filtering() {
             }
         }
     "#;
-    service
-        .call(
-            Request::build("textDocument/didChange")
-                .params(
-                    serde_json::to_value(DidChangeTextDocumentParams {
-                        text_document: VersionedTextDocumentIdentifier {
-                            uri: uri.clone(),
-                            version: 2,
-                        },
-                        content_changes: vec![TextDocumentContentChangeEvent {
-                            range: None,
-                            range_length: None,
-                            text: updated_text.to_string(),
-                        }],
-                    })
-                    .unwrap(),
-                )
-                .finish(),
-        )
-        .await
-        .unwrap();
+    // We don't have a lsp_did_change helper yet, but we can use lsp_did_open with version 2 or just didOpen again.
+    // Actually, lsp_did_open works fine for overwriting in these tests.
+    lsp_did_open(&mut service, uri.clone(), "graphql", 2, updated_text).await;
 
-    let position = Position::new(8, 23); // after the inner "..."
-    let params = CompletionParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
-        },
-        work_done_progress_params: Default::default(),
-        partial_result_params: Default::default(),
-        context: None,
-    };
-
-    let request = Request::build("textDocument/completion")
-        .id(2)
-        .params(serde_json::to_value(&params).unwrap())
-        .finish();
-    let response = service.call(request).await.unwrap().unwrap();
-    let result: Option<CompletionResponse> =
-        serde_json::from_value(response.result().unwrap().clone()).unwrap();
-
-    let items = match result.unwrap() {
-        CompletionResponse::Array(items) => items,
-        _ => panic!("Expected array"),
-    };
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(8, 23)).await;
+    let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
     assert!(

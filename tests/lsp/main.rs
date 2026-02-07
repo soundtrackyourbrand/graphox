@@ -1,4 +1,6 @@
+mod alias_code_actions;
 mod call_hierarchy;
+mod code_action_apply_duplicate;
 mod code_actions;
 mod completion;
 mod completion_filtering;
