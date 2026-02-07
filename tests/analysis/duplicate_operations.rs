@@ -31,15 +31,15 @@ fn test_duplicate_operation_names_same_file() {
     let file_path = dir.path().join("queries.graphql");
 
     let content = r#"
-        query GetUser {
-            user(id: "1") {
+        query GetUser($id: ID) {
+            user(id: $id) {
                 id
                 name
             }
         }
         
-        query GetUser {
-            user(id: "2") {
+        query GetUser($id: ID) {
+            user(id: $id) {
                 id
             }
         }
@@ -71,13 +71,13 @@ fn test_duplicate_operation_names_same_file() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
-    // Multiple diagnostics might be reported (both by our rule and apollo-compiler)
-    assert!(diagnostics.len() >= 1);
+    // Only expect our internal diagnostic now (reported once per name per file)
+    assert_eq!(diagnostics.len(), 1);
     
-    // Find our specific duplicate_operation diagnostic
-    let d = diagnostics.iter().find(|d| matches!(d.code, Some(NumberOrString::String(ref s)) if s == "duplicate_operation") && d.range.start.line == 8).expect("Should find duplicate_operation diagnostic on line 8");
+    let d = &diagnostics[0];
     assert_eq!(d.message, "Duplicate operation name 'GetUser'");
-    crate::support::assert_diag_range_equals(d, &crate::support::range(8, 14, 8, 21));
+    // First GetUser name is at line 1, char 14
+    crate::support::assert_diag_range_equals(d, &crate::support::range(1, 14, 1, 21));
 }
 
 #[test]

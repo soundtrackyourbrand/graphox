@@ -367,7 +367,7 @@ pub(crate) fn push_duplicate_operation_diagnostic(
 }
 
 /// Finds the range of an operation definition by name
-fn find_operation_range(doc: &DocumentState, operation_name: &str) -> Option<Range> {
+pub(crate) fn find_operation_range(doc: &DocumentState, operation_name: &str) -> Option<Range> {
     use crate::queries::*;
     use tree_sitter::{QueryCursor, StreamingIterator};
 

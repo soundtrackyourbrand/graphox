@@ -289,7 +289,7 @@ fn test_validation_input_field_deprecation() {
 
     let text = r#"
         query Test {
-            test(input: { oldField: "value" })
+            test(input: { username: "test", oldField: "value" })
         }
     "#;
     let doc = create_doc("file:///input_deprecated.graphql", text);

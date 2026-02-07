@@ -57,9 +57,9 @@ fn test_shallow_duplicate_fields_check() {
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
-    // Multiple diagnostics might be reported (both by our rule and apollo-compiler)
-    assert!(diags.len() >= 1);
-    let d = diags.iter().find(|d| d.message == "Duplicate field 'id' in selection set").expect("Should find duplicate field diagnostic");
+    assert_eq!(diags.len(), 1);
+    let d = &diags[0];
+    assert_eq!(d.message, "Duplicate field 'id' in selection set");
     // range points to the second 'id' which is at line 0, char 16
     crate::support::assert_diag_range_equals(d, &range(0, 16, 0, 18));
 }
@@ -78,7 +78,7 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     )
     .unwrap();
 
-    let query_text = "query { me(id: $id, other: 2) { id } me(other: 2, id: $id) { id } }";
+    let query_text = "query GetMe($id: ID) { me(id: $id, other: 2) { id } me(other: 2, id: $id) { id } }";
     let q_path = base.join("q.graphql");
     fs::write(&q_path, query_text).unwrap();
 
@@ -113,10 +113,11 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
-    assert!(diags.len() >= 1);
-    let d = diags.iter().find(|d| d.message == "Duplicate field 'me' in selection set").expect("Should find duplicate field diagnostic");
-    // range points to the second 'me' at char 37
-    crate::support::assert_diag_range_equals(d, &range(0, 37, 0, 39));
+    assert_eq!(diags.len(), 1);
+    let d = &diags[0];
+    assert_eq!(d.message, "Duplicate field 'me' in selection set");
+    // range points to the second 'me' at char 52
+    crate::support::assert_diag_range_equals(d, &range(0, 52, 0, 54));
 }
 
 // Alias handling tests
@@ -152,8 +153,9 @@ fn test_duplicate_fields_with_alias_handling() {
     let doc2 = create_doc(uri2.as_str(), q2_text);
     let diags2 = doc2.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
     
-    assert!(diags2.len() >= 1);
-    let d = diags2.iter().find(|d| d.message == "Duplicate field 'a' in selection set").expect("Should find duplicate field diagnostic");
+    assert_eq!(diags2.len(), 1);
+    let d = &diags2[0];
+    assert_eq!(d.message, "Duplicate field 'a' in selection set");
     // points to second 'a' at char 22
     crate::support::assert_diag_range_equals(d, &range(0, 22, 0, 24));
 }
@@ -183,8 +185,9 @@ fn test_alias_collision_triggers_duplicate() {
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
-    assert!(diags.len() >= 1);
-    let d = diags.iter().find(|d| d.message == "Duplicate field 'id' in selection set").expect("Should find duplicate field diagnostic");
+    assert_eq!(diags.len(), 1);
+    let d = &diags[0];
+    assert_eq!(d.message, "Duplicate field 'id' in selection set");
     // range for alias 'id' at char 25
     crate::support::assert_diag_range_equals(d, &range(0, 25, 0, 29));
 }
@@ -214,8 +217,9 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     let uri_a = write_project_file(&dir, "a.graphql", q_a);
     let doc_a = create_doc(uri_a.as_str(), q_a);
     let diags_a = doc_a.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    assert!(diags_a.len() >= 1);
-    let d_a = diags_a.iter().find(|d| d.message == "Duplicate field 'id' in selection set").expect("Should find duplicate field diagnostic");
+    assert_eq!(diags_a.len(), 1);
+    let d_a = &diags_a[0];
+    assert_eq!(d_a.message, "Duplicate field 'id' in selection set");
     crate::support::assert_diag_range_equals(d_a, &range(0, 30, 0, 32));
 
     // B: duplicate across inline fragment and sibling -> should NOT trigger (shallow-only)
@@ -226,13 +230,17 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     assert_eq!(diags_b.len(), 0);
 
     // D: same response key with different args -> should trigger
-    let q_d = "query { me { friends(limit: 5) { id } friends(limit: 10) { id } } }";
+    let q_d = "query GetMe($limit1: Int, $limit2: Int) { me { friends(limit: $limit1) { id } friends(limit: $limit2) { id } } }";
     let uri_d = write_project_file(&dir, "d.graphql", q_d);
     let doc_d = create_doc(uri_d.as_str(), q_d);
     let diags_d = doc_d.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    assert!(diags_d.len() >= 1);
-    let d_d = diags_d.iter().find(|d| d.message == "Duplicate field 'friends' in selection set").expect("Should find duplicate field diagnostic");
-    crate::support::assert_diag_range_equals(d_d, &range(0, 38, 0, 45));
+    
+    // Only expect our internal diagnostic now
+    assert_eq!(diags_d.len(), 1);
+    let d_d = &diags_d[0];
+    assert_eq!(d_d.message, "Duplicate field 'friends' in selection set");
+    // range for second friends at char 78
+    crate::support::assert_diag_range_equals(d_d, &range(0, 78, 0, 85));
 }
 
 // LSP integration test

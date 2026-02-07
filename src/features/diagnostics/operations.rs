@@ -81,31 +81,35 @@ impl DocumentState {
         self.check_required_fields(node, offset, ctx);
 
         // 3. Check for unused variables
-        for name in &ctx.defined_variables {
-            if !ctx.used_variables.contains(name) {
-                // Find the node for this variable definition to report the diagnostic on it
-                if let Some(var_defs) = var_defs_node {
-                    let mut vd_cursor = var_defs.walk();
-                    for child in var_defs.children(&mut vd_cursor) {
-                        if child.kind() == "variable_definition" {
-                            let mut v_cursor = child.walk();
-                            for v_child in child.children(&mut v_cursor) {
-                                if v_child.kind() == "variable" {
-                                    let mut n_cursor = v_child.walk();
-                                    for n_child in v_child.children(&mut n_cursor) {
-                                        if n_child.kind() == "name"
-                                            && self.get_node_text(n_child, offset) == *name
-                                        {
-                                            ctx.diagnostics.push(Diagnostic {
-                                                range: self.translate_to_file_range(v_child, offset),
-                                                severity: Some(DiagnosticSeverity::WARNING),
-                                                message: format!("Unused variable: ${}", name),
-                                                code: Some(NumberOrString::String(
-                                                    "unused_variable".to_string(),
-                                                )),
-                                                tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                                                ..Default::default()
-                                            });
+        if ctx.workspace_loaded {
+            for name in &ctx.defined_variables {
+                if !ctx.used_variables.contains(name) {
+                    // Find the node for this variable definition to report the diagnostic on it
+                    if let Some(var_defs) = var_defs_node {
+                        let mut vd_cursor = var_defs.walk();
+                        for child in var_defs.children(&mut vd_cursor) {
+                            if child.kind() == "variable_definition" {
+                                let mut v_cursor = child.walk();
+                                for v_child in child.children(&mut v_cursor) {
+                                    if v_child.kind() == "variable" {
+                                        let mut n_cursor = v_child.walk();
+                                        for n_child in v_child.children(&mut n_cursor) {
+                                            if n_child.kind() == "name"
+                                                && self.get_node_text(n_child, offset) == *name
+                                            {
+                                                ctx.diagnostics.push(Diagnostic {
+                                                    range: self.translate_to_file_range(
+                                                        v_child, offset,
+                                                    ),
+                                                    severity: Some(DiagnosticSeverity::WARNING),
+                                                    message: format!("Unused variable: ${}", name),
+                                                    code: Some(NumberOrString::String(
+                                                        "unused_variable".to_string(),
+                                                    )),
+                                                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                                                    ..Default::default()
+                                                });
+                                            }
                                         }
                                     }
                                 }
