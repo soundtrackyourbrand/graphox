@@ -129,7 +129,7 @@ impl DocumentState {
                             && ctx.workspace_loaded
                         {
                             ctx.diagnostics.push(Diagnostic {
-                                range: self.translate_to_file_range(child, offset),
+                                range: self.translate_to_file_range(node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!("Undefined variable: ${}", name),
                                 code: Some(NumberOrString::String(

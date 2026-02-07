@@ -95,12 +95,15 @@ fn test_variable_unused_even_with_fragments() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    
+
     // Total diagnostics: 1 (our unused_variable check)
     // Wait, apollo-compiler also reports unused variables.
     // Let's check how many we actually get.
     assert!(diagnostics.len() >= 1);
-    let d = diagnostics.iter().find(|d| d.message == "Unused variable: $unused").expect("Should find unused variable diagnostic");
+    let d = diagnostics
+        .iter()
+        .find(|d| d.message == "Unused variable: $unused")
+        .expect("Should find unused variable diagnostic");
     assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
     // Range points to the variable name (including $)
     crate::support::assert_diag_range_equals(d, &range(1, 31, 1, 38));
@@ -127,12 +130,18 @@ fn test_undefined_variable_direct() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    
+
     // apollo-compiler and our rule both report this.
     assert!(diagnostics.len() >= 1);
-    let d = diagnostics.iter().find(|d| d.message == "Undefined variable: $undefined").expect("Should find undefined variable diagnostic");
+    let d = diagnostics
+        .iter()
+        .find(|d| d.message == "Undefined variable: $undefined")
+        .expect("Should find undefined variable diagnostic");
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, query_text, "undefined"));
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, query_text, "$undefined"),
+    );
 }
 
 #[test]
@@ -160,9 +169,12 @@ fn test_undefined_variable_in_fragment_spread() {
 
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
-    
+
     assert!(diagnostics.len() >= 1);
-    let d = diagnostics.iter().find(|d| d.message == "Undefined variable: $admin (required by fragment 'UserFields')").expect("Should find undefined variable diagnostic");
+    let d = diagnostics
+        .iter()
+        .find(|d| d.message == "Undefined variable: $admin (required by fragment 'UserFields')")
+        .expect("Should find undefined variable diagnostic");
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
     // UserFields spread is on line 3
     crate::support::assert_diag_range_equals(d, &range(3, 19, 3, 29));
