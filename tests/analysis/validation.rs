@@ -1,6 +1,6 @@
 use apollo_compiler::Schema;
-use graphql_rust::DocumentState;
 use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::DocumentState;
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::*;
 
@@ -468,6 +468,28 @@ fn test_validation_unions_and_interfaces() {
     assert!(
         diagnostics.is_empty(),
         "Valid interface query failed: {:?}",
+        diagnostics
+    );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_validation_alias_field_lookup() {
+    let text = r#"
+        query GetUsers {
+            users {
+                u: username
+                email
+            }
+        }
+    "#;
+    let doc = create_doc("file:///alias.graphql", text);
+    let diagnostics =
+        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, None, false, true);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no diagnostics for aliased field lookup, got: {:?}",
         diagnostics
     );
 }

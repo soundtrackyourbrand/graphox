@@ -75,8 +75,11 @@ impl DocumentState {
         }
 
         if let Some(name_node) = name_node {
-            // Determine response key: prefer alias (if present) otherwise field name
-            let field_name = if let Some(alias_node) = alias_node {
+            // Determine response key (what the response will contain) and the
+            // actual field name (the definition on the type). Lookups must use
+            // the actual field name; previously we used the response key which
+            // caused fields accessed via aliases to appear missing.
+            let response_key = if let Some(alias_node) = alias_node {
                 // alias_node likely contains a name child; find it
                 let mut a_cursor = alias_node.walk();
                 let mut found = None;
@@ -90,6 +93,8 @@ impl DocumentState {
             } else {
                 self.get_node_text(name_node, offset)
             };
+
+            let actual_field_name = self.get_node_text(name_node, offset);
 
             // Check for duplicate field names in the same selection set (shallow check)
             // This rule is configurable via config.rules.no_duplicate_fields
@@ -159,7 +164,7 @@ impl DocumentState {
                                 }
 
                                 if let Some(s_key) = sibling_key
-                                    && s_key == field_name
+                                    && s_key == response_key
                                 {
                                     // same response key; check if args and selection match
                                     if sibling_args != field_args_text
@@ -181,14 +186,14 @@ impl DocumentState {
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
                                     "Duplicate field '{}' in selection set",
-                                    field_name
+                                    response_key
                                 ),
                                 code: Some(tower_lsp::lsp_types::NumberOrString::String(
                                     "no_duplicate_fields".to_string(),
                                 )),
                                 // Attach contextual data so code action can compute a better removal
                                 data: Some(serde_json::json!({
-                                    "response_key": field_name,
+                                    "response_key": response_key,
                                     "args": field_args_text,
                                     "selection": field_sel_text,
                                 })),
@@ -199,18 +204,20 @@ impl DocumentState {
                 }
             }
 
-            // Track selected field name if we're in an operation
+            // Track selected response key if we're in an operation
             if ctx.is_operation && depth == 1 {
-                ctx.selected_fields.insert(field_name.clone());
+                ctx.selected_fields.insert(response_key.clone());
             }
 
-            if field_name == "__typename" {
+            if actual_field_name == "__typename" {
                 return;
             }
 
             let field_def = match parent_type {
-                ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-                ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                ExtendedType::Object(obj) => obj.fields.get(actual_field_name.as_str()),
+                ExtendedType::Interface(iface) => {
+                    iface.fields.get(actual_field_name.as_str())
+                }
                 _ => None,
             };
 
@@ -226,7 +233,7 @@ impl DocumentState {
                         ctx,
                         name_node,
                         offset,
-                        format!("Field '{}' is deprecated: {}", field_name, reason),
+                        format!("Field '{}' is deprecated: {}", actual_field_name, reason),
                         reason,
                     );
                 }
@@ -263,14 +270,14 @@ impl DocumentState {
                     _ => vec![],
                 };
 
-                let similar_fields = find_similar_fields(&field_name, &available_fields);
+                let similar_fields = find_similar_fields(&actual_field_name, &available_fields);
 
                 let message = if similar_fields.is_empty() {
-                    format!("Field '{}' not found on type '{}'", field_name, type_name)
+                    format!("Field '{}' not found on type '{}'", actual_field_name, type_name)
                 } else {
                     format!(
                         "Field '{}' not found on type '{}'. Did you mean {}?",
-                        field_name,
+                        actual_field_name,
                         type_name,
                         similar_fields
                             .iter()
@@ -288,8 +295,8 @@ impl DocumentState {
                         "missing_field".to_string(),
                     )),
                     data: Some(serde_json::json!({
-                        "similar_fields": similar_fields,
-                    })),
+                                    "similar_fields": similar_fields,
+                                })),
                     ..Default::default()
                 });
             }
