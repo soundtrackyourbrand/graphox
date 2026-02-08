@@ -34,9 +34,9 @@ build: cargo-build swc-build babel-build
 ## test: Run all tests (core crate + plugins)
 test: cargo-test swc-test babel-test
 
-## benchmark: Run codegen benchmarks on fixtures
+## benchmark: Run benchmark suit
 benchmark:
-	cargo run -- benchmark tests/fixtures/codegen
+	cargo bench --features bench
 
 ## update-baselines: Update all test baseline files from current codegen output
 update-baselines: build
