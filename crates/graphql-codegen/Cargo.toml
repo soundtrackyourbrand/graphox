@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 graphql-core = { path = "../graphql-core" }
-graphql-features = { path = "../graphql-features" }
 apollo-compiler = { workspace = true }
 ahash = { workspace = true }
 dashmap = { workspace = true }

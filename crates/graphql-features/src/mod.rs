@@ -1,7 +1,5 @@
-pub mod apollo_ast;
 pub mod call_hierarchy;
 pub mod code_actions;
-pub mod codegen;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;

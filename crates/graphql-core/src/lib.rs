@@ -1,3 +1,4 @@
+pub mod apollo_ast;
 pub mod config;
 pub mod document;
 pub mod engine;

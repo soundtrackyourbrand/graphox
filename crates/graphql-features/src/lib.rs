@@ -1,4 +1,3 @@
-pub mod apollo_ast;
 pub mod call_hierarchy;
 pub mod code_actions;
 pub mod completion;

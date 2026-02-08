@@ -6,7 +6,7 @@ use apollo_compiler::{Node, Schema};
 use colored::*;
 use dashmap::DashMap;
 use graphql_core::document::DocumentState;
-use graphql_features::apollo_ast::{
+use graphql_core::apollo_ast::{
     get_fragment_fragment_dependencies, serialize_fragment_definition,
     serialize_operation_definition,
 };
@@ -301,7 +301,7 @@ pub fn generate_typescript_with_profile(
                 result.push_str("] }");
                 result
             } else {
-                graphql_features::apollo_ast::serialize_operation(op, ctx.all_fragments).to_string()
+                graphql_core::apollo_ast::serialize_operation(op, ctx.all_fragments).to_string()
             };
             profile.ast_serialization_time += ast_start.elapsed();
 
