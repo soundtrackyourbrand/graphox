@@ -113,9 +113,9 @@ harness = false
 opt-level = 0
 debug = 0 # Set to 1 or 2 for debugging, 0 for fastest builds
 split-debuginfo = "unpacked" # Faster linking on macOS
-lto = "thin"
+lto = false
 incremental = true
-codegen-units = 256
+codegen-units = 32
 
 # [profile.dev.build-override]
 # opt-level = 2
