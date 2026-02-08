@@ -1,3 +1,4 @@
+mod apollo_validation;
 mod duplicate_fragments;
 mod duplicate_operations;
 mod field_definition;

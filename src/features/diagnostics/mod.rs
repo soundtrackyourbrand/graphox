@@ -76,17 +76,17 @@ impl DocumentState {
                 self.uri.as_str(),
             );
             
-            let apollo_diagnostics: Vec<String> = match doc_res {
+            let apollo_diagnostics: Vec<(String, Option<std::ops::Range<apollo_compiler::parser::LineColumn>>)> = match doc_res {
                 Ok(doc) => {
                     match doc.validate(valid_schema) {
                         Ok(_) => Vec::new(),
-                        Err(errs) => errs.errors.iter().map(|e| e.to_string()).collect(),
+                        Err(errs) => errs.errors.iter().map(|e| (e.to_string(), e.line_column_range())).collect(),
                     }
                 }
-                Err(errs) => errs.errors.iter().map(|e| e.to_string()).collect(),
+                Err(errs) => errs.errors.iter().map(|e| (e.to_string(), e.line_column_range())).collect(),
             };
 
-            for err_str in apollo_diagnostics {
+            for (err_str, range_opt) in apollo_diagnostics {
                 // Suppress apollo-compiler diagnostics that we handle ourselves
                 // or that are redundant/confusing in our multi-file context.
                 let is_duplicate = err_str.contains("defined multiple times") 
@@ -105,8 +105,17 @@ impl DocumentState {
                     || (err_str.contains("variable") && err_str.contains("cannot be used for argument"));
                 
                 if !is_duplicate {
+                    let range = if let Some(r) = range_opt {
+                        Range {
+                            start: Position::new(r.start.line as u32 - 1, r.start.column as u32 - 1),
+                            end: Position::new(r.end.line as u32 - 1, r.end.column as u32 - 1),
+                        }
+                    } else {
+                        self.translate_to_file_range(block.tree.root_node(), offset)
+                    };
+
                     diagnostics.push(Diagnostic {
-                        range: self.translate_to_file_range(block.tree.root_node(), offset),
+                        range,
                         severity: Some(DiagnosticSeverity::ERROR),
                         message: format!("Apollo Validation Error: {}", err_str),
                         ..Default::default()
