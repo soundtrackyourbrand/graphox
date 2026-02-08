@@ -1,9 +1,9 @@
 use ahash::AHashMap as HashMap;
 use colored::*;
-use graphql_rust::Config;
-use graphql_rust::codegen;
-use graphql_rust::engine::Engine;
-use graphql_rust::schema;
+use graphql_codegen as codegen;
+use graphql_core::Config;
+use graphql_core::engine::Engine;
+use graphql_core::schema;
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -12,7 +12,6 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     println!("{}", "Starting Benchmark...".bold());
     let total_start = Instant::now();
 
-    // 1. Discovery & Metadata Collection (Parallel)
     let workspace_metadata = Engine::scan_workspace(&config);
     let global_metadata = &workspace_metadata.fragments;
     let scan_timings = &workspace_metadata.timings;
@@ -28,7 +27,6 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         .collect();
     let _ = all_graphql_paths;
 
-    // 2. Project Processing
     let mut total_graphql_files = 0;
     let mut total_operations = 0;
     let mut total_fragments_processed = 0;
@@ -63,15 +61,12 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
 
         let project_files = &project_meta.files;
 
-        // Project-specific maps
         let mm_start = Instant::now();
-        // The mapping is now part of project_context
         let project_fragment_to_path = &project_context.fragment_to_path;
         let project_fragment_to_import = &project_context.fragment_to_import;
         let all_fragments = &project_context.all_fragments;
         metadata_mapping_time += mm_start.elapsed();
 
-        // Create shared type cache for all files in this project
         let shared_type_cache = codegen::TypeCache::new();
 
         let (
@@ -105,7 +100,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         &schema_import,
                         config.generate_ast_for_fragments.unwrap_or(false),
                         &project_context.fragment_dependencies,
-                        &shared_type_cache, // Shared across all files in project
+                        &shared_type_cache,
                     );
                     let g_start = Instant::now();
                     if let Ok((_ts_code, _ops, profile)) =
@@ -166,13 +161,11 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         codegen_profile.ast_serialization_time += p_profile.ast_serialization_time;
         codegen_profile.import_generation_time += p_profile.import_generation_time;
 
-        // Collect cache stats for this project
         let (cache_hits, cache_misses) = shared_type_cache.stats();
         let cache_size = shared_type_cache.len();
 
         project_timings.push((project.include.as_key(), project_total_start.elapsed()));
 
-        // Report cache metrics for this project (only if cache was used)
         if cache_hits + cache_misses > 0 {
             let hit_rate = if cache_hits + cache_misses > 0 {
                 (cache_hits as f64 / (cache_hits + cache_misses) as f64) * 100.0
@@ -287,7 +280,6 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         ts_gen_time
     );
 
-    // Detailed codegen breakdown
     if ts_gen_time > Duration::ZERO {
         println!();
         println!("{}", "Codegen Breakdown:".bold());

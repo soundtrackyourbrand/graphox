@@ -23,11 +23,10 @@ use graphql_features::symbols::DocumentSymbols;
 use ahash::AHashSet;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
-use env_logger;
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
+use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp_types::*};
 
 // Re-export ClientCapabilities for backward compatibility
 pub use capabilities::ClientCapabilities;
@@ -67,9 +66,6 @@ pub struct Backend {
 
 impl Backend {
     pub fn new(client: Client, mut config: Config) -> Self {
-        // Initialize logging backend if not already initialized.
-        // This is intentionally best-effort to avoid double-init panics in tests.
-        let _ = env_logger::try_init();
         // Canonicalize base_dir to ensure consistency on macOS
         if let Ok(canon) = std::fs::canonicalize(&config.base_dir) {
             config.base_dir = canon;
@@ -2061,4 +2057,11 @@ mod tests {
         .await;
         assert!(res.is_ok(), "get_all_fragments_info deadlocked");
     }
+}
+
+pub async fn run_lsp(config: Config) {
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+    let (service, socket) = LspService::new(|client| Backend::new(client, config));
+    Server::new(stdin, stdout, socket).serve(service).await;
 }

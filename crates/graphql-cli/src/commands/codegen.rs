@@ -1,27 +1,27 @@
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
-use graphql_rust::DocumentState;
-use graphql_rust::codegen;
-use graphql_rust::config::{Config, SchemaSource};
-use graphql_rust::engine::{Engine, FragmentMetadata, ProjectContext};
-use graphql_rust::schema;
-use graphql_rust::schema_cache;
-use graphql_rust::utils;
+use graphql_codegen as codegen;
+use graphql_core::DocumentState;
+use graphql_core::config::{Config, SchemaSource};
+use graphql_core::engine::{Engine, FragmentMetadata, ProjectContext};
+use graphql_core::schema;
+use graphql_core::schema_cache;
+use graphql_core::utils;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
-struct CodegenParams<'a> {
-    base_dir: &'a Path,
-    source: &'a SchemaSource,
-    project_files: &'a [PathBuf],
-    output_dir: Option<&'a str>,
-    scalars: &'a Option<HashMap<String, String>>,
-    schema_import: &'a Option<String>,
-    project_context: &'a ProjectContext,
-    global_metadata: &'a [FragmentMetadata],
-    generate_ast_for_fragments: bool,
-    workspace_documents: &'a HashMap<PathBuf, DocumentState>,
-    generate_permissions: bool,
+pub struct CodegenParams<'a> {
+    pub base_dir: &'a Path,
+    pub source: &'a SchemaSource,
+    pub project_files: &'a [PathBuf],
+    pub output_dir: Option<&'a str>,
+    pub scalars: &'a Option<HashMap<String, String>>,
+    pub schema_import: &'a Option<String>,
+    pub project_context: &'a ProjectContext,
+    pub global_metadata: &'a [FragmentMetadata],
+    pub generate_ast_for_fragments: bool,
+    pub workspace_documents: &'a HashMap<PathBuf, DocumentState>,
+    pub generate_permissions: bool,
 }
 
 pub async fn run_codegen(
@@ -63,7 +63,6 @@ pub async fn run_codegen(
             std::time::Duration::from_millis(debounce_ms),
             move |res: notify_debouncer_mini::DebounceEventResult| match res {
                 Ok(events) => {
-                    // Check if config file changed
                     let has_config_change = events.iter().any(|e| {
                         let file_name = e.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                         file_name == "graphql.yaml" || file_name == "graphql.yml"
@@ -95,7 +94,6 @@ pub async fn run_codegen(
         )
         .expect("Failed to create debouncer");
 
-        // Watch config files
         let config_yaml = base_dir_for_watcher.join("graphql.yaml");
         let config_yml = base_dir_for_watcher.join("graphql.yml");
         if config_yaml.exists() {
@@ -111,7 +109,6 @@ pub async fn run_codegen(
                 .ok();
         }
 
-        // Watch project include directories
         for project in &config.projects {
             for pattern in project.include.patterns() {
                 let watch_path = config.base_dir.join(utils::get_glob_root(&pattern));
@@ -152,13 +149,9 @@ pub async fn run_codegen(
                 _ = config_rx.recv() => {
                     println!("{}", "\nConfiguration file changed, reloading...".bright_yellow());
 
-                    // Reload config
                     if let Some(new_config) = Config::load_from_dir(&config.base_dir) {
                         println!("{}", "Configuration reloaded successfully".bright_green());
                         config = new_config;
-
-                        // Break from inner loop to restart watch with new config
-                        // The debouncer will be dropped automatically
                         continue 'watch_loop;
                     } else {
                         eprintln!("{}", "Failed to reload configuration, continuing with old config".red());
@@ -187,7 +180,6 @@ async fn execute_codegen(
 
     let cfg = config;
 
-    // Clear schema cache if --clean flag is used
     if clean {
         if let Err(e) = schema_cache::clear_cache() {
             eprintln!("{}: {}", "Failed to clear schema cache".red(), e);
@@ -202,7 +194,6 @@ async fn execute_codegen(
 
     let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
     for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
-        // Skip projects with codegen disabled
         if !project.codegen_enabled() {
             if verbose {
                 println!(
@@ -350,7 +341,6 @@ async fn execute_codegen(
                 success = false;
             }
 
-            // Generate manifest for SWC plugin
             let manifest_path = out_dir_path.join("manifest.json");
             if verbose {
                 println!(
@@ -368,7 +358,6 @@ async fn execute_codegen(
                     if !path_str.starts_with('.') && !path_str.starts_with('/') {
                         path_str = format!("./{}", path_str);
                     }
-                    // Remove .ts extension
                     let path_no_ext = if path_str.ends_with(".ts") {
                         &path_str[..path_str.len() - 3]
                     } else {
@@ -448,7 +437,6 @@ async fn execute_project_codegen_entry(
             }
         };
 
-        // Create shared type cache for all files in this project
         let shared_type_cache = codegen::TypeCache::new();
 
         let results: Vec<_> = params
@@ -470,7 +458,7 @@ async fn execute_project_codegen_entry(
                     params.schema_import,
                     params.generate_ast_for_fragments,
                     &params.project_context.fragment_dependencies,
-                    &shared_type_cache, // Shared across all files in project
+                    &shared_type_cache,
                 );
 
                 execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
@@ -524,7 +512,6 @@ async fn execute_project_codegen_entry(
 
         if success { Ok(all_ops) } else { Err(()) }
     } else {
-        // Clean mode
         let success = params
             .project_files
             .par_iter()

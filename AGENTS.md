@@ -63,15 +63,17 @@ This project is organized as a Rust workspace to separate concerns and improve m
     - LSP capabilities (Hover, Completion, etc.) are implemented as extension traits on `DocumentState`.
     - `diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
 - **`graphql-codegen`** (`crates/graphql-codegen`): Standalone crate for TypeScript type generation.
-- **`graphql-lsp`** (`crates/graphql-lsp`): The Language Server implementation.
+- **`graphql-lsp`** (`crates/graphql-lsp`): The Language Server implementation. Lean crate without CLI/watch dependencies for faster incremental builds.
     - `backend/lsp.rs`: Main `Backend` struct and LSP protocol implementation using `tower-lsp`.
     - `backend/file_change_handler.rs`: Processes file system changes and updates state.
+- **`graphql-cli`** (`crates/graphql-cli`): CLI commands and watch mode. Contains `check`, `codegen`, and `benchmark` commands with file watching via `notify`.
 
 ### CLI and Re-exports
 
 - `src/main.rs`: Root CLI entry point. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
 - `src/lib.rs`: Consolidates the public API by re-exporting modules from the workspace crates for backward compatibility.
-- `src/commands/`: CLI subcommand implementations.
+- `crates/graphql-cli/src/`: CLI command implementations (check, codegen with watch mode, benchmark).
+- `crates/graphql-lsp/src/backend/lsp.rs`: Exports `run_lsp()` function for starting the LSP server.
 
 ## Key Patterns
 
@@ -151,11 +153,12 @@ This pattern prevents tests from breaking when new optional config fields are ad
 ## Adding New Features
 
 1.  **LSP Feature:**
-    - Implement logic in `src/features/`.
-    - Add the method to `Backend` in `src/backend.rs`.
+    - Implement logic in `crates/graphql-features/src/`.
+    - Add the method to `Backend` in `crates/graphql-lsp/src/backend/lsp.rs`.
     - Add integration tests in `tests/`.
 2.  **CLI Command:**
-    - Add to `Commands` enum in `src/main.rs` and implement in `src/commands/`.
+    - Add to `Commands` enum in `src/main.rs` and implement in `crates/graphql-cli/src/commands/`.
+    - If the command needs watch mode, use `notify` and `notify-debouncer-mini` dependencies (available in graphql-cli, not graphql-lsp).
 3.  **Grammar/Query Changes:**
     - Update `src/queries.rs` if needed. Verify against multiple host languages (TS, TSX, GraphQL).
 

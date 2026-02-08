@@ -1055,6 +1055,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-cli"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "clap",
+ "colored",
+ "env_logger",
+ "glob",
+ "globset",
+ "graphql-codegen",
+ "graphql-core",
+ "graphql-features",
+ "notify",
+ "notify-debouncer-mini",
+ "once_cell",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "sonic-rs",
+ "tokio",
+ "tower-lsp",
+]
+
+[[package]]
 name = "graphql-codegen"
 version = "0.1.0"
 dependencies = [
@@ -1163,18 +1190,16 @@ dependencies = [
  "criterion",
  "dashmap 6.1.0",
  "dirs",
- "env_logger",
  "futures-util",
  "glob",
  "globset",
+ "graphql-cli",
  "graphql-codegen",
  "graphql-core",
  "graphql-features",
  "graphql-lsp",
  "ignore",
  "log",
- "notify",
- "notify-debouncer-mini",
  "ntest",
  "once_cell",
  "pathdiff",

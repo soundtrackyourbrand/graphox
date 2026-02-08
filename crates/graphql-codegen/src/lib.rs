@@ -5,11 +5,11 @@ use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
 use colored::*;
 use dashmap::DashMap;
-use graphql_core::document::DocumentState;
 use graphql_core::apollo_ast::{
     get_fragment_fragment_dependencies, serialize_fragment_definition,
     serialize_operation_definition,
 };
+use graphql_core::document::DocumentState;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};

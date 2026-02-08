@@ -11,6 +11,7 @@ members = [
     "crates/graphql-features",
     "crates/graphql-codegen",
     "crates/graphql-lsp",
+    "crates/graphql-cli",
 ]
 
 [workspace.dependencies]
@@ -57,6 +58,7 @@ graphql-core = { path = "crates/graphql-core" }
 graphql-features = { path = "crates/graphql-features" }
 graphql-codegen = { path = "crates/graphql-codegen" }
 graphql-lsp = { path = "crates/graphql-lsp" }
+graphql-cli = { path = "crates/graphql-cli" }
 apollo-compiler = { workspace = true }
 clap = { workspace = true }
 dashmap = { workspace = true }
@@ -68,15 +70,12 @@ tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }
 tree-sitter-typescript = { workspace = true }
 pathdiff = { workspace = true }
-notify = { workspace = true }
-notify-debouncer-mini = { workspace = true }
 ignore = { workspace = true }
 serde = { workspace = true }
 glob = { workspace = true }
 globset = { workspace = true }
 rayon = { workspace = true }
 log = { workspace = true }
-env_logger = { workspace = true }
 regex = { workspace = true }
 ahash = { workspace = true }
 colored = { workspace = true }
@@ -114,7 +113,7 @@ harness = false
 opt-level = 0
 debug = 0 # Set to 1 or 2 for debugging, 0 for fastest builds
 split-debuginfo = "unpacked" # Faster linking on macOS
-lto = false
+lto = "thin"
 incremental = true
 codegen-units = 256
 

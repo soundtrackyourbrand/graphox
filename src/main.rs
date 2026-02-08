@@ -1,11 +1,7 @@
-mod commands;
-
 use clap::{Parser, Subcommand};
-use commands::benchmark::run_benchmark;
-use commands::check::run_check;
-use commands::codegen::run_codegen;
-use commands::lsp::run_lsp;
-use graphql_rust::Config;
+use graphql_cli::{run_benchmark, run_check, run_codegen};
+use graphql_core::Config;
+use graphql_lsp::run_lsp;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

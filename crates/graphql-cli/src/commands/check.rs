@@ -1,12 +1,12 @@
 use ahash::AHashMap as HashMap;
 use apollo_compiler::Schema;
 use colored::*;
-use graphql_rust::config::SchemaSource;
-use graphql_rust::engine::Engine;
-use graphql_rust::features::completion::FragmentCompletionInfo;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
-use graphql_rust::utils;
-use graphql_rust::{Config, DocumentState};
+use graphql_core::config::SchemaSource;
+use graphql_core::engine::Engine;
+use graphql_core::utils;
+use graphql_core::{Config, DocumentState};
+use graphql_features::completion::FragmentCompletionInfo;
+use graphql_features::diagnostics::DocumentDiagnostics;
 use std::path::PathBuf;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
