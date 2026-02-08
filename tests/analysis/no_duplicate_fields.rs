@@ -157,8 +157,8 @@ fn test_duplicate_fields_with_alias_handling() {
     assert_eq!(diags2.len(), 1);
     let d = &diags2[0];
     assert_eq!(d.message, "Duplicate field 'a' in selection set");
-    // points to second 'id' (the field for the duplicate alias 'a')
-    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc2, q2_text, "id", 1));
+    // points to second 'a' (the alias)
+    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc2, q2_text, "a", 1));
 }
 
 // Alias collisions: alias name equals an unaliased field -> should trigger
@@ -189,8 +189,8 @@ fn test_alias_collision_triggers_duplicate() {
     assert_eq!(diags.len(), 1);
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'id' in selection set");
-    // points to 'name' (the field for the alias 'id' that collisions with first 'id')
-    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "name", 1));
+    // range for alias 'id' (second 'id' in the text)
+    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "id", 1));
 }
 
 // Tests involving fragments and inline fragments

@@ -191,8 +191,18 @@ impl DocumentState {
                         }
 
                         if seen_conflict {
+                            // Point diagnostic at alias name if it exists, otherwise the field name
+                            let diagnostic_node = if let Some(alias) = alias_node {
+                                let mut a_cursor = alias.walk();
+                                alias
+                                    .children(&mut a_cursor)
+                                    .find(|c| c.kind() == "name")
+                                    .unwrap_or(alias)
+                            } else {
+                                name_node
+                            };
                             ctx.diagnostics.push(Diagnostic {
-                                range: self.translate_to_file_range(name_node, offset),
+                                range: self.translate_to_file_range(diagnostic_node, offset),
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
                                     "Duplicate field '{}' in selection set",
