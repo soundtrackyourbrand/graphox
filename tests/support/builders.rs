@@ -1,0 +1,228 @@
+//! Builders for creating complex test objects with less boilerplate.
+
+use graphql_rust::Config;
+use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
+use std::path::{Path, PathBuf};
+
+// =============================================================================
+// Config Builder
+// =============================================================================
+
+/// Builder for creating Config objects in tests.
+///
+/// # Example
+///
+/// ```
+/// use tests::ConfigBuilder;
+///
+/// let config = ConfigBuilder::new(&base_dir)
+///     .add_project(ProjectConfigBuilder::new().single_schema("schema.graphql"))
+///     .build();
+/// ```
+pub struct ConfigBuilder {
+    base_dir: PathBuf,
+    projects: Vec<ProjectConfigBuilder>,
+    enable_schema_cache: Option<bool>,
+    lsp_automatic_codegen: Option<bool>,
+}
+
+impl ConfigBuilder {
+    /// Create a new builder with the given base directory.
+    pub fn new(base_dir: &Path) -> Self {
+        Self {
+            base_dir: base_dir.to_path_buf(),
+            projects: Vec::new(),
+            enable_schema_cache: Some(true),
+            lsp_automatic_codegen: Some(false),
+        }
+    }
+
+    /// Add a project configuration.
+    pub fn add_project(mut self, project: ProjectConfigBuilder) -> Self {
+        self.projects.push(project);
+        self
+    }
+
+    /// Enable or disable schema caching.
+    pub fn enable_schema_cache(mut self, enabled: bool) -> Self {
+        self.enable_schema_cache = Some(enabled);
+        self
+    }
+
+    /// Enable or disable automatic LSP codegen.
+    pub fn lsp_automatic_codegen(mut self, enabled: bool) -> Self {
+        self.lsp_automatic_codegen = Some(enabled);
+        self
+    }
+
+    /// Build the Config object.
+    pub fn build(self) -> Config {
+        Config {
+            base_dir: self.base_dir,
+            projects: self.projects.into_iter().map(|p| p.build()).collect(),
+            enable_schema_cache: self.enable_schema_cache,
+            lsp_automatic_codegen: self.lsp_automatic_codegen,
+            ..Config::new_empty()
+        }
+    }
+}
+
+// =============================================================================
+// ProjectConfig Builder
+// =============================================================================
+
+/// Builder for creating ProjectConfig objects in tests.
+///
+/// # Example
+///
+/// ```
+/// use tests::ProjectConfigBuilder;
+///
+/// let project = ProjectConfigBuilder::new()
+///     .single_schema("schema.graphql")
+///     .include_pattern("**/*.graphql")
+///     .build();
+/// ```
+pub struct ProjectConfigBuilder {
+    schema: SchemaSource,
+    include: GlobPattern,
+    exclude: Option<GlobPattern>,
+    codegen: Option<bool>,
+}
+
+impl ProjectConfigBuilder {
+    /// Create a new builder with default settings.
+    pub fn new() -> Self {
+        Self {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("**/*.graphql".to_string()),
+            exclude: None,
+            codegen: Some(false),
+        }
+    }
+
+    /// Set a single schema file.
+    pub fn single_schema(mut self, schema_path: &str) -> Self {
+        self.schema = SchemaSource::Single(schema_path.to_string());
+        self
+    }
+
+    /// Set multiple schema files (for schema merging).
+    pub fn multi_schema(mut self, schemas: Vec<String>) -> Self {
+        self.schema = SchemaSource::Multiple(schemas);
+        self
+    }
+
+    /// Set the include glob pattern.
+    pub fn include_pattern(mut self, pattern: &str) -> Self {
+        self.include = GlobPattern::Single(pattern.to_string());
+        self
+    }
+
+    /// Set the exclude glob pattern.
+    pub fn exclude_pattern(mut self, pattern: &str) -> Self {
+        self.exclude = Some(GlobPattern::Single(pattern.to_string()));
+        self
+    }
+
+    /// Enable or disable codegen.
+    pub fn codegen(mut self, enabled: bool) -> Self {
+        self.codegen = Some(enabled);
+        self
+    }
+
+    /// Build the ProjectConfig object.
+    pub fn build(self) -> ProjectConfig {
+        ProjectConfig {
+            schema: self.schema,
+            include: self.include,
+            exclude: self.exclude,
+            output_dir: None,
+            import: None,
+            generate_permissions: None,
+            codegen: self.codegen,
+        }
+    }
+}
+
+impl Default for ProjectConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// =============================================================================
+// FragmentCompletionInfo Builder
+// =============================================================================
+
+use graphql_rust::features::completion::FragmentCompletionInfo;
+use std::collections::BTreeMap;
+use tower_lsp::lsp_types::Url;
+
+/// Builder for creating FragmentCompletionInfo objects in tests.
+///
+/// # Example
+///
+/// ```
+/// use tests::FragmentInfoBuilder;
+///
+/// let frag = FragmentInfoBuilder::new("UserFields", "User")
+///     .with_uri(uri)
+///     .public()
+///     .build();
+/// ```
+pub struct FragmentInfoBuilder {
+    name: String,
+    type_condition: String,
+    is_public: bool,
+    uri: Url,
+    package_root: Option<PathBuf>,
+}
+
+impl FragmentInfoBuilder {
+    /// Create a new builder with name and type condition.
+    pub fn new(name: &str, type_condition: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            type_condition: type_condition.to_string(),
+            is_public: false,
+            uri: Url::parse("file:///test.graphql").unwrap(),
+            package_root: None,
+        }
+    }
+
+    /// Mark the fragment as public.
+    pub fn public(mut self) -> Self {
+        self.is_public = true;
+        self
+    }
+
+    /// Set the URI for the fragment.
+    pub fn with_uri(mut self, uri: Url) -> Self {
+        self.uri = uri;
+        self
+    }
+
+    /// Set the package root.
+    pub fn with_package_root(mut self, path: PathBuf) -> Self {
+        self.package_root = Some(path);
+        self
+    }
+
+    /// Build the FragmentCompletionInfo object.
+    pub fn build(self) -> FragmentCompletionInfo {
+        FragmentCompletionInfo {
+            name: self.name,
+            type_condition: self.type_condition,
+            description: None,
+            import_path: None,
+            is_public: self.is_public,
+            is_type_only: false,
+            uri: self.uri,
+            package_root: self.package_root,
+            used_variables: Vec::new(),
+            used_fragments: Vec::new(),
+            requirements: BTreeMap::new(),
+        }
+    }
+}

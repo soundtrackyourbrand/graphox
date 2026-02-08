@@ -3,42 +3,41 @@ use graphql_rust::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
-use tempfile::tempdir;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test]
 async fn test_cross_project_docs_and_imports() {
-    let dir = tempdir().unwrap();
-    let base_dir = fs::canonicalize(dir.path()).unwrap();
+    // Build a scenario with two projects (project1 and project2) that share
+    // the same schema. Use the LspTestScenario helper to write files and
+    // build a consistent configuration.
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            r#"
+            type Query {
+                """
+                This is a documented user field
+                """
+                user: User
+            }
+            "This is a documented User type"
+            type User {
+                id: ID!
+                name: String
+            }
+        "#,
+        )
+        .with_file("project1/package.json", "{}")
+        .with_file("project2/package.json", "{}");
+
+    let base_dir = scenario.write_files().unwrap();
 
     let p1_dir = base_dir.join("project1");
     let p2_dir = base_dir.join("project2");
-    fs::create_dir(&p1_dir).unwrap();
-    fs::create_dir(&p2_dir).unwrap();
-
-    fs::write(p1_dir.join("package.json"), "{}").unwrap();
-    fs::write(p2_dir.join("package.json"), "{}").unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        r#"
-        type Query {
-            """
-            This is a documented user field
-            """
-            user: User
-        }
-        "This is a documented User type"
-        type User {
-            id: ID!
-            name: String
-        }
-    "#,
-    )
-    .unwrap();
+    fs::create_dir_all(&p1_dir).unwrap();
+    fs::create_dir_all(&p2_dir).unwrap();
 
     let config = Config {
         projects: vec![

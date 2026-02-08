@@ -1,49 +1,35 @@
+use crate::support::ProjectConfigBuilder;
+use crate::support::builders::ConfigBuilder;
 use crate::support::{self, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphql_rust::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
-use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_merge() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema1.graphql",
+            "type User { id: ID! } type Query { me: User }",
+        )
+        .with_file("schema2.graphql", "type User { name: String }")
+        .with_file("query.graphql", "query { me { id name } }");
 
-    let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(
-        &schema1_path,
-        "type User { id: ID! } type Query { me: User }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let schema2_path = base_dir.join("schema2.graphql");
-    fs::write(&schema2_path, "type User { name: String }").unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { id name } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "schema1.graphql".to_string(),
-                "schema2.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = ConfigBuilder::new(&base_dir)
+        .add_project(
+            ProjectConfigBuilder::new()
+                .multi_schema(vec![
+                    "schema1.graphql".to_string(),
+                    "schema2.graphql".to_string(),
+                ])
+                .include_pattern("query.graphql")
+                .codegen(false),
+        )
+        .enable_schema_cache(true)
+        .build();
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -63,6 +49,8 @@ async fn test_lsp_multi_schema_merge() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { id name } }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -82,41 +70,28 @@ async fn test_lsp_multi_schema_merge() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_extension_first() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema1.graphql", "extend type User { name: String }")
+        .with_file(
+            "schema2.graphql",
+            "type User { id: ID! } type Query { me: User }",
+        )
+        .with_file("query.graphql", "query { me { id name } }");
 
-    let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(&schema1_path, "extend type User { name: String }").unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let schema2_path = base_dir.join("schema2.graphql");
-    fs::write(
-        &schema2_path,
-        "type User { id: ID! } type Query { me: User }",
-    )
-    .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { id name } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "schema1.graphql".to_string(),
-                "schema2.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = ConfigBuilder::new(&base_dir)
+        .add_project(
+            ProjectConfigBuilder::new()
+                .multi_schema(vec![
+                    "schema1.graphql".to_string(),
+                    "schema2.graphql".to_string(),
+                ])
+                .include_pattern("query.graphql")
+                .codegen(false),
+        )
+        .enable_schema_cache(true)
+        .build();
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -136,6 +111,8 @@ async fn test_lsp_multi_schema_extension_first() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { id name } }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -154,45 +131,31 @@ async fn test_lsp_multi_schema_extension_first() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_with_docs() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema1.graphql",
+            "type User { id: ID! } type Query { me: User }",
+        )
+        .with_file(
+            "schema2.graphql",
+            "\"\"\"User doc\"\"\"\ntype User { name: String }",
+        )
+        .with_file("query.graphql", "query { me { id name } }");
 
-    let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(
-        &schema1_path,
-        "type User { id: ID! } type Query { me: User }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let schema2_path = base_dir.join("schema2.graphql");
-    fs::write(
-        &schema2_path,
-        "\"\"\"User doc\"\"\"\ntype User { name: String }",
-    )
-    .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { id name } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "schema1.graphql".to_string(),
-                "schema2.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = ConfigBuilder::new(&base_dir)
+        .add_project(
+            ProjectConfigBuilder::new()
+                .multi_schema(vec![
+                    "schema1.graphql".to_string(),
+                    "schema2.graphql".to_string(),
+                ])
+                .include_pattern("query.graphql")
+                .codegen(false),
+        )
+        .enable_schema_cache(true)
+        .build();
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -212,6 +175,8 @@ async fn test_lsp_multi_schema_with_docs() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { id name } }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -230,41 +195,28 @@ async fn test_lsp_multi_schema_with_docs() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_duplicate_scalars() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema1.graphql",
+            "scalar DateTime\ntype Query { now: DateTime }",
+        )
+        .with_file("schema2.graphql", "scalar DateTime")
+        .with_file("query.graphql", "query { now }");
 
-    let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(
-        &schema1_path,
-        "scalar DateTime\ntype Query { now: DateTime }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let schema2_path = base_dir.join("schema2.graphql");
-    fs::write(&schema2_path, "scalar DateTime").unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { now }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "schema1.graphql".to_string(),
-                "schema2.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = ConfigBuilder::new(&base_dir)
+        .add_project(
+            ProjectConfigBuilder::new()
+                .multi_schema(vec![
+                    "schema1.graphql".to_string(),
+                    "schema2.graphql".to_string(),
+                ])
+                .include_pattern("query.graphql")
+                .codegen(false),
+        )
+        .enable_schema_cache(true)
+        .build();
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -284,6 +236,8 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { now }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -302,45 +256,30 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_triple_overlap() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema1.graphql",
+            "type User { id: ID! } type Query { me: User }",
+        )
+        .with_file("schema2.graphql", "type User { name: String }")
+        .with_file("schema3.graphql", "type User { age: Int }")
+        .with_file("query.graphql", "query { me { id name age } }");
 
-    let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(
-        &schema1_path,
-        "type User { id: ID! } type Query { me: User }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let schema2_path = base_dir.join("schema2.graphql");
-    fs::write(&schema2_path, "type User { name: String }").unwrap();
-
-    let schema3_path = base_dir.join("schema3.graphql");
-    fs::write(&schema3_path, "type User { age: Int }").unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { id name age } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "schema1.graphql".to_string(),
-                "schema2.graphql".to_string(),
-                "schema3.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = ConfigBuilder::new(&base_dir)
+        .add_project(
+            ProjectConfigBuilder::new()
+                .multi_schema(vec![
+                    "schema1.graphql".to_string(),
+                    "schema2.graphql".to_string(),
+                    "schema3.graphql".to_string(),
+                ])
+                .include_pattern("query.graphql")
+                .codegen(false),
+        )
+        .enable_schema_cache(true)
+        .build();
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -360,6 +299,8 @@ async fn test_lsp_multi_schema_triple_overlap() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { id name age } }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -378,41 +319,28 @@ async fn test_lsp_multi_schema_triple_overlap() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_extension_first_separate_files() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema1.graphql", "extend type User { name: String }")
+        .with_file(
+            "schema2.graphql",
+            "type User { id: ID! } type Query { me: User }",
+        )
+        .with_file("query.graphql", "query { me { id name } }");
 
-    let schema1_path = base_dir.join("schema1.graphql");
-    fs::write(&schema1_path, "extend type User { name: String }").unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let schema2_path = base_dir.join("schema2.graphql");
-    fs::write(
-        &schema2_path,
-        "type User { id: ID! } type Query { me: User }",
-    )
-    .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { id name } }";
-    fs::write(&query_path, query_text).unwrap();
-
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
-                "schema1.graphql".to_string(),
-                "schema2.graphql".to_string(),
-            ]),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = ConfigBuilder::new(&base_dir)
+        .add_project(
+            ProjectConfigBuilder::new()
+                .multi_schema(vec![
+                    "schema1.graphql".to_string(),
+                    "schema2.graphql".to_string(),
+                ])
+                .include_pattern("query.graphql")
+                .codegen(false),
+        )
+        .enable_schema_cache(true)
+        .build();
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -432,6 +360,8 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me { id name } }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 

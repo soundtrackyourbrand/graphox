@@ -6,53 +6,46 @@ use graphql_rust::{
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(1000)]
 async fn test_lsp_fragment_collisions() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    // Given: a workspace with multiple packages and fragments that will collide
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file(
+            "pkg_a/frag.graphql",
+            "fragment DuplicateFrag on User { id }",
+        )
+        .with_file(
+            "pkg_a/other.graphql",
+            "fragment DuplicateFrag on User { name }",
+        )
+        .with_file(
+            "pkg_b/pub.graphql",
+            "fragment PublicFrag on User @public { id }",
+        )
+        .with_file(
+            "pkg_a/shadow.graphql",
+            "fragment PublicFrag on User { name }",
+        )
+        .with_file(
+            "pkg_b/pub_collision.graphql",
+            "fragment PublicCollision on User @public { id }",
+        )
+        .with_file(
+            "pkg_a/pub_collision_2.graphql",
+            "fragment PublicCollision on User @public { name }",
+        );
 
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! name: String } type Query { me: User }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
-    let pkg_a = base_dir.join("pkg_a");
-    fs::create_dir_all(&pkg_a).unwrap();
-    let frag_a_path = pkg_a.join("frag.graphql");
-    fs::write(&frag_a_path, "fragment DuplicateFrag on User { id }").unwrap();
-
-    let frag_b_path = pkg_a.join("other.graphql");
-    fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
-
-    let pkg_b = base_dir.join("pkg_b");
-    fs::create_dir_all(&pkg_b).unwrap();
-    let frag_c_path = pkg_b.join("pub.graphql");
-    fs::write(&frag_c_path, "fragment PublicFrag on User @public { id }").unwrap();
-
-    let frag_d_path = pkg_a.join("shadow.graphql");
-    fs::write(&frag_d_path, "fragment PublicFrag on User { name }").unwrap();
-
-    let frag_e_path = pkg_b.join("pub_collision.graphql");
-    fs::write(
-        &frag_e_path,
-        "fragment PublicCollision on User @public { id }",
-    )
-    .unwrap();
-
-    let frag_f_path = pkg_a.join("pub_collision_2.graphql");
-    fs::write(
-        &frag_f_path,
-        "fragment PublicCollision on User @public { name }",
-    )
-    .unwrap();
-
+    // Use an explicit two-project config to match previous test semantics
     let config = Config {
         projects: vec![
             ProjectConfig {
@@ -104,65 +97,34 @@ async fn test_lsp_fragment_collisions() {
 
     lsp_initialize_sequence(&mut service).await;
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let uri_b = Url::from_file_path(&frag_b_path).unwrap();
-    let uri_c = Url::from_file_path(&frag_c_path).unwrap();
-    let uri_d = Url::from_file_path(&frag_d_path).unwrap();
-    let uri_e = Url::from_file_path(&frag_e_path).unwrap();
-    let uri_f = Url::from_file_path(&frag_f_path).unwrap();
-
-    lsp_did_open(
-        &mut service,
-        uri_a.clone(),
-        "graphql",
-        1,
-        &fs::read_to_string(&frag_a_path).unwrap(),
-    )
-    .await;
-    lsp_did_open(
-        &mut service,
-        uri_b.clone(),
-        "graphql",
-        1,
-        &fs::read_to_string(&frag_b_path).unwrap(),
-    )
-    .await;
-    lsp_did_open(
-        &mut service,
-        uri_c.clone(),
-        "graphql",
-        1,
-        &fs::read_to_string(&frag_c_path).unwrap(),
-    )
-    .await;
-    lsp_did_open(
-        &mut service,
-        uri_d.clone(),
-        "graphql",
-        1,
-        &fs::read_to_string(&frag_d_path).unwrap(),
-    )
-    .await;
-    lsp_did_open(
-        &mut service,
-        uri_e.clone(),
-        "graphql",
-        1,
-        &fs::read_to_string(&frag_e_path).unwrap(),
-    )
-    .await;
-    lsp_did_open(
-        &mut service,
-        uri_f.clone(),
-        "graphql",
-        1,
-        &fs::read_to_string(&frag_f_path).unwrap(),
-    )
-    .await;
+    // Open all files we wrote
+    for rel in [
+        "pkg_a/frag.graphql",
+        "pkg_a/other.graphql",
+        "pkg_b/pub.graphql",
+        "pkg_a/shadow.graphql",
+        "pkg_b/pub_collision.graphql",
+        "pkg_a/pub_collision_2.graphql",
+    ] {
+        let path = base_dir.join(rel);
+        let uri = Url::from_file_path(&path).unwrap();
+        lsp_did_open(
+            &mut service,
+            uri,
+            "graphql",
+            1,
+            &fs::read_to_string(&path).unwrap(),
+        )
+        .await;
+    }
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let diags = received_diags.lock().unwrap();
+
+    let uri_a = Url::from_file_path(base_dir.join("pkg_a/frag.graphql")).unwrap();
+    let uri_d = Url::from_file_path(base_dir.join("pkg_a/shadow.graphql")).unwrap();
+    let uri_e = Url::from_file_path(base_dir.join("pkg_b/pub_collision.graphql")).unwrap();
 
     // Check private collision in pkg_a
     let d_a = diags.get(&uri_a).unwrap();
@@ -174,13 +136,15 @@ async fn test_lsp_fragment_collisions() {
                 .contains("Duplicate fragment name: 'DuplicateFrag'")
         })
         .expect("Should find our duplicate fragment diagnostic");
-    let doc_a =
-        crate::support::create_doc(uri_a.as_str(), &fs::read_to_string(&frag_a_path).unwrap());
+    let doc_a = crate::support::create_doc(
+        uri_a.as_str(),
+        &fs::read_to_string(base_dir.join("pkg_a/frag.graphql")).unwrap(),
+    );
     assert_eq!(
         diag.range,
         crate::support::range_for_token(
             &doc_a,
-            &fs::read_to_string(&frag_a_path).unwrap(),
+            &fs::read_to_string(base_dir.join("pkg_a/frag.graphql")).unwrap(),
             "DuplicateFrag"
         )
     );
@@ -193,13 +157,15 @@ async fn test_lsp_fragment_collisions() {
         .find(|d| d.message.contains("shadows a public fragment"))
         .expect("Should find shadowing hint");
     assert_eq!(diag.severity, Some(DiagnosticSeverity::HINT));
-    let doc_d =
-        crate::support::create_doc(uri_d.as_str(), &fs::read_to_string(&frag_d_path).unwrap());
+    let doc_d = crate::support::create_doc(
+        uri_d.as_str(),
+        &fs::read_to_string(base_dir.join("pkg_a/shadow.graphql")).unwrap(),
+    );
     assert_eq!(
         diag.range,
         crate::support::range_for_token(
             &doc_d,
-            &fs::read_to_string(&frag_d_path).unwrap(),
+            &fs::read_to_string(base_dir.join("pkg_a/shadow.graphql")).unwrap(),
             "PublicFrag"
         )
     );
@@ -214,13 +180,15 @@ async fn test_lsp_fragment_collisions() {
                 .contains("Duplicate public fragment name: 'PublicCollision'")
         })
         .expect("Should find public collision diagnostic");
-    let doc_e =
-        crate::support::create_doc(uri_e.as_str(), &fs::read_to_string(&frag_e_path).unwrap());
+    let doc_e = crate::support::create_doc(
+        uri_e.as_str(),
+        &fs::read_to_string(base_dir.join("pkg_b/pub_collision.graphql")).unwrap(),
+    );
     assert_eq!(
         diag.range,
         crate::support::range_for_token(
             &doc_e,
-            &fs::read_to_string(&frag_e_path).unwrap(),
+            &fs::read_to_string(base_dir.join("pkg_b/pub_collision.graphql")).unwrap(),
             "PublicCollision"
         )
     );
@@ -229,33 +197,17 @@ async fn test_lsp_fragment_collisions() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(1000)]
 async fn test_lsp_diagnostics_on_schema_change() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String } type Query { me: User }",
-    )
-    .unwrap();
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { id name } }";
-    fs::write(&query_path, query_text).unwrap();
+    // Given: a workspace with a schema and a query that initially matches
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file("query.graphql", "query { me { id name } }");
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: Some(false),
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let base_dir = scenario.write_files().unwrap();
+    let config = scenario.build_config(&base_dir);
+
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
@@ -274,7 +226,9 @@ async fn test_lsp_diagnostics_on_schema_change() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
     let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let query_text = "query { me { id name } }";
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Wait for initial diagnostics
@@ -292,12 +246,15 @@ async fn test_lsp_diagnostics_on_schema_change() {
                 .is_empty()
         );
     }
+
     // 4. Change schema on disk: rename 'name' to 'fullName'
+    let schema_path = base_dir.join("schema.graphql");
     fs::write(
         &schema_path,
         "type User { id: ID! fullName: String } type Query { me: User }",
     )
     .unwrap();
+
     // 5. Notify LSP about the change
     let params = DidChangeWatchedFilesParams {
         changes: vec![FileEvent {
@@ -319,6 +276,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
         );
         assert!(d_list[0]["message"].as_str().unwrap().contains("name"));
     }
+
     // 7. Fix the query
     let query_text_fixed = "query { me { id fullName } }";
     let params = DidChangeTextDocumentParams {
@@ -346,21 +304,18 @@ async fn test_lsp_diagnostics_on_schema_change() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ntest::timeout(1000)]
 async fn test_lsp_fragment_rename_same_project() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String } type Query { me: User }",
-    )
-    .unwrap();
-    let frag_path = base_dir.join("frag.graphql");
-    let frag_text = "fragment UserFrag on User { id }";
-    fs::write(&frag_path, frag_text).unwrap();
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me { ...UserFrag } }";
-    fs::write(&query_path, query_text).unwrap();
+    // Given: a simple project with a fragment and a query that references it
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file("frag.graphql", "fragment UserFrag on User { id }")
+        .with_file("query.graphql", "query { me { ...UserFrag } }");
 
+    let base_dir = scenario.write_files().unwrap();
+
+    // Use an explicit config that includes all graphql files
     let config = Config {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
@@ -376,6 +331,7 @@ async fn test_lsp_fragment_rename_same_project() {
         lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
+
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
@@ -394,11 +350,27 @@ async fn test_lsp_fragment_rename_same_project() {
 
     lsp_initialize_sequence(&mut service).await;
 
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let frag_path = base_dir.join("frag.graphql");
+    let query_path = base_dir.join("query.graphql");
     let frag_uri = Url::from_file_path(fs::canonicalize(&frag_path).unwrap()).unwrap();
+    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
 
-    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(
+        &mut service,
+        frag_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(&frag_path).unwrap(),
+    )
+    .await;
+    lsp_did_open(
+        &mut service,
+        query_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(&query_path).unwrap(),
+    )
+    .await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;
     {
@@ -413,6 +385,8 @@ async fn test_lsp_fragment_rename_same_project() {
             "Query should be initially valid"
         );
     }
+
+    // Rename fragment
     let frag_text_new = "fragment UserFragRenamed on User { id }";
     let params = DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -481,27 +455,23 @@ async fn test_lsp_fragment_rename_same_project() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ntest::timeout(1000)]
 async fn test_lsp_fragment_rename_cross_project() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-    let pkg_a = base_dir.join("pkg_a");
-    fs::create_dir(&pkg_a).unwrap();
-    fs::write(pkg_a.join("package.json"), "{}").unwrap();
-    let schema_a_path = pkg_a.join("schema.graphql");
-    fs::write(
-        &schema_a_path,
-        "type User { id: ID! } type Query { me: User }",
-    )
-    .unwrap();
-    let frag_path = pkg_a.join("frag.graphql");
-    let frag_text = "fragment UserFrag on User @public { id }";
-    fs::write(&frag_path, frag_text).unwrap();
-    let pkg_b = base_dir.join("pkg_b");
-    fs::create_dir(&pkg_b).unwrap();
-    fs::write(pkg_b.join("package.json"), "{}").unwrap();
-    let query_path = pkg_b.join("query.graphql");
-    let query_text = "query { me { ...UserFrag } }";
-    fs::write(&query_path, query_text).unwrap();
+    // Given: two packages A and B where A exports a public fragment used by B
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("pkg_a/package.json", "{}")
+        .with_file(
+            "pkg_a/schema.graphql",
+            "type User { id: ID! } type Query { me: User }",
+        )
+        .with_file(
+            "pkg_a/frag.graphql",
+            "fragment UserFrag on User @public { id }",
+        )
+        .with_file("pkg_b/package.json", "{}")
+        .with_file("pkg_b/query.graphql", "query { me { ...UserFrag } }");
 
+    let base_dir = scenario.write_files().unwrap();
+
+    // Explicit two-project config like the original test
     let config = Config {
         projects: vec![
             ProjectConfig {
@@ -528,6 +498,7 @@ async fn test_lsp_fragment_rename_cross_project() {
         lsp_automatic_codegen: Some(false),
         ..Config::new_empty()
     };
+
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let received_diags_clone = received_diags.clone();
@@ -546,11 +517,27 @@ async fn test_lsp_fragment_rename_cross_project() {
 
     lsp_initialize_sequence(&mut service).await;
 
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let frag_path = base_dir.join("pkg_a/frag.graphql");
+    let query_path = base_dir.join("pkg_b/query.graphql");
     let frag_uri = Url::from_file_path(fs::canonicalize(&frag_path).unwrap()).unwrap();
+    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
 
-    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(
+        &mut service,
+        frag_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(&frag_path).unwrap(),
+    )
+    .await;
+    lsp_did_open(
+        &mut service,
+        query_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(&query_path).unwrap(),
+    )
+    .await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;
     {
@@ -565,6 +552,8 @@ async fn test_lsp_fragment_rename_cross_project() {
             "Query should be initially valid"
         );
     }
+
+    // Rename fragment in project A
     let frag_text_new = "fragment UserFragRenamed on User @public { id }";
     let params = DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {

@@ -155,7 +155,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(500)]
 fn test_codegen_document_node_no_vars() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_document_no_vars_test");

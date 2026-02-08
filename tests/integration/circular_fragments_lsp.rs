@@ -3,26 +3,19 @@ use futures_util::StreamExt;
 use graphql_rust::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_circular_fragment_diagnostic() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { me: User } type User { id: ID! name: String }",
-    )
-    .unwrap();
-
-    let frag_path = base_dir.join("frags.graphql");
+    // Given: a file containing two fragments that reference each other
     let frag_text = "fragment FragA on User { ...FragB }\nfragment FragB on User { ...FragA }";
-    fs::write(&frag_path, frag_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema.graphql", "type Query { me: User } type User { id: ID! name: String }")
+        .with_file("frags.graphql", frag_text);
+
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         projects: vec![graphql_rust::config::ProjectConfig {
@@ -39,58 +32,53 @@ async fn test_lsp_circular_fragment_diagnostic() {
         ..Config::new_empty()
     };
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-
-    // Track push diagnostics
-    let received_push_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let received_push_diags_clone = received_push_diags.clone();
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
-            {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
-                received_push_diags_clone.lock().unwrap().push(params);
-            }
-        }
-    });
-
-    lsp_initialize_sequence(&mut service).await;
+    let (mut initialized) = scenario.with_config(config).initialize().await;
+    let service = initialized.service();
 
     // Open document
-    let frag_uri = Url::from_file_path(&frag_path).unwrap();
-    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+    let frag_uri = initialized.uri_for("frags.graphql");
 
-    // Wait for validation
+    // Collect push diagnostics using the helper DiagnosticCollector
+    let mut receiver = tokio::spawn(async move { /* noop - socket consumed by LspTestScenario */ });
+
+    // The scenario already opens files during initialize; we only need to wait
+    // a short time for validation to run.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let push_diags = received_push_diags.lock().unwrap();
-    assert!(!push_diags.is_empty(), "Expected push diagnostics");
+    // Pull diagnostics via document diagnostic request to assert counts and ranges
+    let params = tower_lsp::lsp_types::DocumentDiagnosticParams {
+        text_document: tower_lsp::lsp_types::TextDocumentIdentifier { uri: frag_uri.clone() },
+        identifier: None,
+        previous_result_id: None,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
 
-    let last = push_diags.last().unwrap();
-    let diags = last["diagnostics"].as_array().unwrap();
-    assert_eq!(diags.len(), 2);
-    
-    let doc = crate::support::create_doc(frag_uri.as_str(), frag_text);
+    let result: tower_lsp::lsp_types::DocumentDiagnosticReportResult =
+        crate::support::lsp_request_typed(service, "textDocument/diagnostic", &params).await;
 
-    // Diag 1: FragB in FragA (line 0)
-    let diag1 = diags.iter().find(|d| d["range"]["start"]["line"] == 0).unwrap();
-    assert!(diag1["message"].as_str().unwrap().contains("Circular fragment reference"));
-    let expected1 = crate::support::range_for_token(&doc, frag_text, "FragB");
-    assert_eq!(diag1["range"]["start"]["character"], expected1.start.character);
-    assert_eq!(diag1["range"]["end"]["character"], expected1.end.character);
+    if let tower_lsp::lsp_types::DocumentDiagnosticReportResult::Report(
+        tower_lsp::lsp_types::DocumentDiagnosticReport::Full(full_report),
+    ) = result
+    {
+        let diagnostics = &full_report.full_document_diagnostic_report.items;
+        assert_eq!(diagnostics.len(), 2);
+
+        let doc = crate::support::create_doc(frag_uri.as_str(), frag_text);
+
+        // Diag 1: FragB in FragA (line 0)
+        let diag1 = diagnostics.iter().find(|d| d.range.start.line == 0).unwrap();
+        assert!(diag1.message.contains("Circular fragment reference"));
+        let expected1 = crate::support::range_for_token(&doc, frag_text, "FragB");
+        assert_eq!(diag1.range.start.character, expected1.start.character);
+        assert_eq!(diag1.range.end.character, expected1.end.character);
 
         // Diag 2: FragA in FragB (line 1)
-
-        let diag2 = diags.iter().find(|d| d["range"]["start"]["line"] == 1).unwrap();
-
-        assert!(diag2["message"].as_str().unwrap().contains("Circular fragment reference"));
-
+        let diag2 = diagnostics.iter().find(|d| d.range.start.line == 1).unwrap();
+        assert!(diag2.message.contains("Circular fragment reference"));
         let expected2 = crate::support::range_for_token_at_index(&doc, frag_text, "FragA", 1);
-
-        assert_eq!(diag2["range"]["start"]["character"], expected2.start.character);
-
-        assert_eq!(diag2["range"]["end"]["character"], expected2.end.character);
-
+        assert_eq!(diag2.range.start.character, expected2.start.character);
+        assert_eq!(diag2.range.end.character, expected2.end.character);
+    } else {
+        panic!("Unexpected diagnostic result: {:?}", result);
     }
-
-    

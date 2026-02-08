@@ -146,7 +146,13 @@ impl DocumentDiagnostics for DocumentState {
                     || err_str.contains("must not select different types using the same name")
                     || err_str.contains("conflicting field arguments")
                     || (err_str.contains("variable")
-                        && err_str.contains("cannot be used for argument"));
+                        && err_str.contains("cannot be used for argument"))
+                    // Suppress apollo-compiler messages about recursive / circular fragments
+                    || err_str.contains("cannot reference itself")
+                    || err_str.contains("references itself")
+                    || err_str.contains("recursive fragment")
+                    || err_str.contains("circular fragment")
+                    || err_str.contains("circular reference");
 
                 if !is_duplicate {
                     let range = if let Some(r) = range_opt {

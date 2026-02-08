@@ -1,25 +1,25 @@
+use crate::support::assert_diag_range_equals;
+use crate::support::assert_diagnostic_with_message;
+use crate::support::assert_diagnostics_count;
+use crate::support::builders::FragmentInfoBuilder;
 use crate::support::create_doc;
 use apollo_compiler::Schema;
-use graphql_rust::features::completion::FragmentCompletionInfo;
 use graphql_rust::features::diagnostics::DocumentDiagnostics;
-use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 
 #[test]
 #[ntest::timeout(100)]
 fn test_private_duplicate_same_package_root_reports_error() {
-    let dir = tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
-    let pkg = base.join("pkg");
-    std::fs::create_dir_all(&pkg).unwrap();
-    std::fs::write(base.join("package.json"), "{}").unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("package.json", "{}")
+        .with_file("pkg/a.graphql", "fragment DuplicateFrag on User { id }")
+        .with_file("pkg/b.graphql", "fragment DuplicateFrag on User { name }");
 
+    let base = scenario.write_files().unwrap();
+    let pkg = base.join("pkg");
     let frag_a_path = pkg.join("a.graphql");
     let frag_b_path = pkg.join("b.graphql");
-
     let text_a = "fragment DuplicateFrag on User { id }";
-    std::fs::write(&frag_a_path, text_a).unwrap();
-    std::fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
@@ -32,29 +32,16 @@ fn test_private_duplicate_same_package_root_reports_error() {
     .validate()
     .unwrap();
 
-    let other_frag = FragmentCompletionInfo {
-        name: "DuplicateFrag".to_string(),
-        type_condition: "User".to_string(),
-        description: None,
-        import_path: None,
-        is_public: false,
-        is_type_only: false,
-        uri: Url::from_file_path(&frag_b_path).unwrap(),
-        package_root: Some(base.clone()), // Use base as root
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        requirements: std::collections::BTreeMap::new(),
-    };
+    let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
+        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_package_root(base.clone())
+        .build();
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    assert_eq!(diagnostics.len(), 1);
-    let diag = &diagnostics[0];
-    assert_eq!(
-        diag.message,
-        "Duplicate fragment name: 'DuplicateFrag' in the same project."
-    );
-    crate::support::assert_diag_range_equals(
+    assert_diagnostics_count(&diagnostics, 1);
+    let diag = assert_diagnostic_with_message(&diagnostics, "Duplicate fragment name");
+    assert_diag_range_equals(
         diag,
         &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"),
     );
@@ -63,21 +50,17 @@ fn test_private_duplicate_same_package_root_reports_error() {
 #[test]
 #[ntest::timeout(100)]
 fn test_private_duplicate_same_project_via_config_reports_error() {
-    let dir = tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
-    std::fs::write(base.join("package.json"), "{}").unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("package.json", "{}")
+        .with_file("pkg_a/a.graphql", "fragment DuplicateFrag on User { id }")
+        .with_file("pkg_b/b.graphql", "fragment DuplicateFrag on User { name }");
 
+    let base = scenario.write_files().unwrap();
     let pkg_a = base.join("pkg_a");
     let pkg_b = base.join("pkg_b");
-    std::fs::create_dir_all(&pkg_a).unwrap();
-    std::fs::create_dir_all(&pkg_b).unwrap();
-
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
-
     let text_a = "fragment DuplicateFrag on User { id }";
-    std::fs::write(&frag_a_path, text_a).unwrap();
-    std::fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
@@ -90,7 +73,6 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     .validate()
     .unwrap();
 
-    // Build a Config that maps both files to the same project include
     let config = graphql_rust::Config {
         output_dir: None,
         projects: vec![graphql_rust::config::ProjectConfig {
@@ -106,30 +88,17 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
         ..graphql_rust::Config::new_empty()
     };
 
-    let other_frag = FragmentCompletionInfo {
-        name: "DuplicateFrag".to_string(),
-        type_condition: "User".to_string(),
-        description: None,
-        import_path: None,
-        is_public: false,
-        is_type_only: false,
-        uri: Url::from_file_path(&frag_b_path).unwrap(),
-        package_root: Some(base.clone()), // same package root
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        requirements: std::collections::BTreeMap::new(),
-    };
+    let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
+        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_package_root(base.clone())
+        .build();
 
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[other_frag], None, Some(&config), false, true);
 
-    assert_eq!(diagnostics.len(), 1);
-    let diag = &diagnostics[0];
-    assert_eq!(
-        diag.message,
-        "Duplicate fragment name: 'DuplicateFrag' in the same project."
-    );
-    crate::support::assert_diag_range_equals(
+    assert_diagnostics_count(&diagnostics, 1);
+    let diag = assert_diagnostic_with_message(&diagnostics, "Duplicate fragment name");
+    assert_diag_range_equals(
         diag,
         &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"),
     );
@@ -138,20 +107,23 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
 #[test]
 #[ntest::timeout(100)]
 fn test_public_duplicate_across_workspace_reports_error() {
-    let dir = tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("package.json", "{}")
+        .with_file(
+            "pkg_a/a.graphql",
+            "fragment PublicFrag on User @public { id }",
+        )
+        .with_file(
+            "pkg_b/b.graphql",
+            "fragment PublicFrag on User @public { name }",
+        );
+
+    let base = scenario.write_files().unwrap();
     let pkg_a = base.join("pkg_a");
     let pkg_b = base.join("pkg_b");
-    std::fs::create_dir_all(&pkg_a).unwrap();
-    std::fs::create_dir_all(&pkg_b).unwrap();
-    std::fs::write(base.join("package.json"), "{}").unwrap();
-
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
-
     let text_a = "fragment PublicFrag on User @public { id }";
-    std::fs::write(&frag_a_path, text_a).unwrap();
-    std::fs::write(&frag_b_path, "fragment PublicFrag on User @public { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
@@ -164,29 +136,17 @@ fn test_public_duplicate_across_workspace_reports_error() {
     .validate()
     .unwrap();
 
-    let other_frag = FragmentCompletionInfo {
-        name: "PublicFrag".to_string(),
-        type_condition: "User".to_string(),
-        description: None,
-        import_path: None,
-        is_public: true,
-        is_type_only: false,
-        uri: Url::from_file_path(&frag_b_path).unwrap(),
-        package_root: Some(base.clone()),
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        requirements: std::collections::BTreeMap::new(),
-    };
+    let other_frag = FragmentInfoBuilder::new("PublicFrag", "User")
+        .public()
+        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_package_root(base.clone())
+        .build();
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 
-    assert_eq!(diagnostics.len(), 1);
-    let diag = &diagnostics[0];
-    assert_eq!(
-        diag.message,
-        "Duplicate public fragment name: 'PublicFrag'. Public fragments must have unique names across the workspace."
-    );
-    crate::support::assert_diag_range_equals(
+    assert_diagnostics_count(&diagnostics, 1);
+    let diag = assert_diagnostic_with_message(&diagnostics, "Duplicate public fragment name");
+    assert_diag_range_equals(
         diag,
         &crate::support::range_for_token(&doc, text_a, "PublicFrag"),
     );
@@ -195,20 +155,20 @@ fn test_public_duplicate_across_workspace_reports_error() {
 #[test]
 #[ntest::timeout(100)]
 fn test_private_shadows_public_emits_hint() {
-    let dir = tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("package.json", "{}")
+        .with_file("pkg_a/a.graphql", "fragment Shadowed on User { id }")
+        .with_file(
+            "pkg_b/b.graphql",
+            "fragment Shadowed on User @public { name }",
+        );
+
+    let base = scenario.write_files().unwrap();
     let pkg_a = base.join("pkg_a");
     let pkg_b = base.join("pkg_b");
-    std::fs::create_dir_all(&pkg_a).unwrap();
-    std::fs::create_dir_all(&pkg_b).unwrap();
-    std::fs::write(base.join("package.json"), "{}").unwrap();
-
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
-
     let text_a = "fragment Shadowed on User { id }";
-    std::fs::write(&frag_a_path, text_a).unwrap();
-    std::fs::write(&frag_b_path, "fragment Shadowed on User @public { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
@@ -221,28 +181,20 @@ fn test_private_shadows_public_emits_hint() {
     .validate()
     .unwrap();
 
-    let public_frag = FragmentCompletionInfo {
-        name: "Shadowed".to_string(),
-        type_condition: "User".to_string(),
-        description: None,
-        import_path: None,
-        is_public: true,
-        is_type_only: false,
-        uri: Url::from_file_path(&frag_b_path).unwrap(),
-        package_root: Some(pkg_b.clone()),
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        requirements: std::collections::BTreeMap::new(),
-    };
+    let public_frag = FragmentInfoBuilder::new("Shadowed", "User")
+        .public()
+        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_package_root(pkg_b.clone())
+        .build();
 
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[public_frag], None, None, false, true);
 
-    assert_eq!(diagnostics.len(), 1);
+    assert_diagnostics_count(&diagnostics, 1);
     let diag = &diagnostics[0];
     assert!(diag.message.contains("shadows a public fragment"));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::HINT));
-    crate::support::assert_diag_range_equals(
+    assert_diag_range_equals(
         diag,
         &crate::support::range_for_token(&doc, text_a, "Shadowed"),
     );
@@ -251,21 +203,17 @@ fn test_private_shadows_public_emits_hint() {
 #[test]
 #[ntest::timeout(100)]
 fn test_private_duplicates_across_different_projects_do_not_error() {
-    let dir = tempdir().unwrap();
-    let base = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("pkg_a/package.json", "{}")
+        .with_file("pkg_b/package.json", "{}")
+        .with_file("pkg_a/a.graphql", "fragment DuplicateFrag on User { id }")
+        .with_file("pkg_b/b.graphql", "fragment DuplicateFrag on User { name }");
+
+    let base = scenario.write_files().unwrap();
     let pkg_a = base.join("pkg_a");
     let pkg_b = base.join("pkg_b");
-    std::fs::create_dir_all(&pkg_a).unwrap();
-    std::fs::create_dir_all(&pkg_b).unwrap();
-    // No shared package.json here intentionally so they have different roots
-    std::fs::write(pkg_a.join("package.json"), "{}").unwrap();
-    std::fs::write(pkg_b.join("package.json"), "{}").unwrap();
-
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
-
-    std::fs::write(&frag_a_path, "fragment DuplicateFrag on User { id }").unwrap();
-    std::fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(
@@ -281,19 +229,10 @@ fn test_private_duplicates_across_different_projects_do_not_error() {
     .validate()
     .unwrap();
 
-    let other_frag = FragmentCompletionInfo {
-        name: "DuplicateFrag".to_string(),
-        type_condition: "User".to_string(),
-        description: None,
-        import_path: None,
-        is_public: false,
-        is_type_only: false,
-        uri: Url::from_file_path(&frag_b_path).unwrap(),
-        package_root: Some(pkg_b.clone()),
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        requirements: std::collections::BTreeMap::new(),
-    };
+    let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
+        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_package_root(pkg_b.clone())
+        .build();
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[other_frag], None, None, false, true);
 

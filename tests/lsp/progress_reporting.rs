@@ -4,9 +4,7 @@ use graphql_rust::{
     Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
-use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -14,25 +12,22 @@ use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_progress_on_workspace_scan() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    // Build files via LspTestScenario to control layout
+    let scenario = crate::support::lsp::LspTestScenario::new();
+    let scenario = (0..20).fold(
+        scenario.with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        ),
+        |s, i| {
+            s.with_file(
+                &format!("query{}.graphql", i),
+                &format!("query GetUser{} {{ user {{ id name }} }}", i),
+            )
+        },
+    );
 
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! name: String }",
-    )
-    .unwrap();
-
-    // Create multiple files to trigger progress
-    for i in 0..20 {
-        let query_path = base_dir.join(format!("query{}.graphql", i));
-        fs::write(
-            &query_path,
-            format!("query GetUser{} {{ user {{ id name }} }}", i),
-        )
-        .unwrap();
-    }
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -142,25 +137,20 @@ async fn test_progress_on_workspace_scan() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_no_progress_without_capability() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! }",
-    )
-    .unwrap();
-
-    // Create multiple files
-    for i in 0..20 {
-        let query_path = base_dir.join(format!("query{}.graphql", i));
-        fs::write(
-            &query_path,
-            format!("query GetUser{} {{ user {{ id }} }}", i),
-        )
-        .unwrap();
-    }
+    let scenario = crate::support::lsp::LspTestScenario::new();
+    let scenario = (0..20).fold(
+        scenario.with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! }",
+        ),
+        |s, i| {
+            s.with_file(
+                &format!("query{}.graphql", i),
+                &format!("query GetUser{} {{ user {{ id }} }}", i),
+            )
+        },
+    );
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -243,18 +233,14 @@ async fn test_no_progress_without_capability() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_progress_on_codegen() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { me: String }").unwrap();
-
-    let query_path = base_dir.join("query.graphql");
     let query_text = "query GetMe { me }";
-    fs::write(&query_path, query_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema.graphql", "type Query { me: String }")
+        .with_file("query.graphql", query_text)
+        .with_file("generated/.keep", "");
 
+    let base_dir = scenario.write_files().unwrap();
     let output_dir = "generated";
-    fs::create_dir(base_dir.join(output_dir)).unwrap();
 
     let config = Config {
         output_dir: Some(output_dir.to_string()),
@@ -370,25 +356,20 @@ async fn test_progress_on_codegen() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_progress_messages_contain_percentage() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! }",
-    )
-    .unwrap();
-
-    // Create multiple files to ensure progress reporting
-    for i in 0..15 {
-        let query_path = base_dir.join(format!("query{}.graphql", i));
-        fs::write(
-            &query_path,
-            format!("query GetUser{} {{ user {{ id }} }}", i),
-        )
-        .unwrap();
-    }
+    let scenario = crate::support::lsp::LspTestScenario::new();
+    let scenario = (0..15).fold(
+        scenario.with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! }",
+        ),
+        |s, i| {
+            s.with_file(
+                &format!("query{}.graphql", i),
+                &format!("query GetUser{} {{ user {{ id }} }}", i),
+            )
+        },
+    );
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         projects: vec![ProjectConfig {

@@ -5,7 +5,6 @@ use graphql_rust::{
     engine::Engine,
 };
 use std::fs;
-use tempfile::tempdir;
 
 use crate::support::create_doc;
 use tower_lsp::lsp_types::Url;
@@ -25,30 +24,20 @@ async fn test_document_operations_extraction() {
 #[tokio::test]
 #[ntest::timeout(500)]
 async fn test_check_command_duplicate_operations() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
+    // Use LspTestScenario to create a temporary project layout with schema
+    // and two query files that have duplicate operation names.
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String! } type Query { user(id: ID!): User }",
+        )
+        .with_file(
+            "query1.graphql",
+            "query GetUser { user(id: \"1\") { id name } }",
+        )
+        .with_file("query2.graphql", "query GetUser { user(id: \"2\") { id } }");
 
-    fs::write(base_dir.join("package.json"), "{}").unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String! } type Query { user(id: ID!): User }",
-    )
-    .unwrap();
-
-    // Create two files with duplicate operation names
-    fs::write(
-        base_dir.join("query1.graphql"),
-        "query GetUser { user(id: \"1\") { id name } }",
-    )
-    .unwrap();
-
-    fs::write(
-        base_dir.join("query2.graphql"),
-        "query GetUser { user(id: \"2\") { id } }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         base_dir: base_dir.to_path_buf(),
@@ -89,30 +78,22 @@ async fn test_check_command_duplicate_operations() {
 #[tokio::test]
 #[ntest::timeout(500)]
 async fn test_check_command_unique_operations() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("package.json", "{}")
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String! } type Query { user(id: ID!): User }",
+        )
+        .with_file(
+            "query1.graphql",
+            "query GetUser { user(id: \"1\") { id name } }",
+        )
+        .with_file(
+            "query2.graphql",
+            "query GetUserById { user(id: \"2\") { id } }",
+        );
 
-    fs::write(base_dir.join("package.json"), "{}").unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String! } type Query { user(id: ID!): User }",
-    )
-    .unwrap();
-
-    // Create two files with DIFFERENT operation names
-    fs::write(
-        base_dir.join("query1.graphql"),
-        "query GetUser { user(id: \"1\") { id name } }",
-    )
-    .unwrap();
-
-    fs::write(
-        base_dir.join("query2.graphql"),
-        "query GetUserById { user(id: \"2\") { id } }",
-    )
-    .unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         base_dir: base_dir.to_path_buf(),

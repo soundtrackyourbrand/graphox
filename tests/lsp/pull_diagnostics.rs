@@ -6,28 +6,24 @@ use graphql_rust::{
     Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };
-use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_pull_diagnostics_basic() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! name: String }",
-    )
-    .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
     let query_text = "query GetUser { user { nonExistentField } }"; // Invalid field
-    fs::write(&query_path, query_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .with_file("query.graphql", query_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let _schema_path = base_dir.join("schema.graphql");
+    let query_path = base_dir.join("query.graphql");
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -128,19 +124,17 @@ async fn test_pull_diagnostics_basic() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_pull_diagnostics_unchanged() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! name: String }",
-    )
-    .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
     let query_text = "query GetUser { user { id name } }"; // Valid query
-    fs::write(&query_path, query_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .with_file("query.graphql", query_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let _schema_path = base_dir.join("schema.graphql");
+    let query_path = base_dir.join("query.graphql");
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -232,23 +226,22 @@ async fn test_pull_diagnostics_unchanged() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_workspace_diagnostics() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User post: Post } type User { id: ID! } type Post { title: String }",
-    )
-    .unwrap();
-
-    let query1_path = base_dir.join("query1.graphql");
     let query1_text = "query GetUser { user { id } }";
-    fs::write(&query1_path, query1_text).unwrap();
-
-    let query2_path = base_dir.join("query2.graphql");
     let query2_text = "query GetPost { post { title } }";
-    fs::write(&query2_path, query2_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User post: Post } type User { id: ID! } type Post { title: String }",
+        )
+        .with_file("query1.graphql", query1_text)
+        .with_file("query2.graphql", query2_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let _schema_path = base_dir.join("schema.graphql");
+    let query1_path = base_dir.join("query1.graphql");
+    let query1_text = query1_text;
+    let query2_path = base_dir.join("query2.graphql");
+    let query2_text = query2_text;
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -345,19 +338,17 @@ async fn test_workspace_diagnostics() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_fallback_to_push_diagnostics() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { user: User } type User { id: ID! }",
-    )
-    .unwrap();
-
-    let query_path = base_dir.join("query.graphql");
     let query_text = "query GetUser { user { invalidField } }";
-    fs::write(&query_path, query_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! }",
+        )
+        .with_file("query.graphql", query_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let _schema_path = base_dir.join("schema.graphql");
+    let query_path = base_dir.join("query.graphql");
 
     let config = Config {
         projects: vec![ProjectConfig {

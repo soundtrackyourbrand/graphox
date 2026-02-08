@@ -334,13 +334,29 @@ fn mark_used_variables_recursive(
 
             let cycle = cycle_parts.join(" -> ");
 
-            ctx.diagnostics.push(Diagnostic {
-                range: this.translate_to_file_range(trigger_node, offset),
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: format!("Circular fragment reference: {}", cycle),
-                code: Some(NumberOrString::String("circular_fragment".to_string())),
-                ..Default::default()
-            });
+            // Only report cycle diagnostics when the trigger node is inside a fragment
+            // definition. If the trigger is a fragment spread inside an operation, the
+            // diagnostic is redundant (we also report it on the fragment definitions)
+            // and causes duplicate reports for the same logical cycle.
+            let mut p = trigger_node;
+            let mut inside_fragment = false;
+            while let Some(parent) = p.parent() {
+                if parent.kind() == "fragment_definition" {
+                    inside_fragment = true;
+                    break;
+                }
+                p = parent;
+            }
+
+            if inside_fragment {
+                ctx.diagnostics.push(Diagnostic {
+                    range: this.translate_to_file_range(trigger_node, offset),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("Circular fragment reference: {}", cycle),
+                    code: Some(NumberOrString::String("circular_fragment".to_string())),
+                    ..Default::default()
+                });
+            }
             return true;
         }
 

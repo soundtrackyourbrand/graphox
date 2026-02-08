@@ -4,35 +4,24 @@ use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
 use graphql_rust::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_pull_circular_fragments() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type Query { me: User } type User { id: ID! name: String }",
-    )
-    .unwrap();
-
-    let frag_a_path = base_dir.join("frag_a.graphql");
+    // Given: two fragments that reference each other and a query that uses one
     let frag_a_text = "fragment FragA on User { ...FragB }";
-    fs::write(&frag_a_path, frag_a_text).unwrap();
-
-    let frag_b_path = base_dir.join("frag_b.graphql");
     let frag_b_text = "fragment FragB on User { ...FragA }";
-    fs::write(&frag_b_path, frag_b_text).unwrap();
-
-    // Create a query that uses FragA so fragments are considered
-    let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { ...FragA } }";
-    fs::write(&query_path, query_text).unwrap();
+
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema.graphql", "type Query { me: User } type User { id: ID! name: String }")
+        .with_file("frag_a.graphql", frag_a_text)
+        .with_file("frag_b.graphql", frag_b_text)
+        .with_file("query.graphql", query_text);
+
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -56,8 +45,7 @@ async fn test_lsp_pull_circular_fragments() {
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
-            {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
                 let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
                 received_push_diags_clone.lock().unwrap().push(params);
             }
@@ -92,13 +80,11 @@ async fn test_lsp_pull_circular_fragments() {
         .unwrap();
 
     // Open the files
-    for (path, text) in [
-        (&frag_a_path, frag_a_text),
-        (&frag_b_path, frag_b_text),
-        (&query_path, query_text),
-    ] {
-        let url = Url::from_file_path(path).unwrap();
-        lsp_did_open(&mut service, url, "graphql", 1, text).await;
+    for rel in ["frag_a.graphql", "frag_b.graphql", "query.graphql"] {
+        let path = base_dir.join(rel);
+        let url = Url::from_file_path(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        lsp_did_open(&mut service, url, "graphql", 1, &text).await;
     }
 
     // Wait for validation
@@ -106,15 +92,14 @@ async fn test_lsp_pull_circular_fragments() {
 
     // Request diagnostics via pull for query file
     let diag_params = DocumentDiagnosticParams {
-        text_document: TextDocumentIdentifier::new(Url::from_file_path(&query_path).unwrap()),
+        text_document: TextDocumentIdentifier::new(Url::from_file_path(&base_dir.join("query.graphql")).unwrap()),
         identifier: None,
         previous_result_id: None,
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let result: DocumentDiagnosticReportResult =
-        lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
+    let result: DocumentDiagnosticReportResult = lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
 
     match result {
         DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {

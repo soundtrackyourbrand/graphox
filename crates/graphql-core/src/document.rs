@@ -363,7 +363,8 @@ impl DocumentState {
     /// Finds the first child node of the specified kind.
     pub fn find_child_by_kind<'a>(&self, node: Node<'a>, kind: &str) -> Option<Node<'a>> {
         let mut cursor = node.walk();
-        node.children(&mut cursor).find(|&child| child.kind() == kind)
+        node.children(&mut cursor)
+            .find(|&child| child.kind() == kind)
     }
 
     pub fn find_ancestor_by_kind<'a>(&self, node: Node<'a>, target_kind: &str) -> Option<Node<'a>> {

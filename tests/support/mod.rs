@@ -8,10 +8,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tempfile::TempDir;
+
+pub mod builders;
+pub mod fixtures;
+pub mod lsp;
+
+pub use builders::ProjectConfigBuilder;
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::Url;
-use tower_lsp::lsp_types::{Diagnostic, NumberOrString, Position, Range};
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range};
 // serde_json is used via explicit fully-qualified calls in this module.
 use graphql_rust::Config;
 use tokio::time::Duration;
@@ -661,6 +667,61 @@ pub fn assert_diag_range_equals(diag: &Diagnostic, expected: &Range) {
             expected, diag.range, diag
         );
     }
+}
+
+/// Assert that diagnostics contains exactly one diagnostic containing the expected message.
+/// Returns the matching diagnostic for further assertions.
+///
+/// # Arguments
+/// * `diags` - The list of diagnostics to search
+/// * `expected_message` - A substring to match in the diagnostic message
+///
+/// # Panics
+/// If zero or more than one diagnostic contains the expected message.
+pub fn assert_diagnostic_with_message<'a>(
+    diags: &'a [Diagnostic],
+    expected_message: &str,
+) -> &'a Diagnostic {
+    let matching: Vec<_> = diags
+        .iter()
+        .filter(|d| d.message.contains(expected_message))
+        .collect();
+
+    assert!(
+        matching.len() == 1,
+        "Expected exactly 1 diagnostic containing '{}', but found {} diagnostics containing it and {} total. \
+         All diagnostics: {:#?}",
+        expected_message,
+        matching.len(),
+        diags.len(),
+        diags
+    );
+
+    matching[0]
+}
+
+/// Assert diagnostic severity.
+pub fn assert_diagnostic_severity(diag: &Diagnostic, expected: DiagnosticSeverity) {
+    assert_eq!(
+        diag.severity,
+        Some(expected),
+        "Expected severity {:?}, got {:?}. Full diagnostic: {:#?}",
+        expected,
+        diag.severity,
+        diag
+    );
+}
+
+/// Assert there are exactly `expected` diagnostics, with a helpful error message.
+pub fn assert_diagnostics_count(diags: &[Diagnostic], expected: usize) {
+    assert_eq!(
+        diags.len(),
+        expected,
+        "Expected {} diagnostic(s), got {}. Diagnostics: {:#?}",
+        expected,
+        diags.len(),
+        diags
+    );
 }
 
 /// Small temp workspace helper for tests that need filesystem-backed files.

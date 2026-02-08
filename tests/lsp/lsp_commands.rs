@@ -3,7 +3,6 @@ use futures_util::StreamExt;
 use graphql_rust::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
@@ -11,15 +10,11 @@ use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_command_clear_cache() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema.graphql", "type Query { me: String }")
+        .with_file("query.graphql", "query { me }");
 
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { me: String }").unwrap();
-
-    let query_path = base_dir.join("query.graphql");
-    let query_text = "query { me }";
-    fs::write(&query_path, query_text).unwrap();
+    let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
         projects: vec![ProjectConfig {
@@ -56,6 +51,8 @@ async fn test_lsp_command_clear_cache() {
 
     lsp_initialize_sequence(&mut service).await;
 
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query { me }";
     let query_uri = Url::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -72,6 +69,7 @@ async fn test_lsp_command_clear_cache() {
     }
 
     // Change schema on disk WITHOUT notifying the LSP
+    let schema_path = base_dir.join("schema.graphql");
     fs::write(&schema_path, "type Query { someoneElse: String }").unwrap();
 
     // Trigger clear cache
@@ -113,18 +111,14 @@ async fn test_lsp_command_clear_cache() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_command_run_codegen() {
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let schema_path = base_dir.join("schema.graphql");
-    fs::write(&schema_path, "type Query { me: String }").unwrap();
-
-    let query_path = base_dir.join("query.graphql");
     let query_text = "query GetMe { me }";
-    fs::write(&query_path, query_text).unwrap();
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file("schema.graphql", "type Query { me: String }")
+        .with_file("query.graphql", query_text)
+        .with_file("generated/.keep", "");
 
+    let base_dir = scenario.write_files().unwrap();
     let output_dir = "generated";
-    fs::create_dir(base_dir.join(output_dir)).unwrap();
 
     let config = Config {
         output_dir: Some(output_dir.to_string()),

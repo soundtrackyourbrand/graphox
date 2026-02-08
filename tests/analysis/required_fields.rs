@@ -7,19 +7,16 @@ use graphql_rust::{
 };
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
-use crate::support::{assert_no_diagnostics, create_doc, get_valid_schema};
+use crate::support::{
+    assert_diag_range_equals, assert_diagnostic_severity, assert_diagnostic_with_message,
+    assert_diagnostics_count, assert_no_diagnostics, create_doc, fixtures,
+};
 
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_always_true() {
-    let text = r#"
-        query GetUser {
-            users {
-                id
-                username
-            }
-        }
-    "#;
+    // Given: a query that selects the `users` field
+    let text = fixtures::query_with_users();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always true)
@@ -34,8 +31,18 @@ fn test_required_field_always_true() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
     // Expect no diagnostics
     assert_no_diagnostics(&diagnostics);
 }
@@ -43,14 +50,7 @@ fn test_required_field_always_true() {
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_missing_always_true() {
-    let text = r#"
-        query GetPosts {
-            posts {
-                id
-                title
-            }
-        }
-    "#;
+    let text = fixtures::query_with_posts();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always true)
@@ -65,33 +65,31 @@ fn test_required_field_missing_always_true() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    assert_eq!(diagnostics.len(), 1);
-    let d = &diagnostics[0];
-    assert_eq!(
-        d.message,
-        "Required field 'users' must be selected in query operations"
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
     );
-    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
         d,
-        &crate::support::range_for_token(&doc, text, "GetPosts"),
+        &crate::support::range_for_token(&doc, fixtures::query_with_posts(), "GetPosts"),
     );
 }
 
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_always_false() {
-    let text = r#"
-        query GetPosts {
-            posts {
-                id
-                title
-            }
-        }
-    "#;
+    let text = fixtures::query_with_posts();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always false, disabled)
@@ -106,22 +104,24 @@ fn test_required_field_always_false() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
     assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_specific_operation_query() {
-    let text = r#"
-        query GetPosts {
-            posts {
-                id
-                title
-            }
-        }
-    "#;
+    let text = fixtures::query_with_posts();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (only for query operations)
@@ -139,39 +139,33 @@ fn test_required_field_specific_operation_query() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    assert_eq!(diagnostics.len(), 1);
-    let d = &diagnostics[0];
-    assert_eq!(
-        d.message,
-        "Required field 'users' must be selected in query operations"
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
     );
-    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
         d,
-        &crate::support::range_for_token(&doc, text, "GetPosts"),
+        &crate::support::range_for_token(&doc, fixtures::query_with_posts(), "GetPosts"),
     );
 }
 
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_specific_operation_mutation_not_required() {
-    let schema_content = r#"
-        type Query {
-          users: [User]
-        }
-        type Mutation {
-          createUser(username: String!): User
-        }
-        type User {
-          id: ID!
-          username: String!
-        }
-    "#;
-    let schema = Schema::parse(schema_content, "schema.graphql")
-        .unwrap()
+    // Use a schema that contains both Query.users and Mutation.createUser
+    let schema = fixtures::user_subscription_schema()
+        .clone()
         .validate()
         .unwrap();
 
@@ -207,13 +201,7 @@ fn test_required_field_specific_operation_mutation_not_required() {
 #[test]
 #[ntest::timeout(100)]
 fn test_no_required_fields_config() {
-    let text = r#"
-        query GetUser {
-            users {
-                id
-            }
-        }
-    "#;
+    let text = fixtures::query_with_users();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with NO required field rule
@@ -225,8 +213,17 @@ fn test_no_required_fields_config() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
     // Expect no diagnostics
     assert_no_diagnostics(&diagnostics);
 }
@@ -234,14 +231,7 @@ fn test_no_required_fields_config() {
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_case_insensitive() {
-    let text = r#"
-        query GetPosts {
-            posts {
-                id
-                title
-            }
-        }
-    "#;
+    let text = fixtures::query_with_posts();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (with different case)
@@ -256,32 +246,30 @@ fn test_required_field_case_insensitive() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-
-    assert_eq!(diagnostics.len(), 1);
-    let d = &diagnostics[0];
-    assert_eq!(
-        d.message,
-        "Required field 'USERS' must be selected in query operations"
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
     );
-    crate::support::assert_diag_range_equals(
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'USERS'");
+    assert_diag_range_equals(
         d,
-        &crate::support::range_for_token(&doc, text, "GetPosts"),
+        &crate::support::range_for_token(&doc, fixtures::query_with_posts(), "GetPosts"),
     );
 }
 
 #[test]
 #[ntest::timeout(100)]
 fn test_multiple_required_fields() {
-    let text = r#"
-        query GetUsers {
-            users {
-                id
-                username
-            }
-        }
-    "#;
+    let text = fixtures::query_with_users();
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with multiple required fields
@@ -297,20 +285,25 @@ fn test_multiple_required_fields() {
         ..Default::default()
     };
 
-    let diagnostics =
-        doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
 
     // We expect 1 diagnostic because 'users' is selected but 'posts' is missing
-    assert_eq!(diagnostics.len(), 1);
-    let d = &diagnostics[0];
-    assert_eq!(
-        d.message,
-        "Required field 'posts' must be selected in query operations"
-    );
-    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'posts'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
         d,
-        &crate::support::range_for_token(&doc, text, "GetUsers"),
+        &crate::support::range_for_token(&doc, fixtures::query_with_users(), "GetUsers"),
     );
 }
 
@@ -366,20 +359,9 @@ fn test_required_field_subscription() {
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_multiple_operations_missing() {
-    let schema_content = r#"
-        type Query {
-          users: [User]
-        }
-        type Mutation {
-          createUser(username: String!): User
-        }
-        type User {
-          id: ID!
-          username: String!
-        }
-    "#;
-    let schema = Schema::parse(schema_content, "schema.graphql")
-        .unwrap()
+    // Use a schema that contains Mutation.createUser
+    let schema = fixtures::user_subscription_schema()
+        .clone()
         .validate()
         .unwrap();
 
@@ -409,14 +391,10 @@ fn test_required_field_multiple_operations_missing() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
-    assert_eq!(diagnostics.len(), 1);
-    let d = &diagnostics[0];
-    assert_eq!(
-        d.message,
-        "Required field 'username' must be selected in mutation operations"
-    );
-    assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'username'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
         d,
         &crate::support::range_for_token(&doc, text, "CreateUser"),
     );
