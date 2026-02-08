@@ -1,0 +1,4 @@
+output_dir: "__generated__"
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.{ts,tsx}"

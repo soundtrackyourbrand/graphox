@@ -8,7 +8,7 @@ echo "Building Rust binary..."
 cargo build --release
 
 BINARY_PATH="$(pwd)/target/release/graphql-rust"
-NPM_PACKAGE_DIR="$(pwd)/npm/graphql-rust-cli"
+NPM_PACKAGE_DIR="$(pwd)/npm/@soundtrack/graphql-rust-cli"
 
 if [ ! -f "$BINARY_PATH" ]; then
     echo "Error: Binary not found at $BINARY_PATH"
@@ -34,11 +34,11 @@ echo "The npm package now uses your local binary from:"
 echo "  $BINARY_PATH"
 echo ""
 echo "To link globally for testing:"
-echo "  cd npm/graphql-rust-cli"
+echo "  cd npm/@soundtrack/graphql-rust-cli"
 echo "  pnpm link --global"
 echo ""
 echo "Then in any project:"
-echo "  pnpm link --global graphql-rust-cli"
+echo "  pnpm link --global @soundtrack/graphql-rust-cli"
 echo ""
 echo "After making changes to the Rust code:"
 echo "  cargo build --release"

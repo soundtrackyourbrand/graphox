@@ -1,0 +1,43 @@
+{
+  "name": "@soundtrack/graphql-rust-swc",
+  "version": "0.1.0",
+  "description": "SWC plugin for GraphQL Rust codesplitting",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "build:wasm": "wasm-pack build ../rust --target nodejs --out-dir wasm --no-pack",
+    "build:all": "pnpm run build:wasm && pnpm run build",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build"
+  },
+  "files": [
+    "dist/",
+    "wasm/",
+    "README.md"
+  ],
+  "keywords": [
+    "graphql",
+    "swc",
+    "plugin",
+    "codegen",
+    "codesplitting"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soundtrack/graphql-rust.git",
+    "directory": "plugins/swc/node"
+  },
+  "license": "MIT"
+}

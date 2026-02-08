@@ -1,0 +1,71 @@
+name: Plugins CI
+
+on:
+  push:
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/plugins.yml'
+  pull_request:
+    paths:
+      - 'plugins/**'
+
+jobs:
+  babel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+      - run: cd plugins/babel && pnpm install
+      - run: cd plugins/babel && pnpm test
+      - run: cd plugins/babel && pnpm build
+
+  swc:
+    name: SWC Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Install Node.js dependencies
+        working-directory: plugins/swc/node
+        run: pnpm install
+
+      - name: Run Rust Tests
+        working-directory: plugins/swc/rust
+        run: cargo test
+
+      - name: Run Integration Tests
+        working-directory: plugins/swc/rust
+        run: cargo test --test swc_cli --include-ignored
+
+      - name: Build WASM
+        working-directory: plugins/swc/node
+        run: pnpm run build:wasm
+
+      - name: Build TypeScript
+        working-directory: plugins/swc/node
+        run: pnpm run build
+
+      - name: Run Node.js Tests
+        working-directory: plugins/swc/node
+        run: pnpm test

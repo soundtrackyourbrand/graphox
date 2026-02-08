@@ -1,15 +1,38 @@
 .PHONY: build test benchmark update-baselines clean help release-patch release-minor release-major
+.PHONY: cargo-build cargo-test swc-build swc-test babel-build babel-test
 
 # Default target
 all: build
 
-## build: Build the project in debug mode
-build:
+## cargo-build: Build core Rust crate
+cargo-build:
 	cargo build
 
-## test: Run all tests
-test:
+## cargo-test: Run Rust tests
+cargo-test:
 	cargo test
+
+## swc-build: Build SWC plugin (WASM + TypeScript)
+swc-build:
+	cd plugins/swc/node && pnpm run build:all
+
+## swc-test: Run SWC plugin tests
+swc-test:
+	cd plugins/swc/node && pnpm test
+
+## babel-build: Build Babel plugin
+babel-build:
+	cd plugins/babel && pnpm install && pnpm run build
+
+## babel-test: Run Babel plugin tests
+babel-test:
+	cd plugins/babel && pnpm test
+
+## build: Build core crate + all plugins
+build: cargo-build swc-build babel-build
+
+## test: Run all tests (core crate + plugins)
+test: cargo-test swc-test babel-test
 
 ## benchmark: Run codegen benchmarks on fixtures
 benchmark:

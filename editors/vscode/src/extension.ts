@@ -94,14 +94,14 @@ function findServerPath(context: ExtensionContext): string {
 }
 
 async function showBinaryNotFoundMessage(serverPath: string, usedNpm: boolean): Promise<void> {
-  const docsUri = require('vscode').Uri.parse('https://github.com/YOUR_USERNAME/graphql-rust#installation');
-  const configUri = require('vscode').Uri.parse('https://github.com/YOUR_USERNAME/graphql-rust/blob/main/editors/vscode/README.md');
+  const docsUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphql-rust#installation');
+  const configUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphql-rust/blob/main/editors/vscode/README.md');
 
   let message: string;
   if (usedNpm) {
     message = `graphql-rust binary from npm package was found but failed to start. Check the Output panel for details.`;
   } else {
-    message = `graphql-rust binary not found. Install via 'pnpm add graphql-rust-cli' or build from source.`;
+    message = `graphql-rust binary not found. Install via 'pnpm add @soundtrack/graphql-rust-cli' or build from source.`;
   }
 
   const action = await window.showErrorMessage(

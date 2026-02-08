@@ -1,5 +1,5 @@
 {
-  "name": "graphql-rust-babel-plugin",
+  "name": "@soundtrack/graphql-rust-babel",
   "version": "0.1.0",
   "main": "index.js",
   "scripts": {

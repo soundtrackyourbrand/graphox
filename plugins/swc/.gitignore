@@ -1,1 +1,4 @@
+node/.pnpm/
+node/node_modules/
+rust/target/
 target/

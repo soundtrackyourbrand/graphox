@@ -22,20 +22,20 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
       
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          name: Release ${{ github.ref }}
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-binaries:
     name: Build ${{ matrix.target }}
     needs: create-release
     runs-on: ${{ matrix.os }}
+    fail-fast: true
     strategy:
       matrix:
         include:
@@ -138,51 +138,30 @@ jobs:
           asset_name: graphql-rust-${{ matrix.target }}.zip
           asset_content_type: application/zip
 
-  build-swc-plugin:
-    name: Build SWC Plugin ${{ matrix.target }}
+  build-swc-wasm:
+    name: Build SWC WASM Plugin
     needs: create-release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          # Linux x86_64
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: tar.gz
-          # Linux ARM64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            archive: tar.gz
-          # macOS x86_64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            archive: tar.gz
-          # macOS ARM64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            archive: tar.gz
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            archive: zip
-          # Windows ARM64
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            archive: zip
-
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: wasm32-wasip1
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -196,63 +175,30 @@ jobs:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache cargo build
-        uses: actions/cache@v4
+      - name: Install dependencies
+        working-directory: plugins/swc/node
+        run: pnpm install --frozen-lockfile
+
+      - name: Build WASM
+        working-directory: plugins/swc/node
+        run: pnpm run build:wasm
+      
+      - name: Upload WASM Artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: target
-          key: ${{ runner.os }}-${{ matrix.target }}-swc-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build SWC plugin
-        run: cargo build --release --target ${{ matrix.target }} -p graphql-rust-swc-plugin
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-
-      - name: Get library filename (Unix)
-        if: matrix.archive == 'tar.gz'
-        id: lib_name_unix
-        run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            echo "filename=libgraphql_rust_swc_plugin.dylib" >> $GITHUB_OUTPUT
-          else
-            echo "filename=libgraphql_rust_swc_plugin.so" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create archive (Unix)
-        if: matrix.archive == 'tar.gz'
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../graphql-rust-swc-plugin-${{ matrix.target }}.tar.gz ${{ steps.lib_name_unix.outputs.filename }}
-          cd ../../..
-
-      - name: Create archive (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: |
-          cd target/${{ matrix.target }}/release
-          Compress-Archive -Path graphql_rust_swc_plugin.dll -DestinationPath ../../../graphql-rust-swc-plugin-${{ matrix.target }}.zip
-          cd ../../..
-
-      - name: Upload Release Asset (tar.gz)
-        if: matrix.archive == 'tar.gz'
+          name: swc-wasm-v${{ needs.create-release.outputs.version }}
+          path: plugins/swc/node/wasm/
+          retention-days: 90
+      
+      - name: Upload WASM to Release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./graphql-rust-swc-plugin-${{ matrix.target }}.tar.gz
-          asset_name: graphql-rust-swc-plugin-${{ matrix.target }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload Release Asset (zip)
-        if: matrix.archive == 'zip'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./graphql-rust-swc-plugin-${{ matrix.target }}.zip
-          asset_name: graphql-rust-swc-plugin-${{ matrix.target }}.zip
-          asset_content_type: application/zip
+          asset_path: ./plugins/swc/node/wasm/graphql_rust_swc_plugin.wasm
+          asset_name: graphql_rust_swc_plugin.wasm
+          asset_content_type: application/wasm
 
   build-vscode-extension:
     name: Build VSCode Extension
@@ -299,4 +245,102 @@ jobs:
           asset_path: ./editors/vscode/${{ steps.vsix_filename.outputs.filename }}
           asset_name: ${{ steps.vsix_filename.outputs.filename }}
           asset_content_type: application/zip
+
+  publish-cli-github:
+    name: Publish CLI to GitHub Packages
+    needs: [create-release, build-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+          cache-dependency-path: npm/graphql-rust-cli/pnpm-lock.yaml
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@soundtrack'
+
+      - name: Configure package for GitHub Packages
+        working-directory: npm/graphql-rust-cli
+        run: |
+          # Update package name to include scope for GitHub Packages
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = '@soundtrack/graphql-rust-cli';
+          pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Publish CLI to GitHub Packages
+        working-directory: npm/graphql-rust-cli
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-swc-plugin-github:
+    name: Publish SWC Plugin to GitHub Packages
+    needs: [create-release, build-swc-wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download WASM Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: swc-wasm-v${{ needs.create-release.outputs.version }}
+          path: plugins/swc/node/wasm/
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: plugins/swc/node/pnpm-lock.yaml
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@soundtrack'
+
+      - name: Install dependencies
+        working-directory: plugins/swc/node
+        run: pnpm install --frozen-lockfile
+      
+      - name: Build TypeScript
+        working-directory: plugins/swc/node
+        run: pnpm run build
+
+      - name: Configure package for GitHub Packages
+        working-directory: plugins/swc/node
+        run: |
+          # Update package name to include scope for GitHub Packages
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = '@soundtrack/graphql-rust-swc';
+          pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Publish SWC Plugin to GitHub Packages
+        working-directory: plugins/swc/node
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

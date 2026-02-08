@@ -9,7 +9,7 @@ module.exports = function (babel) {
   const { types: t } = babel;
 
   return {
-    name: 'graphql-rust-babel-plugin',
+    name: '@soundtrack/graphql-rust-babel',
     visitor: {
       Program: {
         enter(programPath, state) {
@@ -21,7 +21,7 @@ module.exports = function (babel) {
           } = state.opts;
 
           if (!outputDir) {
-            throw new Error('outputDir is required for graphql-rust-babel-plugin');
+            throw new Error('outputDir is required for @soundtrack/graphql-rust-babel');
           }
 
           let entries = [];

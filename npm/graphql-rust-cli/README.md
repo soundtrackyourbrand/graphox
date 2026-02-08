@@ -1,15 +1,15 @@
-# graphql-rust-cli
+# @soundtrack/graphql-rust-cli
 
 NPM package for installing the `graphql-rust` CLI - a high-performance GraphQL toolset for TypeScript monorepos.
 
 ## Installation
 
 ```bash
-pnpm add graphql-rust-cli
+pnpm add @soundtrack/graphql-rust-cli
 # or
-npm install graphql-rust-cli
+npm install @soundtrack/graphql-rust-cli
 # or
-yarn add graphql-rust-cli
+yarn add @soundtrack/graphql-rust-cli
 ```
 
 ## Usage
@@ -35,7 +35,7 @@ pnpm graphql-rust benchmark
 ### Global Installation
 
 ```bash
-pnpm add -g graphql-rust-cli
+pnpm add -g @soundtrack/graphql-rust-cli
 
 # Now you can use it directly
 graphql-rust lsp
@@ -60,7 +60,7 @@ This package automatically downloads the correct binary for your platform:
 
 ## Configuration
 
-Create a `graphql.yaml` file in your project root. See the [main documentation](https://github.com/YOUR_USERNAME/graphql-rust#configuration) for details.
+Create a `graphql.yaml` file in your project root. See the [main documentation](https://github.com/soundtrack/graphql-rust#configuration) for details.
 
 ## Local Development
 
@@ -78,7 +78,7 @@ export GRAPHQL_RUST_LOCAL_BUILD=/path/to/graphql-rust/target/release/graphql-rus
 
 # Now install the npm package - it will use your local build
 cd /path/to/your/project
-pnpm add /path/to/graphql-rust/npm/graphql-rust-cli
+pnpm add /path/to/graphql-rust/npm/@soundtrack/graphql-rust-cli
 ```
 
 The install script will copy your local binary instead of downloading from GitHub releases.
@@ -91,47 +91,13 @@ cargo build --release
 
 # Set up the local binary
 export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
-cd npm/graphql-rust-cli
-pnpm install  # This will use your local build
-
-# Create a global link
-pnpm link --global
-
-# In your project, link to it
-cd /path/to/your/project
-pnpm link --global graphql-rust-cli
-```
-
-Now any changes to your local Rust build will be immediately available:
-
-```bash
-# After making changes to the Rust code
-cargo build --release
-
-# The linked package will use the updated binary
-pnpm graphql-rust check
-```
-
-### Rebuilding
-
-To use an updated local build:
-
-```bash
-# Rebuild the Rust binary
-cargo build --release
-
-# Remove the npm package's bin directory
-rm -rf npm/graphql-rust-cli/bin
-
-# Reinstall (with GRAPHQL_RUST_LOCAL_BUILD set)
-export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
-cd npm/graphql-rust-cli
+cd npm/@soundtrack/graphql-rust-cli
 pnpm install
 ```
 
 ## Manual Binary Download
 
-If automatic installation fails, you can manually download binaries from the [releases page](https://github.com/YOUR_USERNAME/graphql-rust/releases).
+If automatic installation fails, you can manually download binaries from the [releases page](https://github.com/soundtrack/graphql-rust/releases).
 
 ## Environment Variables
 
@@ -144,4 +110,4 @@ MIT
 
 ## Repository
 
-https://github.com/YOUR_USERNAME/graphql-rust
+https://github.com/soundtrack/graphql-rust

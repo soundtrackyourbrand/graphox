@@ -1,0 +1,8 @@
+This directory contains the pre-built WASM plugin.
+
+DO NOT EDIT - Generated automatically by:
+  pnpm run build:wasm
+
+To rebuild:
+  cd ../node
+  pnpm run build:wasm

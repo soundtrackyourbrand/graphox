@@ -1,0 +1,27 @@
+{
+  "jsc": {
+    "parser": {
+      "syntax": "typescript",
+      "tsx": true
+    },
+    "experimental": {
+      "plugins": [
+        [
+          "../../target/wasm32-wasip1/release/graphql_rust_swc_plugin.wasm",
+          {
+            "manifestData": {
+              "entries": [
+                {
+                  "source": "query GetMe { me { id username } }",
+                  "path": "./src/app.codegen.ts",
+                  "name": "GetMeDocument"
+                }
+              ]
+            },
+            "outputDir": "./gen"
+          }
+        ]
+      ]
+    }
+  }
+}

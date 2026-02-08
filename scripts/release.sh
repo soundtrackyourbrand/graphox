@@ -53,10 +53,16 @@ fi
 sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
 rm Cargo.toml.bak
 
-# Update version in SWC plugin Cargo.toml
-if [ -f "plugins/swc/Cargo.toml" ]; then
-    sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" plugins/swc/Cargo.toml
-    rm plugins/swc/Cargo.toml.bak
+# Update version in SWC plugin Rust crate Cargo.toml
+if [ -f "plugins/swc/rust/Cargo.toml" ]; then
+    sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" plugins/swc/rust/Cargo.toml
+    rm plugins/swc/rust/Cargo.toml.bak
+fi
+
+# Update version in SWC plugin Node.js package.json
+if [ -f "plugins/swc/node/package.json" ]; then
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" plugins/swc/node/package.json
+    rm plugins/swc/node/package.json.bak
 fi
 
 # Update version in VSCode extension package.json
@@ -66,24 +72,28 @@ if [ -f "editors/vscode/package.json" ]; then
 fi
 
 # Update version in NPM CLI package.json
-if [ -f "npm/graphql-rust-cli/package.json" ]; then
-    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/graphql-rust-cli/package.json
-    rm npm/graphql-rust-cli/package.json.bak
+if [ -f "npm/@soundtrack/graphql-rust-cli/package.json" ]; then
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/@soundtrack/graphql-rust-cli/package.json
+    rm npm/@soundtrack/graphql-rust-cli/package.json.bak
 fi
 
 # Update Cargo.lock
-cargo update -p graphql-rust -p graphql-rust-swc-plugin 2>/dev/null || cargo update -p graphql-rust 2>/dev/null || true
+cargo update -p graphql-rust 2>/dev/null || true
+cargo update -p graphql-rust-swc-plugin 2>/dev/null || true
 
 # Commit changes
 git add Cargo.toml Cargo.lock
-if [ -f "plugins/swc/Cargo.toml" ]; then
-    git add plugins/swc/Cargo.toml
+if [ -f "plugins/swc/rust/Cargo.toml" ]; then
+    git add plugins/swc/rust/Cargo.toml
+fi
+if [ -f "plugins/swc/node/package.json" ]; then
+    git add plugins/swc/node/package.json
 fi
 if [ -f "editors/vscode/package.json" ]; then
     git add editors/vscode/package.json
 fi
-if [ -f "npm/graphql-rust-cli/package.json" ]; then
-    git add npm/graphql-rust-cli/package.json
+if [ -f "npm/@soundtrack/graphql-rust-cli/package.json" ]; then
+    git add npm/@soundtrack/graphql-rust-cli/package.json
 fi
 git commit -m "chore: bump version to $NEW_VERSION"
 

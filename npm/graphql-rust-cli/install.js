@@ -45,7 +45,7 @@ function getDownloadURL(version) {
   const target = getPlatform();
   const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
   const baseURL = process.env.GRAPHQL_RUST_DOWNLOAD_URL || 
-    'https://github.com/YOUR_USERNAME/graphql-rust/releases/download';
+    'https://github.com/soundtrack/graphql-rust/releases/download';
   
   return `${baseURL}/v${version}/graphql-rust-${target}.${ext}`;
 }
@@ -167,7 +167,7 @@ async function install() {
   } catch (error) {
     console.error('Installation failed:', error.message);
     console.error('\nYou can manually download the binary from:');
-    console.error('https://github.com/YOUR_USERNAME/graphql-rust/releases');
+    console.error('https://github.com/soundtrack/graphql-rust/releases');
     process.exit(1);
   }
 }

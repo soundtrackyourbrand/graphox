@@ -3,7 +3,7 @@
   "displayName": "GraphQL Rust",
   "description": "GraphQL Language Server and Codegen for Rust",
   "version": "0.1.0",
-  "publisher": "emma",
+  "publisher": "soundtrack",
   "engines": {
     "vscode": "^1.75.0"
   },

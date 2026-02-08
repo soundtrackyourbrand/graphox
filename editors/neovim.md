@@ -4,7 +4,7 @@ To use the `graphql-rust` LSP with Neovim, you can configure it either using `nv
 
 ## Quick Start
 
-If you have `graphql-rust-cli` installed via npm/pnpm in your project, use this simple setup:
+If you have `@soundtrack/graphql-rust-cli` installed via npm/pnpm in your project, use this simple setup:
 
 ```lua
 local lspconfig = require('lspconfig')
@@ -28,7 +28,7 @@ lspconfig.graphql_rust.setup({})
 
 ### Option 1: Using npm/pnpm Package (Recommended for Projects)
 
-This is the easiest setup if you're working on a project that already uses `graphql-rust-cli`:
+This is the easiest setup if you're working on a project that already uses `@soundtrack/graphql-rust-cli`:
 
 ```lua
 -- Using pnpm

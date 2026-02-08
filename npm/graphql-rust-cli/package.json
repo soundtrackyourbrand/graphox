@@ -1,5 +1,5 @@
 {
-  "name": "graphql-rust-cli",
+  "name": "@soundtrack/graphql-rust-cli",
   "version": "0.1.0",
   "description": "GraphQL Language Server and Codegen CLI",
   "bin": {
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/graphql-rust.git"
+    "url": "https://github.com/soundtrack/graphql-rust.git"
   },
   "keywords": [
     "graphql",
@@ -21,7 +21,7 @@
     "typescript",
     "rust"
   ],
-  "author": "YOUR_NAME",
+  "author": "soundtrack",
   "license": "MIT",
   "files": [
     "bin/",

@@ -27,7 +27,7 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 
 1. **Install the CLI**
    ```bash
-   pnpm add graphql-rust-cli
+   pnpm add @soundtrack/graphql-rust-cli
    ```
 
 2. **Create configuration**
@@ -57,9 +57,9 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 Install via pnpm to automatically download the correct binary for your platform:
 
 ```bash
-pnpm add graphql-rust-cli
-npm install graphql-rust-cli
-yarn add graphql-rust-cli
+pnpm add @soundtrack/graphql-rust-cli
+npm install @soundtrack/graphql-rust-cli
+yarn add @soundtrack/graphql-rust-cli
 ```
 
 Then use with pnpm:
@@ -73,7 +73,7 @@ pnpm graphql-rust codegen
 Or install globally:
 
 ```bash
-pnpm add -g graphql-rust-cli
+pnpm add -g @soundtrack/graphql-rust-cli
 graphql-rust lsp
 graphql-rust check
 graphql-rust codegen
@@ -82,15 +82,28 @@ graphql-rust codegen
 **GitHub Packages:**
 
 ```bash
-pnpm add @YOUR_USERNAME/graphql-rust-cli --registry=https://npm.pkg.github.com
+pnpm add @soundtrack/graphql-rust-cli --registry=https://npm.pkg.github.com
 ```
 
 ### Manual Binary Installation
 
-Download pre-built binaries from the [releases page](https://github.com/YOUR_USERNAME/graphql-rust/releases) for:
+Download pre-built binaries from the [releases page](https://github.com/soundtrack/graphql-rust/releases) for:
 - macOS (x86_64, ARM64)
 - Linux (x86_64, ARM64)
 - Windows (x86_64, ARM64)
+
+---
+
+## Build Tool Plugins
+
+Optimize bundle size by ensuring GraphQL AST files are properly codesplit.
+
+| Build Tool | Plugin | Documentation |
+|------------|--------|---------------|
+| rsbuild | SWC Plugin | [plugins/swc/README.md](plugins/swc/README.md) |
+| Turbopack/Next.js | SWC Plugin | [plugins/swc/README.md](plugins/swc/README.md) |
+| React Native (Metro) | Babel Plugin | [plugins/babel/README.md](plugins/babel/README.md) |
+| Webpack | Babel Plugin | [plugins/babel/README.md](plugins/babel/README.md) |
 
 ---
 
@@ -335,7 +348,7 @@ This project is organized as a Rust workspace with specialized crates:
 
 1. **Clone and install dependencies**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/graphql-rust.git
+   git clone https://github.com/soundtrack/graphql-rust.git
    cd graphql-rust
    ```
 
@@ -367,7 +380,7 @@ cargo build --release
 
 # Set up npm package to use local build
 export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
-cd npm/graphql-rust-cli
+cd npm/@soundtrack/graphql-rust-cli
 pnpm install
 
 # Now pnpm graphql-rust uses your local build
@@ -457,7 +470,7 @@ git push && git push --tags
 - Publishes NPM package to GitHub Packages
 - Creates a GitHub Release with all artifacts attached
 
-The release will be available at: `https://github.com/YOUR_USERNAME/graphql-rust/releases`
+The release will be available at: `https://github.com/soundtrack/graphql-rust/releases`
 
 ---
 
@@ -468,7 +481,7 @@ The release will be available at: `https://github.com/YOUR_USERNAME/graphql-rust
 **Error:** `graphql-rust: command not found`
 
 **Solutions:**
-- Ensure `graphql-rust-cli` is installed: `pnpm add graphql-rust-cli`
+- Ensure `@soundtrack/graphql-rust-cli` is installed: `pnpm add @soundtrack/graphql-rust-cli`
 - Check PATH includes node_modules/.bin
 - Try using full path: `./node_modules/.bin/graphql-rust`
 
@@ -569,4 +582,4 @@ MIT
 
 ## Repository
 
-https://github.com/YOUR_USERNAME/graphql-rust
+https://github.com/soundtrack/graphql-rust
