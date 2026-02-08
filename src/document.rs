@@ -383,22 +383,6 @@ impl DocumentState {
         None
     }
 
-    /// Finds the first ancestor matching any of the specified kinds.
-    pub(crate) fn find_ancestor_by_kinds<'a>(
-        &self,
-        node: Node<'a>,
-        kinds: &[&str],
-    ) -> Option<Node<'a>> {
-        let mut curr = node;
-        while let Some(parent) = curr.parent() {
-            if kinds.contains(&parent.kind()) {
-                return Some(parent);
-            }
-            curr = parent;
-        }
-        None
-    }
-
     /// Skips through nodes of specified kinds upward, returning the first non-matching ancestor.
     pub(crate) fn skip_through_kinds<'a>(
         &self,

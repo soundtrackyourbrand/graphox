@@ -75,7 +75,7 @@ impl DocumentState {
         if self.is_after_on(cursor_offset) {
             let context_node = start_node
                 .and_then(|n| {
-                    self.find_ancestor_by_kinds(
+                    self.find_ancestor_by_kinds_internal(
                         n,
                         &["selection_set", "field", "inline_fragment", "selection"],
                     )
@@ -91,7 +91,7 @@ impl DocumentState {
                     || parent_type.name() == "Mutation"
                     || parent_type.name() == "Subscription")
                     && context.kind() == "selection_set"
-                    && let Some(preceding_type) = self.find_preceding_field_type(
+                    && let Some(preceding_type) = self.find_preceding_field_type_internal(
                         context,
                         offset,
                         cursor_offset,
@@ -102,7 +102,7 @@ impl DocumentState {
                     parent_type = preceding_type;
                 }
 
-                let has_selection_set = self.has_trailing_selection_set(cursor_offset);
+                let has_selection_set = self.has_trailing_selection_set_internal(cursor_offset);
                 return Some(self.get_applicable_type_completions(
                     &parent_type,
                     schema,
@@ -151,64 +151,6 @@ impl DocumentState {
         }
 
         None
-    }
-
-    fn find_preceding_field_type(
-        &self,
-        selection_set: Node,
-        offset: usize,
-        cursor_offset: usize,
-        current_type: &schema::ExtendedType,
-        schema: &Schema,
-    ) -> Option<schema::ExtendedType> {
-        let mut cursor = selection_set.walk();
-        let mut last_field = None;
-        for child in selection_set.children(&mut cursor) {
-            let field_node = if child.kind() == "selection" {
-                self.find_child_by_kind(child, "field")
-            } else if child.kind() == "field" {
-                Some(child)
-            } else {
-                None
-            };
-
-            if let Some(f) = field_node {
-                if f.end_byte() + offset <= cursor_offset {
-                    last_field = Some(f);
-                } else {
-                    break;
-                }
-            }
-        }
-
-        if let Some(field) = last_field
-            && let Some(name_node) = self.extract_field_components(field).name
-        {
-            let field_name = self.get_node_text(name_node, offset);
-            let field_def = match current_type {
-                schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-                schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
-                _ => None,
-            };
-            if let Some(fdef) = field_def {
-                return schema
-                    .types
-                    .get(fdef.ty.inner_named_type().as_str())
-                    .cloned();
-            }
-        }
-        None
-    }
-
-    fn has_trailing_selection_set(&self, cursor_offset: usize) -> bool {
-        let remaining = self.rope.byte_slice(cursor_offset..).to_string();
-        for c in remaining.chars() {
-            if c.is_whitespace() {
-                continue;
-            }
-            return c == '{';
-        }
-        false
     }
 
     fn try_directive_completions(
@@ -340,8 +282,162 @@ impl DocumentState {
                 }
                 Some(self.get_all_type_completions(schema))
             }
-            "variable" | "variable_definitions" | "arguments" => {
+            "variable" | "variable_definitions" => {
                 Some(self.get_operation_variables(root, offset, cursor_offset))
+            }
+            "arguments" | "argument" | "(" | "ERROR" => {
+                let mut items = self.get_operation_variables(root, offset, cursor_offset);
+
+                let field_node = if current.kind() == "field" {
+                    Some(current)
+                } else {
+                    self.find_ancestor_by_kind(current, "field")
+                };
+
+                // If no field ancestor, we might be right after a field name in a broken tree
+                let field_node = if field_node.is_none()
+                    && let Some(sel_set) = self.find_ancestor_by_kind(current, "selection_set")
+                {
+                    self.find_field_node_before_offset(sel_set, offset, cursor_offset)
+                } else {
+                    field_node
+                };
+
+                if let Some(field_node) = field_node
+                    && let Some(parent_type) = self.find_parent_type_for_node(field_node, offset, schema)
+                {
+                    let components = self.extract_field_components(field_node);
+                    if let Some(name_node) = components.name {
+                        let field_name = self.get_node_text(name_node, offset);
+                        let field_def = match &parent_type {
+                            schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                            schema::ExtendedType::Interface(iface) => {
+                                iface.fields.get(field_name.as_str())
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(fdef) = field_def {
+                            // Check if we are at a value position
+                            if let Some(expected_type) = self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema) {
+                                match expected_type {
+                                    schema::ExtendedType::Enum(enum_ty) => {
+                                        for (name, def) in &enum_ty.values {
+                                            items.push(CompletionItem {
+                                                label: name.to_string(),
+                                                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                                                documentation: def.description.as_ref().map(|d| {
+                                                    Documentation::MarkupContent(MarkupContent {
+                                                        kind: MarkupKind::Markdown,
+                                                        value: d.to_string(),
+                                                    })
+                                                }),
+                                                ..Default::default()
+                                            });
+                                        }
+                                        return Some(items);
+                                    }
+                                    schema::ExtendedType::InputObject(input_obj) => {
+                                        for (name, def) in &input_obj.fields {
+                                            items.push(CompletionItem {
+                                                label: name.to_string(),
+                                                kind: Some(CompletionItemKind::FIELD),
+                                                detail: Some(def.ty.to_string()),
+                                                documentation: def.description.as_ref().map(|d| {
+                                                    Documentation::MarkupContent(MarkupContent {
+                                                        kind: MarkupKind::Markdown,
+                                                        value: d.to_string(),
+                                                    })
+                                                }),
+                                                ..Default::default()
+                                            });
+                                        }
+                                        return Some(items);
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            for arg in &fdef.arguments {
+                                items.push(CompletionItem {
+                                    label: arg.name.to_string(),
+                                    kind: Some(CompletionItemKind::FIELD),
+                                    detail: Some(arg.ty.to_string()),
+                                    documentation: arg.description.as_ref().map(|d| {
+                                        Documentation::MarkupContent(MarkupContent {
+                                            kind: MarkupKind::Markdown,
+                                            value: d.to_string(),
+                                        })
+                                    }),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                } else if let Some(directive_node) = self.find_ancestor_by_kind(current, "directive") {
+                    let name_node = self.find_child_by_kind(directive_node, "name");
+                    if let Some(name_node) = name_node {
+                        let dir_name = self.get_node_text(name_node, offset);
+                        if let Some(dir_def) = schema.directive_definitions.get(dir_name.as_str()) {
+                            for arg in &dir_def.arguments {
+                                items.push(CompletionItem {
+                                    label: arg.name.to_string(),
+                                    kind: Some(CompletionItemKind::FIELD),
+                                    detail: Some(arg.ty.to_string()),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                }
+                if items.is_empty() && current.kind() == "ERROR" {
+                    return None;
+                }
+                Some(items)
+            }
+            "object_value" | "object_field" => {
+                let mut items = Vec::new();
+                if let Some(expected_type) = self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema) {
+                    if let schema::ExtendedType::InputObject(input_obj) = expected_type {
+                        for (name, def) in &input_obj.fields {
+                            items.push(CompletionItem {
+                                label: name.to_string(),
+                                kind: Some(CompletionItemKind::FIELD),
+                                detail: Some(def.ty.to_string()),
+                                documentation: def.description.as_ref().map(|d| {
+                                    Documentation::MarkupContent(MarkupContent {
+                                        kind: MarkupKind::Markdown,
+                                        value: d.to_string(),
+                                    })
+                                }),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+                Some(items)
+            }
+            "enum_value" | "value" => {
+                if let Some(expected_type) = self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema) {
+                    if let schema::ExtendedType::Enum(enum_ty) = expected_type {
+                        let mut items = Vec::new();
+                        for (name, def) in &enum_ty.values {
+                            items.push(CompletionItem {
+                                label: name.to_string(),
+                                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                                documentation: def.description.as_ref().map(|d| {
+                                    Documentation::MarkupContent(MarkupContent {
+                                        kind: MarkupKind::Markdown,
+                                        value: d.to_string(),
+                                    })
+                                }),
+                                ..Default::default()
+                            });
+                        }
+                        return Some(items);
+                    }
+                }
+                None
             }
             "fragment_spread" => {
                 let parent_type = self.find_parent_type_for_node(current, offset, schema);
@@ -368,6 +464,280 @@ impl DocumentState {
             ),
             _ => None,
         }
+    }
+
+    fn find_ancestor_by_kinds_internal<'a>(
+        &self,
+        node: Node<'a>,
+        kinds: &[&str],
+    ) -> Option<Node<'a>> {
+        let mut curr = node;
+        while let Some(parent) = curr.parent() {
+            if kinds.contains(&parent.kind()) {
+                return Some(parent);
+            }
+            curr = parent;
+        }
+        None
+    }
+
+    fn find_preceding_field_type_internal(
+        &self,
+        selection_set: Node,
+        offset: usize,
+        cursor_offset: usize,
+        current_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Option<schema::ExtendedType> {
+        let mut cursor = selection_set.walk();
+        let mut last_field = None;
+        for child in selection_set.children(&mut cursor) {
+            let field_node = if child.kind() == "selection" {
+                self.find_child_by_kind(child, "field")
+            } else if child.kind() == "field" {
+                Some(child)
+            } else {
+                None
+            };
+
+            if let Some(f) = field_node {
+                if f.end_byte() + offset <= cursor_offset {
+                    last_field = Some(f);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if let Some(field) = last_field
+            && let Some(name_node) = self.extract_field_components(field).name
+        {
+            let field_name = self.get_node_text(name_node, offset);
+            let field_def = match &current_type {
+                schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                _ => None,
+            };
+            if let Some(fdef) = field_def {
+                return schema
+                    .types
+                    .get(fdef.ty.inner_named_type().as_str())
+                    .cloned();
+            }
+        }
+        None
+    }
+
+    fn has_trailing_selection_set_internal(&self, cursor_offset: usize) -> bool {
+        let remaining = self.rope.byte_slice(cursor_offset..).to_string();
+        for c in remaining.chars() {
+            if c.is_whitespace() {
+                continue;
+            }
+            return c == '{';
+        }
+        false
+    }
+
+    fn find_field_node_before_offset<'a>(
+        &self,
+        selection_set: Node<'a>,
+        offset: usize,
+        cursor_offset: usize,
+    ) -> Option<Node<'a>> {
+        let mut cursor = selection_set.walk();
+        let mut last_field = None;
+        for child in selection_set.children(&mut cursor) {
+            let field_node = if child.kind() == "selection" {
+                self.find_child_by_kind(child, "field")
+            } else if child.kind() == "field" {
+                Some(child)
+            } else {
+                None
+            };
+
+            if let Some(f) = field_node {
+                if f.start_byte() + offset < cursor_offset {
+                    last_field = Some(f);
+                } else {
+                    break;
+                }
+            }
+        }
+        last_field
+    }
+
+    fn find_expected_type_for_node(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: Option<usize>,
+        schema: &Schema,
+    ) -> Option<schema::ExtendedType> {
+        let mut curr = Some(node);
+        while let Some(current_node) = curr {
+            match current_node.kind() {
+                "argument" | "arguments" => {
+                    let arg_name = if current_node.kind() == "argument" {
+                        self.find_child_by_kind(current_node, "name")
+                            .map(|n| self.get_node_text(n, offset))
+                    } else if let Some(co) = cursor_offset {
+                        // In arguments node, find which argument we are in or after
+                        let mut cursor = current_node.walk();
+                        let mut last_arg = None;
+                        for child in current_node.children(&mut cursor) {
+                            if child.kind() == "argument" {
+                                if child.start_byte() + offset < co {
+                                    last_arg = Some(child);
+                                }
+                            }
+                        }
+
+                        if let Some(arg) = last_arg {
+                            // Check if we are at value position of this argument
+                            let text = self.get_node_text(arg, offset);
+                            if let Some(colon_idx) = text.find(':') {
+                                let absolute_colon = arg.start_byte() + offset + colon_idx;
+                                if co > absolute_colon {
+                                    self.find_child_by_kind(arg, "name")
+                                        .map(|n| self.get_node_text(n, offset))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            // If no argument node found, we might be right after a name that isn't yet an argument
+                            let text_before = self.rope
+                                .byte_slice(current_node.start_byte() + offset..co)
+                                .to_string();
+                            if let Some(colon_idx) = text_before.rfind(':') {
+                                let name_part = &text_before[..colon_idx];
+                                name_part
+                                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                                    .filter(|s| !s.is_empty())
+                                    .last()
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(arg_name) = arg_name {
+                        let context_node = if current_node.kind() == "arguments" {
+                            current_node
+                        } else {
+                            current_node.parent()?
+                        };
+                        let target_node = context_node.parent()?; // field or directive
+
+                        if target_node.kind() == "field" {
+                            let parent_type =
+                                self.find_parent_type_for_node(target_node, offset, schema)?;
+                            let field_name_node = self.extract_field_components(target_node).name?;
+                            let field_name = self.get_node_text(field_name_node, offset);
+
+                            let field_def = match &parent_type {
+                                schema::ExtendedType::Object(obj) => {
+                                    obj.fields.get(field_name.as_str())
+                                }
+                                schema::ExtendedType::Interface(iface) => {
+                                    iface.fields.get(field_name.as_str())
+                                }
+                                _ => None,
+                            }?;
+
+                            let arg_def = field_def
+                                .arguments
+                                .iter()
+                                .find(|a| a.name.as_str() == arg_name)?;
+                            return schema
+                                .types
+                                .get(arg_def.ty.inner_named_type().as_str())
+                                .cloned();
+                        } else if target_node.kind() == "directive" {
+                            let name_node = self.find_child_by_kind(target_node, "name")?;
+                            let dir_name = self.get_node_text(name_node, offset);
+                            let dir_def = schema.directive_definitions.get(dir_name.as_str())?;
+                            let arg_def =
+                                dir_def.arguments.iter().find(|a| a.name.as_str() == arg_name)?;
+                            return schema
+                                .types
+                                .get(arg_def.ty.inner_named_type().as_str())
+                                .cloned();
+                        }
+                    }
+                }
+                "object_field" | "object_value" => {
+                    let field_node = if current_node.kind() == "object_field" {
+                        Some(current_node)
+                    } else if let Some(co) = cursor_offset {
+                        // In object_value node, find which field we are in or after
+                        let mut cursor = current_node.walk();
+                        let mut last_f = None;
+                        for child in current_node.children(&mut cursor) {
+                            if child.kind() == "object_field" {
+                                if child.start_byte() + offset < co {
+                                    last_f = Some(child);
+                                }
+                            }
+                        }
+                        last_f
+                    } else {
+                        None
+                    };
+
+                    if let Some(f) = field_node {
+                        // If we have an offset, check if we are actually at the value position
+                        if let Some(co) = cursor_offset {
+                            let text = self.get_node_text(f, offset);
+                            if let Some(colon_idx) = text.find(':') {
+                                let absolute_colon = f.start_byte() + offset + colon_idx;
+                                if co <= absolute_colon {
+                                    // We are still at the name part of the field
+                                    return None;
+                                }
+                            } else {
+                                // No colon found in the field node yet
+                                return None;
+                            }
+                        }
+
+                        let field_name_node = self.find_child_by_kind(f, "name")?;
+                        let field_name = self.get_node_text(field_name_node, offset);
+
+                        let object_value_node = f.parent()?;
+                        let parent_input_type = self.find_expected_type_for_node(
+                            object_value_node,
+                            offset,
+                            cursor_offset,
+                            schema,
+                        )?;
+
+                        if let schema::ExtendedType::InputObject(input_obj) = parent_input_type {
+                            let field_def = input_obj.fields.get(field_name.as_str())?;
+                            return schema
+                                .types
+                                .get(field_def.ty.inner_named_type().as_str())
+                                .cloned();
+                        }
+                    }
+                }
+                "list_value" => {
+                    // Recurse to find the type of the list itself
+                    let list_type =
+                        self.find_expected_type_for_node(current_node, offset, cursor_offset, schema)?;
+                    return Some(list_type);
+                }
+                _ => {}
+            }
+            curr = current_node.parent();
+        }
+        None
     }
 
     fn complete_selection_set_at_node(

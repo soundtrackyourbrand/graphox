@@ -54,7 +54,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
         assert_eq!(loc.uri, schema_uri);
         assert_eq!(
             loc.range,
-            crate::support::range_for_token(&schema_doc, &schema_text, "Displayable")
+            crate::support::range_for_token_at_index(&schema_doc, &schema_text, "Displayable", 0)
         );
     } else {
         panic!("Expected definition of Displayable type, got {:?}", result);
@@ -85,14 +85,14 @@ async fn test_goto_definition_type_vs_fragment_collision() {
             // Expected: definition points to the fragment in this file
             assert_eq!(
                 loc.range,
-                crate::support::range_for_token(&frag_doc, frag_text, "Displayable")
+                crate::support::range_for_token_at_index(&frag_doc, frag_text, "Displayable", 0)
             );
         } else if loc.uri == schema_uri {
             // Some environments may resolve the spread name to the type definition
             // (fallback). Accept either but validate the schema location roughly.
             assert_eq!(
                 loc.range,
-                crate::support::range_for_token(&schema_doc, &schema_text, "Displayable")
+                crate::support::range_for_token_at_index(&schema_doc, &schema_text, "Displayable", 0)
             );
         } else {
             panic!(
