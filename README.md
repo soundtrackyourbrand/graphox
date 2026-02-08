@@ -21,6 +21,35 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 - Standalone `.graphql` files
 - Embedded GraphQL in TypeScript/TSX template literals (`gql`, `graphql` tags)
 
+---
+
+## Quick Start
+
+1. **Install the CLI**
+   ```bash
+   pnpm add graphql-rust-cli
+   ```
+
+2. **Create configuration**
+   ```yaml
+   # graphql.yaml
+   output_dir: "__generated__"
+   projects:
+     - schema: "schema.graphql"
+       include: "src/**/*.{ts,tsx}"
+   ```
+
+3. **Set up your editor** - See [Editor Setup](#editor-setup)
+
+4. **Run commands**
+   ```bash
+   pnpm graphql-rust check    # Validate GraphQL files
+   pnpm graphql-rust codegen   # Generate TypeScript types
+   pnpm graphql-rust lsp       # Start LSP (for editors)
+   ```
+
+---
+
 ## Installation
 
 ### NPM Package (Recommended)
@@ -46,6 +75,8 @@ Or install globally:
 ```bash
 pnpm add -g graphql-rust-cli
 graphql-rust lsp
+graphql-rust check
+graphql-rust codegen
 ```
 
 **GitHub Packages:**
@@ -61,6 +92,35 @@ Download pre-built binaries from the [releases page](https://github.com/YOUR_USE
 - Linux (x86_64, ARM64)
 - Windows (x86_64, ARM64)
 
+---
+
+## Editor Setup
+
+Set up `graphql-rust` as a language server in your editor:
+
+| Editor | Setup Guide |
+|--------|-------------|
+| VSCode | [editors/vscode/README.md](editors/vscode/README.md) |
+| Neovim | [editors/neovim.md](editors/neovim.md) |
+| IntelliJ | [editors/intellij.md](editors/intellij.md) |
+
+### Quick Editor Configuration
+
+**VSCode:** Install the [GraphQL Rust extension](https://marketplace.visualstudio.com/items?itemName=graphql-rust.graphql-rust) or use the npm package.
+
+**Neovim:** Configure LSP with `nvim-lspconfig`:
+
+```lua
+require('lspconfig').graphql_rust.setup({
+  cmd = { 'pnpm', 'exec', 'graphql-rust', 'lsp' },
+  filetypes = { 'graphql', 'typescript', 'typescriptreact' },
+})
+```
+
+**IntelliJ/JetBrains:** Install LSP4IJ plugin and configure to run `pnpm exec graphql-rust lsp`.
+
+---
+
 ## Commands
 
 ```bash
@@ -72,16 +132,24 @@ graphql-rust check
 
 # Generate TypeScript types
 graphql-rust codegen
-graphql-rust codegen --clean # Remove generated files and caches
-graphql-rust codegen --watch # Watches and runs codegen of file changes
+graphql-rust codegen --clean  # Remove generated files and caches
+graphql-rust codegen --watch   # Watches and runs codegen of file changes
 
 # Run performance benchmarks
 graphql-rust benchmark
 ```
 
+### Command Options
+
+- `check` - Validates all GraphQL files against the schema
+- `codegen` - Generates TypeScript types for operations
+- `lsp` - Starts the Language Server Protocol server
+
+---
+
 ## Configuration
 
-Create a `graphql.yaml`  file in your project root:
+Create a `graphql.yaml` file in your project root:
 
 ### Basic Example
 
@@ -151,7 +219,7 @@ codegen_watch_debounce_ms: 200 # Debounce file changes in watch mode (default: 2
 enable_schema_cache: true      # Enable two-tier schema cache (default: true)
 ```
 
-### Notes
+### Configuration Notes
 
 - Configuration is discovered by searching current directory and parent directories for `graphql.yaml` or `graphql.yml`
 - All file paths in the config are resolved relative to the config file location
@@ -160,6 +228,8 @@ enable_schema_cache: true      # Enable two-tier schema cache (default: true)
 - Projects are matched in order; the first matching project is used for each file
 - Public fragments are imported from the project that defined them
 - Schema types are imported from the schema that defined them
+
+---
 
 ## Fragment Directives
 
@@ -203,7 +273,7 @@ projects:
   - schema: "schema.graphql"
     include: "packages/package-a/**/*.graphql"
     import: "@workspace/package-a"  # Other projects import from here
-  
+
   - schema: "schema.graphql"
     include: "packages/package-b/**/*.graphql"
     import: "@workspace/package-b"
@@ -251,24 +321,87 @@ export const UserWithEmailFragmentDocument = { /* AST */ };
 This prevents warnings about unused fragments for these as the tool is not following use of the typescript types.
 The LSP will warn if you accidentally use a `@type_only` fragment in a query and provide a code action to remove it.
 
-## Development
+---
 
-### Building and Testing
+## Contributing
+
+### Development Setup
+
+1. **Clone and install dependencies**
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/graphql-rust.git
+   cd graphql-rust
+   ```
+
+2. **Build the project**
+   ```bash
+   cargo build
+   ```
+
+3. **Run tests**
+   ```bash
+   cargo test
+   ```
+
+### Testing Your Changes
+
+#### CLI Testing
+
+**Option 1: Using the local binary directly**
+```bash
+cargo build
+./target/debug/graphql-rust check
+./target/debug/graphql-rust codegen
+```
+
+**Option 2: Using the npm package with local build**
+```bash
+# Build release binary
+cargo build --release
+
+# Set up npm package to use local build
+export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
+cd npm/graphql-rust-cli
+pnpm install
+
+# Now pnpm graphql-rust uses your local build
+cd /path/to/test/project
+pnpm graphql-rust check
+pnpm graphql-rust codegen
+```
+
+**Quick setup script:**
+```bash
+./scripts/setup-npm-dev.sh
+```
+
+#### Editor Testing
+
+**VSCode:**
+1. Make Rust changes and rebuild: `cargo build --release`
+2. Restart the extension: `Cmd+Shift+P` → "GraphQL: Restart Server"
+3. The extension will pick up the new binary
+
+**Neovim:**
+```lua
+-- Point to your local build
+cmd = { '/path/to/graphql-rust/target/release/graphql-rust', 'lsp' }
+```
+
+**IntelliJ:**
+1. In LSP4IJ settings, set Command to the full path of your local binary
+2. Restart the LSP server after rebuilding
+
+### Code Quality
 
 ```bash
-# Build the project
-cargo build
-
-# Run all tests
-cargo test
-
-# Run linting
+# Lint
 cargo clippy
 
-# Format code
+# Format
 cargo fmt
 
-# Run benchmarks
+# Benchmarks
 make benchmark
 
 # Update test baselines
@@ -320,39 +453,114 @@ git push && git push --tags
 
 The release will be available at: `https://github.com/YOUR_USERNAME/graphql-rust/releases`
 
-### NPM Package Local Development
+---
 
-If you're developing the CLI and want to test it via the npm package:
+## Troubleshooting
 
-```bash
-# Quick setup script
-./scripts/setup-npm-dev.sh
+### Binary Not Found
+
+**Error:** `graphql-rust: command not found`
+
+**Solutions:**
+- Ensure `graphql-rust-cli` is installed: `pnpm add graphql-rust-cli`
+- Check PATH includes node_modules/.bin
+- Try using full path: `./node_modules/.bin/graphql-rust`
+
+### LSP Not Connecting
+
+**Error:** Editor shows "GraphQL Rust: Not Running"
+
+**Solutions:**
+1. Check the LSP output panel for errors
+2. Verify configuration file exists: `graphql.yaml`
+3. Ensure schema file path is correct in config
+4. Try restarting the LSP server
+5. Increase log level in editor settings
+
+### Schema Not Loading
+
+**Error:** "Schema file not found" or validation errors
+
+**Solutions:**
+1. Verify schema path in `graphql.yaml`
+2. Check schema file syntax is valid GraphQL
+3. Ensure schema file exists at specified path
+4. Run `graphql-rust check` for detailed errors
+
+### Codegen Issues
+
+**Error:** Types not generated or outdated types
+
+**Solutions:**
+1. Run `graphql-rust codegen --clean` to clear cache
+2. Check for syntax errors in GraphQL files
+3. Verify all referenced fragments are defined
+4. Check output directory permissions
+
+### VSCode Extension Issues
+
+**Solutions:**
+1. Set `graphql-rust.serverPath` to full binary path in settings
+2. Check Output panel → "GraphQL Rust Language Server"
+3. Restart extension: `Cmd+Shift+P` → "GraphQL: Restart Server"
+4. Reinstall extension if issues persist
+
+### Performance Issues
+
+**Solutions:**
+1. Reduce `watch_all_files` scope in config
+2. Increase `lsp_codegen_throttle_ms`
+3. Enable schema cache: `enable_schema_cache: true`
+4. Exclude large directories with `exclude` patterns
+
+---
+
+## Advanced Topics
+
+### LSP Request Tracing
+
+Enable tracing to debug slow LSP requests:
+
+```yaml
+tracing:
+  enabled: true
+  threshold_ms: 20  # Trace requests exceeding 20ms
 ```
 
-This will build the Rust binary and configure the npm package to use your local build.
+Logs appear in the LSP output panel.
 
-**Manual setup:**
+### Schema Caching
 
-```bash
-# Build the binary
-cargo build --release
+The LSP caches schemas in two tiers:
+- **Memory cache (L1):** Process lifetime, invalidated by file mtime
+- **Disk cache (L2):** Persistent across runs in OS cache directory
 
-# Set up the npm package with your local build
-export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
-cd npm/graphql-rust-cli
-pnpm install
-
-# Link globally for testing
-pnpm link --global
-
-# Use in any project
-cd /path/to/test/project
-pnpm link --global graphql-rust-cli
-pnpm graphql-rust check
+Disable if needed:
+```yaml
+enable_schema_cache: false
 ```
 
-See [npm/graphql-rust-cli/README.md](npm/graphql-rust-cli/README.md) for more details.
+### Multi-Project Workspaces
 
-### VSCode Extension Development
+Configure multiple projects in monorepos:
 
-See [editors/vscode/README.md](editors/vscode/README.md) for detailed instructions on building and installing the VSCode extension locally.
+```yaml
+projects:
+  - schema: "packages/api/schema.graphql"
+    include: "packages/api/src/**/*.{ts,tsx}"
+    import: "@myorg/api"
+
+  - schema: "packages/web/schema.graphql"
+    include: "packages/web/src/**/*.{ts,tsx}"
+    import: "@myorg/web"
+```
+
+---
+
+## License
+
+MIT
+
+## Repository
+
+https://github.com/YOUR_USERNAME/graphql-rust

@@ -13,7 +13,9 @@
   "activationEvents": [
     "onLanguage:graphql",
     "onLanguage:typescript",
-    "onLanguage:typescriptreact"
+    "onLanguage:typescriptreact",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -27,6 +29,22 @@
         "title": "GraphQL: Clear Cache"
       }
     ],
+    "configuration": {
+      "title": "GraphQL Rust",
+      "properties": {
+        "graphql-rust.serverPath": {
+          "type": "string",
+          "description": "Path to graphql-rust binary. If empty, uses 'graphql-rust' from PATH.",
+          "default": ""
+        },
+        "graphql-rust.logLevel": {
+          "type": "string",
+          "enum": ["error", "warn", "info", "debug", "trace"],
+          "default": "info",
+          "description": "Set the logging level for the LSP server."
+        }
+      }
+    },
     "languages": [
       {
         "id": "graphql",
@@ -41,7 +59,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
-    "install-local": "code --install-extension graphql-rust-*.vsix"
+    "install-local": "code --install-extension graphql-rust-*.vsix",
+    "build:dev": "cargo build",
+    "build:release": "cargo build --release"
   },
   "dependencies": {
     "vscode-languageclient": "^8.1.0"
