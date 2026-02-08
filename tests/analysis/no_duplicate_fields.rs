@@ -1,6 +1,7 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
-    lsp_request_code_actions, make_temp_project_with_schema, range, write_project_file,
+    lsp_request_code_actions, make_temp_project_with_schema, range_for_token_at_index,
+    write_project_file,
 };
 use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
 use graphql_rust::Config;
@@ -60,8 +61,8 @@ fn test_shallow_duplicate_fields_check() {
     assert_eq!(diags.len(), 1);
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'id' in selection set");
-    // range points to the second 'id' which is at line 0, char 16
-    crate::support::assert_diag_range_equals(d, &range(0, 16, 0, 18));
+    // range points to the second 'id'
+    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "id", 1));
 }
 
 // Canonicalization test: arg order variations should be reported
@@ -116,8 +117,8 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     assert_eq!(diags.len(), 1);
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'me' in selection set");
-    // range points to the second 'me' at char 52
-    crate::support::assert_diag_range_equals(d, &range(0, 52, 0, 54));
+    // range points to the second 'me'
+    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "me", 1));
 }
 
 // Alias handling tests
@@ -156,8 +157,8 @@ fn test_duplicate_fields_with_alias_handling() {
     assert_eq!(diags2.len(), 1);
     let d = &diags2[0];
     assert_eq!(d.message, "Duplicate field 'a' in selection set");
-    // points to second 'a' at char 22
-    crate::support::assert_diag_range_equals(d, &range(0, 22, 0, 24));
+    // points to second 'id' (the field for the duplicate alias 'a')
+    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc2, q2_text, "id", 1));
 }
 
 // Alias collisions: alias name equals an unaliased field -> should trigger
@@ -188,8 +189,8 @@ fn test_alias_collision_triggers_duplicate() {
     assert_eq!(diags.len(), 1);
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'id' in selection set");
-    // range for alias 'id' at char 25
-    crate::support::assert_diag_range_equals(d, &range(0, 25, 0, 29));
+    // points to 'name' (the field for the alias 'id' that collisions with first 'id')
+    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "name", 1));
 }
 
 // Tests involving fragments and inline fragments
@@ -220,7 +221,7 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     assert_eq!(diags_a.len(), 1);
     let d_a = &diags_a[0];
     assert_eq!(d_a.message, "Duplicate field 'id' in selection set");
-    crate::support::assert_diag_range_equals(d_a, &range(0, 30, 0, 32));
+    crate::support::assert_diag_range_equals(d_a, &range_for_token_at_index(&doc_a, q_a, "id", 1));
 
     // B: duplicate across inline fragment and sibling -> should NOT trigger (shallow-only)
     let q_b = "query { me { ... on User { id } id } }";
@@ -239,8 +240,8 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     assert_eq!(diags_d.len(), 1);
     let d_d = &diags_d[0];
     assert_eq!(d_d.message, "Duplicate field 'friends' in selection set");
-    // range for second friends at char 78
-    crate::support::assert_diag_range_equals(d_d, &range(0, 78, 0, 85));
+    // range for second friends
+    crate::support::assert_diag_range_equals(d_d, &range_for_token_at_index(&doc_d, q_d, "friends", 1));
 }
 
 // LSP integration test
@@ -260,9 +261,11 @@ async fn test_alias_allowed_and_duplicate_code_action_removes_later() {
     let dup_uri = write_project_file(&dir, "dup_action.graphql", dup_text);
     lsp_did_open(&mut service, dup_uri.clone(), "graphql", 1, dup_text).await;
 
+    let doc_dup = create_doc(dup_uri.as_str(), dup_text);
+
     // Construct diagnostic pointing at duplicated `id`
     let dup_diag = Diagnostic {
-        range: range(0, 16, 0, 18),
+        range: range_for_token_at_index(&doc_dup, dup_text, "id", 1),
         message: "Duplicate field 'id' in selection set".to_string(),
         code: Some(NumberOrString::String("no_duplicate_fields".to_string())),
         data: Some(serde_json::json!({"response_key":"id","args":"","selection":""})),

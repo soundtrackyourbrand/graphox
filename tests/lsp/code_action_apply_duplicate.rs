@@ -1,6 +1,7 @@
 use crate::support::{
-    apply_text_edit, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
-    lsp_request_code_actions, make_temp_project_with_schema, range, write_project_file,
+    apply_text_edit, create_doc, create_initialized_lsp_service, find_code_action_by_title,
+    lsp_did_open, lsp_request_code_actions, make_temp_project_with_schema, range_for_token_at_index,
+    write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -14,9 +15,11 @@ async fn test_apply_remove_duplicate_field_code_action() {
     let dup_uri = write_project_file(&dir, "dup.graphql", dup_text);
     lsp_did_open(&mut service, dup_uri.clone(), "graphql", 1, dup_text).await;
 
+    let doc = create_doc(dup_uri.as_str(), dup_text);
+
     // Construct a diagnostic that points to the duplicated `id` field in dup.graphql
     let dup_diag = Diagnostic {
-        range: range(0, 13, 0, 15),
+        range: range_for_token_at_index(&doc, dup_text, "id", 0),
         message: "Duplicate field 'id' in selection set".to_string(),
         code: Some(NumberOrString::String("no_duplicate_fields".to_string())),
         data: Some(serde_json::json!({

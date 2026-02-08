@@ -1,6 +1,6 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
-    lsp_request_code_actions, lsp_request_diagnostics, make_temp_project_with_schema, range,
+    lsp_request_code_actions, lsp_request_diagnostics, make_temp_project_with_schema,
     write_project_file,
 };
 use tower_lsp::lsp_types::*;
@@ -66,9 +66,11 @@ async fn test_missing_field_code_actions() {
     let query_uri = write_project_file(&dir, "query.graphql", query_text);
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
+    let doc = create_doc(query_uri.as_str(), query_text);
+
     // Construct a diagnostic manually (in real scenario, this would come from diagnostics)
     let diagnostic = Diagnostic {
-        range: range(0, 19, 0, 26), // "usrname"
+        range: crate::support::range_for_token(&doc, query_text, "usrname"),
         message: "Field 'usrname' not found on type 'User'. Did you mean 'username'?".to_string(),
         code: Some(NumberOrString::String("missing_field".to_string())),
         severity: Some(DiagnosticSeverity::ERROR),
@@ -84,7 +86,7 @@ async fn test_missing_field_code_actions() {
         },
         range: diagnostic.range,
         context: CodeActionContext {
-            diagnostics: vec![diagnostic],
+            diagnostics: vec![diagnostic.clone()],
             only: None,
             trigger_kind: None,
         },
@@ -104,7 +106,7 @@ async fn test_missing_field_code_actions() {
     let changes = edit.changes.as_ref().unwrap();
     let edits = &changes[&query_uri];
     assert_eq!(edits[0].new_text, "username");
-    assert_eq!(edits[0].range, range(0, 19, 0, 26));
+    assert_eq!(edits[0].range, diagnostic.range);
 
     let ca_name = find_code_action_by_title(&actions, "Change to 'name'")
         .expect("Should find 'Change to name' action");

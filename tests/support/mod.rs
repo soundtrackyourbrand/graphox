@@ -584,6 +584,31 @@ pub fn range_for_token(doc: &DocumentState, text: &str, token: &str) -> Range {
     }
 }
 
+/// Compute a Range for the nth occurrence of `token` in `text` (0-indexed).
+/// Panics if the token isn't found at the given index.
+pub fn range_for_token_at_index(
+    doc: &DocumentState,
+    text: &str,
+    token: &str,
+    index: usize,
+) -> Range {
+    let mut current_pos = 0;
+    let mut count = 0;
+    while let Some(start_byte) = text[current_pos..].find(token) {
+        let absolute_start = current_pos + start_byte;
+        if count == index {
+            let end_byte = absolute_start + token.len();
+            return Range {
+                start: doc.byte_to_position(absolute_start),
+                end: doc.byte_to_position(end_byte),
+            };
+        }
+        current_pos = absolute_start + token.len();
+        count += 1;
+    }
+    panic!("Token '{}' at index {} not found in text", token, index);
+}
+
 // --- Assertion helpers -------------------------------------------------
 
 /// Assert that `diags` contains a diagnostic whose message equals `expected_message` exactly.

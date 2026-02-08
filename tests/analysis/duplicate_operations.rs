@@ -1,4 +1,4 @@
-use crate::support::create_doc;
+use crate::support::{create_doc, range_for_token_at_index};
 use apollo_compiler::Schema;
 use graphql_rust::{
     Config,
@@ -76,8 +76,11 @@ fn test_duplicate_operation_names_same_file() {
     
     let d = &diagnostics[0];
     assert_eq!(d.message, "Duplicate operation name 'GetUser'");
-    // First GetUser name is at line 1, char 14
-    crate::support::assert_diag_range_equals(d, &crate::support::range(1, 14, 1, 21));
+    // First GetUser name
+    crate::support::assert_diag_range_equals(
+        d,
+        &range_for_token_at_index(&doc, content, "GetUser", 0),
+    );
 }
 
 #[test]

@@ -2,7 +2,7 @@ use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
 
-use crate::support::{create_doc, get_valid_schema, range};
+use crate::support::{create_doc, get_valid_schema, range_for_token_at_index};
 
 // Shared schema for tests
 
@@ -435,10 +435,14 @@ fn test_validation_circular_fragments() {
     assert_eq!(diagnostics.len(), 2);
 
     // Diagnostic on FragB in FragA (line 1)
-    assert!(diagnostics.iter().any(|d| d.range == range(1, 36, 1, 41)));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.range == range_for_token_at_index(&doc, text, "FragB", 0)));
 
     // Diagnostic on FragA in FragB (line 2)
-    assert!(diagnostics.iter().any(|d| d.range == range(2, 36, 2, 41)));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.range == range_for_token_at_index(&doc, text, "FragA", 1)));
 }
 
 #[test]
@@ -457,11 +461,17 @@ fn test_validation_circular_fragments_three_way() {
     assert_eq!(diagnostics.len(), 3);
 
     // Diagnostic: A -> B (on line 1)
-    assert!(diagnostics.iter().any(|d| d.range == range(1, 32, 1, 33)));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.range == range_for_token_at_index(&doc, text, "B", 0)));
 
     // Diagnostic: B -> C (on line 2)
-    assert!(diagnostics.iter().any(|d| d.range == range(2, 32, 2, 33)));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.range == range_for_token_at_index(&doc, text, "C", 0)));
 
     // Diagnostic: C -> A (on line 3)
-    assert!(diagnostics.iter().any(|d| d.range == range(3, 32, 3, 33)));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.range == range_for_token_at_index(&doc, text, "A", 1)));
 }

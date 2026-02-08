@@ -1,5 +1,4 @@
 use crate::support::create_doc;
-use crate::support::range;
 use std::fs;
 use std::path::PathBuf;
 use tower_lsp::lsp_types::*;
@@ -147,8 +146,10 @@ async fn test_format_code_action_with_baseline() {
     let ts_uri = crate::support::write_project_file(&dir, "query.ts", &ts_text);
     crate::support::lsp_did_open(&mut service, ts_uri.clone(), "typescript", 1, &ts_text).await;
 
+    let doc = create_doc(ts_uri.as_str(), &ts_text);
+
     // Request code actions
-    let range = range(0, 16, 0, 16);
+    let range = crate::support::range_for_token(&doc, &ts_text, "query");
     let params = CodeActionParams {
         text_document: TextDocumentIdentifier { uri: ts_uri.clone() },
         range,

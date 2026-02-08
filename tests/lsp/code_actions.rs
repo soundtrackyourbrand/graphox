@@ -1,6 +1,6 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
-    lsp_request_code_actions, make_temp_project_with_schema, range, write_project_file,
+    lsp_request_code_actions, make_temp_project_with_schema, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -109,7 +109,9 @@ async fn test_code_action_remove_unused_fragment() {
     let changes = edit.changes.as_ref().unwrap();
     let edits = &changes[&frag_uri];
     assert_eq!(edits[0].new_text, " @type_only");
-    assert_eq!(edits[0].range, range(0, 24, 0, 24));
+    let query_range = crate::support::range_for_token(&doc_unused, frag_text, "Query");
+    let expected_pos = query_range.end;
+    assert_eq!(edits[0].range, Range::new(expected_pos, expected_pos));
 }
 
 #[tokio::test]
@@ -124,8 +126,10 @@ async fn test_code_action_extract_to_fragment() {
     let query_uri = write_project_file(&dir, "query.graphql", query_text);
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
+    let doc = create_doc(query_uri.as_str(), query_text);
+
     // Select "{ id name }"
-    let range = range(0, 11, 0, 22);
+    let range = crate::support::range_for_token(&doc, query_text, "{ id name }");
     let params = CodeActionParams {
         text_document: TextDocumentIdentifier {
             uri: query_uri.clone(),
@@ -267,7 +271,8 @@ async fn test_code_action_extract_to_fragment_tsx() {
     lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
 
     // Select "{ id name }" inside the template literal
-    let range = range(0, 25, 0, 36);
+    let doc = create_doc(tsx_uri.as_str(), tsx_text);
+    let range = crate::support::range_for_token(&doc, tsx_text, "{ id name }");
     let params = CodeActionParams {
         text_document: TextDocumentIdentifier {
             uri: tsx_uri.clone(),

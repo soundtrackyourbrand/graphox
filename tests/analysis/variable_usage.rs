@@ -1,7 +1,6 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
-    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, range,
-    write_project_file,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
 };
 use apollo_compiler::Schema;
 use tower_lsp::lsp_types::*;
@@ -106,7 +105,7 @@ fn test_variable_unused_even_with_fragments() {
         .expect("Should find unused variable diagnostic");
     assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
     // Range points to the variable name (including $)
-    crate::support::assert_diag_range_equals(d, &range(1, 31, 1, 38));
+    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, query_text, "$unused"));
 }
 
 #[test]
@@ -176,8 +175,11 @@ fn test_undefined_variable_in_fragment_spread() {
         .find(|d| d.message == "Undefined variable: $admin (required by fragment 'UserFields')")
         .expect("Should find undefined variable diagnostic");
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    // UserFields spread is on line 3
-    crate::support::assert_diag_range_equals(d, &range(3, 19, 3, 29));
+    // UserFields spread is on line 3, point to the fragment name
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token_at_index(&doc, query_text, "UserFields", 0),
+    );
 }
 
 #[tokio::test]

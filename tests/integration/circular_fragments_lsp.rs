@@ -79,10 +79,18 @@ async fn test_lsp_circular_fragment_diagnostic() {
     assert_eq!(diag1["range"]["start"]["character"], expected1.start.character);
     assert_eq!(diag1["range"]["end"]["character"], expected1.end.character);
 
-    // Diag 2: FragA in FragB (line 1)
-    let diag2 = diags.iter().find(|d| d["range"]["start"]["line"] == 1).unwrap();
-    assert!(diag2["message"].as_str().unwrap().contains("Circular fragment reference"));
-    let expected2 = crate::support::range(1, 28, 1, 33);
-    assert_eq!(diag2["range"]["start"]["character"], expected2.start.character);
-    assert_eq!(diag2["range"]["end"]["character"], expected2.end.character);
-}
+        // Diag 2: FragA in FragB (line 1)
+
+        let diag2 = diags.iter().find(|d| d["range"]["start"]["line"] == 1).unwrap();
+
+        assert!(diag2["message"].as_str().unwrap().contains("Circular fragment reference"));
+
+        let expected2 = crate::support::range_for_token_at_index(&doc, frag_text, "FragA", 1);
+
+        assert_eq!(diag2["range"]["start"]["character"], expected2.start.character);
+
+        assert_eq!(diag2["range"]["end"]["character"], expected2.end.character);
+
+    }
+
+    

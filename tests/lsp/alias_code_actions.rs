@@ -1,6 +1,6 @@
 use crate::support::{
-    create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
-    lsp_request_code_actions, make_temp_project_with_schema, range, write_project_file,
+    create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
+    lsp_request_code_actions, make_temp_project_with_schema, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -18,12 +18,11 @@ async fn test_missing_field_code_action_with_alias() {
     let query_uri = write_project_file(&dir, "query.graphql", query_text);
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    // Construct a diagnostic pointing at the inner (misspelled) name `usrname`
-    let start = query_text.find("usrname").expect("token exists");
-    let end = start + "usrname".len();
+    let doc = create_doc(query_uri.as_str(), query_text);
 
+    // Construct a diagnostic pointing at the inner (misspelled) name `usrname`
     let diag = Diagnostic {
-        range: range(0, start as u32, 0, end as u32),
+        range: crate::support::range_for_token(&doc, query_text, "usrname"),
         message: "Field 'usrname' not found on type 'User'. Did you mean 'username'?".to_string(),
         code: Some(NumberOrString::String("missing_field".to_string())),
         severity: Some(DiagnosticSeverity::ERROR),
@@ -72,14 +71,11 @@ async fn test_duplicate_field_code_action_alias_collision() {
     let query_uri = write_project_file(&dir, "collision.graphql", query_text);
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    // Find the start of the aliased occurrence `id: name` to point diagnostic there
-    let token = "id: name";
-    let start = query_text.find(token).expect("token exists");
-    let alias_name_start = start; // 'id' alias starts here
-    let alias_name_end = alias_name_start + 2; // 'id' length
+    let doc = create_doc(query_uri.as_str(), query_text);
 
+    // Find the second occurrence of 'id' which is part of `id: name` to point diagnostic there
     let dup_diag = Diagnostic {
-        range: range(0, alias_name_start as u32, 0, alias_name_end as u32),
+        range: crate::support::range_for_token_at_index(&doc, query_text, "id", 1),
         message: "Duplicate field 'id' in selection set".to_string(),
         code: Some(NumberOrString::String("no_duplicate_fields".to_string())),
         severity: Some(DiagnosticSeverity::ERROR),
