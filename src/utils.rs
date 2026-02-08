@@ -46,6 +46,19 @@ pub fn is_relevant_file(path: &Path) -> bool {
     true
 }
 
+pub fn get_glob_root(pattern: &str) -> PathBuf {
+    let path = Path::new(pattern);
+    let mut root = PathBuf::new();
+    for component in path.components() {
+        let s = component.as_os_str().to_str().unwrap_or("");
+        if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
+            break;
+        }
+        root.push(component);
+    }
+    root
+}
+
 pub fn get_project_files(
     include_patterns: &[String],
     exclude_patterns: &[String],
@@ -59,15 +72,13 @@ pub fn get_project_files(
     let mut direct_files = Vec::new();
 
     for p in include_patterns {
-        let p_clean = if let Some(stripped) = p.strip_prefix("./") {
-            stripped
-        } else {
-            p
-        };
+        let p_clean = p.strip_prefix("./").unwrap_or(p);
+
         let is_glob = p_clean.contains('*')
             || p_clean.contains('?')
             || p_clean.contains('[')
             || p_clean.contains('{');
+
         if !is_glob {
             let path = base_dir.join(p_clean);
             if path.is_file() {
@@ -97,15 +108,7 @@ pub fn get_project_files(
             include_builder.add(g);
         }
 
-        let include_path = Path::new(p_clean);
-        let mut root = PathBuf::new();
-        for component in include_path.components() {
-            let s = component.as_os_str().to_str().unwrap_or("");
-            if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
-                break;
-            }
-            root.push(component);
-        }
+        let root = get_glob_root(p_clean);
         if root.as_os_str().is_empty() {
             roots.push(base_dir.to_path_buf());
         } else {
@@ -115,11 +118,7 @@ pub fn get_project_files(
 
     let mut exclude_builder = GlobSetBuilder::new();
     for p in exclude_patterns {
-        let p_clean = if let Some(stripped) = p.strip_prefix("./") {
-            stripped
-        } else {
-            p
-        };
+        let p_clean = p.strip_prefix("./").unwrap_or(p);
         if let Ok(g) = Glob::new(p_clean) {
             exclude_builder.add(g);
         }
@@ -452,5 +451,16 @@ mod tests {
             masked_multi_line.lines().count(),
             multi_line.lines().count()
         );
+    }
+
+    #[test]
+    fn test_get_glob_root() {
+        assert_eq!(get_glob_root("src/*.ts"), PathBuf::from("src"));
+        assert_eq!(
+            get_glob_root("src/components/**/*.tsx"),
+            PathBuf::from("src/components")
+        );
+        assert_eq!(get_glob_root("*.graphql"), PathBuf::from(""));
+        assert_eq!(get_glob_root("docs/"), PathBuf::from("docs/"));
     }
 }

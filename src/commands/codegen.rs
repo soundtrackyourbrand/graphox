@@ -114,20 +114,7 @@ pub async fn run_codegen(
         // Watch project include directories
         for project in &config.projects {
             for pattern in project.include.patterns() {
-                // This is a simplification, ideally we'd find the common parent
-                let path = config.base_dir.join(pattern);
-                let watch_path = if path.to_string_lossy().contains('*') {
-                    // Find first non-glob parent
-                    let mut p = path.clone();
-                    while p.to_string_lossy().contains('*') {
-                        if !p.pop() {
-                            break;
-                        }
-                    }
-                    p
-                } else {
-                    path
-                };
+                let watch_path = config.base_dir.join(utils::get_glob_root(&pattern));
                 debouncer
                     .watcher()
                     .watch(&watch_path, notify::RecursiveMode::Recursive)
