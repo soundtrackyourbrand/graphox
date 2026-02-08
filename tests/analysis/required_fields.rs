@@ -1,5 +1,5 @@
+use ahash::AHashMap;
 use apollo_compiler::Schema;
-use fnv::FnvHashMap;
 use graphql_rust::{
     Config,
     config::{RequiredFieldRule, RulesConfig},
@@ -22,7 +22,7 @@ fn test_required_field_always_true() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always true)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
@@ -53,7 +53,7 @@ fn test_required_field_missing_always_true() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always true)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
@@ -94,7 +94,7 @@ fn test_required_field_always_false() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always false, disabled)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(false));
 
     let config = Config {
@@ -124,7 +124,7 @@ fn test_required_field_specific_operation_query() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (only for query operations)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert(
         "users".to_string(),
         RequiredFieldRule::Operations(vec!["query".to_string()]),
@@ -185,7 +185,7 @@ fn test_required_field_specific_operation_mutation_not_required() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (only for query operations, not mutations)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert(
         "users".to_string(),
         RequiredFieldRule::Operations(vec!["query".to_string()]),
@@ -244,7 +244,7 @@ fn test_required_field_case_insensitive() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (with different case)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert("USERS".to_string(), RequiredFieldRule::Always(true));
 
     let config = Config {
@@ -284,7 +284,7 @@ fn test_multiple_required_fields() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with multiple required fields
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
     required_fields.insert("posts".to_string(), RequiredFieldRule::Always(true));
 
@@ -344,7 +344,7 @@ fn test_required_field_subscription() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (only for subscriptions)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert(
         "userAdded".to_string(),
         RequiredFieldRule::Operations(vec!["subscription".to_string()]),
@@ -392,7 +392,7 @@ fn test_required_field_multiple_operations_missing() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (only for mutation operations)
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert(
         "username".to_string(),
         RequiredFieldRule::Operations(vec!["mutation".to_string()]),

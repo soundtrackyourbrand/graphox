@@ -6,8 +6,8 @@
 use crate::config::Config;
 use crate::document::FragmentDef;
 use crate::features::completion::FragmentCompletionInfo;
+use ahash::AHashSet;
 use dashmap::DashMap;
-use fnv::FnvHashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
@@ -123,7 +123,7 @@ pub fn collect_fragment_metadata_with_schema(
 
 /// Updates the fragment dependent index when fragments change
 pub fn update_fragment_dependents(
-    fragment_dependents: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    fragment_dependents: &Arc<DashMap<String, AHashSet<Url>, ahash::RandomState>>,
     uri: &Url,
     old_spreads: Option<Vec<String>>,
     new_spreads: Vec<String>,
@@ -133,7 +133,7 @@ pub fn update_fragment_dependents(
             if !new_spreads.contains(&spread)
                 && let Some(mut entry) = fragment_dependents.get_mut(&spread)
             {
-                entry.remove(uri);
+                entry.value_mut().remove(uri);
             }
         }
     }
@@ -148,7 +148,7 @@ pub fn update_fragment_dependents(
 
 /// Updates the fragment definition index when fragments are added/removed
 pub fn update_fragment_definitions(
-    fragment_definitions: &Arc<DashMap<String, FnvHashSet<Url>, ahash::RandomState>>,
+    fragment_definitions: &Arc<DashMap<String, AHashSet<Url>, ahash::RandomState>>,
     uri: &Url,
     old_fragments: Option<Vec<String>>,
     new_fragments: Vec<String>,
@@ -158,7 +158,7 @@ pub fn update_fragment_definitions(
             if !new_fragments.contains(&name)
                 && let Some(mut entry) = fragment_definitions.get_mut(&name)
             {
-                entry.remove(uri);
+                entry.value_mut().remove(uri);
             }
         }
     }

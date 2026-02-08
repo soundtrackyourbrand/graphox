@@ -165,7 +165,7 @@ impl DocumentState {
         schema: &apollo_compiler::Schema,
         documents: &dashmap::DashMap<Url, std::sync::Arc<DocumentState>, ahash::RandomState>,
         preferred_uris: &[Url],
-        fragment_definitions: &dashmap::DashMap<String, fnv::FnvHashSet<Url>, ahash::RandomState>,
+        fragment_definitions: &dashmap::DashMap<String, ahash::AHashSet<Url>, ahash::RandomState>,
     ) -> Option<Location> {
         let byte_offset = self.position_to_byte(position);
 

@@ -11,7 +11,7 @@ use crate::support::create_doc;
 use tower_lsp::lsp_types::Url;
 
 #[tokio::test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 async fn test_document_operations_extraction() {
     let query_text = "query GetUser { user(id: \"1\") { id name } }";
     let uri = Url::parse("file:///test/query.graphql").unwrap();
@@ -23,7 +23,7 @@ async fn test_document_operations_extraction() {
 }
 
 #[tokio::test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 async fn test_check_command_duplicate_operations() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -69,7 +69,7 @@ async fn test_check_command_duplicate_operations() {
     };
 
     // Scan workspace to build operation index
-    let workspace_metadata = Engine::scan_workspace(&config, |_, _| {});
+    let workspace_metadata = Engine::scan_workspace(&config);
 
     // Check that we found duplicate operations
     assert!(
@@ -87,7 +87,7 @@ async fn test_check_command_duplicate_operations() {
 }
 
 #[tokio::test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 async fn test_check_command_unique_operations() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -132,7 +132,7 @@ async fn test_check_command_unique_operations() {
         ..Default::default()
     };
 
-    let workspace_metadata = Engine::scan_workspace(&config, |_, _| {});
+    let workspace_metadata = Engine::scan_workspace(&config);
 
     // Check that we found both operations
     assert!(

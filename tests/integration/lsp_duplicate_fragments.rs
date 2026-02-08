@@ -12,7 +12,7 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 async fn test_lsp_duplicate_fragments_same_project_via_config() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
@@ -97,7 +97,7 @@ async fn test_lsp_duplicate_fragments_same_project_via_config() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 async fn test_lsp_private_duplicates_different_projects_no_error() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();

@@ -11,7 +11,7 @@ use tower_service::Service;
 use crate::support::create_doc;
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_diagnostics_update_on_schema_change() {
     let schema_v1_content = "type User { id: ID! name: String } type Query { me: User }";
     let schema_v1 = Schema::parse(schema_v1_content, "schema.graphql")
@@ -59,7 +59,7 @@ fn test_diagnostics_update_on_schema_change() {
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_diagnostics_update_on_fragment_change() {
     let schema_content = "type User { id: ID! name: String } type Query { me: User }";
     let schema = Schema::parse(schema_content, "schema.graphql")

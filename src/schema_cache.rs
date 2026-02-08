@@ -40,25 +40,22 @@
 //! your `graphql.yaml` configuration file.
 
 use crate::config::SchemaSource;
+use ahash::AHashMap;
 use apollo_compiler::{Schema, validation::Valid};
 use dashmap::DashMap;
-use fnv::FnvHashMap;
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Metadata for cache validation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct CacheMetadata {
     /// Maps file path to its last modification time
-    file_mtimes: FnvHashMap<String, SystemTime>,
+    file_mtimes: AHashMap<String, SystemTime>,
 }
 
 /// Cache entry containing the schema text and metadata (disk cache)
-#[derive(Debug, Serialize, Deserialize)]
 struct CacheEntry {
     /// Merged schema text ready for parsing
     merged_schema: String,
@@ -76,13 +73,12 @@ struct MemoryCacheEntry {
 }
 
 /// Global in-memory cache for parsed schemas
-/// Uses DashMap for thread-safe concurrent access
-static MEMORY_CACHE: Lazy<DashMap<String, MemoryCacheEntry>> = Lazy::new(DashMap::new);
+static MEMORY_CACHE: LazyLock<DashMap<String, MemoryCacheEntry>> = LazyLock::new(DashMap::new);
 
 impl CacheMetadata {
     /// Create metadata from a list of file paths
     fn from_files(base_dir: &Path, files: &[String]) -> Result<Self, String> {
-        let mut file_mtimes = FnvHashMap::default();
+        let mut file_mtimes = AHashMap::default();
 
         for file in files {
             let path = base_dir.join(file);
@@ -126,27 +122,108 @@ impl CacheMetadata {
         }
         true
     }
+
+    /// Manual binary serialization for CacheMetadata
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(self.file_mtimes.len() as u32).to_le_bytes());
+        for (path, time) in &self.file_mtimes {
+            let path_bytes = path.as_bytes();
+            bytes.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(path_bytes);
+
+            let duration = time.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO);
+            bytes.extend_from_slice(&duration.as_secs().to_le_bytes());
+            bytes.extend_from_slice(&duration.subsec_nanos().to_le_bytes());
+        }
+        bytes
+    }
+
+    /// Manual binary deserialization for CacheMetadata
+    fn from_bytes(bytes: &[u8]) -> Option<(Self, usize)> {
+        let mut offset = 0;
+        if bytes.len() < 4 {
+            return None;
+        }
+        let count = u32::from_le_bytes(bytes[0..4].try_into().ok()?) as usize;
+        offset += 4;
+
+        let mut file_mtimes = AHashMap::default();
+        for _ in 0..count {
+            if bytes.len() < offset + 4 {
+                return None;
+            }
+            let path_len = u32::from_le_bytes(bytes[offset..offset + 4].try_into().ok()?) as usize;
+            offset += 4;
+
+            if bytes.len() < offset + path_len {
+                return None;
+            }
+            let path = String::from_utf8(bytes[offset..offset + path_len].to_vec()).ok()?;
+            offset += path_len;
+
+            if bytes.len() < offset + 12 {
+                return None;
+            }
+            let secs = u64::from_le_bytes(bytes[offset..offset + 8].try_into().ok()?);
+            offset += 8;
+            let nanos = u32::from_le_bytes(bytes[offset..offset + 4].try_into().ok()?);
+            offset += 4;
+
+            let time = UNIX_EPOCH + Duration::new(secs, nanos);
+            file_mtimes.insert(path, time);
+        }
+
+        Some((Self { file_mtimes }, offset))
+    }
+}
+
+impl CacheEntry {
+    /// Manual binary serialization for CacheEntry
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let schema_bytes = self.merged_schema.as_bytes();
+        bytes.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(schema_bytes);
+        bytes.extend(self.metadata.to_bytes());
+        bytes
+    }
+
+    /// Manual binary deserialization for CacheEntry
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let mut offset = 0;
+        if bytes.len() < 4 {
+            return None;
+        }
+        let schema_len = u32::from_le_bytes(bytes[0..4].try_into().ok()?) as usize;
+        offset += 4;
+
+        if bytes.len() < offset + schema_len {
+            return None;
+        }
+        let merged_schema = String::from_utf8(bytes[offset..offset + schema_len].to_vec()).ok()?;
+        offset += schema_len;
+
+        let (metadata, _) = CacheMetadata::from_bytes(&bytes[offset..])?;
+        Some(Self {
+            merged_schema,
+            metadata,
+        })
+    }
 }
 
 // ============================================================================
 // Memory Cache (L1) - Fully parsed schemas
 // ============================================================================
 
-/// Try to load a fully parsed and validated schema from memory cache
-///
-/// Returns `Some(Arc<Valid<Schema>>)` if cached and still valid, `None` otherwise
 pub fn try_load_parsed_from_memory(
     base_dir: &Path,
     source: &SchemaSource,
 ) -> Option<Arc<Valid<Schema>>> {
     let key = source.as_key();
-
-    // Get from cache
     let entry = MEMORY_CACHE.get(&key)?;
 
-    // Validate that files haven't changed
     if !entry.metadata.is_valid(base_dir) {
-        // Cache is stale, remove it
         drop(entry);
         MEMORY_CACHE.remove(&key);
         return None;
@@ -158,7 +235,6 @@ pub fn try_load_parsed_from_memory(
     Some(entry.schema.clone())
 }
 
-/// Save a parsed and validated schema to memory cache
 pub fn save_parsed_to_memory(
     base_dir: &Path,
     source: &SchemaSource,
@@ -167,21 +243,16 @@ pub fn save_parsed_to_memory(
     let key = source.as_key();
     let files = source.files();
     let metadata = CacheMetadata::from_files(base_dir, &files)?;
-
     let entry = MemoryCacheEntry { schema, metadata };
-
     MEMORY_CACHE.insert(key, entry);
-
     Ok(())
 }
 
-/// Clear a specific schema from memory cache
 pub fn clear_memory_cache_for(source: &SchemaSource) {
     let key = source.as_key();
     MEMORY_CACHE.remove(&key);
 }
 
-/// Clear all schemas from memory cache
 pub fn clear_memory_cache() {
     MEMORY_CACHE.clear();
 }
@@ -190,7 +261,6 @@ pub fn clear_memory_cache() {
 // Disk Cache (L2) - Merged schema text
 // ============================================================================
 
-/// Get the cache directory path
 fn get_cache_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("GRAPHQL_CACHE_DIR") {
         PathBuf::from(dir)
@@ -201,11 +271,8 @@ fn get_cache_dir() -> PathBuf {
     }
 }
 
-/// Get the cache file path for a given schema source
 fn get_cache_path(source: &SchemaSource) -> PathBuf {
     let cache_dir = get_cache_dir();
-
-    // Create a stable filename from the schema key
     let key = source.as_key();
     let hash = {
         use std::collections::hash_map::DefaultHasher;
@@ -214,27 +281,19 @@ fn get_cache_path(source: &SchemaSource) -> PathBuf {
         key.hash(&mut hasher);
         hasher.finish()
     };
-
     cache_dir.join(format!("schema-{:x}.cache", hash))
 }
 
-/// Try to load a schema from cache
-///
-/// Returns `Some(merged_schema_text)` if the cache is valid, `None` otherwise
 pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<String> {
     let cache_path = get_cache_path(source);
-
     if !cache_path.exists() {
         return None;
     }
 
-    // Read and deserialize cache entry
     let cache_data = fs::read(&cache_path).ok()?;
-    let entry: CacheEntry = bincode::deserialize(&cache_data).ok()?;
+    let entry = CacheEntry::from_bytes(&cache_data)?;
 
-    // Validate metadata
     if !entry.metadata.is_valid(base_dir) {
-        // Cache is stale, remove it
         let _ = fs::remove_file(&cache_path);
         return None;
     }
@@ -242,7 +301,6 @@ pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<Str
     Some(entry.merged_schema)
 }
 
-/// Save a merged schema to cache
 pub fn save_to_cache(
     base_dir: &Path,
     source: &SchemaSource,
@@ -256,36 +314,22 @@ pub fn save_to_cache(
         metadata,
     };
 
-    // Serialize the entry
-    let cache_data = bincode::serialize(&entry)
-        .map_err(|e| format!("Failed to serialize cache entry: {}", e))?;
-
-    // Ensure cache directory exists
+    let cache_data = entry.to_bytes();
     let cache_path = get_cache_path(source);
     if let Some(parent) = cache_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create cache directory: {}", e))?;
     }
 
-    // Write to cache file
     fs::write(&cache_path, cache_data).map_err(|e| format!("Failed to write cache file: {}", e))?;
-
     Ok(())
 }
 
-/// Clear all cached schemas (both memory and disk)
 pub fn clear_cache() -> Result<(), String> {
-    // Clear memory cache
     clear_memory_cache();
-
-    // Clear disk cache
     let cache_dir = get_cache_dir();
 
     if cache_dir.exists() {
-        // Attempt to remove the cache directory; on some platforms (macOS)
-        // remove_dir_all can fail transiently with "Directory not empty" if
-        // files are still being accessed. Try several strategies and retries
-        // before giving up to make tests more reliable.
         let mut last_err: Option<std::io::Error> = None;
         for attempt in 0..5 {
             match fs::remove_dir_all(&cache_dir) {
@@ -295,8 +339,6 @@ pub fn clear_cache() -> Result<(), String> {
                 }
                 Err(e) => {
                     last_err = Some(e);
-
-                    // Try to remove contents manually and retry
                     if let Ok(entries) = fs::read_dir(&cache_dir) {
                         for entry in entries.flatten() {
                             let p = entry.path();
@@ -307,8 +349,6 @@ pub fn clear_cache() -> Result<(), String> {
                             };
                         }
                     }
-
-                    // Small backoff before retrying
                     std::thread::sleep(std::time::Duration::from_millis(5 * (attempt + 1) as u64));
                 }
             }
@@ -329,62 +369,45 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    #[ntest::timeout(1000)]
+    #[ntest::timeout(100)]
     fn test_cache_metadata_validation() {
         let dir = tempdir().unwrap();
         let schema_path = dir.path().join("schema.graphql");
 
-        // Create a schema file
         let mut file = fs::File::create(&schema_path).unwrap();
         writeln!(file, "type Query {{ hello: String }}").unwrap();
         drop(file);
 
-        // Create metadata
         let files = vec!["schema.graphql".to_string()];
         let metadata = CacheMetadata::from_files(dir.path(), &files).unwrap();
-
-        // Should be valid immediately
         assert!(metadata.is_valid(dir.path()));
 
-        // Sleep to ensure mtime will be different
         std::thread::sleep(std::time::Duration::from_millis(10));
-
-        // Modify the file
         let mut file = fs::OpenOptions::new()
             .append(true)
             .open(&schema_path)
             .unwrap();
         writeln!(file, "type Mutation {{ update: Boolean }}").unwrap();
         drop(file);
-
-        // Should now be invalid
         assert!(!metadata.is_valid(dir.path()));
     }
 
     #[test]
-    #[ntest::timeout(1000)]
+    #[ntest::timeout(100)]
     fn test_cache_round_trip() {
         let dir = tempdir().unwrap();
         let schema_path = dir.path().join("schema.graphql");
-
-        // Create a schema file
         fs::write(&schema_path, "type Query { hello: String }").unwrap();
 
         let source = SchemaSource::Single("schema.graphql".to_string());
         let merged_schema = "type Query { hello: String }";
 
-        // Save to cache
         save_to_cache(dir.path(), &source, merged_schema).unwrap();
-
-        // Load from cache
         let loaded = try_load_from_cache(dir.path(), &source);
         assert_eq!(loaded, Some(merged_schema.to_string()));
 
-        // Modify file
         std::thread::sleep(std::time::Duration::from_millis(10));
         fs::write(&schema_path, "type Query { world: String }").unwrap();
-
-        // Cache should be invalid
         let loaded = try_load_from_cache(dir.path(), &source);
         assert_eq!(loaded, None);
     }

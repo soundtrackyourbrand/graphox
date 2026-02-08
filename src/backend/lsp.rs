@@ -7,12 +7,11 @@ use crate::types::{
     DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
     FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
+use ahash::AHashSet;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use env_logger;
-use fnv::FnvHashSet;
 use rayon::prelude::*;
-use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result, lsp_types::*};
@@ -68,7 +67,7 @@ impl Backend {
         let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
         let documents: DashMap<Url, Arc<DocumentState>, ahash::RandomState> =
             DashMap::with_hasher(ahash::RandomState::default());
-        let fragment_definitions: DashMap<String, FnvHashSet<Url>, ahash::RandomState> =
+        let fragment_definitions: DashMap<String, AHashSet<Url>, ahash::RandomState> =
             DashMap::with_hasher(ahash::RandomState::default());
 
         let empty_schema = Arc::new(
@@ -209,9 +208,9 @@ impl Backend {
         &self,
         initial_spreads: Vec<String>,
         package_root: Option<&std::path::PathBuf>,
-    ) -> fnv::FnvHashSet<Url> {
-        let mut visited_names = fnv::FnvHashSet::default();
-        let mut fragment_uris = fnv::FnvHashSet::default();
+    ) -> AHashSet<Url> {
+        let mut visited_names = AHashSet::default();
+        let mut fragment_uris = AHashSet::default();
         let mut to_visit = initial_spreads;
 
         let all_fragments = self.get_all_fragments_info();
@@ -249,7 +248,7 @@ impl Backend {
         package_root: Option<&std::path::PathBuf>,
     ) -> std::collections::BTreeMap<String, String> {
         let mut requirements = std::collections::BTreeMap::new();
-        let mut visited = fnv::FnvHashSet::default();
+        let mut visited = AHashSet::default();
         self.collect_fragment_requirements_recursive(
             name,
             schema,
@@ -266,7 +265,7 @@ impl Backend {
         schema: &Schema,
         package_root: Option<&std::path::PathBuf>,
         requirements: &mut std::collections::BTreeMap<String, String>,
-        visited: &mut fnv::FnvHashSet<String>,
+        visited: &mut AHashSet<String>,
     ) {
         let mut stack = vec![initial_name.to_string()];
         let all_fragments = self.get_all_fragments_info();
@@ -296,7 +295,7 @@ impl Backend {
         }
     }
 
-    pub fn get_used_fragments(&self) -> fnv::FnvHashSet<String> {
+    pub fn get_used_fragments(&self) -> AHashSet<String> {
         super::validation::get_used_fragments(&self.fragment_spreads)
     }
 
@@ -562,8 +561,8 @@ impl Backend {
     fn get_affected_uris(
         &self,
         initial_uri: Url,
-        affected_fragment_names: FnvHashSet<String>,
-        affected_spread_names: FnvHashSet<String>,
+        affected_fragment_names: AHashSet<String>,
+        affected_spread_names: AHashSet<String>,
     ) -> Vec<Url> {
         super::validation::get_affected_uris(
             initial_uri,
@@ -1034,7 +1033,7 @@ impl LanguageServer for Backend {
 
         let doc = DocumentState::new(uri.clone(), &params.text_document.text, parser);
 
-        let mut affected_fragment_names = FnvHashSet::default();
+        let mut affected_fragment_names = AHashSet::default();
         for f in doc.fragments() {
             affected_fragment_names.insert(f.name.clone());
         }
@@ -1053,7 +1052,7 @@ impl LanguageServer for Backend {
             doc.fragments().iter().map(|f| f.name.clone()).collect(),
         );
 
-        let mut affected_spread_names = FnvHashSet::default();
+        let mut affected_spread_names = AHashSet::default();
         for s in &doc.fragment_spreads {
             affected_spread_names.insert(s.clone());
         }
@@ -1697,7 +1696,10 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
         self.with_tracing("execute_command", async move {
             match params.command.as_str() {
                 "graphql.runCodegen" => {

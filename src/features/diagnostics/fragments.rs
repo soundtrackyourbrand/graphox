@@ -225,7 +225,7 @@ impl DocumentState {
                 for name_child in child.children(&mut name_cursor) {
                     if name_child.kind() == "name" {
                         let name = self.get_node_text(name_child, offset);
-                        let mut visited = fnv::FnvHashSet::default();
+                        let mut visited = ahash::AHashSet::default();
                         let exists = self.mark_used_variables_recursive(
                             &name,
                             ctx,
@@ -254,7 +254,7 @@ impl DocumentState {
         &self,
         initial_name: &str,
         ctx: &mut ValidationContext,
-        visited: &mut fnv::FnvHashSet<String>,
+        visited: &mut ahash::AHashSet<String>,
         trigger_node: Node,
         offset: usize,
     ) -> bool {
@@ -263,7 +263,7 @@ impl DocumentState {
             this: &DocumentState,
             name: &str,
             ctx: &mut ValidationContext,
-            visited: &mut fnv::FnvHashSet<String>,
+            visited: &mut ahash::AHashSet<String>,
             path: &mut Vec<String>,
             trigger_node: Node,
             offset: usize,

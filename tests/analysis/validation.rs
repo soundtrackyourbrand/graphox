@@ -241,7 +241,7 @@ fn test_type_only_fragment_unused() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Should NOT have diagnostics for unused fragment
-    let used_fragments = fnv::FnvHashSet::default();
+    let used_fragments = ahash::AHashSet::default();
     let diagnostics =
         doc.get_semantic_diagnostics(&schema, &[], Some(&used_fragments), None, false, true);
 
@@ -274,7 +274,7 @@ fn test_type_only_fragment_used() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Should HAVE a warning because it's used but marked @type_only
-    let mut used_fragments = fnv::FnvHashSet::default();
+    let mut used_fragments = ahash::AHashSet::default();
     used_fragments.insert("UserFrag".to_string());
 
     let diagnostics =

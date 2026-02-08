@@ -259,7 +259,7 @@ pub fn get_output_path(path: &Path, base_dir: &Path, output_dir: Option<&str>) -
 pub fn merge_schema_texts(texts: &[String]) -> String {
     let total_len: usize = texts.iter().map(|s| s.len() + 1).sum();
     let mut merged = String::with_capacity(total_len);
-    let mut seen_base = fnv::FnvHashSet::default();
+    let mut seen_base = ahash::AHashSet::default();
 
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = tree_sitter_graphql::LANGUAGE.into();

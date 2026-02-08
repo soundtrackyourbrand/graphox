@@ -100,10 +100,10 @@ async fn test_lsp_smart_extract_field() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_required_field_code_action() {
-    use fnv::FnvHashMap;
+    use ahash::AHashMap;
 
     // Create config with required field rule
-    let mut required_fields = FnvHashMap::default();
+    let mut required_fields = AHashMap::default();
     required_fields.insert("requestId".to_string(), RequiredFieldRule::Always(true));
 
     let schema = "type User { id: ID! name: String } type Query { me: User requestId: String }";

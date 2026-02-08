@@ -92,7 +92,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_cli_check_cross_project_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_frag");
@@ -154,7 +154,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_cli_check_recursive_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_recursive_frag");
@@ -853,7 +853,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_schema_types_test");
@@ -1303,7 +1303,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(200)]
 fn test_cli_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_disabled");
@@ -1401,7 +1401,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(200)]
 fn test_cli_check_with_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_check_disabled");

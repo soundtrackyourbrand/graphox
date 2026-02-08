@@ -11,10 +11,10 @@ use crate::types::{
     DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
     FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
+use ahash::AHashSet;
 use apollo_compiler::Schema;
 use apollo_compiler::validation::Valid;
 use dashmap::{DashMap, DashSet};
-use fnv::FnvHashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -169,17 +169,17 @@ pub async fn validate_all_documents(
 /// Computes the set of URIs that need validation based on affected fragments
 pub fn get_affected_uris(
     initial_uri: Url,
-    affected_fragment_names: FnvHashSet<String>,
-    affected_spread_names: FnvHashSet<String>,
+    affected_fragment_names: AHashSet<String>,
+    affected_spread_names: AHashSet<String>,
     documents: &DocumentsMap,
     fragment_dependents: &FragmentDependentsMap,
     fragment_definitions: &FragmentDefinitionsMap,
 ) -> Vec<Url> {
-    let mut uris_to_validate = FnvHashSet::default();
+    let mut uris_to_validate = AHashSet::default();
     uris_to_validate.insert(initial_uri);
 
     let mut to_process: Vec<String> = affected_fragment_names.into_iter().collect();
-    let mut processed_fragments = FnvHashSet::default();
+    let mut processed_fragments = AHashSet::default();
 
     while let Some(frag_name) = to_process.pop() {
         if !processed_fragments.insert(frag_name.clone()) {
@@ -211,8 +211,8 @@ pub fn get_affected_uris(
 }
 
 /// Gets all used fragments across the workspace
-pub fn get_used_fragments(fragment_spreads: &FragmentSpreadsMap) -> FnvHashSet<String> {
-    let mut used = FnvHashSet::default();
+pub fn get_used_fragments(fragment_spreads: &FragmentSpreadsMap) -> AHashSet<String> {
+    let mut used = AHashSet::default();
     for entry in fragment_spreads.iter() {
         for spread in entry.value() {
             used.insert(spread.clone());

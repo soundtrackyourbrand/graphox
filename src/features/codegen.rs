@@ -2,13 +2,13 @@ use crate::features::apollo_ast::{
     get_fragment_fragment_dependencies, serialize_fragment_definition,
     serialize_operation_definition,
 };
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::ast::{OperationType, Type};
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
 use colored::*;
 use dashmap::DashMap;
-use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1373,7 +1373,7 @@ fn get_operation_deps_cached(
 
     // Pre-allocate for transitive deps to reduce reallocations
     let initial_size = all_deps.len();
-    let mut transitive_deps =
+    let mut transitive_deps: HashSet<String> =
         HashSet::with_capacity_and_hasher(initial_size * 2, Default::default());
 
     // For each direct dependency, add its transitive dependencies from cache

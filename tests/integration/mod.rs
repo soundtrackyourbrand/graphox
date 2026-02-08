@@ -9,6 +9,3 @@ mod swc_cli;
 mod template_tags;
 mod tsx_support;
 mod workspace_scan_concurrency;
-
-#[path = "../support/mod.rs"]
-mod support;

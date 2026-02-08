@@ -10,9 +10,10 @@ use crate::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
+use ahash::AHashMap;
+use ahash::AHashSet;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
-use fnv::FnvHashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -224,7 +225,7 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
     let client = &params.client;
     // Collect all used fragments
     let used_fragments = {
-        let mut used = FnvHashSet::default();
+        let mut used = AHashSet::default();
         for entry in fragment_spreads.iter() {
             for spread in entry.value() {
                 used.insert(spread.clone());
@@ -234,7 +235,7 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
     };
 
     // Pre-calculate validated schemas to avoid repeated validation
-    let mut validated_schemas_map = fnv::FnvHashMap::default();
+    let mut validated_schemas_map = AHashMap::default();
     for entry in schemas.iter() {
         let key = entry.key();
         match (**entry.value()).clone().validate() {

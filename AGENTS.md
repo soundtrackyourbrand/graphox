@@ -168,4 +168,4 @@ This pattern prevents tests from breaking when new optional config fields are ad
 - **Caching:** Cache parsed schemas (`Arc<Valid<Schema>>`) and Tree-sitter queries.
 - **Granular Validation:** Only re-validate files affected by a change. Use the `fragment_dependents` index to find affected files when a fragment changes.
 - **Minimize Allocations:** Avoid frequent `Rope` to `String` conversions. Use `byte_slice` or `chunks` where possible.
-- **Fast Hashing:** Use `FnvHashMap` or `ahash` for performance-critical maps.
+- **Fast Hashing:** Use `AHashMap` or `ahash` for performance-critical maps.

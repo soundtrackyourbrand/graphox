@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file};
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
-use fnv::FnvHashMap as HashMap;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -75,13 +75,9 @@ impl Engine {
         global_metadata: &[FragmentMetadata],
         project_files: &[PathBuf],
     ) -> ProjectContext {
-        // Cache canonicalized paths to avoid repeated filesystem calls
-        let project_files_set: fnv::FnvHashSet<String> = project_files
-            .par_iter()
-            .filter_map(|p| {
-                // Use the path as-is first, only canonicalize if needed for comparison
-                Some(p.to_string_lossy().to_string())
-            })
+        let project_files_set: std::collections::HashSet<String> = project_files
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
             .collect();
 
         let mut fragment_to_path: HashMap<String, String> = HashMap::default();
@@ -134,14 +130,11 @@ impl Engine {
             fragment_dependencies,
         }
     }
-    /// Step 1: Discover all fragments and operations across the entire workspace
-    pub fn scan_workspace<F>(config: &Config, on_doc: F) -> WorkspaceMetadata
-    where
-        F: FnMut(PathBuf, DocumentState) + Send,
-    {
+
+    pub fn scan_workspace(config: &Config) -> WorkspaceMetadata {
         Self::scan_workspace_cancellable(
             config,
-            on_doc,
+            |_, _| {},
             |_, _| {},
             Arc::new(AtomicBool::new(false)),
         )
@@ -188,7 +181,7 @@ impl Engine {
         timings.glob_resolution = start_glob.elapsed();
 
         // 2. Unique File Identification
-        let mut all_unique_paths = fnv::FnvHashSet::default();
+        let mut all_unique_paths = HashSet::default();
         for (paths, _) in &project_info {
             for path in paths {
                 all_unique_paths.insert(path.clone());
@@ -198,7 +191,7 @@ impl Engine {
         // 3. Parallel Document Parsing
         let start_parse = Instant::now();
         let docs_vec: Vec<(PathBuf, DocumentState)> = all_unique_paths
-            .into_par_iter()
+            .par_iter()
             .filter(|p| is_relevant_file(p))
             .filter_map(|p| {
                 if cancelled.load(Ordering::Relaxed) {
@@ -222,7 +215,7 @@ impl Engine {
                 parser.set_language(&language.get_parser_language()).ok()?;
                 let doc = DocumentState::new(uri, &content, parser);
 
-                Some((p, doc))
+                Some((p.clone(), doc))
             })
             .collect();
 
@@ -323,35 +316,7 @@ impl Engine {
         }
     }
 
-    /// Step 1b: Discovery for simple mode (no config)
-    pub fn scan_path(scan_path: &str) -> HashMap<String, String> {
-        let mut fragment_map = HashMap::default();
-        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let paths = get_project_files(&[scan_path.to_string()], &[], &base_dir);
-
-        let results: Vec<Vec<_>> = paths
-            .par_iter()
-            .filter(|p| is_relevant_file(p))
-            .map(|path| {
-                let mut frags = Vec::new();
-                if let Some(doc) = Self::parse_doc(path) {
-                    for frag in doc.fragments() {
-                        frags.push((frag.name.clone(), path.to_string_lossy().to_string()));
-                    }
-                }
-                frags
-            })
-            .collect();
-
-        for frags in results {
-            for (name, path) in frags {
-                fragment_map.insert(name, path);
-            }
-        }
-        fragment_map
-    }
-
-    /// Step 2: Transitive Fragment Resolving for a specific schema
+    /// Transitive Fragment Resolving for a specific schema
     pub fn resolve_fragments(
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         fragments: &[FragmentMetadata],
@@ -359,7 +324,7 @@ impl Engine {
         // Pre-allocate with estimated capacity to reduce reallocations
         let estimated_size: usize = fragments.iter().map(|f| f.masked_source.len() + 1).sum();
         let mut combined_source = String::with_capacity(estimated_size);
-        let mut seen_paths = fnv::FnvHashSet::default();
+        let mut seen_paths = HashSet::default();
 
         for frag in fragments {
             if seen_paths.insert(&frag.path) {
@@ -390,8 +355,6 @@ impl Engine {
     /// Compute transitive fragment dependencies for all fragments
     /// This is called once during workspace scan to cache dependencies
     fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
-        use fnv::FnvHashSet as HashSet;
-
         // Build a map of fragment name -> direct dependencies
         // We use a simple pattern matching approach that's faster than full parsing
         let mut direct_deps: HashMap<String, Vec<String>> = HashMap::default();

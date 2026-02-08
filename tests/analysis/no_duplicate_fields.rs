@@ -11,7 +11,7 @@ use tower_lsp::lsp_types::*;
 
 // Basic analysis test: shallow duplicate fields
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_shallow_duplicate_fields_check() {
     let dir = tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();
@@ -70,7 +70,7 @@ fn test_shallow_duplicate_fields_check() {
 
 // Canonicalization test: arg order variations should be reported
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_duplicate_fields_with_different_arg_order_are_reported() {
     let dir = tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();
@@ -130,7 +130,7 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
 
 // Alias handling tests
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_duplicate_fields_with_alias_handling() {
     let (dir, mut cfg) = make_temp_project_with_schema(
         "type Query { me: User } type User { id: ID name: String }",
@@ -170,7 +170,7 @@ fn test_duplicate_fields_with_alias_handling() {
 
 // Alias collisions: alias name equals an unaliased field -> should trigger
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_alias_collision_triggers_duplicate() {
     let (dir, mut cfg) = make_temp_project_with_schema(
         "type Query { me: User } type User { id: ID name: String }",
@@ -205,7 +205,7 @@ fn test_alias_collision_triggers_duplicate() {
 
 // Tests involving fragments and inline fragments
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     let (dir, mut cfg) = make_temp_project_with_schema(
         "type Query { me: User } type User { id: ID name: String friends(limit: Int): [User] }",

@@ -1,7 +1,7 @@
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::Node;
 use apollo_compiler::ast::{self, OperationType, Type, Value as GqlValue};
 use apollo_compiler::executable::{self, Selection};
-use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use serde_json::{Value, json};
 
 pub fn serialize_operation(

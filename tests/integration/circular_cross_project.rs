@@ -1,7 +1,7 @@
 use std::process::Command;
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_cli_cross_project_circular_fragments() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_circular");
@@ -73,7 +73,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(100)]
 fn test_cli_cross_project_private_fragments_no_cross() {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_circular_private");

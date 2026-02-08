@@ -1,5 +1,5 @@
+use ahash::AHashMap as HashMap;
 use colored::*;
-use fnv::FnvHashMap as HashMap;
 use graphql_rust::Config;
 use graphql_rust::engine::Engine;
 use graphql_rust::features::codegen;
@@ -13,7 +13,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let total_start = Instant::now();
 
     // 1. Discovery & Metadata Collection (Parallel)
-    let workspace_metadata = Engine::scan_workspace(&config, |_, _| {});
+    let workspace_metadata = Engine::scan_workspace(&config);
     let global_metadata = &workspace_metadata.fragments;
     let scan_timings = &workspace_metadata.timings;
 

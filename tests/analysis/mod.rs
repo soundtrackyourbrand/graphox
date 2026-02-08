@@ -10,6 +10,3 @@ mod scoping;
 mod validation;
 mod validation_updates;
 mod variable_usage;
-
-#[path = "../support/mod.rs"]
-mod support;

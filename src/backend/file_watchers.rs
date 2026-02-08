@@ -4,7 +4,7 @@
 //! to monitor changes to schema files and workspace GraphQL files.
 
 use crate::config::Config;
-use fnv::FnvHashSet;
+use ahash::AHashSet;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 
@@ -14,7 +14,7 @@ use tower_lsp::lsp_types::*;
 /// It runs in a separate tokio task to avoid blocking if the client doesn't respond immediately.
 pub fn register_file_watchers(client: Client, config: &Config) {
     let mut watchers = Vec::new();
-    let mut schema_files = FnvHashSet::default();
+    let mut schema_files = AHashSet::default();
 
     // Watch the config file itself (graphql.yaml or graphql.yml)
     let config_yaml = config.base_dir.join("graphql.yaml");

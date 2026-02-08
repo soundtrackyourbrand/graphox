@@ -27,7 +27,7 @@ pub async fn run_codegen(
 
     progress.report("Scanning workspace...", Some(5)).await;
 
-    let workspace_metadata = crate::engine::Engine::scan_workspace(&config, |_, _| {});
+    let workspace_metadata = crate::engine::Engine::scan_workspace(&config);
 
     let global_metadata = &workspace_metadata.fragments;
     let global_output_dir = config.output_dir.as_deref();
@@ -62,7 +62,7 @@ pub async fn run_codegen(
             )
             .await;
 
-        let project_schema_files: fnv::FnvHashSet<_> = project.schema.files().into_iter().collect();
+        let project_schema_files: ahash::AHashSet<_> = project.schema.files().into_iter().collect();
         let schema_import = config.schema_types.as_ref().and_then(|sts| {
             let mut matches: Vec<_> = sts
                 .iter()

@@ -10,7 +10,7 @@ use crate::types::{
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
 use crate::utils::{is_path_ignored, is_relevant_file};
-use fnv::FnvHashSet;
+use ahash::AHashSet;
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
@@ -86,8 +86,8 @@ pub async fn process_file_created_or_changed(
     }
 
     let uri = normalize_uri(change_uri);
-    let mut affected_fragment_names = FnvHashSet::default();
-    let mut affected_spread_names = FnvHashSet::default();
+    let mut affected_fragment_names = AHashSet::default();
+    let mut affected_spread_names = AHashSet::default();
 
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
@@ -229,8 +229,8 @@ pub fn process_file_deleted(
     normalize_uri: impl Fn(Url) -> Url,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
-    let mut affected_fragment_names = FnvHashSet::default();
-    let mut affected_spread_names = FnvHashSet::default();
+    let mut affected_fragment_names = AHashSet::default();
+    let mut affected_spread_names = AHashSet::default();
 
     let old_fragments = params
         .fragment_defs

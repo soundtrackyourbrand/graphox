@@ -1,6 +1,6 @@
+use ahash::AHashMap as HashMap;
 use apollo_compiler::Schema;
 use colored::*;
-use fnv::FnvHashMap as HashMap;
 use graphql_rust::config::SchemaSource;
 use graphql_rust::engine::Engine;
 use graphql_rust::features::completion::FragmentCompletionInfo;
@@ -14,9 +14,9 @@ pub async fn run_check(config: Config, verbose: bool) {
     let cfg = config.clone();
 
     println!("{}", "Scanning workspace...".bright_black());
-    let workspace_metadata = Engine::scan_workspace(&cfg, |_, _| {});
+    let workspace_metadata = Engine::scan_workspace(&cfg);
 
-    let mut global_used_fragments = fnv::FnvHashSet::default();
+    let mut global_used_fragments = ahash::AHashSet::default();
     for doc in workspace_metadata.documents.values() {
         for spread in &doc.fragment_spreads {
             global_used_fragments.insert(spread.clone());
@@ -114,7 +114,7 @@ async fn execute_project_check(
     source: &SchemaSource,
     project_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
-    global_used_fragments: &fnv::FnvHashSet<String>,
+    global_used_fragments: &ahash::AHashSet<String>,
     global_public_fragments: &[FragmentCompletionInfo],
     config: &Config,
     verbose: bool,

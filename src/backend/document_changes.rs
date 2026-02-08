@@ -8,7 +8,7 @@ use crate::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, PackageRootsMap,
 };
-use fnv::FnvHashSet;
+use ahash::AHashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp::lsp_types::*;
@@ -35,7 +35,7 @@ pub fn process_document_change(
     version: i32,
     params: &DocumentChangeParams<'_>,
 ) -> Option<ChangeResult> {
-    let mut affected_fragment_names = FnvHashSet::default();
+    let mut affected_fragment_names = AHashSet::default();
     let mut old_fragment_names = Vec::new();
     let old_spreads: Vec<String>;
 
@@ -43,7 +43,7 @@ pub fn process_document_change(
     let new_spreads: Vec<String>;
     let package_root: Option<PathBuf>;
     let new_fragment_names: Vec<String>;
-    let affected_spread_names: FnvHashSet<String>;
+    let affected_spread_names: AHashSet<String>;
 
     // Get document and apply changes
     if let Some(doc_arc) = params.documents.get(uri).map(|r| r.value().clone()) {
@@ -76,7 +76,7 @@ pub fn process_document_change(
         new_spreads = doc.fragment_spreads.clone();
 
         // Compute affected spreads (added or removed)
-        let mut aff_spreads = FnvHashSet::default();
+        let mut aff_spreads = AHashSet::default();
         for s in &old_spreads {
             if !new_spreads.contains(s) {
                 aff_spreads.insert(s.clone());

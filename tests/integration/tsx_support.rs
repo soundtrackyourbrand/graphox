@@ -1,4 +1,4 @@
-use super::support::create_doc;
+use crate::support::create_doc;
 // No direct Url or DocumentLanguage use in this test; rely on support::create_doc
 
 #[test]

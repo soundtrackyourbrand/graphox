@@ -6,7 +6,7 @@ use std::time::Instant;
 use tempfile::tempdir;
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_memory_cache_performance() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");
@@ -112,7 +112,7 @@ fn test_memory_cache_performance() {
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(500)]
 fn test_cache_invalidation_on_file_change() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");

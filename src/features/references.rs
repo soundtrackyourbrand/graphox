@@ -23,7 +23,7 @@ impl DocumentState {
             let mut cursor = QueryCursor::new();
             let mut results_by_range: std::collections::BTreeMap<(u32, u32), Location> =
                 std::collections::BTreeMap::new();
-            let mut definitions: fnv::FnvHashSet<(u32, u32)> = fnv::FnvHashSet::default();
+            let mut definitions: ahash::AHashSet<(u32, u32)> = ahash::AHashSet::default();
 
             let reference_idx = query.capture_index_for_name("reference").unwrap();
             let definition_idx = query.capture_index_for_name("definition").unwrap();
@@ -102,7 +102,7 @@ impl DocumentState {
         let mut cursor = QueryCursor::new();
         let mut results_by_range: std::collections::BTreeMap<(u32, u32), Location> =
             std::collections::BTreeMap::new();
-        let mut definitions: fnv::FnvHashSet<(u32, u32)> = fnv::FnvHashSet::default();
+        let mut definitions: ahash::AHashSet<(u32, u32)> = ahash::AHashSet::default();
 
         let reference_idx = query.capture_index_for_name("reference").unwrap();
         let definition_idx = query.capture_index_for_name("definition").unwrap();

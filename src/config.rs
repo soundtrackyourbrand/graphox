@@ -1,19 +1,18 @@
+use ahash::AHashMap;
 use colored::*;
-use fnv::FnvHashMap;
 use globset::{Glob, GlobSetBuilder};
-use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use yaml_rust2::Yaml;
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
-    pub required_fields: Option<FnvHashMap<String, RequiredFieldRule>>,
+    pub required_fields: Option<AHashMap<String, RequiredFieldRule>>,
     pub unique_operation_name: Option<bool>,
     pub no_duplicate_fields: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum RequiredFieldRule {
     Always(bool),
     Operations(Vec<String>),
@@ -28,14 +27,28 @@ impl RequiredFieldRule {
             }
         }
     }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        if let Some(b) = node.as_bool() {
+            Some(RequiredFieldRule::Always(b))
+        } else if let Some(vec) = node.as_vec() {
+            let ops = vec
+                .iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect();
+            Some(RequiredFieldRule::Operations(ops))
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
-    pub scalars: Option<FnvHashMap<String, String>>,
+    pub scalars: Option<AHashMap<String, String>>,
     pub ignore_deprecations: Option<Vec<String>>,
     pub generate_ast_for_fragments: Option<bool>,
     pub tracing: Option<TracingConfig>,
@@ -46,48 +59,31 @@ pub struct Config {
     pub codegen_watch_debounce_ms: Option<u64>,
     pub enable_schema_cache: Option<bool>,
     pub rules: Option<RulesConfig>,
-    #[serde(skip)]
     pub base_dir: PathBuf,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct TracingConfig {
     pub enabled: bool,
-    #[serde(default = "default_threshold")]
     pub threshold_ms: u64,
 }
 
-fn default_threshold() -> u64 {
-    20
-}
-
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct TimeoutConfig {
-    #[serde(default = "default_workspace_scan_timeout_ms")]
     pub workspace_scan_ms: u64,
-    #[serde(default = "default_lsp_request_timeout_ms")]
     pub lsp_request_ms: u64,
-}
-
-fn default_workspace_scan_timeout_ms() -> u64 {
-    60_000 // 1 minute
-}
-
-fn default_lsp_request_timeout_ms() -> u64 {
-    1_000 // 1 second
 }
 
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            workspace_scan_ms: default_workspace_scan_timeout_ms(),
-            lsp_request_ms: default_lsp_request_timeout_ms(),
+            workspace_scan_ms: 60_000,
+            lsp_request_ms: 1_000,
         }
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum SchemaSource {
     Single(String),
     Multiple(Vec<String>),
@@ -107,10 +103,23 @@ impl SchemaSource {
             SchemaSource::Multiple(v) => v.clone(),
         }
     }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        if let Some(s) = node.as_str() {
+            Some(SchemaSource::Single(s.to_string()))
+        } else if let Some(v) = node.as_vec() {
+            let files = v
+                .iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect();
+            Some(SchemaSource::Multiple(files))
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Debug, Deserialize, Clone)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum GlobPattern {
     Single(String),
     Multiple(Vec<String>),
@@ -130,9 +139,23 @@ impl GlobPattern {
             GlobPattern::Multiple(v) => v.clone(),
         }
     }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        if let Some(s) = node.as_str() {
+            Some(GlobPattern::Single(s.to_string()))
+        } else if let Some(v) = node.as_vec() {
+            let patterns = v
+                .iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect();
+            Some(GlobPattern::Multiple(patterns))
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct ProjectConfig {
     pub schema: SchemaSource,
     pub include: GlobPattern,
@@ -143,7 +166,7 @@ pub struct ProjectConfig {
     pub codegen: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct SchemaTypeConfig {
     pub schema: SchemaSource,
     pub output: String,
@@ -151,26 +174,12 @@ pub struct SchemaTypeConfig {
 }
 
 impl Default for Config {
-    /// Returns a default Config with all optional fields set to None.
-    ///
-    /// This is useful for tests where you only need to set specific fields.
-    /// Use the struct update syntax to override specific fields:
-    ///
-    /// ```rust,ignore
-    /// let config = Config {
-    ///     base_dir: PathBuf::from("/my/project"),
-    ///     projects: vec![...],
-    ///     lsp_automatic_codegen: Some(false),
-    ///     ..Default::default()
-    /// };
-    /// ```
     fn default() -> Self {
         Self::new_empty()
     }
 }
 
 impl Config {
-    /// Creates a new empty config with all fields set to None/default
     pub fn new_empty() -> Self {
         Self {
             output_dir: None,
@@ -191,8 +200,6 @@ impl Config {
         }
     }
 
-    /// Creates a test config with a base directory and projects
-    /// All optional fields are set to None, making tests resilient to config changes
     #[cfg(test)]
     pub fn new_test(base_dir: PathBuf, projects: Vec<ProjectConfig>) -> Self {
         Self {
@@ -242,14 +249,124 @@ impl Config {
         }?;
 
         let content = fs::read_to_string(&config_path).ok()?;
+        let docs = yaml_rust2::YamlLoader::load_from_str(&content).ok()?;
+        let doc = docs.get(0)?;
 
-        match serde_yaml::from_str::<Config>(&content) {
-            Ok(mut config) => {
-                config.base_dir = dir.to_path_buf();
-                Some(config)
+        let mut config = Config::from_yaml(doc)?;
+        config.base_dir = dir.to_path_buf();
+        Some(config)
+    }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        let mut config = Config::new_empty();
+
+        config.output_dir = node["output_dir"].as_str().map(String::from);
+
+        if let Some(projects_node) = node["projects"].as_vec() {
+            for p_node in projects_node {
+                let schema = SchemaSource::from_yaml(&p_node["schema"])?;
+                let include = GlobPattern::from_yaml(&p_node["include"])?;
+                let exclude = GlobPattern::from_yaml(&p_node["exclude"]);
+                let output_dir = p_node["output_dir"].as_str().map(String::from);
+                let import = p_node["import"].as_str().map(String::from);
+                let generate_permissions = p_node["generate_permissions"].as_bool();
+                let codegen = p_node["codegen"].as_bool();
+
+                config.projects.push(ProjectConfig {
+                    schema,
+                    include,
+                    exclude,
+                    output_dir,
+                    import,
+                    generate_permissions,
+                    codegen,
+                });
             }
-            Err(_) => None,
         }
+
+        if let Some(st_node) = node["schema_types"].as_vec() {
+            let mut schema_types = Vec::new();
+            for s_node in st_node {
+                let schema = SchemaSource::from_yaml(&s_node["schema"])?;
+                let output = s_node["output"].as_str()?.to_string();
+                let import = s_node["import"].as_str().map(String::from);
+                schema_types.push(SchemaTypeConfig {
+                    schema,
+                    output,
+                    import,
+                });
+            }
+            config.schema_types = Some(schema_types);
+        }
+
+        if let Some(scalars_hash) = node["scalars"].as_hash() {
+            let mut scalars = AHashMap::default();
+            for (k, v) in scalars_hash {
+                if let (Some(k), Some(v)) = (k.as_str(), v.as_str()) {
+                    scalars.insert(k.to_string(), v.to_string());
+                }
+            }
+            config.scalars = Some(scalars);
+        }
+
+        config.ignore_deprecations = node["ignore_deprecations"].as_vec().map(|v| {
+            v.iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect()
+        });
+
+        config.generate_ast_for_fragments = node["generate_ast_for_fragments"].as_bool();
+
+        let tracing_node = &node["tracing"];
+        if !tracing_node.is_badvalue() && !tracing_node.is_null() {
+            config.tracing = Some(TracingConfig {
+                enabled: tracing_node["enabled"].as_bool().unwrap_or(false),
+                threshold_ms: tracing_node["threshold_ms"]
+                    .as_i64()
+                    .map(|v| v as u64)
+                    .unwrap_or(20),
+            });
+        }
+
+        let timeouts_node = &node["timeouts"];
+        if !timeouts_node.is_badvalue() && !timeouts_node.is_null() {
+            config.timeouts = Some(TimeoutConfig {
+                workspace_scan_ms: timeouts_node["workspace_scan_ms"]
+                    .as_i64()
+                    .map(|v| v as u64)
+                    .unwrap_or(60_000),
+                lsp_request_ms: timeouts_node["lsp_request_ms"]
+                    .as_i64()
+                    .map(|v| v as u64)
+                    .unwrap_or(1_000),
+            });
+        }
+
+        config.watch_all_files = node["watch_all_files"].as_bool();
+        config.lsp_automatic_codegen = node["lsp_automatic_codegen"].as_bool();
+        config.lsp_codegen_throttle_ms = node["lsp_codegen_throttle_ms"].as_i64().map(|v| v as u64);
+        config.codegen_watch_debounce_ms =
+            node["codegen_watch_debounce_ms"].as_i64().map(|v| v as u64);
+        config.enable_schema_cache = node["enable_schema_cache"].as_bool();
+
+        let rules_node = &node["rules"];
+        if !rules_node.is_badvalue() && !rules_node.is_null() {
+            let mut rules = RulesConfig::default();
+            if let Some(rf_hash) = rules_node["required_fields"].as_hash() {
+                let mut required_fields = AHashMap::default();
+                for (k, v) in rf_hash {
+                    if let (Some(k), Some(rule)) = (k.as_str(), RequiredFieldRule::from_yaml(v)) {
+                        required_fields.insert(k.to_string(), rule);
+                    }
+                }
+                rules.required_fields = Some(required_fields);
+            }
+            rules.unique_operation_name = rules_node["unique_operation_name"].as_bool();
+            rules.no_duplicate_fields = rules_node["no_duplicate_fields"].as_bool();
+            config.rules = Some(rules);
+        }
+
+        Some(config)
     }
 
     pub fn get_project_for_path(&self, path: &Path) -> Option<&ProjectConfig> {

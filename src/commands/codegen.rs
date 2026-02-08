@@ -1,5 +1,5 @@
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
-use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 use graphql_rust::DocumentState;
 use graphql_rust::config::{Config, SchemaSource};
 use graphql_rust::engine::{Engine, FragmentMetadata, ProjectContext};
@@ -197,7 +197,7 @@ async fn execute_codegen(
         }
     }
 
-    let workspace_metadata = Engine::scan_workspace(&cfg, |_, _| {});
+    let workspace_metadata = Engine::scan_workspace(&cfg);
     let global_metadata = &workspace_metadata.fragments;
 
     let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
@@ -375,7 +375,7 @@ async fn execute_codegen(
                         &path_str
                     };
 
-                    serde_json::json!({
+                    sonic_rs::json!({
                         "source": op.source_text,
                         "path": path_no_ext,
                         "name": format!("{}Document", op.operation_type_name)
@@ -383,7 +383,7 @@ async fn execute_codegen(
                 })
                 .collect();
 
-            let manifest_json = serde_json::to_string_pretty(&manifest_entries).unwrap();
+            let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();
             if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
                 eprintln!("{}: {}", "Failed to write manifest".red(), e);
                 success = false;
