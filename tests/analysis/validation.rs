@@ -355,19 +355,24 @@ fn test_type_only_fragment_used() {
         true,
     );
 
-    assert_diagnostics_count(&diagnostics, 1);
-    let warning = &diagnostics[0];
+    assert_diagnostics_count(&diagnostics, 2);
+    let definition = &diagnostics[0];
+    let usage = &diagnostics[1];
     assert_eq!(
-        warning.code,
+        definition.code,
         Some(NumberOrString::String("type_only_used".to_string()))
     );
     assert_eq!(
-        warning.message,
+        definition.message,
         "Fragment 'UserFrag' is used but marked with @type_only. Remove @type_only to resolve this warning."
     );
     assert_diag_range_equals(
-        warning,
+        definition,
         &crate::support::range_for_token(&doc, doc_text, "@type_only"),
+    );
+    assert_diag_range_equals(
+        usage,
+        &crate::support::range_for_token(&doc, doc_text, "UserFrag"),
     );
 }
 

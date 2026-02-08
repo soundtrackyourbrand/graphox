@@ -1,8 +1,9 @@
 use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
 use graphql_core::document::DocumentState;
+use graphql_core::queries::{GQL_SYMBOL_QUERY, GQL_SYMBOL_QUERY_CACHE};
 use lsp_types::*;
-use tree_sitter::Node;
+use tree_sitter::{Node, StreamingIterator};
 
 pub(super) fn validate_fragment(
     this: &DocumentState,
@@ -251,6 +252,117 @@ pub(super) fn validate_fragment_spread(
                             message: format!("Unknown fragment: {}", name),
                             ..Default::default()
                         });
+                    }
+                    // If the fragment exists but is marked @type_only, report a warning
+                    if exists {
+                        // Try to find metadata in workspace fragments first
+                        if let Some(meta) = ctx.all_fragments.iter().find(|f| f.name == name) {
+                            if meta.is_type_only {
+                                // Diagnostic at the spread location; include definition URI + fragment name
+                                ctx.diagnostics.push(Diagnostic {
+                                    range: this.translate_to_file_range(name_child, offset),
+                                    severity: Some(DiagnosticSeverity::WARNING),
+                                    message: format!(
+                                        "Fragment '{}' is used but marked with @type_only. Remove @type_only to resolve this warning.",
+                                        name
+                                    ),
+                                    code: Some(NumberOrString::String("type_only_used".to_string())),
+                                    data: Some(serde_json::json!({
+                                        "def_uri": meta.uri.to_string(),
+                                        "fragment": name,
+                                    })),
+                                    ..Default::default()
+                                });
+                            }
+                        } else if let Some(def) = this.fragments().iter().find(|f| f.name == name)
+                            && def.is_type_only
+                        {
+                            // Fragment defined in this document
+                            // Try to locate the specific directive node to help code actions
+                            let mut directive_range = None;
+                            // Need to find the fragment_definition node in this document
+                            let query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                                let lang = tree_sitter_graphql::LANGUAGE.into();
+                                tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+                            });
+                            let mut qc = tree_sitter::QueryCursor::new();
+                            for block in this.get_graphql_trees() {
+                                let off = block.offset;
+                                let mut matches =
+                                    qc.matches(query, block.tree.root_node(), |n: Node| {
+                                        let s = n.start_byte();
+                                        let e = n.end_byte();
+                                        this.rope.byte_slice((s + off)..(e + off)).chunks()
+                                    });
+                                while let Some(m) = matches.next() {
+                                    for cap in m.captures.iter() {
+                                        let cap_name = query.capture_names()[cap.index as usize];
+                                        if cap_name == "symbol.name" {
+                                            let nm = this.get_node_text(cap.node, off);
+                                            if nm == name {
+                                                // parent container capture will be fragment_definition
+                                                // find directives in the fragment container
+                                                if let Some(cont) = m.captures.iter().find(|c| {
+                                                    query.capture_names()[c.index as usize]
+                                                        == "symbol.container"
+                                                }) {
+                                                    let container = cont.node;
+                                                    let mut ccur = container.walk();
+                                                    for child in container.children(&mut ccur) {
+                                                        if child.kind() == "directives" {
+                                                            let mut dcur = child.walk();
+                                                            for dir_child in
+                                                                child.children(&mut dcur)
+                                                            {
+                                                                if dir_child.kind() == "directive" {
+                                                                    let dir_text = this
+                                                                        .get_node_text(
+                                                                            dir_child, off,
+                                                                        );
+                                                                    if dir_text
+                                                                        .contains("@type_only")
+                                                                    {
+                                                                        directive_range = Some(this.translate_to_file_range(dir_child, off));
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            let mut diag = Diagnostic {
+                                range: this.translate_to_file_range(name_child, offset),
+                                severity: Some(DiagnosticSeverity::WARNING),
+                                message: format!(
+                                    "Fragment '{}' is used but marked with @type_only. Remove @type_only to resolve this warning.",
+                                    name
+                                ),
+                                code: Some(NumberOrString::String("type_only_used".to_string())),
+                                data: Some(serde_json::json!({
+                                    "def_uri": this.uri.to_string(),
+                                    "fragment": name,
+                                })),
+                                ..Default::default()
+                            };
+
+                            if let Some(r) = directive_range {
+                                // include def_range to allow creating edits without opening doc
+                                if let Ok(range_json) = serde_json::to_value(r)
+                                    && let Some(ref mut d) = diag.data
+                                    && let Some(obj) = d.as_object_mut()
+                                {
+                                    obj.insert("def_range".to_string(), range_json);
+                                }
+                            }
+
+                            ctx.diagnostics.push(diag);
+                        }
                     }
                 }
             }

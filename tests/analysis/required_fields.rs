@@ -16,7 +16,14 @@ use crate::support::{
 #[ntest::timeout(100)]
 fn test_required_field_always_true() {
     // Given: a query that selects the `users` field
-    let text = fixtures::query_with_users();
+    let text = r#"
+        query GetUsers {
+            users {
+                id
+                username
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always true)
@@ -50,7 +57,14 @@ fn test_required_field_always_true() {
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_missing_always_true() {
-    let text = fixtures::query_with_posts();
+    let text = r#"
+        query GetPosts {
+            posts {
+                id
+                title
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always true)
@@ -80,16 +94,20 @@ fn test_required_field_missing_always_true() {
     assert_diagnostics_count(&diagnostics, 1);
     let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
-    assert_diag_range_equals(
-        d,
-        &crate::support::range_for_token(&doc, fixtures::query_with_posts(), "GetPosts"),
-    );
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
 }
 
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_always_false() {
-    let text = fixtures::query_with_posts();
+    let text = r#"
+        query GetPosts {
+            posts {
+                id
+                title
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (always false, disabled)
@@ -121,7 +139,14 @@ fn test_required_field_always_false() {
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_specific_operation_query() {
-    let text = fixtures::query_with_posts();
+    let text = r#"
+        query GetPosts {
+            posts {
+                id
+                title
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (only for query operations)
@@ -154,10 +179,7 @@ fn test_required_field_specific_operation_query() {
     assert_diagnostics_count(&diagnostics, 1);
     let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
-    assert_diag_range_equals(
-        d,
-        &crate::support::range_for_token(&doc, fixtures::query_with_posts(), "GetPosts"),
-    );
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
 }
 
 #[test]
@@ -201,7 +223,14 @@ fn test_required_field_specific_operation_mutation_not_required() {
 #[test]
 #[ntest::timeout(100)]
 fn test_no_required_fields_config() {
-    let text = fixtures::query_with_users();
+    let text = r#"
+        query GetUsers {
+            users {
+                id
+                username
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with NO required field rule
@@ -231,7 +260,14 @@ fn test_no_required_fields_config() {
 #[test]
 #[ntest::timeout(100)]
 fn test_required_field_case_insensitive() {
-    let text = fixtures::query_with_posts();
+    let text = r#"
+        query GetPosts {
+            posts {
+                id
+                title
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (with different case)
@@ -260,16 +296,20 @@ fn test_required_field_case_insensitive() {
 
     assert_diagnostics_count(&diagnostics, 1);
     let d = assert_diagnostic_with_message(&diagnostics, "Required field 'USERS'");
-    assert_diag_range_equals(
-        d,
-        &crate::support::range_for_token(&doc, fixtures::query_with_posts(), "GetPosts"),
-    );
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
 }
 
 #[test]
 #[ntest::timeout(100)]
 fn test_multiple_required_fields() {
-    let text = fixtures::query_with_users();
+    let text = r#"
+        query GetUsers {
+            users {
+                id
+                username
+            }
+        }
+    "#;
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with multiple required fields
@@ -301,10 +341,7 @@ fn test_multiple_required_fields() {
     assert_diagnostics_count(&diagnostics, 1);
     let d = assert_diagnostic_with_message(&diagnostics, "Required field 'posts'");
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
-    assert_diag_range_equals(
-        d,
-        &crate::support::range_for_token(&doc, fixtures::query_with_users(), "GetUsers"),
-    );
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetUsers"));
 }
 
 #[test]

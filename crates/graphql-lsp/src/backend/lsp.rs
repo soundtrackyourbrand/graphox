@@ -1519,16 +1519,36 @@ impl LanguageServer for Backend {
                             ..Default::default()
                         }));
                     } else if code == "type_only_used" {
+                        // The diagnostic may originate from a fragment spread in another file.
+                        // We support a quickfix that removes the @type_only directive from the
+                        // fragment definition. The diagnostic.data may include the definition
+                        // uri and optional def_range for the directive location.
+                        let mut target_uri = uri.clone();
+                        let mut target_range = diagnostic.range;
+
+                        if let Some(data) = &diagnostic.data {
+                            if let Some(def_uri) = data.get("def_uri").and_then(|v| v.as_str()) {
+                                if let Ok(parsed) = Url::parse(def_uri) {
+                                    target_uri = parsed;
+                                }
+                            }
+                            if let Some(def_range) = data.get("def_range") {
+                                if let Ok(r) = serde_json::from_value::<Range>(def_range.clone()) {
+                                    target_range = r;
+                                }
+                            }
+                        }
+
                         let mut changes = std::collections::HashMap::new();
                         changes.insert(
-                            uri.clone(),
+                            target_uri.clone(),
                             vec![TextEdit {
-                                range: diagnostic.range,
+                                range: target_range,
                                 new_text: String::new(),
                             }],
                         );
 
-                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        let mut ca = CodeAction {
                             title: "Remove @type_only directive".to_string(),
                             kind: Some(CodeActionKind::QUICKFIX),
                             edit: Some(WorkspaceEdit {
@@ -1538,7 +1558,14 @@ impl LanguageServer for Backend {
                             diagnostics: Some(vec![diagnostic.clone()]),
                             is_preferred: Some(true),
                             ..Default::default()
-                        }));
+                        };
+
+                        // Preserve diagnostic.data so clients can inspect where the definition lives
+                        if let Some(d) = &diagnostic.data {
+                            ca.data = Some(d.clone());
+                        }
+
+                        actions.push(CodeActionOrCommand::CodeAction(ca));
                     } else if code == "missing_field" {
                         if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
                             let field_actions = doc.get_missing_field_actions(&diagnostic);
