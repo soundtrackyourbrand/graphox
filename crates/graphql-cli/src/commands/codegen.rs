@@ -429,185 +429,206 @@ async fn execute_project_codegen_entry(
     clean: bool,
 ) -> Result<Vec<codegen::OperationGenerated>, ()> {
     if !clean {
-        let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                return Err(());
-            }
-        };
+        generate_project_files(params, verbose).await
+    } else {
+        clean_project_files(params, verbose).await
+    }
+}
 
-        let shared_type_cache = codegen::TypeCache::new();
+async fn generate_project_files(
+    params: CodegenParams<'_>,
+    verbose: bool,
+) -> Result<Vec<codegen::OperationGenerated>, ()> {
+    let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{}", e.to_string().red());
+            return Err(());
+        }
+    };
 
-        let results: Vec<_> = params
-            .project_files
-            .par_iter()
-            .filter_map(|path| {
-                params.workspace_documents.get(path).map(|doc| (path, doc))
-            })
-            .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
-            .map(|(path, doc)| {
-                let ctx = codegen::CodegenContext::new(
-                    &valid_schema,
-                    &params.project_context.fragment_to_path,
-                    &params.project_context.fragment_to_import,
-                    &params.project_context.fragment_to_type_only,
-                    &params.project_context.all_fragments,
-                    path,
-                    params.scalars,
-                    params.schema_import,
-                    params.generate_ast_for_fragments,
-                    &params.project_context.fragment_dependencies,
-                    &shared_type_cache,
-                );
+    let shared_type_cache = codegen::TypeCache::new();
 
-                execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
-                    .map_err(|e| (path.to_path_buf(), e))
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|res| match res {
-                Ok(ops) => Ok(ops),
-                Err((path, e)) => {
-                    if !e.contains("No executable operations") {
-                        eprintln!("{} {}: {}", "Error generating types for".red(), path.display().to_string().red(), e.red());
-                        if e.contains("Fragment") && e.contains("not found") {
-                            for meta in params.global_metadata {
-                                if e.contains(&format!("'{}'", meta.name)) {
-                                     let is_local = params.project_files.iter().any(|pf: &PathBuf| {
-                                         std::fs::canonicalize(pf).unwrap_or_else(|_| pf.clone()) ==
-                                         std::fs::canonicalize(&meta.path).unwrap_or_else(|_| PathBuf::from(&meta.path))
-                                     });
+    let results: Vec<_> = params
+        .project_files
+        .par_iter()
+        .filter_map(|path| params.workspace_documents.get(path).map(|doc| (path, doc)))
+        .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
+        .map(|(path, doc)| {
+            let ctx = codegen::CodegenContext::new(
+                &valid_schema,
+                &params.project_context.fragment_to_path,
+                &params.project_context.fragment_to_import,
+                &params.project_context.fragment_to_type_only,
+                &params.project_context.all_fragments,
+                path,
+                params.scalars,
+                params.schema_import,
+                params.generate_ast_for_fragments,
+                &params.project_context.fragment_dependencies,
+                &shared_type_cache,
+            );
 
-                                     if is_local {
-                                         eprintln!(
-                                             "  {}: Fragment '{}' exists in {} but association might have failed.",
-                                             "Hint".yellow(), meta.name.blue(), meta.path.blue()
-                                         );
-                                     } else if !meta.is_public {
-                                         eprintln!(
-                                             "  {}: Fragment '{}' exists in {} but is not marked as @public",
-                                             "Hint".yellow(), meta.name.blue(), meta.path.blue()
-                                         );
-                                     }
+            execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
+                .map_err(|e| (path.to_path_buf(), e))
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|res| match res {
+            Ok(ops) => Ok(ops),
+            Err((path, e)) => {
+                if !e.contains("No executable operations") {
+                    eprintln!(
+                        "{} {}: {}",
+                        "Error generating types for".red(),
+                        path.display().to_string().red(),
+                        e.red()
+                    );
+                    if e.contains("Fragment") && e.contains("not found") {
+                        for meta in params.global_metadata {
+                            if e.contains(&format!("'{}'", meta.name)) {
+                                let is_local = params.project_files.iter().any(|pf: &PathBuf| {
+                                    std::fs::canonicalize(pf).unwrap_or_else(|_| pf.clone()) ==
+                                        std::fs::canonicalize(&meta.path).unwrap_or_else(|_| PathBuf::from(&meta.path))
+                                });
+
+                                if is_local {
+                                    eprintln!(
+                                        "  {}: Fragment '{}' exists in {} but association might have failed.",
+                                        "Hint".yellow(),
+                                        meta.name.blue(),
+                                        meta.path.blue()
+                                    );
+                                } else if !meta.is_public {
+                                    eprintln!(
+                                        "  {}: Fragment '{}' exists in {} but is not marked as @public",
+                                        "Hint".yellow(),
+                                        meta.name.blue(),
+                                        meta.path.blue()
+                                    );
                                 }
                             }
                         }
-                        Err(())
-                    } else {
-                        Ok(Vec::new())
                     }
+                    Err(())
+                } else {
+                    Ok(Vec::new())
                 }
-            })
-            .collect();
+            }
+        })
+        .collect();
 
-        let mut all_ops = Vec::new();
-        let mut success = true;
-        for res in results {
-            match res {
-                Ok(ops) => all_ops.extend(ops),
-                Err(_) => success = false,
+    let mut all_ops = Vec::new();
+    let mut success = true;
+    for res in results {
+        match res {
+            Ok(ops) => all_ops.extend(ops),
+            Err(_) => success = false,
+        }
+    }
+
+    if success { Ok(all_ops) } else { Err(()) }
+}
+
+async fn clean_project_files(
+    params: CodegenParams<'_>,
+    verbose: bool,
+) -> Result<Vec<codegen::OperationGenerated>, ()> {
+    let success = params
+        .project_files
+        .par_iter()
+        .map(|path| {
+            let out_path = utils::get_output_path(path, params.base_dir, params.output_dir);
+            let mut ok = true;
+            if out_path.exists() {
+                if let Err(e) = std::fs::remove_file(&out_path) {
+                    eprintln!(
+                        "{}: {} - {}",
+                        "Failed to remove".red(),
+                        out_path.display().to_string().red(),
+                        e
+                    );
+                    ok = false;
+                } else if verbose {
+                    println!(
+                        "{}: {}",
+                        "Removed".bright_black(),
+                        out_path.display().to_string().bright_black()
+                    );
+                }
+            }
+            ok
+        })
+        .reduce(|| true, |a, b| a && b);
+
+    let mut entrypoint_ok = true;
+    let mut manifest_ok = true;
+    let mut permissions_ok = true;
+    if let Some(out_dir) = params.output_dir {
+        let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
+        if entrypoint_path.exists() {
+            if let Err(e) = std::fs::remove_file(&entrypoint_path) {
+                eprintln!(
+                    "{} {}: {}",
+                    "Failed to remove entrypoint".red(),
+                    entrypoint_path.display().to_string().red(),
+                    e
+                );
+                entrypoint_ok = false;
+            } else if verbose {
+                println!(
+                    "{}: {}",
+                    "Removed".bright_black(),
+                    entrypoint_path.display().to_string().bright_black()
+                );
             }
         }
 
-        if success { Ok(all_ops) } else { Err(()) }
+        let manifest_path = params.base_dir.join(out_dir).join("manifest.json");
+        if manifest_path.exists() {
+            if let Err(e) = std::fs::remove_file(&manifest_path) {
+                eprintln!(
+                    "{} {}: {}",
+                    "Failed to remove manifest".red(),
+                    manifest_path.display().to_string().red(),
+                    e
+                );
+                manifest_ok = false;
+            } else if verbose {
+                println!(
+                    "{}: {}",
+                    "Removed".bright_black(),
+                    manifest_path.display().to_string().bright_black()
+                );
+            }
+        }
+
+        if params.generate_permissions {
+            let permissions_path = params.base_dir.join(out_dir).join("permissions.ts");
+            if permissions_path.exists() {
+                if let Err(e) = std::fs::remove_file(&permissions_path) {
+                    eprintln!(
+                        "{} {}: {}",
+                        "Failed to remove permissions".red(),
+                        permissions_path.display().to_string().red(),
+                        e
+                    );
+                    permissions_ok = false;
+                } else if verbose {
+                    println!(
+                        "{}: {}",
+                        "Removed".bright_black(),
+                        permissions_path.display().to_string().bright_black()
+                    );
+                }
+            }
+        }
+    }
+
+    if success && entrypoint_ok && manifest_ok && permissions_ok {
+        Ok(Vec::new())
     } else {
-        let success = params
-            .project_files
-            .par_iter()
-            .map(|path| {
-                let out_path = utils::get_output_path(path, params.base_dir, params.output_dir);
-                let mut ok = true;
-                if out_path.exists() {
-                    if let Err(e) = std::fs::remove_file(&out_path) {
-                        eprintln!(
-                            "{}: {} - {}",
-                            "Failed to remove".red(),
-                            out_path.display().to_string().red(),
-                            e
-                        );
-                        ok = false;
-                    } else if verbose {
-                        println!(
-                            "{}: {}",
-                            "Removed".bright_black(),
-                            out_path.display().to_string().bright_black()
-                        );
-                    }
-                }
-                ok
-            })
-            .reduce(|| true, |a, b| a && b);
-
-        let mut entrypoint_ok = true;
-        let mut manifest_ok = true;
-        let mut permissions_ok = true;
-        if let Some(out_dir) = params.output_dir {
-            let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
-            if entrypoint_path.exists() {
-                if let Err(e) = std::fs::remove_file(&entrypoint_path) {
-                    eprintln!(
-                        "{} {}: {}",
-                        "Failed to remove entrypoint".red(),
-                        entrypoint_path.display().to_string().red(),
-                        e
-                    );
-                    entrypoint_ok = false;
-                } else if verbose {
-                    println!(
-                        "{}: {}",
-                        "Removed".bright_black(),
-                        entrypoint_path.display().to_string().bright_black()
-                    );
-                }
-            }
-
-            let manifest_path = params.base_dir.join(out_dir).join("manifest.json");
-            if manifest_path.exists() {
-                if let Err(e) = std::fs::remove_file(&manifest_path) {
-                    eprintln!(
-                        "{} {}: {}",
-                        "Failed to remove manifest".red(),
-                        manifest_path.display().to_string().red(),
-                        e
-                    );
-                    manifest_ok = false;
-                } else if verbose {
-                    println!(
-                        "{}: {}",
-                        "Removed".bright_black(),
-                        manifest_path.display().to_string().bright_black()
-                    );
-                }
-            }
-
-            if params.generate_permissions {
-                let permissions_path = params.base_dir.join(out_dir).join("permissions.ts");
-                if permissions_path.exists() {
-                    if let Err(e) = std::fs::remove_file(&permissions_path) {
-                        eprintln!(
-                            "{} {}: {}",
-                            "Failed to remove permissions".red(),
-                            permissions_path.display().to_string().red(),
-                            e
-                        );
-                        permissions_ok = false;
-                    } else if verbose {
-                        println!(
-                            "{}: {}",
-                            "Removed".bright_black(),
-                            permissions_path.display().to_string().bright_black()
-                        );
-                    }
-                }
-            }
-        }
-
-        if success && entrypoint_ok && manifest_ok && permissions_ok {
-            Ok(Vec::new())
-        } else {
-            Err(())
-        }
+        Err(())
     }
 }
 
