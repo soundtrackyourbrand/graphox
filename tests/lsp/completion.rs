@@ -11,8 +11,61 @@ use tower_service::Service;
 
 use crate::support::{
     make_temp_project_with_schema, create_initialized_lsp_service, write_project_file,
-    lsp_did_open, lsp_request_completion, completion_items_array,
+    lsp_did_open, lsp_request_completion, completion_items_array, with_cursor,
 };
+
+#[tokio::test]
+async fn test_completion_unclosed_arguments() {
+    let schema = "type Query { user(id: ID!, name: String): User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let (text, position) = with_cursor("query { user(| }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
+    assert!(items.iter().any(|i| i.label == "id"), "Expected 'id' in completions: {:?}", labels);
+    assert!(items.iter().any(|i| i.label == "name"), "Expected 'name' in completions: {:?}", labels);
+}
+
+#[tokio::test]
+async fn test_completion_unclosed_variable() {
+    let schema = "type Query { user(id: ID!): User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let (text, position) = with_cursor("query GetUser($userId: ID!) { user(id: $| }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
+    assert!(items.iter().any(|i| i.label == "$userId"), "Expected '$userId' in completions: {:?}", labels);
+}
+
+#[tokio::test]
+async fn test_completion_unclosed_input_object() {
+    let schema = "input CreateUserInput { username: String!, email: String } type Mutation { createUser(input: CreateUserInput!): User } type User { id: ID! } type Query { me: User }";
+    let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let (text, position) = with_cursor("mutation { createUser(input: {| }) }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
+    assert!(items.iter().any(|i| i.label == "username"), "Expected 'username' in completions: {:?}", labels);
+    assert!(items.iter().any(|i| i.label == "email"), "Expected 'email' in completions: {:?}", labels);
+}
 
 #[tokio::test]
 async fn test_completion_fields() {
@@ -23,12 +76,11 @@ async fn test_completion_fields() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Write and open file
-    let text = "query { users {  } }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("query { users { | } }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Request completions at "users { | }"
-    let position = Position::new(0, 16);
+    // Request completions
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
@@ -178,12 +230,11 @@ async fn test_completion_variables() {
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "query GetUser($userId: ID!) { user(id: $) }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("query GetUser($userId: ID!) { user(id: $|) }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Request completions at "user(id: $|)"
-    let position = Position::new(0, 40);
+    // Request completions
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
@@ -510,8 +561,8 @@ async fn test_completion_introspection_fields() {
     service.call(request).await.unwrap();
 
     let query_path = dir.path().join("test.graphql");
-    let text = "query {  }";
-    fs::write(&query_path, text).unwrap();
+    let (text, position) = with_cursor("query { | }");
+    fs::write(&query_path, &text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
     let uri = Url::from_file_path(&query_path).unwrap();
 
@@ -520,7 +571,7 @@ async fn test_completion_introspection_fields() {
             uri: uri.clone(),
             language_id: "graphql".to_string(),
             version: 1,
-            text: text.to_string(),
+            text: text.clone(),
         },
     };
     service
@@ -532,8 +583,7 @@ async fn test_completion_introspection_fields() {
         .await
         .unwrap();
 
-    // Request completions at "query { | }" - should include __schema and __type
-    let position = Position::new(0, 8);
+    // Request completions - should include __schema and __type
     let params = CompletionParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
@@ -595,8 +645,8 @@ async fn test_completion_introspection_fields() {
     }
 
     // Now test that __schema and __type are NOT included on non-root types
-    let text2 = "query { users {  } }";
-    fs::write(&query_path, text2).unwrap();
+    let (text2, position2) = with_cursor("query { users { | } }");
+    fs::write(&query_path, &text2).unwrap();
 
     let params = DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -619,11 +669,10 @@ async fn test_completion_introspection_fields() {
         .unwrap();
 
     // Request completions at "users { | }"
-    let position = Position::new(0, 16);
     let params = CompletionParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position,
+            position: position2,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -1673,12 +1722,10 @@ async fn test_completion_argument_names() {
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "query { user( ) }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("query { user(| ) }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Request completions at "user( | )"
-    let position = Position::new(0, 13);
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
@@ -1693,12 +1740,10 @@ async fn test_completion_input_object_fields() {
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "mutation { createUser(input: { }) }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("mutation { createUser(input: { | }) }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Request completions at "input: { | }"
-    let position = Position::new(0, 30);
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
@@ -1713,12 +1758,10 @@ async fn test_completion_partial_input() {
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "query { users { usern } }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("query { users { usern| } }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Request completions at "usern|"
-    let position = Position::new(0, 21);
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
@@ -1731,12 +1774,10 @@ async fn test_completion_enum_values() {
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "query { users(role: ) }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("query { users(role: |) }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Request completions at "role: |"
-    let position = Position::new(0, 20);
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 

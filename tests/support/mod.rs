@@ -548,6 +548,23 @@ pub fn apply_completion_item(
     (new_text, None)
 }
 
+/// Helper to find the cursor position marked by '|' in a string and return the
+/// string with the marker removed.
+pub fn with_cursor(text: &str) -> (String, Position) {
+    let cursor_pos = text.find('|').expect("No cursor marker '|' found in text");
+    let before = &text[..cursor_pos];
+    let after = &text[cursor_pos + 1..];
+
+    let line = before.matches('\n').count();
+    let col = if let Some(last_line) = before.lines().last() {
+        last_line.chars().count()
+    } else {
+        before.chars().count()
+    };
+
+    (format!("{}{}", before, after), pos(line as u32, col as u32))
+}
+
 /// Convenience constructor for LSP positions.
 pub fn pos(line: u32, col: u32) -> Position {
     Position::new(line, col)
