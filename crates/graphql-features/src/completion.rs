@@ -1271,6 +1271,9 @@ impl DocumentCompletion for DocumentState {
         fragments
             .iter()
             .filter(|f| {
+                if f.is_type_only {
+                    return false;
+                }
                 if let Some(parent) = expected_type {
                     let parent_name = parent.name();
                     if f.type_condition == parent_name.as_str() {

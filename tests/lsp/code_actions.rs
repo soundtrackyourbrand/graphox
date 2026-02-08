@@ -313,3 +313,96 @@ async fn test_code_action_extract_to_fragment_tsx() {
     );
     assert!(edits.iter().any(|e| e.new_text.contains("...NewFragment")));
 }
+
+#[tokio::test]
+#[ntest::timeout(100)]
+async fn test_code_action_type_only_removal() {
+    let schema = "type Query { me: String }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let frag_text = "fragment F on Query @type_only { me }";
+    let frag_uri = write_project_file(&dir, "test.graphql", frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+
+    let doc = create_doc(frag_uri.as_str(), frag_text);
+    let diagnostic = Diagnostic {
+        range: crate::support::range_for_token(&doc, frag_text, "@type_only"),
+        message: "Fragment 'F' is used but marked with @type_only".to_string(),
+        code: Some(NumberOrString::String("type_only_used".to_string())),
+        ..Default::default()
+    };
+
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: frag_uri.clone(),
+        },
+        range: diagnostic.range,
+        context: CodeActionContext {
+            diagnostics: vec![diagnostic],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let actions = lsp_request_code_actions(&mut service, params, 1)
+        .await
+        .expect("Expected actions");
+
+    let ca = find_code_action_by_title(&actions, "Remove @type_only directive")
+        .expect("Should find 'Remove @type_only directive' action");
+
+    let edit = ca.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    assert!(changes.contains_key(&frag_uri));
+    let edits = &changes[&frag_uri];
+    assert_eq!(edits[0].new_text, "");
+}
+
+#[tokio::test]
+#[ntest::timeout(100)]
+#[ignore] // Not implemented feature
+async fn test_code_action_variable_definition() {
+    let schema = "type Query { user(id: ID!): String }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let query_text = "query GetUser { user(id: $id) }";
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let doc = create_doc(query_uri.as_str(), query_text);
+    let diagnostic = Diagnostic {
+        range: crate::support::range_for_token(&doc, query_text, "$id"),
+        message: "Undefined variable: $id".to_string(),
+        code: Some(NumberOrString::String("undefined_variable".to_string())),
+        ..Default::default()
+    };
+
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: query_uri.clone(),
+        },
+        range: diagnostic.range,
+        context: CodeActionContext {
+            diagnostics: vec![diagnostic],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let actions = lsp_request_code_actions(&mut service, params, 1)
+        .await
+        .expect("Expected actions");
+
+    let ca = find_code_action_by_title(&actions, "Add variable definition")
+        .expect("Should find 'Add variable definition' action");
+
+    let edit = ca.edit.as_ref().unwrap();
+    let changes = edit.changes.as_ref().unwrap();
+    assert!(changes.contains_key(&query_uri));
+}

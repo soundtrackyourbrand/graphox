@@ -239,9 +239,7 @@ async fn test_workspace_diagnostics() {
     let base_dir = scenario.write_files().unwrap();
     let _schema_path = base_dir.join("schema.graphql");
     let query1_path = base_dir.join("query1.graphql");
-    let query1_text = query1_text;
     let query2_path = base_dir.join("query2.graphql");
-    let query2_text = query2_text;
 
     let config = Config {
         projects: vec![ProjectConfig {
