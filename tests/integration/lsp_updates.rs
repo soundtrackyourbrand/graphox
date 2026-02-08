@@ -166,7 +166,7 @@ async fn test_lsp_fragment_collisions() {
 
     // Check private collision in pkg_a
     let d_a = diags.get(&uri_a).unwrap();
-    assert!(d_a.len() >= 1);
+    assert!(!d_a.is_empty());
     let diag = d_a
         .iter()
         .find(|d| {
@@ -187,7 +187,7 @@ async fn test_lsp_fragment_collisions() {
 
     // Check shadowing in shadow.graphql
     let d_d = diags.get(&uri_d).unwrap();
-    assert!(d_d.len() >= 1);
+    assert!(!d_d.is_empty());
     let diag = d_d
         .iter()
         .find(|d| d.message.contains("shadows a public fragment"))
@@ -206,7 +206,7 @@ async fn test_lsp_fragment_collisions() {
 
     // Check public collision
     let d_e = diags.get(&uri_e).unwrap();
-    assert!(d_e.len() >= 1);
+    assert!(!d_e.is_empty());
     let diag = d_e
         .iter()
         .find(|d| {

@@ -98,7 +98,7 @@ fn test_variable_unused_even_with_fragments() {
     // Total diagnostics: 1 (our unused_variable check)
     // Wait, apollo-compiler also reports unused variables.
     // Let's check how many we actually get.
-    assert!(diagnostics.len() >= 1);
+    assert!(!diagnostics.is_empty());
     let d = diagnostics
         .iter()
         .find(|d| d.message == "Unused variable: $unused")
@@ -134,7 +134,7 @@ fn test_undefined_variable_direct() {
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
     // apollo-compiler and our rule both report this.
-    assert!(diagnostics.len() >= 1);
+    assert!(!diagnostics.is_empty());
     let d = diagnostics
         .iter()
         .find(|d| d.message == "Undefined variable: $undefined")
@@ -172,7 +172,7 @@ fn test_undefined_variable_in_fragment_spread() {
     let doc = create_doc("file:///test.graphql", query_text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
-    assert!(diagnostics.len() >= 1);
+    assert!(!diagnostics.is_empty());
     let d = diagnostics
         .iter()
         .find(|d| d.message == "Undefined variable: $admin (required by fragment 'UserFields')")

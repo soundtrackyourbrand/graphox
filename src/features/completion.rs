@@ -409,22 +409,21 @@ impl DocumentState {
                 let mut items = Vec::new();
                 if let Some(expected_type) =
                     self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema)
+                    && let schema::ExtendedType::InputObject(input_obj) = expected_type
                 {
-                    if let schema::ExtendedType::InputObject(input_obj) = expected_type {
-                        for (name, def) in &input_obj.fields {
-                            items.push(CompletionItem {
-                                label: name.to_string(),
-                                kind: Some(CompletionItemKind::FIELD),
-                                detail: Some(def.ty.to_string()),
-                                documentation: def.description.as_ref().map(|d| {
-                                    Documentation::MarkupContent(MarkupContent {
-                                        kind: MarkupKind::Markdown,
-                                        value: d.to_string(),
-                                    })
-                                }),
-                                ..Default::default()
-                            });
-                        }
+                    for (name, def) in &input_obj.fields {
+                        items.push(CompletionItem {
+                            label: name.to_string(),
+                            kind: Some(CompletionItemKind::FIELD),
+                            detail: Some(def.ty.to_string()),
+                            documentation: def.description.as_ref().map(|d| {
+                                Documentation::MarkupContent(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value: d.to_string(),
+                                })
+                            }),
+                            ..Default::default()
+                        });
                     }
                 }
                 Some(items)
@@ -432,24 +431,23 @@ impl DocumentState {
             "enum_value" | "value" => {
                 if let Some(expected_type) =
                     self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema)
+                    && let schema::ExtendedType::Enum(enum_ty) = expected_type
                 {
-                    if let schema::ExtendedType::Enum(enum_ty) = expected_type {
-                        let mut items = Vec::new();
-                        for (name, def) in &enum_ty.values {
-                            items.push(CompletionItem {
-                                label: name.to_string(),
-                                kind: Some(CompletionItemKind::ENUM_MEMBER),
-                                documentation: def.description.as_ref().map(|d| {
-                                    Documentation::MarkupContent(MarkupContent {
-                                        kind: MarkupKind::Markdown,
-                                        value: d.to_string(),
-                                    })
-                                }),
-                                ..Default::default()
-                            });
-                        }
-                        return Some(items);
+                    let mut items = Vec::new();
+                    for (name, def) in &enum_ty.values {
+                        items.push(CompletionItem {
+                            label: name.to_string(),
+                            kind: Some(CompletionItemKind::ENUM_MEMBER),
+                            documentation: def.description.as_ref().map(|d| {
+                                Documentation::MarkupContent(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value: d.to_string(),
+                                })
+                            }),
+                            ..Default::default()
+                        });
                     }
+                    return Some(items);
                 }
                 None
             }
@@ -600,10 +598,8 @@ impl DocumentState {
                         let mut cursor = current_node.walk();
                         let mut last_arg = None;
                         for child in current_node.children(&mut cursor) {
-                            if child.kind() == "argument" {
-                                if child.start_byte() + offset < co {
-                                    last_arg = Some(child);
-                                }
+                            if child.kind() == "argument" && child.start_byte() + offset < co {
+                                last_arg = Some(child);
                             }
                         }
 
@@ -631,8 +627,7 @@ impl DocumentState {
                                 let name_part = &text_before[..colon_idx];
                                 name_part
                                     .split(|c: char| !c.is_alphanumeric() && c != '_')
-                                    .filter(|s| !s.is_empty())
-                                    .last()
+                                    .rfind(|s| !s.is_empty())
                                     .map(|s| s.to_string())
                             } else {
                                 None
@@ -697,10 +692,8 @@ impl DocumentState {
                         let mut cursor = current_node.walk();
                         let mut last_f = None;
                         for child in current_node.children(&mut cursor) {
-                            if child.kind() == "object_field" {
-                                if child.start_byte() + offset < co {
-                                    last_f = Some(child);
-                                }
+                            if child.kind() == "object_field" && child.start_byte() + offset < co {
+                                last_f = Some(child);
                             }
                         }
                         last_f

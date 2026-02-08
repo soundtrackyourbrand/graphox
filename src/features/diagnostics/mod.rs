@@ -156,10 +156,10 @@ impl DocumentState {
             }
 
             for (name, cnt) in counts.into_iter() {
-                if cnt > 1 {
-                    if let Some(range) = find_operation_range(self, &name) {
-                        push_duplicate_operation_diagnostic(&mut diagnostics, range, &name, None);
-                    }
+                if cnt > 1
+                    && let Some(range) = find_operation_range(self, &name)
+                {
+                    push_duplicate_operation_diagnostic(&mut diagnostics, range, &name, None);
                 }
             }
         }

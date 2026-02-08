@@ -755,24 +755,21 @@ fn generate_selection_set(
     used_fragments: &mut HashMap<String, String>,
     used_schema_types: &mut HashSet<String>,
 ) -> String {
-    let (fields, inline_fragments, fragment_spreads, has_explicit_typename) =
-        categorize_selections(selection_set, used_fragments);
+    let categorized = categorize_selections(selection_set, used_fragments);
 
-    if inline_fragments.is_empty() {
+    if categorized.inline_fragments.is_empty() {
         generate_object_or_intersection(
-            &fields,
-            &fragment_spreads,
+            &categorized,
             parent_type,
             ctx,
             indent,
-            has_explicit_typename,
             used_fragments,
             used_schema_types,
         )
     } else {
         generate_union_type(
-            &inline_fragments,
-            &fragment_spreads,
+            &categorized.inline_fragments,
+            &categorized.fragment_spreads,
             parent_type,
             ctx,
             indent,
@@ -782,16 +779,19 @@ fn generate_selection_set(
     }
 }
 
+/// Categorized results from a selection set
+struct CategorizedSelections<'a> {
+    fields: Vec<&'a Node<executable::Field>>,
+    inline_fragments: Vec<&'a Node<executable::InlineFragment>>,
+    fragment_spreads: Vec<&'a Node<executable::FragmentSpread>>,
+    has_explicit_typename: bool,
+}
+
 /// Categorize selections into fields, inline fragments, and fragment spreads
 fn categorize_selections<'a>(
     selection_set: &'a SelectionSet,
     used_fragments: &mut HashMap<String, String>,
-) -> (
-    Vec<&'a Node<executable::Field>>,
-    Vec<&'a Node<executable::InlineFragment>>,
-    Vec<&'a Node<executable::FragmentSpread>>,
-    bool,
-) {
+) -> CategorizedSelections<'a> {
     let mut fields = Vec::new();
     let mut inline_fragments = Vec::new();
     let mut fragment_spreads = Vec::new();
@@ -815,39 +815,37 @@ fn categorize_selections<'a>(
         }
     }
 
-    (
+    CategorizedSelections {
         fields,
         inline_fragments,
         fragment_spreads,
         has_explicit_typename,
-    )
+    }
 }
 
 /// Generate TypeScript type for object or intersection types (no inline fragments)
 fn generate_object_or_intersection(
-    fields: &[&Node<executable::Field>],
-    fragment_spreads: &[&Node<executable::FragmentSpread>],
+    categorized: &CategorizedSelections,
     parent_type: &ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
-    has_explicit_typename: bool,
     used_fragments: &mut HashMap<String, String>,
     used_schema_types: &mut HashSet<String>,
 ) -> String {
     let local_fields_list = generate_field_list(
-        fields,
+        &categorized.fields,
         parent_type,
         ctx,
         indent,
-        has_explicit_typename,
+        categorized.has_explicit_typename,
         used_fragments,
         used_schema_types,
     );
 
-    if fragment_spreads.is_empty() {
+    if categorized.fragment_spreads.is_empty() {
         format_multiline_object(&local_fields_list, indent)
     } else {
-        format_intersection(&local_fields_list, fragment_spreads)
+        format_intersection(&local_fields_list, &categorized.fragment_spreads)
     }
 }
 
