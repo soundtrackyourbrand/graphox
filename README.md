@@ -164,6 +164,10 @@ graphql-rust benchmark
 
 Create a `graphql.yaml` file in your project root:
 
+### Validation Rules
+
+graphql-rust supports configurable validation rules. See [Rules](docs/rules.md) for documentation of available rules and their configuration.
+
 ### Basic Example
 
 ```yaml
