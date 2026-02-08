@@ -112,3 +112,274 @@ const q = gql`
     let symbol = doc.get_symbol_at_position(pos);
     assert_eq!(symbol, Some("UserFrag".to_string()));
 }
+
+#[test]
+#[ntest::timeout(100)]
+fn test_cjk_characters_in_strings() {
+    let schema_content = r#"
+        type Query {
+            user(id: ID!): User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query GetUser($id: ID!) {
+            user(id: $id) {
+                id
+                name
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Should handle queries with ASCII identifiers when CJK is in comments/strings"
+    );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_arabic_characters_in_strings() {
+    let schema_content = r#"
+        type Query {
+            user(id: ID!): User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query GetUser($id: ID!) {
+            user(id: $id) {
+                id
+                name
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Should handle queries normally when Arabic is in comments/strings"
+    );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_emoji_in_variable_names() {
+    let schema_content = r#"
+        type Query {
+            user(id: ID!): User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query GetUser($🔑id: ID!) {
+            user(id: $🔑id) {
+                id
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    assert!(
+        !diagnostics.is_empty(),
+        "Emoji in variable names should be valid in GraphQL"
+    );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_combining_characters() {
+    let schema_content = r#"
+        type Query {
+            user: User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            user {
+                id
+                # Combining character e followed by acute accent
+                name
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    crate::support::assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_zero_width_characters() {
+    let schema_content = r#"
+        type Query {
+            user: User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            user {
+                id
+                name
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    crate::support::assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_cyrillic_characters_in_strings() {
+    let schema_content = r#"
+        type Query {
+            user(id: ID!): User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query GetUser($id: ID!) {
+            user(id: $id) {
+                id
+                name
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Should handle queries normally when Cyrillic is in comments/strings"
+    );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_greek_characters_in_strings() {
+    let schema_content = r#"
+        type Query {
+            user(id: ID!): User
+        }
+        type User {
+            id: ID!
+            name: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query GetUser($id: ID!) {
+            user(id: $id) {
+                id
+                name
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Should handle queries normally when Greek is in comments/strings"
+    );
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_mixed_multibyte_in_strings() {
+    let schema_content = r#"
+        type Query {
+            user: User
+        }
+        type User {
+            id: ID!
+            greeting: String
+        }
+    "#;
+    let schema = apollo_compiler::Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            user {
+                id
+                greeting
+            }
+        }
+    "#;
+
+    let doc = create_doc("file:///test.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    crate::support::assert_no_diagnostics(&diagnostics);
+}

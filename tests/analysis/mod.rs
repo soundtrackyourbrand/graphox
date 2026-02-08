@@ -1,6 +1,7 @@
 mod apollo_validation;
 mod duplicate_fragments;
 mod duplicate_operations;
+mod error_recovery;
 mod field_definition;
 mod fragment_scoping;
 mod no_duplicate_fields;
