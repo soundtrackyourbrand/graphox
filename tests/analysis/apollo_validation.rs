@@ -23,14 +23,22 @@ fn test_apollo_validation_missing_required_argument() {
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
     // Apollo compiler should report missing required argument 'id'
-    assert_eq!(diagnostics.len(), 1, "Expected exactly 1 diagnostic, got: {:?}", diagnostics);
-    
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "Expected exactly 1 diagnostic, got: {:?}",
+        diagnostics
+    );
+
     let d = &diagnostics[0];
     assert!(d.message.contains("Apollo Validation Error"));
     assert!(d.message.contains("id") && d.message.contains("not provided"));
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "user { id }"));
+
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "user { id }"),
+    );
 }
 
 #[test]
@@ -53,11 +61,19 @@ fn test_apollo_validation_type_mismatch() {
     let doc = create_doc("file:///test.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
 
-    assert_eq!(diagnostics.len(), 1, "Expected exactly 1 diagnostic, got: {:?}", diagnostics);
-    
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "Expected exactly 1 diagnostic, got: {:?}",
+        diagnostics
+    );
+
     let d = &diagnostics[0];
     assert!(d.message.contains("Apollo Validation Error"));
     assert!(d.message.contains("expected value of type ID!"));
-    
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, r#"{ some: "object" }"#));
+
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, r#"{ some: "object" }"#),
+    );
 }

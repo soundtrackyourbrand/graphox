@@ -34,13 +34,7 @@ async fn test_lsp_fragment_scoping() {
         }
     "#;
 
-    lsp_did_open(
-        &mut service,
-        pkg_b_uri.clone(),
-        "graphql",
-        1,
-        pkg_b_text,
-    ).await;
+    lsp_did_open(&mut service, pkg_b_uri.clone(), "graphql", 1, pkg_b_text).await;
 
     // 3. Request completions at "...P" in pkg_b
     // Line 4: "                ...PublicFrag"
@@ -112,7 +106,8 @@ async fn test_lsp_package_isolation() {
         "graphql",
         1,
         pkg_b_query_text,
-    ).await;
+    )
+    .await;
 
     // 4. Goto Definition for FragmentA in pkg_b/query.graphql
     // FragmentA should NOT be found because it's in pkg_a and not @public

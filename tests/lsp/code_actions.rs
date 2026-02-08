@@ -268,7 +268,14 @@ async fn test_code_action_extract_to_fragment_tsx() {
 
     let tsx_text = "const q = gql`query { me { id name } }`;";
     let tsx_uri = write_project_file(&dir, "Component.tsx", tsx_text);
-    lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
 
     // Select "{ id name }" inside the template literal
     let doc = create_doc(tsx_uri.as_str(), tsx_text);

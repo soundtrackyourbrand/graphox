@@ -17,7 +17,14 @@ async fn test_fragment_references() {
     // 1. Create and Open the fragment definition file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&dir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // 2. Create and Open the query file that uses the fragment
     let query_text = "query GetUser { user { ...UserFields } }";
@@ -71,7 +78,14 @@ async fn test_fragment_references_tsx() {
     // 1. Fragment in .graphql file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // 2. Usage in .tsx file
     let tsx_text = r#"
@@ -85,7 +99,14 @@ async fn test_fragment_references_tsx() {
         `;
     "#;
     let tsx_uri = write_project_file(&tmpdir, "Component.tsx", tsx_text);
-    lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
 
     // 3. Trigger Find References on "UserFields" in fragment file
     let params = ReferenceParams {
@@ -129,7 +150,14 @@ async fn test_fragment_references_exclude_declaration() {
     // 1. Fragment file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&dir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // 2. Query file
     let query_text = "query { user { ...UserFields } }";

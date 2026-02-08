@@ -49,20 +49,29 @@ async fn test_lsp_request_timeout() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };
-    let result = lsp_request_typed::<Option<Hover>, _>(&mut service, "textDocument/hover", &params).await;
+    let result =
+        lsp_request_typed::<Option<Hover>, _>(&mut service, "textDocument/hover", &params).await;
 
     // The request should complete (either successfully or with a timeout)
     // The important thing is it doesn't hang — typed helper returns Option<Hover>
-    assert!(result.is_none() || result.is_some(), "Hover request should complete");
+    assert!(
+        result.is_none() || result.is_some(),
+        "Hover request should complete"
+    );
 }
 
 #[tokio::test]
 async fn test_workspace_scan_timeout() {
-    let (dir, mut config) = make_temp_project_with_schema("type Query { field: String }", "*.graphql");
+    let (dir, mut config) =
+        make_temp_project_with_schema("type Query { field: String }", "*.graphql");
 
     // Create many GraphQL files to slow down the workspace scan
     for i in 0..100 {
-        write_project_file(&dir, &format!("query{}.graphql", i), &format!("query Test{} {{ field }}", i));
+        write_project_file(
+            &dir,
+            &format!("query{}.graphql", i),
+            &format!("query Test{} {{ field }}", i),
+        );
     }
 
     // Configure with a very short workspace scan timeout (5ms) to ensure we hit it
@@ -90,8 +99,9 @@ async fn test_workspace_scan_timeout() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     };
-    
-    let result: Option<Vec<SymbolInformation>> = lsp_request_typed(&mut service, "workspace/symbol", &params).await;
+
+    let result: Option<Vec<SymbolInformation>> =
+        lsp_request_typed(&mut service, "workspace/symbol", &params).await;
 
     // The request should complete - LSP should still be responsive after workspace scan timeout
     assert!(
@@ -122,8 +132,9 @@ async fn test_timeout_with_normal_config() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };
-    
-    let result: Option<Hover> = lsp_request_typed(&mut service, "textDocument/hover", &params).await;
+
+    let result: Option<Hover> =
+        lsp_request_typed(&mut service, "textDocument/hover", &params).await;
 
     // Should get a response without timing out
     assert!(

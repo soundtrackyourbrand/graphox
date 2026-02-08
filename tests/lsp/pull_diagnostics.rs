@@ -1,11 +1,10 @@
 use crate::support::{
-    create_lsp_service_with_socket, create_service, lsp_did_open,
-    lsp_request_typed,
+    create_lsp_service_with_socket, create_service, lsp_did_open, lsp_request_typed,
 };
 use futures_util::StreamExt;
 use graphql_rust::{
-    config::{GlobPattern, ProjectConfig, SchemaSource},
     Config,
+    config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
@@ -52,8 +51,12 @@ async fn test_pull_diagnostics_basic() {
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 received_push_diags_clone.lock().unwrap().push(params);
             }
         }
@@ -74,7 +77,8 @@ async fn test_pull_diagnostics_basic() {
         ..Default::default()
     };
 
-    let result: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+    let result: InitializeResult =
+        lsp_request_typed(&mut service, "initialize", &init_params).await;
     assert!(result.capabilities.diagnostic_provider.is_some());
 
     service
@@ -378,8 +382,12 @@ async fn test_fallback_to_push_diagnostics() {
     let received_push_diags_clone = received_push_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 received_push_diags_clone.lock().unwrap().push(params);
             }
         }

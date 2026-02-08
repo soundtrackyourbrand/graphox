@@ -170,15 +170,17 @@ impl DocumentState {
                                                     break;
                                                 }
                                             }
-                                        } else if s_child.kind() == "name"
-                                            && sibling_key.is_none() {
-                                                sibling_key =
-                                                    Some(self.get_node_text(s_child, offset));
-                                            }
+                                        } else if s_child.kind() == "name" && sibling_key.is_none()
+                                        {
+                                            sibling_key = Some(self.get_node_text(s_child, offset));
+                                        }
                                     }
 
                                     if let Some(s_key) = sibling_key {
-                                        println!("    SIBLING KEY: {}, CURRENT KEY: {}", s_key, response_key);
+                                        println!(
+                                            "    SIBLING KEY: {}, CURRENT KEY: {}",
+                                            s_key, response_key
+                                        );
                                         if s_key == response_key {
                                             // same response key; treated as duplicate
                                             seen_conflict = true;

@@ -1,8 +1,8 @@
 use crate::support::{self, lsp_did_open, lsp_request_hover, pos};
 use futures_util::StreamExt;
 use graphql_rust::{
-    config::{GlobPattern, ProjectConfig, SchemaSource},
     Config,
+    config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
@@ -57,16 +57,21 @@ async fn test_workspace_scan_concurrency() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params: LogMessageParams =
-                    serde_json::from_value(msg.get("params").cloned().unwrap_or(serde_json::Value::Null)).unwrap();
+                let params: LogMessageParams = serde_json::from_value(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                )
+                .unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
                 }
             } else if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
-                progress_updates_clone
-                    .lock()
-                    .unwrap()
-                    .push(msg.get("params").cloned().unwrap_or(serde_json::Value::Null));
+                progress_updates_clone.lock().unwrap().push(
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
             }
         }
     });
@@ -105,9 +110,17 @@ async fn test_workspace_scan_concurrency() {
 
     // 2. Immediately open a new file
     let new_file_text = "query NewQuery { me { name } }";
-    let new_file_uri = crate::support::write_project_file_at(&base_dir, "new_file.graphql", new_file_text);
+    let new_file_uri =
+        crate::support::write_project_file_at(&base_dir, "new_file.graphql", new_file_text);
 
-    lsp_did_open(&mut service, new_file_uri.clone(), "graphql", 1, new_file_text).await;
+    lsp_did_open(
+        &mut service,
+        new_file_uri.clone(),
+        "graphql",
+        1,
+        new_file_text,
+    )
+    .await;
 
     // 3. Request hover immediately
     let hover_result = lsp_request_hover(&mut service, new_file_uri.clone(), pos(0, 22)).await;

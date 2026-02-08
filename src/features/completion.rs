@@ -304,13 +304,16 @@ impl DocumentState {
                 };
 
                 if let Some(field_node) = field_node
-                    && let Some(parent_type) = self.find_parent_type_for_node(field_node, offset, schema)
+                    && let Some(parent_type) =
+                        self.find_parent_type_for_node(field_node, offset, schema)
                 {
                     let components = self.extract_field_components(field_node);
                     if let Some(name_node) = components.name {
                         let field_name = self.get_node_text(name_node, offset);
                         let field_def = match &parent_type {
-                            schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                            schema::ExtendedType::Object(obj) => {
+                                obj.fields.get(field_name.as_str())
+                            }
                             schema::ExtendedType::Interface(iface) => {
                                 iface.fields.get(field_name.as_str())
                             }
@@ -319,7 +322,12 @@ impl DocumentState {
 
                         if let Some(fdef) = field_def {
                             // Check if we are at a value position
-                            if let Some(expected_type) = self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema) {
+                            if let Some(expected_type) = self.find_expected_type_for_node(
+                                current,
+                                offset,
+                                Some(cursor_offset),
+                                schema,
+                            ) {
                                 match expected_type {
                                     schema::ExtendedType::Enum(enum_ty) => {
                                         for (name, def) in &enum_ty.values {
@@ -374,7 +382,9 @@ impl DocumentState {
                             }
                         }
                     }
-                } else if let Some(directive_node) = self.find_ancestor_by_kind(current, "directive") {
+                } else if let Some(directive_node) =
+                    self.find_ancestor_by_kind(current, "directive")
+                {
                     let name_node = self.find_child_by_kind(directive_node, "name");
                     if let Some(name_node) = name_node {
                         let dir_name = self.get_node_text(name_node, offset);
@@ -397,7 +407,9 @@ impl DocumentState {
             }
             "object_value" | "object_field" => {
                 let mut items = Vec::new();
-                if let Some(expected_type) = self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema) {
+                if let Some(expected_type) =
+                    self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema)
+                {
                     if let schema::ExtendedType::InputObject(input_obj) = expected_type {
                         for (name, def) in &input_obj.fields {
                             items.push(CompletionItem {
@@ -418,7 +430,9 @@ impl DocumentState {
                 Some(items)
             }
             "enum_value" | "value" => {
-                if let Some(expected_type) = self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema) {
+                if let Some(expected_type) =
+                    self.find_expected_type_for_node(current, offset, Some(cursor_offset), schema)
+                {
                     if let schema::ExtendedType::Enum(enum_ty) = expected_type {
                         let mut items = Vec::new();
                         for (name, def) in &enum_ty.values {
@@ -609,7 +623,8 @@ impl DocumentState {
                             }
                         } else {
                             // If no argument node found, we might be right after a name that isn't yet an argument
-                            let text_before = self.rope
+                            let text_before = self
+                                .rope
                                 .byte_slice(current_node.start_byte() + offset..co)
                                 .to_string();
                             if let Some(colon_idx) = text_before.rfind(':') {
@@ -663,8 +678,10 @@ impl DocumentState {
                             let name_node = self.find_child_by_kind(target_node, "name")?;
                             let dir_name = self.get_node_text(name_node, offset);
                             let dir_def = schema.directive_definitions.get(dir_name.as_str())?;
-                            let arg_def =
-                                dir_def.arguments.iter().find(|a| a.name.as_str() == arg_name)?;
+                            let arg_def = dir_def
+                                .arguments
+                                .iter()
+                                .find(|a| a.name.as_str() == arg_name)?;
                             return schema
                                 .types
                                 .get(arg_def.ty.inner_named_type().as_str())
@@ -729,8 +746,12 @@ impl DocumentState {
                 }
                 "list_value" => {
                     // Recurse to find the type of the list itself
-                    let list_type =
-                        self.find_expected_type_for_node(current_node, offset, cursor_offset, schema)?;
+                    let list_type = self.find_expected_type_for_node(
+                        current_node,
+                        offset,
+                        cursor_offset,
+                        schema,
+                    )?;
                     return Some(list_type);
                 }
                 _ => {}

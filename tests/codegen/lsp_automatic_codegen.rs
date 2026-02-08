@@ -1,12 +1,10 @@
+use crate::support;
 use futures_util::StreamExt;
-use graphql_rust::{
-    Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
-};
+use graphql_rust::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
 use tower_lsp::jsonrpc::Request;
-use crate::support;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
@@ -58,7 +56,10 @@ async fn test_lsp_automatic_codegen() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;
@@ -269,7 +270,10 @@ async fn test_lsp_automatic_codegen_disabled() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
                 if params.message.starts_with("Workspace scan complete") {
                     let _ = scan_done_tx.send(()).await;

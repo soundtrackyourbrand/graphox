@@ -204,7 +204,14 @@ async fn test_hover_variable() {
         }
     "#;
     let uri_usage = write_project_file(&dir, "hover_var_usage.graphql", text_with_usage);
-    lsp_did_open(&mut service, uri_usage.clone(), "graphql", 1, text_with_usage).await;
+    lsp_did_open(
+        &mut service,
+        uri_usage.clone(),
+        "graphql",
+        1,
+        text_with_usage,
+    )
+    .await;
 
     let result = lsp_request_hover(&mut service, uri_usage.clone(), pos(2, 22)).await;
 
@@ -430,4 +437,3 @@ async fn test_hover_builtin_schema_fields() {
         panic!("Expected Markup contents");
     }
 }
-

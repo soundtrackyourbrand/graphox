@@ -1,7 +1,7 @@
 use crate::support::{
     apply_text_edit, create_doc, create_initialized_lsp_service, find_code_action_by_title,
-    lsp_did_open, lsp_request_code_actions, make_temp_project_with_schema, range_for_token_at_index,
-    write_project_file,
+    lsp_did_open, lsp_request_code_actions, make_temp_project_with_schema,
+    range_for_token_at_index, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 

@@ -18,14 +18,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
     // Open schema
-    lsp_did_open(
-        &mut service,
-        schema_uri.clone(),
-        "graphql",
-        1,
-        &schema_text,
-    )
-    .await;
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     // Create a fragment where fragment name = type name
     let frag_text = "fragment Displayable on Displayable { id }";
@@ -92,7 +85,12 @@ async fn test_goto_definition_type_vs_fragment_collision() {
             // (fallback). Accept either but validate the schema location roughly.
             assert_eq!(
                 loc.range,
-                crate::support::range_for_token_at_index(&schema_doc, &schema_text, "Displayable", 0)
+                crate::support::range_for_token_at_index(
+                    &schema_doc,
+                    &schema_text,
+                    "Displayable",
+                    0
+                )
             );
         } else {
             panic!(
@@ -121,14 +119,7 @@ async fn test_goto_definition_directive() {
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
     // Open schema
-    lsp_did_open(
-        &mut service,
-        schema_uri.clone(),
-        "graphql",
-        1,
-        &schema_text,
-    )
-    .await;
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     let query_text = "query { id @customDirective(arg: \"test\") }";
     let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
@@ -173,14 +164,7 @@ async fn test_goto_definition_variable_in_argument() {
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
-    lsp_did_open(
-        &mut service,
-        schema_uri.clone(),
-        "graphql",
-        1,
-        &schema_text,
-    )
-    .await;
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     let query_text = "query GetUser($id: ID!) { user(id: $id) { name } }";
     let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);

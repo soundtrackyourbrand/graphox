@@ -45,7 +45,14 @@ async fn test_signature_help_tsx() {
 
     let tsx_text = "const q = gql`query { me(id: \"123\", ) }`;";
     let tsx_uri = write_project_file(&dir, "Component.tsx", tsx_text);
-    lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
 
     // Position after "id: \"123\", " in TSX
     let params = SignatureHelpParams {

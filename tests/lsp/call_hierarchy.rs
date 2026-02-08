@@ -89,7 +89,14 @@ async fn test_call_hierarchy_tsx() {
 
     let tsx_text = "const q = gql`query { me { ...UserFields } }`;";
     let tsx_uri = write_project_file(&dir, "Component.tsx", tsx_text);
-    lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
 
     // 1. Prepare Call Hierarchy on "UserFields"
     let params = CallHierarchyPrepareParams {

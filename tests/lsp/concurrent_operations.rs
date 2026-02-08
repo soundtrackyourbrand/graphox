@@ -274,7 +274,8 @@ async fn test_concurrent_mixed_operations() {
                     work_done_progress_params: Default::default(),
                 };
                 let mut svc = service.lock().await;
-                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
+                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
+                    .await;
                 Ok::<(), tower_lsp::jsonrpc::Error>(())
             }
         }));
@@ -465,7 +466,12 @@ async fn test_concurrent_document_changes() {
                     }],
                 };
                 let mut svc = service.lock().await;
-                svc.call(tower_lsp::jsonrpc::Request::build("textDocument/didChange").params(serde_json::to_value(&params).unwrap()).finish()).await
+                svc.call(
+                    tower_lsp::jsonrpc::Request::build("textDocument/didChange")
+                        .params(serde_json::to_value(&params).unwrap())
+                        .finish(),
+                )
+                .await
             } else if i % 3 == 1 {
                 // Completion during changes
                 let params = CompletionParams {
@@ -478,7 +484,12 @@ async fn test_concurrent_document_changes() {
                     context: None,
                 };
                 let mut svc = service.lock().await;
-                lsp_request_typed::<CompletionResponse, _>(&mut svc, "textDocument/completion", &params).await;
+                lsp_request_typed::<CompletionResponse, _>(
+                    &mut svc,
+                    "textDocument/completion",
+                    &params,
+                )
+                .await;
                 Ok(None)
             } else {
                 // Hover during changes
@@ -490,7 +501,8 @@ async fn test_concurrent_document_changes() {
                     work_done_progress_params: Default::default(),
                 };
                 let mut svc = service.lock().await;
-                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
+                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
+                    .await;
                 Ok(None)
             }
         });
@@ -536,7 +548,14 @@ async fn test_concurrent_cross_file_references() {
         }
     "#;
     let fragment_uri = write_project_file_at(dir.path(), "fragments.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // Create multiple query files that use the fragments
     let mut query_uris: Vec<(Url, String)> = Vec::new();
@@ -584,7 +603,12 @@ async fn test_concurrent_cross_file_references() {
                 },
             };
             let mut svc = service1.lock().await;
-            lsp_request_typed::<Option<Vec<Location>>, _>(&mut svc, "textDocument/references", &params).await;
+            lsp_request_typed::<Option<Vec<Location>>, _>(
+                &mut svc,
+                "textDocument/references",
+                &params,
+            )
+            .await;
             Ok::<(), tower_lsp::jsonrpc::Error>(())
         }));
 
@@ -601,7 +625,12 @@ async fn test_concurrent_cross_file_references() {
                 partial_result_params: Default::default(),
             };
             let mut svc = service2.lock().await;
-            lsp_request_typed::<Option<GotoDefinitionResponse>, _>(&mut svc, "textDocument/definition", &params).await;
+            lsp_request_typed::<Option<GotoDefinitionResponse>, _>(
+                &mut svc,
+                "textDocument/definition",
+                &params,
+            )
+            .await;
             Ok::<(), tower_lsp::jsonrpc::Error>(())
         }));
     }
@@ -676,7 +705,8 @@ async fn test_high_volume_concurrent_requests() {
                         },
                         work_done_progress_params: Default::default(),
                     };
-                    lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
+                    lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
+                        .await;
                 }
                 1 => {
                     // Completion
@@ -689,7 +719,12 @@ async fn test_high_volume_concurrent_requests() {
                         partial_result_params: Default::default(),
                         context: None,
                     };
-                    lsp_request_typed::<CompletionResponse, _>(&mut svc, "textDocument/completion", &params).await;
+                    lsp_request_typed::<CompletionResponse, _>(
+                        &mut svc,
+                        "textDocument/completion",
+                        &params,
+                    )
+                    .await;
                 }
                 2 => {
                     // Document symbols
@@ -698,7 +733,12 @@ async fn test_high_volume_concurrent_requests() {
                         work_done_progress_params: Default::default(),
                         partial_result_params: Default::default(),
                     };
-                    lsp_request_typed::<Option<DocumentSymbolResponse>, _>(&mut svc, "textDocument/documentSymbol", &params).await;
+                    lsp_request_typed::<Option<DocumentSymbolResponse>, _>(
+                        &mut svc,
+                        "textDocument/documentSymbol",
+                        &params,
+                    )
+                    .await;
                 }
                 _ => {
                     // Semantic tokens
@@ -707,7 +747,12 @@ async fn test_high_volume_concurrent_requests() {
                         work_done_progress_params: Default::default(),
                         partial_result_params: Default::default(),
                     };
-                    lsp_request_typed::<Option<SemanticTokensResult>, _>(&mut svc, "textDocument/semanticTokens/full", &params).await;
+                    lsp_request_typed::<Option<SemanticTokensResult>, _>(
+                        &mut svc,
+                        "textDocument/semanticTokens/full",
+                        &params,
+                    )
+                    .await;
                 }
             }
             Ok::<(), tower_lsp::jsonrpc::Error>(())

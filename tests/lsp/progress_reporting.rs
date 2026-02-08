@@ -1,8 +1,8 @@
 use crate::support::{self};
 use futures_util::StreamExt;
 use graphql_rust::{
-    config::{GlobPattern, ProjectConfig, SchemaSource},
     Config,
+    config::{GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
@@ -59,7 +59,10 @@ async fn test_progress_on_workspace_scan() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 progress_clone.lock().unwrap().push(params);
             }
         }
@@ -184,7 +187,10 @@ async fn test_no_progress_without_capability() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 progress_clone.lock().unwrap().push(params);
             }
         }
@@ -276,7 +282,10 @@ async fn test_progress_on_codegen() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 progress_clone.lock().unwrap().push(params);
             }
         }
@@ -406,7 +415,10 @@ async fn test_progress_messages_contain_percentage() {
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 progress_clone.lock().unwrap().push(params);
             }
         }

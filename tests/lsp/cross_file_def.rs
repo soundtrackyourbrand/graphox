@@ -15,7 +15,14 @@ async fn test_goto_definition_cross_file() {
     // 1. Create and Open the fragment definition file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&dir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // 2. Create and Open the query file that uses the fragment
     let query_text = "query GetUser { user { ...UserFields } }";

@@ -105,7 +105,10 @@ fn test_variable_unused_even_with_fragments() {
         .expect("Should find unused variable diagnostic");
     assert_eq!(d.severity, Some(DiagnosticSeverity::WARNING));
     // Range points to the variable name (including $)
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, query_text, "$unused"));
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, query_text, "$unused"),
+    );
 }
 
 #[test]

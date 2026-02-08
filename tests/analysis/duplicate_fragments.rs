@@ -53,7 +53,10 @@ fn test_private_duplicate_same_package_root_reports_error() {
         diag.message,
         "Duplicate fragment name: 'DuplicateFrag' in the same project."
     );
-    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"));
+    crate::support::assert_diag_range_equals(
+        diag,
+        &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"),
+    );
 }
 
 #[test]
@@ -125,7 +128,10 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
         diag.message,
         "Duplicate fragment name: 'DuplicateFrag' in the same project."
     );
-    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"));
+    crate::support::assert_diag_range_equals(
+        diag,
+        &crate::support::range_for_token(&doc, text_a, "DuplicateFrag"),
+    );
 }
 
 #[test]
@@ -179,7 +185,10 @@ fn test_public_duplicate_across_workspace_reports_error() {
         diag.message,
         "Duplicate public fragment name: 'PublicFrag'. Public fragments must have unique names across the workspace."
     );
-    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "PublicFrag"));
+    crate::support::assert_diag_range_equals(
+        diag,
+        &crate::support::range_for_token(&doc, text_a, "PublicFrag"),
+    );
 }
 
 #[test]
@@ -225,13 +234,17 @@ fn test_private_shadows_public_emits_hint() {
         requirements: std::collections::BTreeMap::new(),
     };
 
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[public_frag], None, None, false, true);
+    let diagnostics =
+        doc.get_semantic_diagnostics(&schema, &[public_frag], None, None, false, true);
 
     assert_eq!(diagnostics.len(), 1);
     let diag = &diagnostics[0];
     assert!(diag.message.contains("shadows a public fragment"));
     assert_eq!(diag.severity, Some(DiagnosticSeverity::HINT));
-    crate::support::assert_diag_range_equals(diag, &crate::support::range_for_token(&doc, text_a, "Shadowed"));
+    crate::support::assert_diag_range_equals(
+        diag,
+        &crate::support::range_for_token(&doc, text_a, "Shadowed"),
+    );
 }
 
 #[test]
@@ -254,7 +267,10 @@ fn test_private_duplicates_across_different_projects_do_not_error() {
     std::fs::write(&frag_b_path, "fragment DuplicateFrag on User { name }").unwrap();
 
     let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let doc = create_doc(uri_a.as_str(), &std::fs::read_to_string(&frag_a_path).unwrap());
+    let doc = create_doc(
+        uri_a.as_str(),
+        &std::fs::read_to_string(&frag_a_path).unwrap(),
+    );
 
     let schema = Schema::parse(
         "type User { id: ID! name: String } type Query { me: User }",

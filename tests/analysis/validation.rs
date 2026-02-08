@@ -51,7 +51,10 @@ fn test_validation_missing_field() {
         "Field 'nonExistentField' not found on type 'User'"
     );
     assert_eq!(error.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "nonExistentField"));
+    crate::support::assert_diag_range_equals(
+        error,
+        &crate::support::range_for_token(&doc, text, "nonExistentField"),
+    );
 }
 
 #[test]
@@ -71,9 +74,15 @@ fn test_validation_deprecated_field() {
 
     assert_eq!(diagnostics.len(), 1);
     let warning = &diagnostics[0];
-    assert_eq!(warning.message, "Field 'oldField' is deprecated: Use username instead");
+    assert_eq!(
+        warning.message,
+        "Field 'oldField' is deprecated: Use username instead"
+    );
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
-    crate::support::assert_diag_range_equals(warning, &crate::support::range_for_token(&doc, text, "oldField"));
+    crate::support::assert_diag_range_equals(
+        warning,
+        &crate::support::range_for_token(&doc, text, "oldField"),
+    );
 }
 
 #[test]
@@ -100,7 +109,10 @@ fn test_validation_nested_missing_field() {
         error.message,
         "Field 'missingInAuthor' not found on type 'User'"
     );
-    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "missingInAuthor"));
+    crate::support::assert_diag_range_equals(
+        error,
+        &crate::support::range_for_token(&doc, text, "missingInAuthor"),
+    );
 }
 
 #[test]
@@ -122,7 +134,10 @@ fn test_validation_fragment() {
         error.message,
         "Field 'missingInFragment' not found on type 'User'"
     );
-    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "missingInFragment"));
+    crate::support::assert_diag_range_equals(
+        error,
+        &crate::support::range_for_token(&doc, text, "missingInFragment"),
+    );
 }
 
 #[test]
@@ -148,7 +163,10 @@ fn test_validation_inline_fragment() {
         error.message,
         "Field 'nonExistentOnUser' not found on type 'User'"
     );
-    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "nonExistentOnUser"));
+    crate::support::assert_diag_range_equals(
+        error,
+        &crate::support::range_for_token(&doc, text, "nonExistentOnUser"),
+    );
 }
 
 #[test]
@@ -168,7 +186,10 @@ fn test_validation_unknown_fragment_spread() {
     assert_eq!(diagnostics.len(), 1);
     let error = &diagnostics[0];
     assert_eq!(error.message, "Unknown fragment: UnknownFrag");
-    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "UnknownFrag"));
+    crate::support::assert_diag_range_equals(
+        error,
+        &crate::support::range_for_token(&doc, text, "UnknownFrag"),
+    );
 }
 
 #[test]
@@ -261,12 +282,18 @@ fn test_type_only_fragment_used() {
 
     assert_eq!(diagnostics.len(), 1);
     let warning = &diagnostics[0];
-    assert_eq!(warning.code, Some(NumberOrString::String("type_only_used".to_string())));
+    assert_eq!(
+        warning.code,
+        Some(NumberOrString::String("type_only_used".to_string()))
+    );
     assert_eq!(
         warning.message,
         "Fragment 'UserFrag' is used but marked with @type_only. Remove @type_only to resolve this warning."
     );
-    crate::support::assert_diag_range_equals(warning, &crate::support::range_for_token(&doc, text, "@type_only"));
+    crate::support::assert_diag_range_equals(
+        warning,
+        &crate::support::range_for_token(&doc, text, "@type_only"),
+    );
 }
 
 #[test]
@@ -297,9 +324,15 @@ fn test_validation_input_field_deprecation() {
 
     assert_eq!(diagnostics.len(), 1);
     let warning = &diagnostics[0];
-    assert_eq!(warning.message, "Input field 'oldField' is deprecated: Use newField");
+    assert_eq!(
+        warning.message,
+        "Input field 'oldField' is deprecated: Use newField"
+    );
     assert_eq!(warning.severity, Some(DiagnosticSeverity::WARNING));
-    crate::support::assert_diag_range_equals(warning, &crate::support::range_for_token(&doc, text, "oldField"));
+    crate::support::assert_diag_range_equals(
+        warning,
+        &crate::support::range_for_token(&doc, text, "oldField"),
+    );
 }
 
 #[test]
@@ -358,7 +391,10 @@ fn test_validation_unions_and_interfaces() {
     assert_eq!(diagnostics.len(), 1);
     let error = &diagnostics[0];
     assert_eq!(error.message, "Field 'id' not found on type 'SearchResult'");
-    crate::support::assert_diag_range_equals(error, &crate::support::range_for_token(&doc, text, "id"));
+    crate::support::assert_diag_range_equals(
+        error,
+        &crate::support::range_for_token(&doc, text, "id"),
+    );
 
     // Valid: field on interface
     let text = r#"
@@ -435,14 +471,18 @@ fn test_validation_circular_fragments() {
     assert_eq!(diagnostics.len(), 2);
 
     // Diagnostic on FragB in FragA (line 1)
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.range == range_for_token_at_index(&doc, text, "FragB", 0)));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.range == range_for_token_at_index(&doc, text, "FragB", 0))
+    );
 
     // Diagnostic on FragA in FragB (line 2)
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.range == range_for_token_at_index(&doc, text, "FragA", 1)));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.range == range_for_token_at_index(&doc, text, "FragA", 1))
+    );
 }
 
 #[test]
@@ -461,17 +501,23 @@ fn test_validation_circular_fragments_three_way() {
     assert_eq!(diagnostics.len(), 3);
 
     // Diagnostic: A -> B (on line 1)
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.range == range_for_token_at_index(&doc, text, "B", 0)));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.range == range_for_token_at_index(&doc, text, "B", 0))
+    );
 
     // Diagnostic: B -> C (on line 2)
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.range == range_for_token_at_index(&doc, text, "C", 0)));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.range == range_for_token_at_index(&doc, text, "C", 0))
+    );
 
     // Diagnostic: C -> A (on line 3)
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.range == range_for_token_at_index(&doc, text, "A", 1)));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.range == range_for_token_at_index(&doc, text, "A", 1))
+    );
 }

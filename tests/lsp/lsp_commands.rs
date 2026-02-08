@@ -1,10 +1,6 @@
-use crate::support::{
-    self, create_initialized_lsp_service, lsp_did_open, lsp_initialize_sequence,
-};
+use crate::support::{self, create_initialized_lsp_service, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphql_rust::{
-    config::GlobPattern, config::ProjectConfig, config::SchemaSource, Config,
-};
+use graphql_rust::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
@@ -47,8 +43,12 @@ async fn test_lsp_command_clear_cache() {
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
-                let params = msg.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 received_diags_clone.lock().unwrap().push(params);
             }
         }

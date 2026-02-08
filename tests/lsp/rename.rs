@@ -16,7 +16,14 @@ async fn test_fragment_rename() {
     // 1. Fragment file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // 2. Query file
     let query_text = "query { user { ...UserFields } }";
@@ -66,7 +73,14 @@ async fn test_fragment_rename_tsx() {
     // 1. Fragment file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // 2. TSX file
     let tsx_text = r#"
@@ -79,7 +93,14 @@ async fn test_fragment_rename_tsx() {
         `;
     "#;
     let tsx_uri = write_project_file(&tmpdir, "Component.tsx", tsx_text);
-    lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
 
     // 3. Trigger Rename on "UserFields" in fragment file
     let params = RenameParams {
@@ -131,7 +152,14 @@ async fn test_rename_unopened_file() {
     // Open only the fragment file
     let fragment_text = "fragment UserFields on User { id name }";
     let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
-    lsp_did_open(&mut service, fragment_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
 
     // Trigger Rename on "UserFields" in fragment file to "MyFields"
     let params = RenameParams {

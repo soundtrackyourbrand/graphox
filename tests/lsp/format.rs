@@ -151,9 +151,15 @@ async fn test_format_code_action_with_baseline() {
     // Request code actions
     let range = crate::support::range_for_token(&doc, &ts_text, "query");
     let params = CodeActionParams {
-        text_document: TextDocumentIdentifier { uri: ts_uri.clone() },
+        text_document: TextDocumentIdentifier {
+            uri: ts_uri.clone(),
+        },
         range,
-        context: CodeActionContext { diagnostics: vec![], only: None, trigger_kind: None },
+        context: CodeActionContext {
+            diagnostics: vec![],
+            only: None,
+            trigger_kind: None,
+        },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };

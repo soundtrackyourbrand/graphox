@@ -88,7 +88,10 @@ pub async fn create_initialized_lsp_service_with_socket(
 /// the raw incoming messages via the socket.
 pub fn create_lsp_service_with_socket(
     config: Config,
-) -> (LspService<LspBackend>, tokio_stream::wrappers::UnboundedReceiverStream<serde_json::Value>) {
+) -> (
+    LspService<LspBackend>,
+    tokio_stream::wrappers::UnboundedReceiverStream<serde_json::Value>,
+) {
     // Return a JSON stream instead of the internal `Incoming` type so tests can
     // inspect messages without referencing non-public tower_lsp types.
     use tokio::sync::mpsc::unbounded_channel;

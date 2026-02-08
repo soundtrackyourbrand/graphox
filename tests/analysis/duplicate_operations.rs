@@ -73,7 +73,7 @@ fn test_duplicate_operation_names_same_file() {
 
     // Only expect our internal diagnostic now (reported once per name per file)
     assert_eq!(diagnostics.len(), 1);
-    
+
     let d = &diagnostics[0];
     assert_eq!(d.message, "Duplicate operation name 'GetUser'");
     // First GetUser name

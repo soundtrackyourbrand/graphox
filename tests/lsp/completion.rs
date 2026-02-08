@@ -10,8 +10,8 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 use crate::support::{
-    make_temp_project_with_schema, create_initialized_lsp_service, write_project_file,
-    lsp_did_open, lsp_request_completion, completion_items_array, with_cursor,
+    completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
+    make_temp_project_with_schema, with_cursor, write_project_file,
 };
 
 #[tokio::test]
@@ -28,8 +28,16 @@ async fn test_completion_unclosed_arguments() {
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
-    assert!(items.iter().any(|i| i.label == "id"), "Expected 'id' in completions: {:?}", labels);
-    assert!(items.iter().any(|i| i.label == "name"), "Expected 'name' in completions: {:?}", labels);
+    assert!(
+        items.iter().any(|i| i.label == "id"),
+        "Expected 'id' in completions: {:?}",
+        labels
+    );
+    assert!(
+        items.iter().any(|i| i.label == "name"),
+        "Expected 'name' in completions: {:?}",
+        labels
+    );
 }
 
 #[tokio::test]
@@ -46,7 +54,11 @@ async fn test_completion_unclosed_variable() {
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
-    assert!(items.iter().any(|i| i.label == "$userId"), "Expected '$userId' in completions: {:?}", labels);
+    assert!(
+        items.iter().any(|i| i.label == "$userId"),
+        "Expected '$userId' in completions: {:?}",
+        labels
+    );
 }
 
 #[tokio::test]
@@ -63,8 +75,16 @@ async fn test_completion_unclosed_input_object() {
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
-    assert!(items.iter().any(|i| i.label == "username"), "Expected 'username' in completions: {:?}", labels);
-    assert!(items.iter().any(|i| i.label == "email"), "Expected 'email' in completions: {:?}", labels);
+    assert!(
+        items.iter().any(|i| i.label == "username"),
+        "Expected 'username' in completions: {:?}",
+        labels
+    );
+    assert!(
+        items.iter().any(|i| i.label == "email"),
+        "Expected 'email' in completions: {:?}",
+        labels
+    );
 }
 
 #[tokio::test]
@@ -116,7 +136,10 @@ async fn test_inline_fragment_completion_inserts_braces_when_missing() {
     let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
-    let item = items.iter().find(|i| i.label == "User").expect("Expected 'User' completion");
+    let item = items
+        .iter()
+        .find(|i| i.label == "User")
+        .expect("Expected 'User' completion");
 
     // Apply completion using helper
     let (final_text, _pos) = crate::support::apply_completion_item(text, position, item);
@@ -1040,7 +1063,8 @@ async fn test_completion_in_completely_empty_selection_set() {
 // Embedded GraphQL in TSX/TypeScript - similar scenarios as GraphQL-only tests
 #[tokio::test]
 async fn test_completion_tsx_trigger_on_new_empty_line_in_selection() {
-    let schema = "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
+    let schema =
+        "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
     config.base_dir = dir.path().to_path_buf();
 
@@ -1061,7 +1085,8 @@ async fn test_completion_tsx_trigger_on_new_empty_line_in_selection() {
 
 #[tokio::test]
 async fn test_completion_tsx_trigger_after_typing_first_character() {
-    let schema = "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
+    let schema =
+        "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
     config.base_dir = dir.path().to_path_buf();
 
@@ -1730,8 +1755,16 @@ async fn test_completion_argument_names() {
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
-    assert!(items.iter().any(|i| i.label == "id"), "Expected 'id' in completions: {:?}", labels);
-    assert!(items.iter().any(|i| i.label == "name"), "Expected 'name' in completions: {:?}", labels);
+    assert!(
+        items.iter().any(|i| i.label == "id"),
+        "Expected 'id' in completions: {:?}",
+        labels
+    );
+    assert!(
+        items.iter().any(|i| i.label == "name"),
+        "Expected 'name' in completions: {:?}",
+        labels
+    );
 }
 
 #[tokio::test]
@@ -1748,8 +1781,16 @@ async fn test_completion_input_object_fields() {
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
-    assert!(items.iter().any(|i| i.label == "username"), "Expected 'username' in completions: {:?}", labels);
-    assert!(items.iter().any(|i| i.label == "email"), "Expected 'email' in completions: {:?}", labels);
+    assert!(
+        items.iter().any(|i| i.label == "username"),
+        "Expected 'username' in completions: {:?}",
+        labels
+    );
+    assert!(
+        items.iter().any(|i| i.label == "email"),
+        "Expected 'email' in completions: {:?}",
+        labels
+    );
 }
 
 #[tokio::test]
@@ -1782,6 +1823,14 @@ async fn test_completion_enum_values() {
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| &i.label).collect();
-    assert!(items.iter().any(|i| i.label == "ADMIN"), "Expected 'ADMIN' in completions: {:?}", labels);
-    assert!(items.iter().any(|i| i.label == "USER"), "Expected 'USER' in completions: {:?}", labels);
+    assert!(
+        items.iter().any(|i| i.label == "ADMIN"),
+        "Expected 'ADMIN' in completions: {:?}",
+        labels
+    );
+    assert!(
+        items.iter().any(|i| i.label == "USER"),
+        "Expected 'USER' in completions: {:?}",
+        labels
+    );
 }

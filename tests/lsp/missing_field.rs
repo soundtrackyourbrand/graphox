@@ -21,12 +21,14 @@ async fn test_missing_field_diagnostic_with_suggestions() {
     // Request diagnostics
     let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
 
-    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) = result {
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+        result
+    {
         let diagnostics = &full_report.full_document_diagnostic_report.items;
-        
+
         assert_eq!(diagnostics.len(), 1);
         let missing_field_diag = &diagnostics[0];
-        
+
         assert!(missing_field_diag.message.contains("Field 'nam' not found"));
         assert!(missing_field_diag.message.contains("Did you mean 'name'"));
 
@@ -38,14 +40,16 @@ async fn test_missing_field_diagnostic_with_suggestions() {
 
         // Verify range
         let doc = create_doc(query_uri.as_str(), text);
-        assert_eq!(missing_field_diag.range, crate::support::range_for_token(&doc, text, "nam"));
+        assert_eq!(
+            missing_field_diag.range,
+            crate::support::range_for_token(&doc, text, "nam")
+        );
 
         // Verify data contains similar_fields
         if let Some(data) = &missing_field_diag.data {
-            let similar_fields: Vec<String> = serde_json::from_value::<Vec<String>>(
-                data.get("similar_fields").unwrap().clone(),
-            )
-            .unwrap();
+            let similar_fields: Vec<String> =
+                serde_json::from_value::<Vec<String>>(data.get("similar_fields").unwrap().clone())
+                    .unwrap();
             assert_eq!(similar_fields, vec!["name".to_string()]);
         } else {
             panic!("Diagnostic should have data with similar_fields");

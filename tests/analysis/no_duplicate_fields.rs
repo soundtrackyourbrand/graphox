@@ -3,8 +3,8 @@ use crate::support::{
     lsp_request_code_actions, make_temp_project_with_schema, range_for_token_at_index,
     write_project_file,
 };
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
 use graphql_rust::Config;
+use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
@@ -62,7 +62,10 @@ fn test_shallow_duplicate_fields_check() {
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'id' in selection set");
     // range points to the second 'id'
-    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "id", 1));
+    crate::support::assert_diag_range_equals(
+        d,
+        &range_for_token_at_index(&doc, query_text, "id", 1),
+    );
 }
 
 // Canonicalization test: arg order variations should be reported
@@ -79,7 +82,8 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     )
     .unwrap();
 
-    let query_text = "query GetMe($id: ID) { me(id: $id, other: 2) { id } me(other: 2, id: $id) { id } }";
+    let query_text =
+        "query GetMe($id: ID) { me(id: $id, other: 2) { id } me(other: 2, id: $id) { id } }";
     let q_path = base.join("q.graphql");
     fs::write(&q_path, query_text).unwrap();
 
@@ -118,7 +122,10 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'me' in selection set");
     // range points to the second 'me'
-    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "me", 1));
+    crate::support::assert_diag_range_equals(
+        d,
+        &range_for_token_at_index(&doc, query_text, "me", 1),
+    );
 }
 
 // Alias handling tests
@@ -153,7 +160,7 @@ fn test_duplicate_fields_with_alias_handling() {
     let uri2 = write_project_file(&dir, "q2.graphql", q2_text);
     let doc2 = create_doc(uri2.as_str(), q2_text);
     let diags2 = doc2.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    
+
     assert_eq!(diags2.len(), 1);
     let d = &diags2[0];
     assert_eq!(d.message, "Duplicate field 'a' in selection set");
@@ -190,7 +197,10 @@ fn test_alias_collision_triggers_duplicate() {
     let d = &diags[0];
     assert_eq!(d.message, "Duplicate field 'id' in selection set");
     // range for alias 'id' (second 'id' in the text)
-    crate::support::assert_diag_range_equals(d, &range_for_token_at_index(&doc, query_text, "id", 1));
+    crate::support::assert_diag_range_equals(
+        d,
+        &range_for_token_at_index(&doc, query_text, "id", 1),
+    );
 }
 
 // Tests involving fragments and inline fragments
@@ -235,13 +245,16 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
     let uri_d = write_project_file(&dir, "d.graphql", q_d);
     let doc_d = create_doc(uri_d.as_str(), q_d);
     let diags_d = doc_d.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
-    
+
     // Only expect our internal diagnostic now
     assert_eq!(diags_d.len(), 1);
     let d_d = &diags_d[0];
     assert_eq!(d_d.message, "Duplicate field 'friends' in selection set");
     // range for second friends
-    crate::support::assert_diag_range_equals(d_d, &range_for_token_at_index(&doc_d, q_d, "friends", 1));
+    crate::support::assert_diag_range_equals(
+        d_d,
+        &range_for_token_at_index(&doc_d, q_d, "friends", 1),
+    );
 }
 
 // LSP integration test
@@ -254,7 +267,14 @@ async fn test_alias_allowed_and_duplicate_code_action_removes_later() {
     // Create a document where aliases are used uniquely
     let q_alias_text = "query { me { a: id b: id name } }";
     let q_alias_uri = write_project_file(&dir, "aliases_ok.graphql", q_alias_text);
-    lsp_did_open(&mut service, q_alias_uri.clone(), "graphql", 1, q_alias_text).await;
+    lsp_did_open(
+        &mut service,
+        q_alias_uri.clone(),
+        "graphql",
+        1,
+        q_alias_text,
+    )
+    .await;
 
     // Create a document with a true duplicate
     let dup_text = "query { me { id id name } }";
@@ -306,7 +326,9 @@ async fn test_alias_allowed_and_duplicate_code_action_removes_later() {
             text: text_edit.new_text.clone(),
         };
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&graphql_rust::DocumentLanguage::GraphQL.get_parser_language()).unwrap();
+        parser
+            .set_language(&graphql_rust::DocumentLanguage::GraphQL.get_parser_language())
+            .unwrap();
         doc.apply_change(&t, &mut parser, 2);
 
         let expected = "query { me { id name } }";

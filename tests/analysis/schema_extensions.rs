@@ -31,7 +31,11 @@ projects:
 async fn test_multiple_schemas_loading() {
     let dir = tempdir().unwrap();
 
-    fs::write(dir.path().join("base.graphql"), "type Query { foo: String }").unwrap();
+    fs::write(
+        dir.path().join("base.graphql"),
+        "type Query { foo: String }",
+    )
+    .unwrap();
     fs::write(
         dir.path().join("extension.graphql"),
         "extend type Query { bar: Int }",

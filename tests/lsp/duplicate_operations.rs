@@ -23,16 +23,19 @@ async fn test_duplicate_operation_names_cross_file() {
 
     // Create service and capture server->client messages so we can assert push diagnostics
     let (mut service, mut messages) = create_lsp_service_with_socket(config);
-    let received_push = std::sync::Arc::new(std::sync::Mutex::new(
-        std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
-    ));
+    let received_push = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
+        Url,
+        Vec<Diagnostic>,
+    >::new()));
     let received_push_clone = received_push.clone();
     tokio::spawn(async move {
         while let Some(msg) = messages.next().await {
             if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
             {
                 let params: PublishDiagnosticsParams = serde_json::from_value(
-                    msg.get("params").cloned().unwrap_or(serde_json::Value::Null),
+                    msg.get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
                 )
                 .unwrap();
                 received_push_clone
@@ -87,7 +90,10 @@ async fn test_duplicate_operation_names_cross_file() {
                 if d.message.contains("Duplicate operation name 'GetUser'") {
                     found_dup = true;
                     let doc = create_doc(query1_uri.as_str(), query1_text);
-                    assert_eq!(d.range, crate::support::range_for_token(&doc, query1_text, "GetUser"));
+                    assert_eq!(
+                        d.range,
+                        crate::support::range_for_token(&doc, query1_text, "GetUser")
+                    );
                     break;
                 }
             }
@@ -129,7 +135,10 @@ async fn test_duplicate_operation_names_cross_file() {
                 if d.message.contains("Duplicate operation name 'GetUser'") {
                     found_dup2 = true;
                     let doc = create_doc(query2_uri.as_str(), query2_text);
-                    assert_eq!(d.range, crate::support::range_for_token(&doc, query2_text, "GetUser"));
+                    assert_eq!(
+                        d.range,
+                        crate::support::range_for_token(&doc, query2_text, "GetUser")
+                    );
                     break;
                 }
             }

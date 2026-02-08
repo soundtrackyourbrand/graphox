@@ -98,9 +98,8 @@ impl DocumentState {
                                                 && self.get_node_text(n_child, offset) == *name
                                             {
                                                 ctx.diagnostics.push(Diagnostic {
-                                                    range: self.translate_to_file_range(
-                                                        v_child, offset,
-                                                    ),
+                                                    range: self
+                                                        .translate_to_file_range(v_child, offset),
                                                     severity: Some(DiagnosticSeverity::WARNING),
                                                     message: format!("Unused variable: ${}", name),
                                                     code: Some(NumberOrString::String(

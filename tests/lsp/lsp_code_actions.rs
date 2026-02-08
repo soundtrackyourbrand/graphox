@@ -2,9 +2,7 @@ use crate::support::{
     create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
     lsp_request_code_actions, make_temp_project_with_schema, write_project_file,
 };
-use graphql_rust::{
-    config::RequiredFieldRule, config::RulesConfig,
-};
+use graphql_rust::{config::RequiredFieldRule, config::RulesConfig};
 use tower_lsp::lsp_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -122,7 +120,8 @@ async fn test_lsp_required_field_code_action() {
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Get diagnostics first to verify the required field error exists
-    let diag_result = crate::support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    let diag_result =
+        crate::support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
 
     let diagnostics = if let DocumentDiagnosticReportResult::Report(
         DocumentDiagnosticReport::Full(full_report),

@@ -66,12 +66,18 @@ fn test_required_field_missing_always_true() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    
+
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
-    assert_eq!(d.message, "Required field 'users' must be selected in query operations");
+    assert_eq!(
+        d.message,
+        "Required field 'users' must be selected in query operations"
+    );
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "GetPosts"),
+    );
 }
 
 #[test]
@@ -134,12 +140,18 @@ fn test_required_field_specific_operation_query() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    
+
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
-    assert_eq!(d.message, "Required field 'users' must be selected in query operations");
+    assert_eq!(
+        d.message,
+        "Required field 'users' must be selected in query operations"
+    );
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "GetPosts"),
+    );
 }
 
 #[test]
@@ -245,11 +257,17 @@ fn test_required_field_case_insensitive() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    
+
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
-    assert_eq!(d.message, "Required field 'USERS' must be selected in query operations");
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
+    assert_eq!(
+        d.message,
+        "Required field 'USERS' must be selected in query operations"
+    );
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "GetPosts"),
+    );
 }
 
 #[test]
@@ -280,13 +298,19 @@ fn test_multiple_required_fields() {
 
     let diagnostics =
         doc.get_semantic_diagnostics(get_valid_schema(), &[], None, Some(&config), false, true);
-    
+
     // We expect 1 diagnostic because 'users' is selected but 'posts' is missing
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
-    assert_eq!(d.message, "Required field 'posts' must be selected in query operations");
+    assert_eq!(
+        d.message,
+        "Required field 'posts' must be selected in query operations"
+    );
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetUsers"));
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "GetUsers"),
+    );
 }
 
 #[test]
@@ -386,7 +410,13 @@ fn test_required_field_multiple_operations_missing() {
 
     assert_eq!(diagnostics.len(), 1);
     let d = &diagnostics[0];
-    assert_eq!(d.message, "Required field 'username' must be selected in mutation operations");
+    assert_eq!(
+        d.message,
+        "Required field 'username' must be selected in mutation operations"
+    );
     assert_eq!(d.severity, Some(DiagnosticSeverity::ERROR));
-    crate::support::assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "CreateUser"));
+    crate::support::assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "CreateUser"),
+    );
 }

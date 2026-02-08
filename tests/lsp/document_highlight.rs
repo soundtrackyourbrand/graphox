@@ -1,5 +1,8 @@
+use crate::support::{
+    create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
+    write_project_file,
+};
 use tower_lsp::lsp_types::*;
-use crate::support::{make_temp_project_with_schema, create_initialized_lsp_service, write_project_file, lsp_did_open, lsp_request_typed};
 
 #[tokio::test]
 async fn test_document_highlight_variable_in_operation() {
@@ -32,7 +35,8 @@ async fn test_document_highlight_variable_in_operation() {
         partial_result_params: Default::default(),
     };
 
-    let highlights: Option<Vec<DocumentHighlight>> = lsp_request_typed(&mut service, "textDocument/documentHighlight", &params).await;
+    let highlights: Option<Vec<DocumentHighlight>> =
+        lsp_request_typed(&mut service, "textDocument/documentHighlight", &params).await;
     let highlights = highlights.expect("Expected highlights");
 
     // Should highlight both the definition and the usage
@@ -79,14 +83,17 @@ query GetUser($id: ID!, $skipName: Boolean!) { user(id: $id) { ...UserFields } }
     let position = Position::new(2, 25); // Position inside $skipName variable name
     let params = DocumentHighlightParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: query_uri.clone() },
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
             position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let highlights: Option<Vec<DocumentHighlight>> = lsp_request_typed(&mut service, "textDocument/documentHighlight", &params).await;
+    let highlights: Option<Vec<DocumentHighlight>> =
+        lsp_request_typed(&mut service, "textDocument/documentHighlight", &params).await;
     let highlights = highlights.expect("Expected highlights");
 
     // Should highlight the definition in query and usage in fragment (same file)
@@ -142,7 +149,14 @@ const GET_USER = gql`
 `;
 "#;
     let tsx_uri = write_project_file(&dir, "component.tsx", tsx_text);
-    lsp_did_open(&mut service, tsx_uri.clone(), "typescriptreact", 1, tsx_text).await;
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
 
     // Small delay to ensure document is processed
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -152,22 +166,35 @@ const GET_USER = gql`
     let position = Position::new(4, 17); // Position of $id
     let params = DocumentHighlightParams {
         text_document_position_params: TextDocumentPositionParams {
-            text_document: TextDocumentIdentifier { uri: tsx_uri.clone() },
+            text_document: TextDocumentIdentifier {
+                uri: tsx_uri.clone(),
+            },
             position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let highlights: Option<Vec<DocumentHighlight>> = lsp_request_typed(&mut service, "textDocument/documentHighlight", &params).await;
+    let highlights: Option<Vec<DocumentHighlight>> =
+        lsp_request_typed(&mut service, "textDocument/documentHighlight", &params).await;
     let highlights = highlights.expect("Expected highlights");
 
     // Should highlight both the definition and the usage
-    assert_eq!(highlights.len(), 2, "Expected 2 highlights (definition + usage)");
+    assert_eq!(
+        highlights.len(),
+        2,
+        "Expected 2 highlights (definition + usage)"
+    );
 
     // Check that we have one WRITE (definition) and one READ (usage)
-    let write_count = highlights.iter().filter(|h| h.kind == Some(DocumentHighlightKind::WRITE)).count();
-    let read_count = highlights.iter().filter(|h| h.kind == Some(DocumentHighlightKind::READ)).count();
+    let write_count = highlights
+        .iter()
+        .filter(|h| h.kind == Some(DocumentHighlightKind::WRITE))
+        .count();
+    let read_count = highlights
+        .iter()
+        .filter(|h| h.kind == Some(DocumentHighlightKind::READ))
+        .count();
 
     assert_eq!(write_count, 1, "Expected 1 WRITE highlight (definition)");
     assert_eq!(read_count, 1, "Expected 1 READ highlight (usage)");
