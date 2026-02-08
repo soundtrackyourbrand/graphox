@@ -1055,6 +1055,105 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphql-codegen"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "graphql-core",
+ "graphql-features",
+ "log",
+ "pathdiff",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "graphql-core"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "dirs",
+ "glob",
+ "globset",
+ "ignore",
+ "log",
+ "lsp-types",
+ "ntest",
+ "once_cell",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "ropey",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tree-sitter",
+ "tree-sitter-graphql",
+ "tree-sitter-typescript",
+ "url",
+ "yaml-rust2",
+]
+
+[[package]]
+name = "graphql-features"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "graphql-core",
+ "log",
+ "lsp-types",
+ "once_cell",
+ "regex",
+ "serde_json",
+ "strsim",
+ "tree-sitter",
+ "tree-sitter-graphql",
+ "tree-sitter-typescript",
+]
+
+[[package]]
+name = "graphql-lsp"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "env_logger",
+ "glob",
+ "globset",
+ "graphql-codegen",
+ "graphql-core",
+ "graphql-features",
+ "ignore",
+ "log",
+ "notify",
+ "notify-debouncer-mini",
+ "once_cell",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "ropey",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-lsp",
+ "tree-sitter",
+ "tree-sitter-graphql",
+ "tree-sitter-typescript",
+ "url",
+]
+
+[[package]]
 name = "graphql-rust"
 version = "0.1.0"
 dependencies = [
@@ -1069,6 +1168,10 @@ dependencies = [
  "futures-util",
  "glob",
  "globset",
+ "graphql-codegen",
+ "graphql-core",
+ "graphql-features",
+ "graphql-lsp",
  "ignore",
  "log",
  "notify",

@@ -1,4 +1,5 @@
 #![allow(unused_imports)]
+use graphql_rust::features::folding_range::DocumentFoldingRange;
 use tower_lsp::lsp_types::FoldingRangeKind;
 
 use crate::support::create_doc;

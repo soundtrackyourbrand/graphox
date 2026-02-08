@@ -1,9 +1,9 @@
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphql_rust::DocumentState;
+use graphql_rust::codegen;
 use graphql_rust::config::{Config, SchemaSource};
 use graphql_rust::engine::{Engine, FragmentMetadata, ProjectContext};
-use graphql_rust::features::codegen;
 use graphql_rust::schema;
 use graphql_rust::schema_cache;
 use graphql_rust::utils;

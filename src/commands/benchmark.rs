@@ -1,8 +1,8 @@
 use ahash::AHashMap as HashMap;
 use colored::*;
 use graphql_rust::Config;
+use graphql_rust::codegen;
 use graphql_rust::engine::Engine;
-use graphql_rust::features::codegen;
 use graphql_rust::schema;
 use rayon::prelude::*;
 use std::path::PathBuf;

@@ -5,6 +5,7 @@ use crate::support::{
 };
 use graphql_rust::Config;
 use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::lsp_types::*;

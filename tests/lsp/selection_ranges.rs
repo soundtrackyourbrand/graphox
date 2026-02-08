@@ -1,4 +1,5 @@
 use crate::support::create_doc;
+use graphql_rust::features::selection_range::DocumentSelectionRange;
 use tower_lsp::lsp_types::*;
 
 fn count_parent_chain(range: &SelectionRange) -> usize {

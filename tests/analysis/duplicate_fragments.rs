@@ -1,6 +1,7 @@
 use crate::support::create_doc;
 use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 

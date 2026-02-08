@@ -2,6 +2,7 @@
 use tower_lsp::lsp_types::{Position, Range};
 
 use crate::support::create_doc;
+use graphql_rust::features::semantic_tokens::DocumentSemanticTokens;
 
 #[test]
 fn test_semantic_tokens_basic() {

@@ -1,9 +1,10 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use graphql_rust::engine;
 use graphql_rust::{
     Backend, Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
     document::DocumentState,
+    engine,
+    features::diagnostics::DocumentDiagnostics,
 };
 use std::path::Path;
 use std::{fs, time::Duration};

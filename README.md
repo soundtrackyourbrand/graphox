@@ -327,6 +327,12 @@ The LSP will warn if you accidentally use a `@type_only` fragment in a query and
 
 ### Development Setup
 
+This project is organized as a Rust workspace with specialized crates:
+- **`graphql-core`**: Core models (`DocumentState`), schema loading, and validation engine.
+- **`graphql-features`**: LSP features (Hover, Completion, etc.) implemented as extension traits.
+- **`graphql-codegen`**: TypeScript type generation logic.
+- **`graphql-lsp`**: Language Server implementation using `tower-lsp`.
+
 1. **Clone and install dependencies**
    ```bash
    git clone https://github.com/YOUR_USERNAME/graphql-rust.git
@@ -335,12 +341,12 @@ The LSP will warn if you accidentally use a `@type_only` fragment in a query and
 
 2. **Build the project**
    ```bash
-   cargo build
+   cargo build --workspace
    ```
 
 3. **Run tests**
    ```bash
-   cargo test
+   cargo test --workspace
    ```
 
 ### Testing Your Changes

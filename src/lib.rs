@@ -1,17 +1,18 @@
-pub mod backend;
-pub mod config;
-pub mod document;
-pub mod engine;
-pub mod features;
-pub mod queries;
-pub mod schema;
-pub mod schema_cache;
-pub mod types;
-pub mod utils;
+pub use graphql_codegen as codegen;
+pub use graphql_core::config;
+pub use graphql_core::document;
+pub use graphql_core::engine;
+pub use graphql_core::queries;
+pub use graphql_core::schema;
+pub use graphql_core::schema_cache;
+pub use graphql_core::types;
+pub use graphql_core::utils;
+pub use graphql_features as features;
 
-pub use backend::Backend;
-pub use config::Config;
-pub use document::{DocumentLanguage, DocumentState};
+pub use graphql_core::Config;
+pub use graphql_core::DocumentState;
+pub use graphql_core::document::DocumentLanguage;
+pub use graphql_lsp::Backend;
 
 // Re-export commonly used schema cache functions
-pub use schema_cache::clear_cache as clear_schema_cache;
+pub use graphql_core::schema_cache::clear_cache as clear_schema_cache;

@@ -1,4 +1,5 @@
 use crate::support::create_doc;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 #[test]

@@ -1,4 +1,5 @@
 use crate::support::create_doc;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 // No direct Url or DocumentLanguage use in this test; rely on support::create_doc
 
 #[test]

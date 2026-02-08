@@ -1,5 +1,6 @@
 use crate::support::{create_doc, range_for_token_at_index};
 use apollo_compiler::Schema;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use graphql_rust::{
     Config,
     config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource},

@@ -1,5 +1,6 @@
 use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use graphql_rust::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;

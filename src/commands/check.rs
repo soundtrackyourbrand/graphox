@@ -4,6 +4,7 @@ use colored::*;
 use graphql_rust::config::SchemaSource;
 use graphql_rust::engine::Engine;
 use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use graphql_rust::utils;
 use graphql_rust::{Config, DocumentState};
 use std::path::PathBuf;

@@ -49,41 +49,38 @@ Comments should be used to explain why something is done, not what is being done
 
 ## Code Structure
 
-- `src/main.rs`: CLI entry point using `clap`. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
-- `src/lib.rs`: Library exports and module definitions.
-- `src/backend/`: Core LSP implementation, organized into submodules:
-    - `lsp.rs`: Main `Backend` struct and LSP protocol implementation.
-    - `codegen_runner.rs`: Automatic codegen execution on file changes.
-    - `document_changes.rs`: Handles document synchronization from LSP.
-    - `file_change_handler.rs`: Processes file system changes and updates state.
-    - `file_watchers.rs`: File system watching setup and management.
-    - `fragment_manager.rs`: Fragment definition tracking and indexing.
-    - `schema_management.rs`: Schema loading and reloading logic.
-    - `validation.rs`: Validation orchestration for documents.
-    - `workspace_scan.rs`: Parallel workspace scanning for GraphQL files.
-- `src/document.rs`: `DocumentState` manages a file's content (via `ropey`), its Tree-sitter tree, and embedded GraphQL blocks.
-- `src/engine.rs`: High-level operations like workspace scanning, fragment resolution, and validation.
-- `src/schema.rs`: Consolidated schema loading utilities with caching support.
-- `src/schema_cache.rs`: Two-tier (memory + disk) schema cache for performance optimization.
-- `src/config.rs`: Configuration file (`graphql.yaml`) parsing and project settings.
-- `src/queries.rs`: Contains Tree-sitter query strings and cached `Query` objects.
-- `src/utils.rs`: Shared utilities for file handling, URI normalization, and schema merging.
-- `src/commands/`: CLI subcommand implementations (`lsp`, `check`, `codegen`, `benchmark`).
-- `src/features/`: LSP feature implementations:
-    - `apollo_ast.rs`: Apollo compiler AST utilities.
-    - `call_hierarchy.rs`: Call hierarchy provider (incoming/outgoing calls).
-    - `code_actions.rs`: Quick fixes and refactorings.
-    - `codegen.rs`: TypeScript type generation logic.
-    - `completion.rs`: Autocomplete suggestions.
-    - `definition.rs`: Go-to-definition support.
-    - `hover.rs`: Hover information and documentation.
-    - `references.rs`: Find all references.
-    - `semantic_tokens.rs`: Semantic token provider for syntax highlighting.
-    - `signature_help.rs`: Function signature help.
-    - `symbols.rs`: Document and workspace symbols.
-- `src/features/diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
+This project is organized as a Rust workspace to separate concerns and improve maintainability.
+
+### Core Workspace Packages
+
+- **`graphql-core`** (`crates/graphql-core`): The foundation of the toolset.
+    - `document.rs`: `DocumentState` manages a file's content (via `ropey`), its Tree-sitter tree, and embedded GraphQL blocks.
+    - `engine.rs`: High-level operations like workspace scanning, fragment resolution, and validation orchestration.
+    - `schema.rs` & `schema_cache.rs`: Schema loading and two-tier caching.
+    - `config.rs`: Configuration file (`graphql.yaml`) parsing.
+    - `queries.rs`: Tree-sitter query management.
+- **`graphql-features`** (`crates/graphql-features`): Implementation of GraphQL-specific intelligence.
+    - LSP capabilities (Hover, Completion, etc.) are implemented as extension traits on `DocumentState`.
+    - `diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
+- **`graphql-codegen`** (`crates/graphql-codegen`): Standalone crate for TypeScript type generation.
+- **`graphql-lsp`** (`crates/graphql-lsp`): The Language Server implementation.
+    - `backend/lsp.rs`: Main `Backend` struct and LSP protocol implementation using `tower-lsp`.
+    - `backend/file_change_handler.rs`: Processes file system changes and updates state.
+
+### CLI and Re-exports
+
+- `src/main.rs`: Root CLI entry point. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
+- `src/lib.rs`: Consolidates the public API by re-exporting modules from the workspace crates for backward compatibility.
+- `src/commands/`: CLI subcommand implementations.
 
 ## Key Patterns
+
+### LSP Feature Extension Traits
+LSP features are decoupled from `DocumentState` using extension traits defined in `graphql-features`. To use a feature, you must import the corresponding trait:
+```rust
+use graphql_features::hover::DocumentHover;
+let hover = document.get_hover_info(params, schema, engine);
+```
 
 ### Workspace Scanning & Performance
 The tool is designed for very large projects. Workspace scanning is parallelized using `rayon`.

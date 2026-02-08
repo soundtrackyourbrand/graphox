@@ -1,5 +1,6 @@
 use apollo_compiler::Schema;
 use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString, Url};
 
 use crate::support::{create_doc, get_valid_schema, range_for_token_at_index};

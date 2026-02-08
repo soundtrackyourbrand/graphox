@@ -1,6 +1,7 @@
 use tower_lsp::lsp_types::*;
 
 use crate::support::create_doc;
+use graphql_rust::features::symbols::DocumentSymbols;
 
 #[test]
 fn test_document_symbols() {

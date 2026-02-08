@@ -7,12 +7,13 @@ edition = "2024"
 members = [
     ".",
     "plugins/swc",
+    "crates/graphql-core",
+    "crates/graphql-features",
+    "crates/graphql-codegen",
+    "crates/graphql-lsp",
 ]
 
-[lib]
-doctest = false
-
-[dependencies]
+[workspace.dependencies]
 apollo-compiler = "1.31"
 clap = { version = "4.5", features = ["derive"] }
 dashmap = { version = "6", features = ["rayon"] }
@@ -26,7 +27,6 @@ tree-sitter-typescript = "0.23.2"
 pathdiff = "0.2"
 notify = "8.0.0"
 notify-debouncer-mini = "0.6"
-ntest = "0.9"
 ignore = "0.4"
 serde = { version = "1.0.228" }
 glob = "0.3.3"
@@ -42,11 +42,55 @@ once_cell = "1.20"
 strsim = "0.11"
 yaml-rust2 = "0.11.0"
 sonic-rs = "0.5.6"
+url = { version = "2.5", features = ["serde"] }
+lsp-types = "0.94"
+criterion = { version = "0.8", features = ["async_tokio"] }
+
+[lib]
+doctest = false
+
+[features]
+bench = ["dep:criterion"]
+
+[dependencies]
+graphql-core = { path = "crates/graphql-core" }
+graphql-features = { path = "crates/graphql-features" }
+graphql-codegen = { path = "crates/graphql-codegen" }
+graphql-lsp = { path = "crates/graphql-lsp" }
+apollo-compiler = { workspace = true }
+clap = { workspace = true }
+dashmap = { workspace = true }
+ropey = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower-lsp = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-graphql = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+pathdiff = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+ignore = { workspace = true }
+serde = { workspace = true }
+glob = { workspace = true }
+globset = { workspace = true }
+rayon = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+regex = { workspace = true }
+ahash = { workspace = true }
+colored = { workspace = true }
+dirs = { workspace = true }
+once_cell = { workspace = true }
+strsim = { workspace = true }
+yaml-rust2 = { workspace = true }
+sonic-rs = { workspace = true }
+criterion = { workspace = true, optional = true }
 
 [dev-dependencies]
+ntest = "0.9"
 tempfile = "3.24.0"
 tower-service = "0.3.3"
-criterion = { version = "0.8", features = ["async_tokio"] }
 futures-util = "0.3"
 tokio-stream = "0.1"
 

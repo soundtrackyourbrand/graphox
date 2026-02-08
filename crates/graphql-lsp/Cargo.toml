@@ -1,0 +1,33 @@
+[package]
+name = "graphql-lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+graphql-core = { path = "../graphql-core" }
+graphql-features = { path = "../graphql-features" }
+graphql-codegen = { path = "../graphql-codegen" }
+apollo-compiler = { workspace = true }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+dashmap = { workspace = true }
+rayon = { workspace = true }
+ropey = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+ahash = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-graphql = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+url = { workspace = true }
+colored = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+ignore = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+env_logger = { workspace = true }
+pathdiff = { workspace = true }
+glob = { workspace = true }
+globset = { workspace = true }

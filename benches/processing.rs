@@ -1,6 +1,9 @@
 use apollo_compiler::Schema;
 use criterion::{Criterion, criterion_group, criterion_main};
-use graphql_rust::DocumentState;
+use graphql_rust::{
+    DocumentState,
+    features::{diagnostics::DocumentDiagnostics, semantic_tokens::DocumentSemanticTokens},
+};
 use std::time::Duration;
 use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent, Url};
 
