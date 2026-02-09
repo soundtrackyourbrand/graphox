@@ -231,11 +231,7 @@ impl Backend {
         all_fragments: &[FragmentCompletionInfo],
     ) -> Vec<FragmentCompletionInfo> {
         let config = self.config.read().unwrap();
-        super::validation::get_fragments_for_doc_with_metadata(
-            doc,
-            &config,
-            all_fragments,
-        )
+        super::validation::get_fragments_for_doc_with_metadata(doc, &config, all_fragments)
     }
 
     fn get_transitive_fragments(
@@ -380,6 +376,12 @@ impl Backend {
         )
         .await;
 
+        if !reloaded_keys.is_empty() {
+            // Invalidate fragment metadata cache since schema changed,
+            // which might affect fragment requirements resolution.
+            self.invalidate_fragment_cache();
+        }
+
         // Validate documents affected by reloaded schemas
         for key in reloaded_keys {
             let affected =
@@ -390,18 +392,68 @@ impl Backend {
         }
     }
 
-    async fn clear_cache(&self) {
+    pub async fn clear_cache(&self) {
         let config = self.config.read().unwrap().clone();
-        super::schema_management::clear_cache(
-            &config,
-            &self.schemas,
-            &self.validated_schemas,
-            &self.client,
-        )
-        .await;
 
-        // Re-validate all open documents
-        self.validate_all_documents().await;
+        // Clear fragment metadata cache
+        self.invalidate_fragment_cache();
+
+        // Clear globset cache in config
+        graphql_core::config::clear_globset_cache();
+
+        // Clear schema memory and disk cache
+        let _ = graphql_core::schema_cache::clear_cache();
+
+        // Clear all internal state
+        self.schemas.clear();
+        self.validated_schemas.clear();
+
+        // Clear all documents (including open ones) to ensure full re-load
+        self.documents.clear();
+
+        self.fragment_defs.clear();
+        self.fragment_spreads.clear();
+        self.fragment_dependents.clear();
+        self.fragment_definitions.clear();
+        self.package_roots.clear();
+        self.type_caches.clear();
+        self.diagnostic_cache.clear();
+
+        // Trigger workspace scan to re-index everything
+        let supports_progress = self
+            .client_capabilities
+            .read()
+            .map(|caps| caps.supports_progress)
+            .unwrap_or(false);
+
+        // Reset workspace_loaded flag
+        self.workspace_loaded
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+
+        super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
+            client: self.client.clone(),
+            config: config.clone(),
+            documents: self.documents.clone(),
+            fragment_defs: self.fragment_defs.clone(),
+            fragment_spreads: self.fragment_spreads.clone(),
+            package_roots: self.package_roots.clone(),
+            fragment_dependents: self.fragment_dependents.clone(),
+            fragment_definitions: self.fragment_definitions.clone(),
+            operation_names: self.operation_names.clone(),
+            workspace_loaded: self.workspace_loaded.clone(),
+            empty_schema: self.empty_schema.clone(),
+            schemas: self.schemas.clone(),
+            workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            supports_progress,
+            fragment_metadata_cache: self.fragment_metadata_cache.clone(),
+        });
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                "All caches cleared and workspace re-scanned!",
+            )
+            .await;
     }
 
     pub async fn run_codegen(&self) {
@@ -430,6 +482,12 @@ impl Backend {
             )
             .await;
 
+        // Clear fragment metadata cache
+        self.invalidate_fragment_cache();
+
+        // Clear globset cache in config
+        graphql_core::config::clear_globset_cache();
+
         // Get the base directory from current config
         let base_dir = self.config.read().unwrap().base_dir.clone();
 
@@ -450,14 +508,10 @@ impl Backend {
         // Clear all state
         self.schemas.clear();
         self.validated_schemas.clear();
+        graphql_core::schema_cache::clear_memory_cache();
 
-        // Only clear non-open documents to preserve user's open files
-        let open_uris: Vec<_> = self
-            .open_documents
-            .iter()
-            .map(|r| r.key().clone())
-            .collect();
-        self.documents.retain(|uri, _| open_uris.contains(uri));
+        // Clear all documents
+        self.documents.clear();
 
         self.fragment_defs.clear();
         self.fragment_spreads.clear();
@@ -465,25 +519,12 @@ impl Backend {
         self.fragment_definitions.clear();
         self.package_roots.clear();
         self.type_caches.clear();
+        self.diagnostic_cache.clear();
 
         // Re-register file watchers with new config
         {
             let config = self.config.read().unwrap();
             super::file_watchers::register_file_watchers(self.client.clone(), &config);
-        }
-
-        // Reload schemas from new config
-        let config = self.config.read().unwrap().clone();
-        for project in &config.projects {
-            let key = project.schema.as_key();
-            if !self.schemas.contains_key(&key)
-                && let Some(schema) = Self::load_schema_source(&config.base_dir, &project.schema)
-            {
-                if let Ok(valid) = (*schema).clone().validate() {
-                    self.validated_schemas.insert(key.clone(), Arc::new(valid));
-                }
-                self.schemas.insert(key, schema);
-            }
         }
 
         // Trigger workspace scan to re-index everything
@@ -520,7 +561,6 @@ impl Backend {
             .log_message(MessageType::INFO, "Configuration reloaded successfully")
             .await;
     }
-
     fn update_dependency_indices(
         &self,
         uri: &Url,
@@ -972,8 +1012,9 @@ impl LanguageServer for Backend {
                                     apollo_compiler::schema::ExtendedType::Union(u),
                                     apollo_compiler::schema::ExtendedType::Interface(_),
                                 ) => u.members.iter().any(|m| {
-                                    if let Some(apollo_compiler::schema::ExtendedType::Object(obj)) =
-                                        schema.types.get(m.as_str())
+                                    if let Some(apollo_compiler::schema::ExtendedType::Object(
+                                        obj,
+                                    )) = schema.types.get(m.as_str())
                                     {
                                         obj.implements_interfaces
                                             .iter()
@@ -986,8 +1027,9 @@ impl LanguageServer for Backend {
                                     apollo_compiler::schema::ExtendedType::Interface(_),
                                     apollo_compiler::schema::ExtendedType::Union(u),
                                 ) => u.members.iter().any(|m| {
-                                    if let Some(apollo_compiler::schema::ExtendedType::Object(obj)) =
-                                        schema.types.get(m.as_str())
+                                    if let Some(apollo_compiler::schema::ExtendedType::Object(
+                                        obj,
+                                    )) = schema.types.get(m.as_str())
                                     {
                                         obj.implements_interfaces
                                             .iter()

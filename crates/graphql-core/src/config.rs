@@ -29,6 +29,10 @@ fn get_glob_set(patterns: &[String]) -> Arc<GlobSet> {
     set
 }
 
+pub fn clear_globset_cache() {
+    GLOBSET_CACHE.clear();
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
     pub required_fields: Option<AHashMap<String, RequiredFieldRule>>,

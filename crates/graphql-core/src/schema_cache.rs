@@ -257,6 +257,16 @@ pub fn clear_memory_cache() {
     MEMORY_CACHE.clear();
 }
 
+pub fn clear_disk_cache() -> Result<(), String> {
+    let cache_dir = get_cache_dir();
+    if cache_dir.exists() {
+        fs::remove_dir_all(&cache_dir).map_err(|e| format!("Failed to clear disk cache: {}", e))?;
+        fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("Failed to recreate cache dir: {}", e))?;
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Disk Cache (L2) - Merged schema text
 // ============================================================================
