@@ -2,8 +2,8 @@ use ahash::AHashMap;
 use apollo_compiler::Schema;
 use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use graphql_rust::{
-    Config,
     config::{RequiredFieldRule, RulesConfig},
+    Config,
 };
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
@@ -468,4 +468,207 @@ fn test_required_field_not_in_schema() {
     // (User can't select a field that doesn't exist - they'd get a schema error instead)
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
     assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_required_field_partial_selection_with_alias() {
+    let schema = fixtures::user_with_posts_schema()
+        .clone()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            a: users { id, username }
+            b: users { username }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config {
+        rules: Some(RulesConfig {
+            required_fields: Some(required_fields),
+            ..RulesConfig::default()
+        }),
+        ..Default::default()
+    };
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+
+    // b doesn't select id, so error on b
+    assert_diagnostics_count(&diagnostics, 1);
+    let d =
+        assert_diagnostic_with_message(&diagnostics, "Required field 'id' must be selected in 'b'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_required_field_inline_fragment() {
+    let schema_content = r#"
+        type Query {
+            entity: SearchResult
+        }
+        union SearchResult = User | Post
+        type User {
+            id: ID!
+            name: String!
+            email: String!
+        }
+        type Post {
+            id: ID!
+            title: String!
+            content: String!
+        }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            entity {
+                ... on User {
+                    name
+                }
+                ... on Post {
+                    title
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config {
+        rules: Some(RulesConfig {
+            required_fields: Some(required_fields),
+            ..RulesConfig::default()
+        }),
+        ..Default::default()
+    };
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+
+    // Both User and Post have id, but neither selects it
+    assert_diagnostics_count(&diagnostics, 2);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_required_field_inline_fragment_partial_coverage() {
+    let schema_content = r#"
+        type Query {
+            entity: SearchResult
+        }
+        union SearchResult = User | Company
+        type User {
+            id: ID!
+            name: String!
+            email: String!
+        }
+        type Company {
+            name: String!
+            address: String!
+        }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            entity {
+                ... on User {
+                    id
+                    name
+                }
+                ... on Company {
+                    name
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config {
+        rules: Some(RulesConfig {
+            required_fields: Some(required_fields),
+            ..RulesConfig::default()
+        }),
+        ..Default::default()
+    };
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+
+    // Company doesn't have id field, so only User needs to select id (which it does)
+    // No errors expected
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_required_field_nested_with_inline_fragment() {
+    let schema_content = r#"
+        type Query {
+            users: [User]
+        }
+        type User {
+            id: ID!
+            name: String!
+            profile: Profile
+        }
+        type Profile {
+            id: ID!
+            bio: String!
+        }
+    "#;
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            users {
+                name
+                profile {
+                    bio
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config {
+        rules: Some(RulesConfig {
+            required_fields: Some(required_fields),
+            ..RulesConfig::default()
+        }),
+        ..Default::default()
+    };
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+
+    // id is required on User but not selected, and id is required on Profile but not selected
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'users'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
 }

@@ -30,6 +30,7 @@ pub struct ValidationContext<'a> {
     pub response_key_selected_fields: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
     pub response_key_type_conditions: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
     pub type_condition_fields: ahash::AHashMap<Arc<str>, ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>>,
+    pub root_response_keys: ahash::AHashSet<Arc<str>>,
 }
 
 pub trait DocumentDiagnostics {
@@ -101,6 +102,7 @@ impl DocumentDiagnostics for DocumentState {
                 response_key_selected_fields: ahash::AHashMap::default(),
                 response_key_type_conditions: ahash::AHashMap::default(),
                 type_condition_fields: ahash::AHashMap::default(),
+                root_response_keys: ahash::AHashSet::default(),
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);

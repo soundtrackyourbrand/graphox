@@ -162,6 +162,7 @@ pub(super) fn validate_fragment(
                                 ctx,
                                 depth + 1,
                                 None,
+                                None,
                             );
                         }
                     }
@@ -197,10 +198,10 @@ pub(super) fn validate_inline_fragment(
         }
     }
 
+    let mut type_name = None;
     let target_type = if let Some(type_cond) = type_condition_node {
         let mut tc_cursor = type_cond.walk();
         let mut found_type = None;
-        let mut type_name = None;
         for tc_child in type_cond.children(&mut tc_cursor) {
             if tc_child.kind() == "named_type" {
                 let mut nt_cursor = tc_child.walk();
@@ -212,9 +213,8 @@ pub(super) fn validate_inline_fragment(
                 }
             }
         }
-        if let Some(name) = type_name {
+        if let Some(name) = &type_name {
             found_type = ctx.schema.types.get(name.as_str());
-            // Track type condition for required fields validation
             if let Some(rk) = parent_response_key {
                 ctx.response_key_type_conditions
                     .entry(rk.to_string().into())
@@ -230,6 +230,8 @@ pub(super) fn validate_inline_fragment(
     if let Some(t_type) = target_type
         && let Some(sel_set) = selection_set_node
     {
+        // Pass parent_response_key through unchanged so fields are tracked under the response key
+        // Also pass type_name for tracking in type_condition_fields
         crate::diagnostics::selection_set::validate_selection_set(
             this,
             sel_set,
@@ -238,6 +240,7 @@ pub(super) fn validate_inline_fragment(
             ctx,
             depth + 1,
             parent_response_key,
+            type_name.as_deref(),
         );
     }
 }
