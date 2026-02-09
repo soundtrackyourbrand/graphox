@@ -1,4 +1,5 @@
 use crate::completion::constants::{OPERATION_TYPE_KEYWORDS, SCHEMA_DEFINITION_KEYWORDS};
+use crate::shared::markdown_utils;
 use lsp_types::{CompletionItem, CompletionItemKind};
 
 /// Filter keywords by prefix for operation types
@@ -27,7 +28,7 @@ pub fn get_operation_type_keyword_completions() -> Vec<CompletionItem> {
         .map(|keyword| CompletionItem {
             label: keyword.to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some(format!("{} operation type", keyword.to_uppercase())),
+            detail: Some(markdown_utils::describe_keyword_detail(keyword)),
             ..Default::default()
         })
         .collect()
@@ -40,7 +41,7 @@ pub fn get_schema_definition_keyword_completions(prefix: &str) -> Vec<Completion
         .map(|keyword| CompletionItem {
             label: keyword.to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some(format!("Schema definition keyword: {}", keyword)),
+            detail: Some(markdown_utils::describe_schema_keyword_detail(keyword)),
             ..Default::default()
         })
         .collect()

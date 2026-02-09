@@ -1,24 +1,7 @@
 use crate::completion::cursor;
-use apollo_compiler::{Name, ast};
+use apollo_compiler::ast;
 use graphox_core::document::DocumentState;
 use lsp_types::{InsertTextFormat, Range, TextEdit};
-
-pub fn parse_type_string(text: &str) -> ast::Type {
-    let text = text.trim();
-    if let Some(inner) = text.strip_suffix('!') {
-        let inner_type = parse_type_string(inner);
-        match inner_type {
-            ast::Type::Named(n) => ast::Type::NonNullNamed(n),
-            ast::Type::List(l) => ast::Type::NonNullList(l),
-            _ => inner_type,
-        }
-    } else if text.starts_with('[') && text.ends_with(']') {
-        let inner = &text[1..text.len() - 1];
-        ast::Type::List(Box::new(parse_type_string(inner)))
-    } else {
-        ast::Type::Named(Name::new(text).unwrap_or_else(|_| Name::new("String").unwrap()))
-    }
-}
 
 pub fn get_type_before_equals(doc: &DocumentState, cursor_offset: usize) -> Option<ast::Type> {
     let mut eq_pos = cursor_offset;
@@ -65,7 +48,7 @@ pub fn get_type_before_equals(doc: &DocumentState, cursor_offset: usize) -> Opti
         return None;
     }
 
-    Some(parse_type_string(type_text))
+    Some(crate::shared::type_resolver::parse_type_string(type_text))
 }
 
 pub fn create_braced_snippet(

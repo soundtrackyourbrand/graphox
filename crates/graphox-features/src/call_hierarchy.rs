@@ -14,12 +14,11 @@ impl DocumentCallHierarchy for DocumentState {
     fn prepare_call_hierarchy(&self, position: Position) -> Option<Vec<CallHierarchyItem>> {
         let symbol_name = self.get_symbol_at_position(position)?;
 
-        // Find the definition to get the range for the item
         let location = self.find_definition_in_tree(&symbol_name)?;
 
         Some(vec![CallHierarchyItem {
             name: symbol_name.clone(),
-            kind: SymbolKind::FUNCTION, // fragments are like functions
+            kind: SymbolKind::FUNCTION,
             tags: None,
             detail: Some("fragment".to_string()),
             uri: location.uri,

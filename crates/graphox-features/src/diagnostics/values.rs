@@ -14,21 +14,9 @@ pub(super) fn validate_arguments(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "argument" {
-            let mut arg_cursor = child.walk();
-            let mut name_node = None;
-            let mut value_node = None;
-            for arg_child in child.children(&mut arg_cursor) {
-                if arg_child.kind() == "name" {
-                    name_node = Some(arg_child);
-                } else if arg_child.kind().ends_with("_value")
-                    || arg_child.kind() == "value"
-                    || arg_child.kind() == "variable"
-                {
-                    value_node = Some(arg_child);
-                }
-            }
+            let components = this.extract_named_value_components(child);
 
-            if let Some(name_node) = name_node {
+            if let Some(name_node) = components.name {
                 let arg_name = this.get_node_text(name_node, offset);
                 if let Some(arg_def) = arg_defs.iter().find(|a| a.name.as_str() == arg_name) {
                     if let Some(directive) = arg_def.directives.get("deprecated") {
@@ -48,7 +36,7 @@ pub(super) fn validate_arguments(
                         );
                     }
 
-                    if let Some(v_node) = value_node {
+                    if let Some(v_node) = components.value {
                         let arg_type_name = arg_def.ty.inner_named_type();
                         if let Some(arg_type_def) = ctx.schema.types.get(arg_type_name.as_str()) {
                             validate_value(this, v_node, offset, arg_type_def, ctx);
@@ -150,21 +138,9 @@ pub(super) fn validate_value(
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {
                     if child.kind() == "object_field" {
-                        let mut field_cursor = child.walk();
-                        let mut name_node = None;
-                        let mut value_node = None;
-                        for field_child in child.children(&mut field_cursor) {
-                            if field_child.kind() == "name" {
-                                name_node = Some(field_child);
-                            } else if field_child.kind().ends_with("_value")
-                                || field_child.kind() == "value"
-                                || field_child.kind() == "variable"
-                            {
-                                value_node = Some(field_child);
-                            }
-                        }
+                        let components = this.extract_named_value_components(child);
 
-                        if let Some(name_node) = name_node {
+                        if let Some(name_node) = components.name {
                             let field_name = this.get_node_text(name_node, offset);
                             if let Some(field_def) = input_obj.fields.get(field_name.as_str()) {
                                 if let Some(directive) = field_def.directives.get("deprecated") {
@@ -187,7 +163,7 @@ pub(super) fn validate_value(
                                     );
                                 }
 
-                                if let Some(v_node) = value_node {
+                                if let Some(v_node) = components.value {
                                     let field_type_name = field_def.ty.inner_named_type();
                                     if let Some(field_type_def) =
                                         ctx.schema.types.get(field_type_name.as_str())

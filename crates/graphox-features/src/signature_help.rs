@@ -1,3 +1,4 @@
+use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::Schema;
 use graphox_core::document::DocumentState;
 use lsp_types::*;
@@ -43,6 +44,7 @@ impl DocumentSignatureHelp for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
     ) -> Option<SignatureHelp> {
+        // Find the arguments node and field node (original approach)
         let mut arguments_node = None;
 
         while let Some(current) = node {
@@ -59,32 +61,38 @@ impl DocumentSignatureHelp for DocumentState {
             return None;
         }
 
-        // 1. Get field name
-        let mut field_name = None;
-        let mut walker = field_node.walk();
-        for child in field_node.children(&mut walker) {
-            if child.kind() == "name" {
-                field_name = Some(self.get_node_text(child, offset));
-                break;
-            }
-        }
-        let name = field_name?;
-
-        // 2. Get parent type
+        // Use DocumentState helper to get parent type
         let parent_type = self.find_parent_type_for_node(field_node, offset, schema)?;
 
-        // 3. Look up field in schema
-        let field_def = match &parent_type {
-            apollo_compiler::schema::ExtendedType::Object(obj) => obj.fields.get(name.as_str()),
-            apollo_compiler::schema::ExtendedType::Interface(iface) => {
-                iface.fields.get(name.as_str())
+        // Get field name
+        let field_name = {
+            let mut walker = field_node.walk();
+            let mut result = None;
+            for child in field_node.children(&mut walker) {
+                if child.kind() == "name" {
+                    result = Some(self.get_node_text(child, offset));
+                    break;
+                }
             }
-            _ => None,
+            result
         }?;
 
-        // 4. Construct signature info
+        // Look up field in schema
+        let field_def = match &parent_type {
+            ExtendedType::Object(obj) => obj
+                .fields
+                .get(field_name.as_str())
+                .map(|c| c.node.clone())?,
+            ExtendedType::Interface(iface) => iface
+                .fields
+                .get(field_name.as_str())
+                .map(|c| c.node.clone())?,
+            _ => return None,
+        };
+
+        // Construct signature info
         let mut parameters = Vec::new();
-        let mut label = format!("{}(", name);
+        let mut label = format!("{}(", field_name);
 
         for (i, arg) in field_def.arguments.iter().enumerate() {
             let arg_label = format!("{}: {}", arg.name, arg.ty);
@@ -104,7 +112,6 @@ impl DocumentSignatureHelp for DocumentState {
         }
         label.push(')');
 
-        // 5. Find active parameter
         let active_parameter = self.find_active_parameter(arguments, cursor_offset);
 
         Some(SignatureHelp {

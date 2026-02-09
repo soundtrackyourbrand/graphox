@@ -3,6 +3,8 @@ use graphox_core::document::DocumentState;
 use lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
 use tree_sitter::Node;
 
+use crate::shared::markdown_utils::describe_directive_markdown;
+
 pub fn get_directive_completions(
     _doc: &DocumentState,
     schema: &Schema,
@@ -14,12 +16,14 @@ pub fn get_directive_completions(
             items.push(CompletionItem {
                 label: name.to_string(),
                 kind: Some(CompletionItemKind::FUNCTION),
-                documentation: def.description.as_ref().map(|d| {
-                    Documentation::MarkupContent(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: d.to_string(),
-                    })
-                }),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: describe_directive_markdown(
+                        name,
+                        def.description.as_deref(),
+                        &def.arguments,
+                    ),
+                })),
                 ..Default::default()
             });
         }

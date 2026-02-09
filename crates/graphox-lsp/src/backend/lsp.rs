@@ -1,7 +1,6 @@
 use super::{capabilities, fragment_manager, helpers};
 use graphox_core::config::SchemaSource;
 use graphox_core::document::DocumentLanguage;
-use graphox_core::queries::*;
 use graphox_core::types::{
     DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
     FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
@@ -18,6 +17,7 @@ use graphox_features::hover::DocumentHover;
 use graphox_features::references::DocumentReferences;
 use graphox_features::selection_range::DocumentSelectionRange;
 use graphox_features::semantic_tokens::DocumentSemanticTokens;
+use graphox_features::shared::doc_utils;
 use graphox_features::signature_help::DocumentSignatureHelp;
 use graphox_features::symbols::DocumentSymbols;
 
@@ -662,50 +662,6 @@ impl Backend {
     }
 
     /// Try to find variable definition location
-    fn try_goto_variable_definition(
-        &self,
-        symbol_name: &Option<String>,
-        doc: &Arc<DocumentState>,
-        position: Position,
-    ) -> Option<Location> {
-        let name = symbol_name.as_ref()?;
-        if !name.starts_with('$') {
-            return None;
-        }
-        doc.find_variable_definition(name, position)
-    }
-
-    /// Try to find field definition location
-    fn try_goto_field_definition(
-        &self,
-        uri: &Url,
-        doc: &Arc<DocumentState>,
-        position: Position,
-        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
-    ) -> Option<Location> {
-        let preferred_uris = self.get_preferred_schema_uris(uri);
-        doc.get_field_definition_location(
-            position,
-            schema.as_ref(),
-            &self.documents,
-            &preferred_uris,
-            self.fragment_definitions.as_ref(),
-        )
-    }
-
-    /// Try to find input field definition location
-    fn try_goto_input_field_definition(
-        &self,
-        uri: &Url,
-        doc: &Arc<DocumentState>,
-        position: Position,
-        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
-    ) -> Option<Location> {
-        let preferred_uris = self.get_preferred_schema_uris(uri);
-        doc.find_input_field_definition(position, schema.as_ref(), &self.documents, &preferred_uris)
-    }
-
-    /// Get preferred schema URIs for a document
     fn get_preferred_schema_uris(&self, uri: &Url) -> Vec<Url> {
         let mut preferred_uris = Vec::new();
         if let Ok(path) = uri.to_file_path() {
@@ -737,68 +693,6 @@ impl Backend {
 
         // Fallback to full scan if not in index
         self.scan_all_documents_for_fragment(name, doc).await
-    }
-
-    /// Try to find directive definition location
-    fn try_goto_directive_definition(
-        &self,
-        uri: &Url,
-        doc: &Arc<DocumentState>,
-        symbol_name: &Option<String>,
-    ) -> Option<Location> {
-        let name = symbol_name.as_ref()?;
-        if !name.starts_with('@') {
-            return None;
-        }
-
-        // Strip the '@' to get the directive name
-        let directive_name = &name[1..];
-
-        // Use the symbol query to find directive definitions
-        let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-            let lang = tree_sitter_graphql::LANGUAGE.into();
-            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
-        });
-
-        let preferred_uris = self.get_preferred_schema_uris(uri);
-        for p_uri in preferred_uris {
-            if let Some(d) = self.documents.get(&p_uri).map(|r| r.value().clone())
-                && let Some(loc) = d.find_type_definition_in_schema(directive_name, symbol_query)
-            {
-                return Some(loc);
-            }
-        }
-
-        doc.find_type_definition_in_schema(directive_name, symbol_query)
-    }
-
-    /// Try to find enum value definition location
-    fn try_goto_enum_value_definition(
-        &self,
-        uri: &Url,
-        doc: &Arc<DocumentState>,
-        position: Position,
-        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
-    ) -> Option<Location> {
-        let preferred_uris = self.get_preferred_schema_uris(uri);
-        doc.find_enum_value_definition(position, schema.as_ref(), &self.documents, &preferred_uris)
-    }
-
-    /// Try to find inline fragment type definition location
-    fn try_goto_inline_fragment_type_definition(
-        &self,
-        uri: &Url,
-        doc: &Arc<DocumentState>,
-        position: Position,
-        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
-    ) -> Option<Location> {
-        let preferred_uris = self.get_preferred_schema_uris(uri);
-        doc.find_type_condition_definition(
-            position,
-            schema.as_ref(),
-            &self.documents,
-            &preferred_uris,
-        )
     }
 
     /// Look up fragment definition using the fragment index
@@ -988,7 +882,9 @@ impl LanguageServer for Backend {
                                 }
                             }
 
-                            if let Some(desc) = other_doc.find_description(&symbol_name) {
+                            if let Some(desc) =
+                                doc_utils::find_description(&other_doc, &symbol_name)
+                            {
                                 value.push_str("\n\n---\n");
                                 value.push_str(&desc);
                             }
@@ -1420,51 +1316,18 @@ impl LanguageServer for Backend {
             let symbol_name = doc_arc.get_symbol_at_position(position);
             let schema = self.get_schema_for_doc(&uri);
 
-            // Try inline fragment type definition
+            // 1. Try unified definition lookup using the shared resolver
+            let preferred_uris = self.get_preferred_schema_uris(&uri);
             if let Some(location) =
-                self.try_goto_inline_fragment_type_definition(&uri, &doc_arc, position, &schema)
+                doc_arc.get_definition(position, &schema, &self.documents, &preferred_uris)
             {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
-            // Try variable definition
-            if let Some(location) =
-                self.try_goto_variable_definition(&symbol_name, &doc_arc, position)
-            {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-            }
-
-            // Try field definition
-            if let Some(location) =
-                self.try_goto_field_definition(&uri, &doc_arc, position, &schema)
-            {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-            }
-
-            // Try input field definition
-            if let Some(location) =
-                self.try_goto_input_field_definition(&uri, &doc_arc, position, &schema)
-            {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-            }
-
-            // Try fragment definition
+            // 2. Fallback to fragment definition (requires fragment index in Backend)
             if let Some(location) = self
                 .try_goto_fragment_definition(&symbol_name, &doc_arc)
                 .await
-            {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-            }
-
-            // Try directive definition
-            if let Some(location) = self.try_goto_directive_definition(&uri, &doc_arc, &symbol_name)
-            {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-            }
-
-            // Try enum value definition
-            if let Some(location) =
-                self.try_goto_enum_value_definition(&uri, &doc_arc, position, &schema)
             {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
@@ -1559,14 +1422,8 @@ impl LanguageServer for Backend {
             let position = params.text_document_position_params.position;
 
             if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-                let symbol_name = doc.get_symbol_at_position(position);
-
-                if let Some(name) = symbol_name
-                    && name.starts_with('$')
-                {
-                    // Get highlights in the current document only
-                    return Ok(doc.get_document_highlights(position));
-                }
+                let schema = self.get_schema_for_doc(&uri);
+                return Ok(doc.get_document_highlights(position, &schema));
             }
 
             Ok(None)

@@ -824,7 +824,13 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: Option<usize>,
         schema: &Schema,
     ) -> Option<schema::ExtendedType> {
-        values::find_expected_type_for_node(self, node, offset, cursor_offset, schema)
+        crate::shared::type_resolver::find_expected_type_for_node(
+            self,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+        )
     }
 
     fn find_expected_ast_type_for_node(
@@ -834,7 +840,13 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: Option<usize>,
         schema: &Schema,
     ) -> Option<ast::Type> {
-        values::find_expected_ast_type_for_node(self, node, offset, cursor_offset, schema)
+        crate::shared::type_resolver::find_expected_ast_type_for_node(
+            self,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+        )
     }
 
     fn complete_selection_set_at_node(
@@ -1102,6 +1114,6 @@ impl DocumentCompletion for DocumentState {
     }
 
     fn parse_type_string(&self, text: &str) -> ast::Type {
-        utils::parse_type_string(text)
+        crate::shared::type_resolver::parse_type_string(text)
     }
 }

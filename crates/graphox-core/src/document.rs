@@ -90,7 +90,23 @@ pub struct FieldComponents<'a> {
     pub directives: Option<Node<'a>>,
 }
 
-#[derive(Clone)]
+/// Components of a GraphQL variable definition node.
+#[derive(Default)]
+pub struct VariableDefinitionComponents<'a> {
+    pub variable: Option<Node<'a>>,
+    pub type_node: Option<Node<'a>>,
+    pub default_value: Option<Node<'a>>,
+    pub directives: Option<Node<'a>>,
+}
+
+/// Components of a GraphQL argument or object field node.
+#[derive(Default)]
+pub struct NamedValueComponents<'a> {
+    pub name: Option<Node<'a>>,
+    pub value: Option<Node<'a>>,
+}
+
+#[derive(Debug, Clone)]
 pub struct DocumentState {
     pub uri: Url,
     pub rope: Rope,
@@ -103,15 +119,6 @@ pub struct DocumentState {
     pub package_root: Option<PathBuf>,
     pub masked_source: Arc<str>,
     pub version: i32,
-}
-
-impl fmt::Debug for DocumentState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DocumentState")
-            .field("uri", &self.uri)
-            .field("language", &self.language)
-            .finish()
-    }
 }
 
 impl DocumentState {
@@ -436,6 +443,45 @@ impl DocumentState {
                 "arguments" => components.arguments = Some(child),
                 "directives" => components.directives = Some(child),
                 _ => {}
+            }
+        }
+
+        components
+    }
+
+    pub fn extract_variable_definition_components<'a>(
+        &self,
+        vd_node: Node<'a>,
+    ) -> VariableDefinitionComponents<'a> {
+        let mut components = VariableDefinitionComponents::default();
+        let mut cursor = vd_node.walk();
+
+        for child in vd_node.children(&mut cursor) {
+            match child.kind() {
+                "variable" => components.variable = Some(child),
+                "type" => components.type_node = Some(child),
+                "default_value" => components.default_value = Some(child),
+                "directives" => components.directives = Some(child),
+                _ => {}
+            }
+        }
+
+        components
+    }
+
+    pub fn extract_named_value_components<'a>(&self, node: Node<'a>) -> NamedValueComponents<'a> {
+        let mut components = NamedValueComponents::default();
+        let mut cursor = node.walk();
+
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "name" => components.name = Some(child),
+                "value" | "variable" => components.value = Some(child),
+                _ => {
+                    if child.kind().ends_with("_value") {
+                        components.value = Some(child);
+                    }
+                }
             }
         }
 

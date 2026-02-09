@@ -9,5 +9,6 @@ pub mod hover;
 pub mod references;
 pub mod selection_range;
 pub mod semantic_tokens;
+pub mod shared;
 pub mod signature_help;
 pub mod symbols;

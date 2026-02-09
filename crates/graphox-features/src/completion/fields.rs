@@ -1,4 +1,4 @@
-use apollo_compiler::{Schema, ast, schema};
+use apollo_compiler::{Schema, schema};
 use graphox_core::document::DocumentState;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, MarkupContent,
@@ -8,6 +8,7 @@ use tree_sitter::Node;
 
 use crate::completion::types::FragmentCompletionInfo;
 use crate::completion::{fragments, operations, utils};
+use crate::shared::{markdown_utils, schema_utils};
 
 pub fn find_preceding_field_type_internal(
     doc: &DocumentState,
@@ -41,11 +42,7 @@ pub fn find_preceding_field_type_internal(
         && let Some(name_node) = doc.extract_field_components(field).name
     {
         let field_name = doc.get_node_text(name_node, offset);
-        let field_def = match &current_type {
-            schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-            schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
-            _ => None,
-        };
+        let field_def = schema_utils::get_field_def(current_type, field_name.as_str());
         if let Some(fdef) = field_def {
             return schema
                 .types
@@ -152,15 +149,8 @@ pub fn complete_selection_set_at_node(
                             && let Some(field_name_node) = doc.extract_field_components(parent).name
                         {
                             let field_name = doc.get_node_text(field_name_node, offset);
-                            let field_def = match &containing_type {
-                                schema::ExtendedType::Object(obj) => {
-                                    obj.fields.get(field_name.as_str())
-                                }
-                                schema::ExtendedType::Interface(iface) => {
-                                    iface.fields.get(field_name.as_str())
-                                }
-                                _ => None,
-                            };
+                            let field_def =
+                                schema_utils::get_field_def(&containing_type, field_name.as_str());
 
                             if let Some(fdef) = field_def
                                 && let Some(field_type_def) =
@@ -283,11 +273,7 @@ pub fn complete_field(
     if let Some(field_name_node) = components.name {
         let field_name = doc.get_node_text(field_name_node, offset);
 
-        let field_def = match parent_type {
-            schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
-            schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
-            _ => None,
-        };
+        let field_def = schema_utils::get_field_def(parent_type, field_name.as_str());
 
         if let Some(field_def) = field_def {
             if let Some(args) = components.arguments
@@ -337,12 +323,15 @@ pub fn get_field_completions(
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::FIELD),
                     detail: Some(def.ty.to_string()),
-                    documentation: def.description.as_ref().map(|d| {
-                        Documentation::MarkupContent(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: d.to_string(),
-                        })
-                    }),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown_utils::describe_field_markdown(
+                            obj.name.as_str(),
+                            name,
+                            def.ty.to_string().as_str(),
+                            def.description.as_deref(),
+                        ),
+                    })),
                     ..Default::default()
                 };
 
@@ -372,12 +361,15 @@ pub fn get_field_completions(
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::FIELD),
                     detail: Some(def.ty.to_string()),
-                    documentation: def.description.as_ref().map(|d| {
-                        Documentation::MarkupContent(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: d.to_string(),
-                        })
-                    }),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown_utils::describe_field_markdown(
+                            iface.name.as_str(),
+                            name,
+                            def.ty.to_string().as_str(),
+                            def.description.as_deref(),
+                        ),
+                    })),
                     ..Default::default()
                 };
 
@@ -407,37 +399,50 @@ pub fn get_field_completions(
         label: "__typename".to_string(),
         kind: Some(CompletionItemKind::FIELD),
         detail: Some("String!".to_string()),
+        documentation: Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: markdown_utils::describe_field_markdown(
+                parent_type.name(),
+                "__typename",
+                "String!",
+                Some("The GraphQL type name of the current selection."),
+            ),
+        })),
         ..Default::default()
     });
-    if is_query_root(parent_type, schema) {
+    if schema_utils::is_query_root(parent_type, schema) {
         items.push(CompletionItem {
             label: "__schema".to_string(),
             kind: Some(CompletionItemKind::FIELD),
             detail: Some("__Schema!".to_string()),
-            documentation: Some(Documentation::String(
-                "Access the current schema introspection object.".to_string(),
-            )),
+            documentation: Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: markdown_utils::describe_field_markdown(
+                    parent_type.name(),
+                    "__schema",
+                    "__Schema!",
+                    Some("Access the current schema introspection object."),
+                ),
+            })),
             ..Default::default()
         });
         items.push(CompletionItem {
             label: "__type".to_string(),
             kind: Some(CompletionItemKind::FIELD),
             detail: Some("__Type".to_string()),
-            documentation: Some(Documentation::String(
-                "Look up a type definition by its name.".to_string(),
-            )),
+            documentation: Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: markdown_utils::describe_field_markdown(
+                    parent_type.name(),
+                    "__type",
+                    "__Type",
+                    Some("Look up a type definition by its name."),
+                ),
+            })),
             ..Default::default()
         });
     }
     items
-}
-
-fn is_query_root(ty: &schema::ExtendedType, schema: &Schema) -> bool {
-    schema
-        .root_operation(ast::OperationType::Query)
-        .and_then(|root_name| schema.types.get(root_name.as_str()))
-        .map(|root_type| root_type.name() == ty.name())
-        .unwrap_or(false)
 }
 
 /// Get completions for field aliases (after ':' in selections)
@@ -449,7 +454,8 @@ pub fn get_alias_completions(
     let mut items = Vec::new();
 
     if let Some(type_name) = parent_type
-        && let Some(schema::ExtendedType::Object(obj)) = schema.types.get(type_name)
+        && let Some(ty) = schema.types.get(type_name)
+        && let schema::ExtendedType::Object(obj) = ty
     {
         for name in obj.fields.keys() {
             // Suggest field names as potential aliases

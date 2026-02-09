@@ -6,6 +6,7 @@ use tree_sitter::Node;
 use crate::completion::fields;
 use crate::completion::types::FragmentCompletionInfo;
 use crate::completion::values;
+use crate::shared::markdown_utils::describe_fragment_completion_markdown;
 
 pub fn complete_fragment(
     doc: &DocumentState,
@@ -141,43 +142,16 @@ pub fn get_fragment_name_completions(
             }
         })
         .map(|f| {
-            let mut documentation = f
-                .description
-                .as_ref()
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            if !f.requirements.is_empty() {
-                if !documentation.is_empty() {
-                    documentation.push_str(
-                        "
-
----
-",
-                    );
-                }
-                documentation.push_str(
-                    "**Requires Variables:**
-",
-                );
-                for (var, ty) in &f.requirements {
-                    documentation.push_str(&format!(
-                        "- `${}`: `{}`
-",
-                        var, ty
-                    ));
-                }
-            }
-            if let Some(import) = &f.import_path {
-                if !documentation.is_empty() {
-                    documentation.push_str(
-                        "
-
----
-",
-                    );
-                }
-                documentation.push_str(&format!("Import: `{}`", import));
-            }
+            let requirements: Vec<(String, String)> = f
+                .requirements
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            let documentation = describe_fragment_completion_markdown(
+                f.description.as_deref(),
+                &requirements,
+                f.import_path.as_deref(),
+            );
             CompletionItem {
                 label: f.name.to_string(),
                 kind: Some(CompletionItemKind::SNIPPET),

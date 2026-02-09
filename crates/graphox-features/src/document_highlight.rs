@@ -1,52 +1,98 @@
 use crate::references::DocumentReferences;
+use crate::shared::type_resolver::resolve_symbol_at_node;
+use crate::shared::type_resolver::SemanticSymbol;
+use apollo_compiler::Schema;
 use graphox_core::document::DocumentState;
 use lsp_types::*;
 
 pub trait DocumentHighlightFeature {
-    fn get_document_highlights(&self, position: Position) -> Option<Vec<DocumentHighlight>>;
+    fn get_document_highlights(
+        &self,
+        position: Position,
+        schema: &Schema,
+    ) -> Option<Vec<DocumentHighlight>>;
     fn is_variable_definition_at_range(
         &self,
         range: Range,
         op_node: tree_sitter::Node,
         offset: usize,
     ) -> bool;
+    fn get_variable_highlights(
+        &self,
+        position: Position,
+        symbol_name: &str,
+    ) -> Option<Vec<DocumentHighlight>>;
+    fn get_fragment_or_operation_highlights(
+        &self,
+        position: Position,
+        schema: &Schema,
+    ) -> Option<Vec<DocumentHighlight>>;
 }
 
 impl DocumentHighlightFeature for DocumentState {
-    /// Get document highlights for a variable at the given position.
-    /// This returns all occurrences of the variable within the same document,
-    /// including in fragments that are spread into the operation.
-    fn get_document_highlights(&self, position: Position) -> Option<Vec<DocumentHighlight>> {
-        // Get symbol at position
+    fn get_document_highlights(
+        &self,
+        position: Position,
+        schema: &Schema,
+    ) -> Option<Vec<DocumentHighlight>> {
         let symbol_name = self.get_symbol_at_position(position)?;
 
-        // Only handle variables (starts with $)
-        if !symbol_name.starts_with('$') {
-            return None;
+        if symbol_name.starts_with('$') {
+            self.get_variable_highlights(position, &symbol_name)
+        } else {
+            self.get_fragment_or_operation_highlights(position, schema)
+        }
+    }
+
+    fn is_variable_definition_at_range(
+        &self,
+        range: Range,
+        op_node: tree_sitter::Node,
+        offset: usize,
+    ) -> bool {
+        let start_byte = self.position_to_byte(range.start);
+        let local_byte = start_byte - offset;
+
+        if let Some(node) = op_node.descendant_for_byte_range(local_byte, local_byte) {
+            let mut curr = node;
+            loop {
+                if curr.kind() == "variable_definition" {
+                    return true;
+                }
+                if curr == op_node {
+                    break;
+                }
+                if let Some(parent) = curr.parent() {
+                    curr = parent;
+                } else {
+                    break;
+                }
+            }
         }
 
-        // Find all variable references in the containing operation
+        false
+    }
+
+    fn get_variable_highlights(
+        &self,
+        position: Position,
+        symbol_name: &str,
+    ) -> Option<Vec<DocumentHighlight>> {
         let (op_node, offset) = self.find_containing_operation_node(position)?;
 
-        // Get variable references and definitions in the operation
-        let mut locations = self.find_variable_references(&symbol_name, position, true);
+        let mut locations = self.find_variable_references(symbol_name, position, true);
 
-        // Also find references in fragments defined in this same file that are used by the operation
         let fragment_spreads = self.get_fragment_spreads_in_node(op_node, offset);
         for spread_name in fragment_spreads {
-            // Check if this fragment is defined in the current document
             if self.fragments().iter().any(|f| f.name == spread_name) {
-                // Find references to the variable in this fragment
-                let frag_refs = self.find_references_in_tree(&symbol_name, false);
+                let frag_refs = self.find_references_in_tree(symbol_name, false);
                 locations.extend(frag_refs);
             }
         }
 
-        // Convert locations to document highlights
         let highlights: Vec<DocumentHighlight> = locations
             .into_iter()
             .map(|loc| {
-                // Determine if this is a write (definition) or read (reference)
                 let kind = if self.is_variable_definition_at_range(loc.range, op_node, offset) {
                     DocumentHighlightKind::WRITE
                 } else {
@@ -67,35 +113,59 @@ impl DocumentHighlightFeature for DocumentState {
         }
     }
 
-    fn is_variable_definition_at_range(
+    fn get_fragment_or_operation_highlights(
         &self,
-        range: Range,
-        op_node: tree_sitter::Node,
-        offset: usize,
-    ) -> bool {
-        // Convert range to byte offset
-        let start_byte = self.position_to_byte(range.start);
-        let local_byte = start_byte - offset;
+        position: Position,
+        schema: &Schema,
+    ) -> Option<Vec<DocumentHighlight>> {
+        let cursor_offset = self.position_to_byte(position);
 
-        // Get the node at this position
-        if let Some(node) = op_node.descendant_for_byte_range(local_byte, local_byte) {
-            // Walk up the tree to check if we're in a variable_definition
-            let mut curr = node;
-            loop {
-                if curr.kind() == "variable_definition" {
-                    return true;
-                }
-                if curr == op_node {
-                    break;
-                }
-                if let Some(parent) = curr.parent() {
-                    curr = parent;
-                } else {
-                    break;
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let root = block.tree.root_node();
+            let tree_len = root.end_byte();
+
+            if cursor_offset >= offset && cursor_offset < offset + tree_len {
+                let local_byte = cursor_offset - offset;
+                if let Some(node) = root.descendant_for_byte_range(local_byte, local_byte) {
+                    if let Some(symbol) =
+                        resolve_symbol_at_node(self, node, offset, cursor_offset, schema)
+                    {
+                        match symbol {
+                            SemanticSymbol::Fragment { name, .. } => {
+                                let locations = self.find_references_in_tree(&name, true);
+                                return Some(
+                                    locations
+                                        .into_iter()
+                                        .map(|loc| DocumentHighlight {
+                                            range: loc.range,
+                                            kind: Some(DocumentHighlightKind::READ),
+                                        })
+                                        .collect(),
+                                );
+                            }
+                            SemanticSymbol::Operation { name, .. } => {
+                                if let Some(op_name) = name {
+                                    let locations = self.find_references_in_tree(&op_name, true);
+                                    return Some(
+                                        locations
+                                            .into_iter()
+                                            .map(|loc| DocumentHighlight {
+                                                range: loc.range,
+                                                kind: Some(DocumentHighlightKind::READ),
+                                            })
+                                            .collect(),
+                                    );
+                                }
+                                return None;
+                            }
+                            _ => return None,
+                        }
+                    }
                 }
             }
         }
 
-        false
+        None
     }
 }
