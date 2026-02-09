@@ -2,6 +2,7 @@ use crate::support::assert_diag_range_equals;
 use crate::support::assert_diagnostic_with_message;
 use crate::support::assert_diagnostics_count;
 use crate::support::create_doc;
+use std::sync::Arc;
 use ahash::AHashSet;
 use graphql_rust::Config;
 use graphql_rust::config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource};
@@ -49,7 +50,7 @@ fn test_unused_fragment_reported_when_enabled() {
 
     let uri = Url::from_file_path(&frag_path).unwrap();
     let doc = create_doc(uri.as_str(), frag_text);
-    let used_fragments: AHashSet<String> = AHashSet::new();
+    let used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     let diags = doc.get_semantic_diagnostics(
         &schema,
         &[],
@@ -106,7 +107,7 @@ fn test_unused_fragment_not_reported_when_disabled() {
 
     let uri = Url::from_file_path(&frag_path).unwrap();
     let doc = create_doc(uri.as_str(), frag_text);
-    let used_fragments: AHashSet<String> = AHashSet::new();
+    let used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     let diags = doc.get_semantic_diagnostics(
         &schema,
         &[],
@@ -155,7 +156,7 @@ fn test_unused_fragment_not_reported_when_not_configured() {
 
     let uri = Url::from_file_path(&frag_path).unwrap();
     let doc = create_doc(uri.as_str(), frag_text);
-    let used_fragments: AHashSet<String> = AHashSet::new();
+    let used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     let diags = doc.get_semantic_diagnostics(
         &schema,
         &[],
@@ -216,8 +217,8 @@ fn test_used_fragment_not_reported() {
 
     let frag_uri = Url::from_file_path(&frag_path).unwrap();
     let frag_doc = create_doc(frag_uri.as_str(), frag_text);
-    let mut used_fragments: AHashSet<String> = AHashSet::new();
-    used_fragments.insert("UsedFragment".to_string());
+    let mut used_fragments: AHashSet<Arc<str>> = AHashSet::new();
+    used_fragments.insert("UsedFragment".into());
     let diags = frag_doc.get_semantic_diagnostics(
         &schema,
         &[],

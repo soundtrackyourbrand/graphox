@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use graphql_core::document::DocumentState;
 use graphql_core::queries::*;
 use lsp_types::*;
@@ -17,7 +18,7 @@ pub trait DocumentDefinition {
         schema: &apollo_compiler::Schema,
         documents: &dashmap::DashMap<Url, std::sync::Arc<DocumentState>, ahash::RandomState>,
         preferred_uris: &[Url],
-        fragment_definitions: &dashmap::DashMap<String, ahash::AHashSet<Url>, ahash::RandomState>,
+        fragment_definitions: &dashmap::DashMap<Arc<str>, ahash::AHashSet<Url>, ahash::RandomState>,
     ) -> Option<Location>;
     fn find_type_definition_in_schema(
         &self,
@@ -203,7 +204,7 @@ impl DocumentDefinition for DocumentState {
         schema: &apollo_compiler::Schema,
         documents: &dashmap::DashMap<Url, std::sync::Arc<DocumentState>, ahash::RandomState>,
         preferred_uris: &[Url],
-        fragment_definitions: &dashmap::DashMap<String, ahash::AHashSet<Url>, ahash::RandomState>,
+        fragment_definitions: &dashmap::DashMap<Arc<str>, ahash::AHashSet<Url>, ahash::RandomState>,
     ) -> Option<Location> {
         let byte_offset = self.position_to_byte(position);
 
@@ -290,7 +291,7 @@ impl DocumentDefinition for DocumentState {
                                         && let Some(uris) =
                                             fragment_definitions.get(parent_type.name().as_str())
                                     {
-                                        for uri in uris.iter() {
+                                        for uri in uris.value().iter() {
                                             if preferred_uris.contains(uri) {
                                                 continue;
                                             }
@@ -364,9 +365,9 @@ impl DocumentDefinition for DocumentState {
                                 }
 
                                 if found_loc.is_none()
-                                    && let Some(uris) = fragment_definitions.get(&dir_name)
+                                    && let Some(uris) = fragment_definitions.get(dir_name.as_str())
                                 {
-                                    for uri in uris.iter() {
+                                    for uri in uris.value().iter() {
                                         if preferred_uris.contains(uri) {
                                             continue;
                                         }
@@ -443,7 +444,7 @@ impl DocumentDefinition for DocumentState {
                         if found_loc.is_none()
                             && let Some(uris) = fragment_definitions.get(pt.name().as_str())
                         {
-                            for uri in uris.iter() {
+                            for uri in uris.value().iter() {
                                 if preferred_uris.contains(uri) {
                                     continue;
                                 }
@@ -498,9 +499,9 @@ impl DocumentDefinition for DocumentState {
                     }
 
                     if found_loc.is_none()
-                        && let Some(uris) = fragment_definitions.get(&type_name)
+                        && let Some(uris) = fragment_definitions.get(type_name.as_str())
                     {
-                        for uri in uris.iter() {
+                        for uri in uris.value().iter() {
                             if preferred_uris.contains(uri) {
                                 continue;
                             }

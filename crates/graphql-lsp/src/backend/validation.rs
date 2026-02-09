@@ -173,8 +173,8 @@ pub async fn validate_all_documents(
 /// Computes the set of URIs that need validation based on affected fragments
 pub fn get_affected_uris(
     initial_uri: Url,
-    affected_fragment_names: AHashSet<String>,
-    affected_spread_names: AHashSet<String>,
+    affected_fragment_names: AHashSet<Arc<str>>,
+    affected_spread_names: AHashSet<Arc<str>>,
     documents: &DocumentsMap,
     fragment_dependents: &FragmentDependentsMap,
     fragment_definitions: &FragmentDefinitionsMap,
@@ -182,7 +182,7 @@ pub fn get_affected_uris(
     let mut uris_to_validate = AHashSet::default();
     uris_to_validate.insert(initial_uri);
 
-    let mut to_process: Vec<String> = affected_fragment_names.into_iter().collect();
+    let mut to_process: Vec<Arc<str>> = affected_fragment_names.into_iter().collect();
     let mut processed_fragments = AHashSet::default();
 
     while let Some(frag_name) = to_process.pop() {
@@ -215,7 +215,7 @@ pub fn get_affected_uris(
 }
 
 /// Gets all used fragments across the workspace
-pub fn get_used_fragments(fragment_spreads: &FragmentSpreadsMap) -> AHashSet<String> {
+pub fn get_used_fragments(fragment_spreads: &FragmentSpreadsMap) -> AHashSet<Arc<str>> {
     let mut used = AHashSet::default();
     for entry in fragment_spreads.iter() {
         for spread in entry.value() {
@@ -313,7 +313,7 @@ fn add_duplicate_operation_diagnostics(
                 let locations_in_project: Vec<&Url> = entry
                     .value()
                     .iter()
-                    .filter(|(schema, _)| schema == schema_key)
+                    .filter(|(schema, _)| schema.as_ref() == schema_key)
                     .map(|(_, uri)| uri)
                     .collect();
 

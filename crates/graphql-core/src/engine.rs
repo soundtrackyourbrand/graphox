@@ -12,23 +12,23 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct FragmentMetadata {
-    pub name: String,
-    pub path: String,
-    pub import_alias: Option<String>,
+    pub name: Arc<str>,
+    pub path: Arc<str>,
+    pub import_alias: Option<Arc<str>>,
     pub is_public: bool,
     pub is_type_only: bool,
-    pub masked_source: String,
+    pub masked_source: Arc<str>,
     /// Cached transitive fragment dependencies (computed during workspace scan)
     /// Contains all fragment names that this fragment depends on, directly or transitively
-    pub transitive_deps: Vec<String>,
+    pub transitive_deps: Vec<Arc<str>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct OperationMetadata {
-    pub name: Option<String>,
-    pub path: String,
-    pub source_text: String,
-    pub operation_type: String,
+    pub name: Option<Arc<str>>,
+    pub path: Arc<str>,
+    pub source_text: Arc<str>,
+    pub operation_type: Arc<str>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -54,17 +54,17 @@ pub struct WorkspaceMetadata {
     pub documents: HashMap<PathBuf, DocumentState>,
     /// Maps operation name -> project index -> list of file paths
     /// Used to detect duplicate operation names within a project
-    pub operation_names_by_project: HashMap<String, HashMap<usize, Vec<PathBuf>>>,
+    pub operation_names_by_project: HashMap<Arc<str>, HashMap<usize, Vec<PathBuf>>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
-    pub fragment_to_path: HashMap<String, String>,
-    pub fragment_to_import: HashMap<String, String>,
-    pub fragment_to_type_only: HashMap<String, bool>,
+    pub fragment_to_path: HashMap<Arc<str>, Arc<str>>,
+    pub fragment_to_import: HashMap<Arc<str>, Arc<str>>,
+    pub fragment_to_type_only: HashMap<Arc<str>, bool>,
     pub all_fragments: HashMap<String, Node<executable::Fragment>>,
     /// Cached fragment dependencies: fragment name -> list of transitive dependencies
-    pub fragment_dependencies: HashMap<String, Vec<String>>,
+    pub fragment_dependencies: HashMap<Arc<str>, Vec<Arc<str>>>,
 }
 
 pub struct Engine;
@@ -75,14 +75,14 @@ impl Engine {
         global_metadata: &[FragmentMetadata],
         project_files: &[PathBuf],
     ) -> ProjectContext {
-        let project_files_set: std::collections::HashSet<String> = project_files
+        let project_files_set: std::collections::HashSet<Arc<str>> = project_files
             .iter()
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|p| Arc::from(p.to_string_lossy().to_string()))
             .collect();
 
-        let mut fragment_to_path: HashMap<String, String> = HashMap::default();
-        let mut fragment_to_import: HashMap<String, String> = HashMap::default();
-        let mut fragment_to_type_only: HashMap<String, bool> = HashMap::default();
+        let mut fragment_to_path: HashMap<Arc<str>, Arc<str>> = HashMap::default();
+        let mut fragment_to_import: HashMap<Arc<str>, Arc<str>> = HashMap::default();
+        let mut fragment_to_type_only: HashMap<Arc<str>, bool> = HashMap::default();
         let mut project_fragments_metadata = Vec::new();
 
         for meta in global_metadata {
@@ -117,7 +117,7 @@ impl Engine {
         let all_fragments = Self::resolve_fragments(valid_schema, &project_fragments_metadata);
 
         // Build fragment dependency cache from the metadata
-        let mut fragment_dependencies: HashMap<String, Vec<String>> = HashMap::default();
+        let mut fragment_dependencies: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
         for meta in &project_fragments_metadata {
             fragment_dependencies.insert(meta.name.clone(), meta.transitive_deps.clone());
         }
@@ -244,15 +244,16 @@ impl Engine {
         let mut all_operations = Vec::new();
 
         for (paths, import_alias) in &project_info {
+            let import_alias_arc = import_alias.as_deref().map(|s| Arc::from(s));
             for path in paths {
                 if let Some(doc) = path_to_doc.get(path) {
-                    let path_str = path.to_string_lossy().to_string();
+                    let path_str: Arc<str> = path.to_string_lossy().to_string().into();
 
                     for frag in doc.fragments() {
                         all_fragments.push(FragmentMetadata {
                             name: frag.name.clone(),
                             path: path_str.clone(),
-                            import_alias: import_alias.clone(),
+                            import_alias: import_alias_arc.clone(),
                             is_public: frag.is_public,
                             is_type_only: frag.is_type_only,
                             masked_source: doc.masked_source.clone(),
@@ -280,7 +281,7 @@ impl Engine {
         timings.fragment_deps_computation = start_deps.elapsed();
 
         // 6. Build operation name index for duplicate detection
-        let mut operation_names_by_project: HashMap<String, HashMap<usize, Vec<PathBuf>>> =
+        let mut operation_names_by_project: HashMap<Arc<str>, HashMap<usize, Vec<PathBuf>>> =
             HashMap::default();
         for (project_idx, (paths, _)) in project_info.iter().enumerate() {
             for path in paths {
@@ -357,13 +358,13 @@ impl Engine {
     fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
         // Build a map of fragment name -> direct dependencies
         // We use a simple pattern matching approach that's faster than full parsing
-        let mut direct_deps: HashMap<String, Vec<String>> = HashMap::default();
+        let mut direct_deps: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
 
         // Build fragment name set for quick lookup
-        let fragment_names: HashSet<String> = fragments.iter().map(|f| f.name.clone()).collect();
+        let fragment_names: HashSet<Arc<str>> = fragments.iter().map(|f| f.name.clone()).collect();
 
         // Parallelize the direct dependency computation
-        let deps_vec: Vec<(String, Vec<String>)> = fragments
+        let deps_vec: Vec<(Arc<str>, Vec<Arc<str>>)> = fragments
             .par_iter()
             .map(|frag| {
                 let mut deps = Vec::new();
@@ -395,7 +396,7 @@ impl Engine {
                             let potential_name =
                                 &source[name_start..name_start + other_frag_name.len()];
 
-                            if potential_name == other_frag_name {
+                            if potential_name == other_frag_name.as_ref() {
                                 // Verify it's not part of a longer identifier
                                 let end_idx = name_start + other_frag_name.len();
                                 let is_valid = if end_idx < source.len() {
@@ -427,11 +428,11 @@ impl Engine {
 
         // Compute transitive closure using DFS with memoization
         fn get_transitive_deps(
-            frag_name: &str,
-            direct_deps: &HashMap<String, Vec<String>>,
-            memo: &mut HashMap<String, Vec<String>>,
-            visited: &mut HashSet<String>,
-        ) -> Vec<String> {
+            frag_name: &Arc<str>,
+            direct_deps: &HashMap<Arc<str>, Vec<Arc<str>>>,
+            memo: &mut HashMap<Arc<str>, Vec<Arc<str>>>,
+            visited: &mut HashSet<Arc<str>>,
+        ) -> Vec<Arc<str>> {
             // Check memo first
             if let Some(cached) = memo.get(frag_name) {
                 return cached.clone();
@@ -441,7 +442,7 @@ impl Engine {
             if visited.contains(frag_name) {
                 return Vec::new();
             }
-            visited.insert(frag_name.to_string());
+            visited.insert(frag_name.clone());
 
             let mut all_deps = HashSet::default();
             if let Some(deps) = direct_deps.get(frag_name) {
@@ -459,12 +460,12 @@ impl Engine {
             result.sort(); // Keep consistent ordering
 
             // Cache the result
-            memo.insert(frag_name.to_string(), result.clone());
+            memo.insert(frag_name.clone(), result.clone());
             result
         }
 
         // Populate the transitive_deps field for each fragment with memoization
-        let mut memo: HashMap<String, Vec<String>> = HashMap::default();
+        let mut memo: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
         for frag in fragments.iter_mut() {
             let mut visited = HashSet::default();
             frag.transitive_deps =

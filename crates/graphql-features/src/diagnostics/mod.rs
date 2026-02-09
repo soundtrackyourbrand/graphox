@@ -13,19 +13,23 @@ mod operations;
 mod selection_set;
 mod values;
 
+use std::sync::Arc;
+
 pub struct ValidationContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub all_fragments: &'a [crate::completion::FragmentCompletionInfo],
-    pub used_fragments: Option<&'a ahash::AHashSet<String>>,
-    pub used_variables: ahash::AHashSet<String>,
-    pub defined_variables: ahash::AHashSet<String>,
+    pub used_fragments: Option<&'a ahash::AHashSet<Arc<str>>>,
+    pub used_variables: ahash::AHashSet<Arc<str>>,
+    pub defined_variables: ahash::AHashSet<Arc<str>>,
     pub diagnostics: &'a mut Vec<Diagnostic>,
     pub config: Option<&'a Config>,
     pub include_ignored: bool,
     pub workspace_loaded: bool,
     pub is_operation: bool,
-    pub selected_fields: ahash::AHashSet<String>,
-    pub current_operation_type: Option<String>,
+    pub current_operation_type: Option<Arc<str>>,
+    pub response_key_selected_fields: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
+    pub response_key_type_conditions: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
+    pub type_condition_fields: ahash::AHashMap<Arc<str>, ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>>,
 }
 
 pub trait DocumentDiagnostics {
@@ -33,7 +37,7 @@ pub trait DocumentDiagnostics {
         &self,
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         all_fragments: &[crate::completion::FragmentCompletionInfo],
-        used_fragments: Option<&ahash::AHashSet<String>>,
+        used_fragments: Option<&ahash::AHashSet<Arc<str>>>,
         config: Option<&Config>,
         verbose: bool,
         workspace_loaded: bool,
@@ -65,7 +69,7 @@ impl DocumentDiagnostics for DocumentState {
         &self,
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         all_fragments: &[crate::completion::FragmentCompletionInfo],
-        used_fragments: Option<&ahash::AHashSet<String>>,
+        used_fragments: Option<&ahash::AHashSet<Arc<str>>>,
         config: Option<&Config>,
         verbose: bool,
         workspace_loaded: bool,
@@ -93,8 +97,10 @@ impl DocumentDiagnostics for DocumentState {
                 include_ignored: verbose,
                 workspace_loaded,
                 is_operation: false,
-                selected_fields: ahash::AHashSet::default(),
                 current_operation_type: None,
+                response_key_selected_fields: ahash::AHashMap::default(),
+                response_key_type_conditions: ahash::AHashMap::default(),
+                type_condition_fields: ahash::AHashMap::default(),
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);
@@ -187,7 +193,7 @@ impl DocumentDiagnostics for DocumentState {
         {
             // Detect duplicate operation names within this document and report diagnostics.
             use std::collections::HashMap;
-            let mut counts: HashMap<String, usize> = HashMap::new();
+            let mut counts: HashMap<Arc<str>, usize> = HashMap::new();
             for op in &self.operations {
                 if let Some(name) = &op.name {
                     *counts.entry(name.clone()).or_insert(0) += 1;

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use ahash::AHashMap as HashMap;
 use apollo_compiler::Schema;
 use colored::*;
@@ -30,7 +31,7 @@ pub async fn run_check(config: Config, verbose: bool) {
         let package_root = doc.package_root.clone();
         let project_import = cfg
             .get_project_for_path(&doc.uri.to_file_path().unwrap_or_default())
-            .and_then(|p| p.import.clone());
+            .and_then(|p| p.import.as_deref().map(|s| Arc::from(s)));
 
         for frag in doc.fragments() {
             if frag.is_public {
@@ -115,7 +116,7 @@ async fn execute_project_check(
     source: &SchemaSource,
     project_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
-    global_used_fragments: &ahash::AHashSet<String>,
+    global_used_fragments: &ahash::AHashSet<Arc<str>>,
     global_public_fragments: &[FragmentCompletionInfo],
     config: &Config,
     verbose: bool,
@@ -195,7 +196,7 @@ async fn execute_project_check(
         for pub_frag in global_public_fragments {
             if !available_fragments
                 .iter()
-                .any(|f| f.name == pub_frag.name && f.uri == pub_frag.uri)
+                .any(|f| f.name.as_ref() == pub_frag.name.as_ref() && f.uri == pub_frag.uri)
             {
                 available_fragments.push(pub_frag.clone());
             }

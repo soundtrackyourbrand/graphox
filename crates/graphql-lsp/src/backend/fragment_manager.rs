@@ -50,7 +50,7 @@ pub fn collect_fragment_metadata(
                     name: frag.name.clone(),
                     type_condition: frag.type_condition.clone(),
                     description: frag.description.clone(),
-                    import_path: import_path.clone(),
+                    import_path: import_path.as_deref().map(|s| s.into()),
                     is_public: frag.is_public,
                     is_type_only: frag.is_type_only,
                     uri: uri.clone(),
@@ -72,7 +72,7 @@ pub fn collect_fragment_metadata_with_schema(
     fragment_defs: &Arc<DashMap<Url, Vec<FragmentDef>, ahash::RandomState>>,
     config: &Config,
     package_roots: &Arc<DashMap<Url, Option<PathBuf>, ahash::RandomState>>,
-) -> Vec<(FragmentCompletionInfo, Option<String>)> {
+) -> Vec<(FragmentCompletionInfo, Option<Arc<str>>)> {
     // Clone Arc references to avoid holding locks during iteration
     // This prevents lock contention when accessing multiple DashMaps concurrently
     let fragment_defs = fragment_defs.clone();
@@ -87,8 +87,8 @@ pub fn collect_fragment_metadata_with_schema(
             let (import_path, schema_key) = if let Ok(p) = uri.to_file_path() {
                 let project = config.get_project_for_path(&p);
                 (
-                    project.and_then(|proj| proj.import.clone()),
-                    project.map(|proj| proj.schema.as_key()),
+                    project.and_then(|proj| proj.import.as_deref().map(|s| Arc::from(s))),
+                    project.map(|proj| Arc::from(proj.schema.as_key())),
                 )
             } else {
                 (None, None)
@@ -123,10 +123,10 @@ pub fn collect_fragment_metadata_with_schema(
 
 /// Updates the fragment dependent index when fragments change
 pub fn update_fragment_dependents(
-    fragment_dependents: &Arc<DashMap<String, AHashSet<Url>, ahash::RandomState>>,
+    fragment_dependents: &Arc<DashMap<Arc<str>, AHashSet<Url>, ahash::RandomState>>,
     uri: &Url,
-    old_spreads: Option<Vec<String>>,
-    new_spreads: Vec<String>,
+    old_spreads: Option<Vec<Arc<str>>>,
+    new_spreads: Vec<Arc<str>>,
 ) {
     if let Some(old) = old_spreads {
         for spread in old {
@@ -148,10 +148,10 @@ pub fn update_fragment_dependents(
 
 /// Updates the fragment definition index when fragments are added/removed
 pub fn update_fragment_definitions(
-    fragment_definitions: &Arc<DashMap<String, AHashSet<Url>, ahash::RandomState>>,
+    fragment_definitions: &Arc<DashMap<Arc<str>, AHashSet<Url>, ahash::RandomState>>,
     uri: &Url,
-    old_fragments: Option<Vec<String>>,
-    new_fragments: Vec<String>,
+    old_fragments: Option<Vec<Arc<str>>>,
+    new_fragments: Vec<Arc<str>>,
 ) {
     if let Some(old) = old_fragments {
         for name in old {

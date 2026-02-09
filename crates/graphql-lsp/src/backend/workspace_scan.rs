@@ -178,7 +178,7 @@ fn scan_and_index_workspace(
                     let name = doc.get_node_text(name_node, block.offset);
                     params
                         .fragment_definitions
-                        .entry(name)
+                        .entry(name.into())
                         .or_default()
                         .insert(uri.clone());
                 }
@@ -196,13 +196,14 @@ fn scan_and_index_workspace(
             if let Ok(path) = uri.to_file_path()
                 && let Some(schema_key) = params.config.get_schema_for_path(&path)
             {
+                let schema_key_arc: Arc<str> = schema_key.into();
                 for op in doc.operations() {
                     if let Some(name) = &op.name {
                         params
                             .operation_names
                             .entry(name.clone())
                             .or_default()
-                            .push((schema_key.clone(), uri.clone()));
+                            .push((schema_key_arc.clone(), uri.clone()));
                     }
                 }
             }
@@ -266,7 +267,7 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
     );
 
     // Pre-calculate all fragments info
-    let all_fragments_info: Vec<(FragmentCompletionInfo, Option<String>)> =
+    let all_fragments_info: Vec<(FragmentCompletionInfo, Option<Arc<str>>)> =
         super::fragment_manager::collect_fragment_metadata_with_schema(
             fragment_defs,
             config,
@@ -300,7 +301,9 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
             let filtered_fragments: Vec<FragmentCompletionInfo> = all_fragments_info
                 .iter()
                 .filter(|(f, f_schema_key)| {
-                    let is_same_project = f_schema_key.is_some() && f_schema_key == &schema_key;
+                    let is_same_project = f_schema_key.as_ref().is_some_and(|k| {
+                        schema_key.as_ref().is_some_and(|sk| k.as_ref() == sk)
+                    });
                     let is_same_package = graphql_core::utils::paths_match(
                         f.package_root.as_deref(),
                         target_package_root.map(|p| p.as_path()),

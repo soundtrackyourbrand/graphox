@@ -77,7 +77,7 @@ impl Backend {
         let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
         let documents: DashMap<Url, Arc<DocumentState>, ahash::RandomState> =
             DashMap::with_hasher(ahash::RandomState::default());
-        let fragment_definitions: DashMap<String, AHashSet<Url>, ahash::RandomState> =
+        let fragment_definitions: DashMap<Arc<str>, AHashSet<Url>, ahash::RandomState> =
             DashMap::with_hasher(ahash::RandomState::default());
 
         let empty_schema = Arc::new(
@@ -236,7 +236,7 @@ impl Backend {
 
     fn get_transitive_fragments(
         &self,
-        initial_spreads: Vec<String>,
+        initial_spreads: Vec<Arc<str>>,
         package_root: Option<&std::path::PathBuf>,
     ) -> AHashSet<Url> {
         let mut visited_names = AHashSet::default();
@@ -282,13 +282,13 @@ impl Backend {
         schema: &Schema,
         package_root: Option<&std::path::PathBuf>,
         all_fragments: &[FragmentCompletionInfo],
-        variable_types_cache: &mut AHashMap<String, std::collections::BTreeMap<String, String>>,
-    ) -> std::collections::BTreeMap<String, String> {
+        variable_types_cache: &mut AHashMap<Arc<str>, std::collections::BTreeMap<Arc<str>, Arc<str>>>,
+    ) -> std::collections::BTreeMap<Arc<str>, Arc<str>> {
         let mut requirements = std::collections::BTreeMap::new();
         let mut visited = AHashSet::default();
 
         let mut collect = |initial_name: &str| {
-            let mut stack = vec![initial_name.to_string()];
+            let mut stack: Vec<Arc<str>> = vec![Arc::from(initial_name)];
 
             while let Some(name) = stack.pop() {
                 if !visited.insert(name.clone()) {
@@ -308,8 +308,12 @@ impl Backend {
                         cached.clone()
                     } else {
                         let vars = doc.get_fragment_variable_types(&name, schema);
-                        variable_types_cache.insert(name.clone(), vars.clone());
-                        vars
+                        let mut vars_arc = std::collections::BTreeMap::new();
+                        for (k, v) in vars {
+                            vars_arc.insert(Arc::from(k), Arc::from(v));
+                        }
+                        variable_types_cache.insert(name.clone(), vars_arc.clone());
+                        vars_arc
                     };
 
                     for (var, ty) in local_vars {
@@ -329,7 +333,7 @@ impl Backend {
         requirements
     }
 
-    pub fn get_used_fragments(&self) -> AHashSet<String> {
+    pub fn get_used_fragments(&self) -> AHashSet<Arc<str>> {
         super::validation::get_used_fragments(&self.fragment_spreads)
     }
 
@@ -556,8 +560,8 @@ impl Backend {
     fn update_dependency_indices(
         &self,
         uri: &Url,
-        old_spreads: Option<Vec<String>>,
-        new_spreads: Vec<String>,
+        old_spreads: Option<Vec<Arc<str>>>,
+        new_spreads: Vec<Arc<str>>,
     ) {
         fragment_manager::update_fragment_dependents(
             &self.fragment_dependents,
@@ -570,8 +574,8 @@ impl Backend {
     fn update_definition_indices(
         &self,
         uri: &Url,
-        old_fragments: Option<Vec<String>>,
-        new_fragments: Vec<String>,
+        old_fragments: Option<Vec<Arc<str>>>,
+        new_fragments: Vec<Arc<str>>,
     ) {
         fragment_manager::update_fragment_definitions(
             &self.fragment_definitions,
@@ -640,8 +644,8 @@ impl Backend {
     fn get_affected_uris(
         &self,
         initial_uri: Url,
-        affected_fragment_names: AHashSet<String>,
-        affected_spread_names: AHashSet<String>,
+        affected_fragment_names: AHashSet<Arc<str>>,
+        affected_spread_names: AHashSet<Arc<str>>,
     ) -> Vec<Url> {
         super::validation::get_affected_uris(
             initial_uri,
@@ -681,7 +685,7 @@ impl Backend {
             schema.as_ref(),
             &self.documents,
             &preferred_uris,
-            &self.fragment_definitions,
+            self.fragment_definitions.as_ref(),
         )
     }
 
@@ -773,7 +777,7 @@ impl Backend {
         let is_public_fragment = fragment_doc
             .fragments()
             .iter()
-            .any(|f| f.name == fragment_name && f.is_public);
+            .any(|f| f.name.as_ref() == fragment_name && f.is_public);
 
         is_same_package || is_public_fragment
     }
@@ -883,7 +887,7 @@ impl LanguageServer for Backend {
                         let is_public_fragment = other_doc
                             .fragments()
                             .iter()
-                            .any(|f| f.name == symbol_name && f.is_public);
+                            .any(|f| f.name.as_ref() == symbol_name && f.is_public);
 
                         if (is_same_package || is_public_fragment)
                             && let Some(info) = other_doc.find_fragment_info(&symbol_name)
@@ -961,12 +965,12 @@ impl LanguageServer for Backend {
                                 return false;
                             }
                             // Keep fragment if it's on the same type
-                            if f.type_condition == parent_name.as_str() {
+                            if f.type_condition.as_ref() == parent_name.as_str() {
                                 return true;
                             }
 
                             // Get the fragment's type from schema
-                            let frag_type = match schema.types.get(f.type_condition.as_str()) {
+                            let frag_type = match schema.types.get(f.type_condition.as_ref()) {
                                 Some(t) => t,
                                 None => return true, // If type unknown, play it safe and keep it
                             };
@@ -980,7 +984,7 @@ impl LanguageServer for Backend {
                                 ) => obj
                                     .implements_interfaces
                                     .iter()
-                                    .any(|i| i.as_str() == f.type_condition),
+                                    .any(|i| i.as_str() == f.type_condition.as_ref()),
                                 (
                                     apollo_compiler::schema::ExtendedType::Interface(_),
                                     apollo_compiler::schema::ExtendedType::Object(obj),
@@ -993,7 +997,7 @@ impl LanguageServer for Backend {
                                 (
                                     apollo_compiler::schema::ExtendedType::Union(u),
                                     apollo_compiler::schema::ExtendedType::Object(_),
-                                ) => u.members.iter().any(|m| m.as_str() == f.type_condition),
+                                ) => u.members.iter().any(|m| m.as_str() == f.type_condition.as_ref()),
                                 (
                                     apollo_compiler::schema::ExtendedType::Object(_),
                                     apollo_compiler::schema::ExtendedType::Union(u),
@@ -1016,7 +1020,7 @@ impl LanguageServer for Backend {
                                     {
                                         obj.implements_interfaces
                                             .iter()
-                                            .any(|i| i.as_str() == f.type_condition)
+                                            .any(|i| i.as_str() == f.type_condition.as_ref())
                                     } else {
                                         false
                                     }

@@ -520,7 +520,7 @@ async fn generate_project_files(
                             if e.contains(&format!("'{}'", meta.name)) {
                                 let is_local = params.project_files.iter().any(|pf: &PathBuf| {
                                     std::fs::canonicalize(pf).unwrap_or_else(|_| pf.clone()) ==
-                                        std::fs::canonicalize(&meta.path).unwrap_or_else(|_| PathBuf::from(&meta.path))
+                                        std::fs::canonicalize(meta.path.as_ref()).unwrap_or_else(|_| PathBuf::from(meta.path.as_ref()))
                                 });
 
                                 if is_local {

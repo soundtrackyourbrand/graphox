@@ -3,19 +3,21 @@ use graphql_core::document::DocumentState;
 use lsp_types::*;
 use tree_sitter::Node;
 
+use std::sync::Arc;
+
 #[derive(Clone)]
 pub struct FragmentCompletionInfo {
-    pub name: String,
-    pub type_condition: String,
-    pub description: Option<String>,
-    pub import_path: Option<String>,
+    pub name: Arc<str>,
+    pub type_condition: Arc<str>,
+    pub description: Option<Arc<str>>,
+    pub import_path: Option<Arc<str>>,
     pub is_public: bool,
     pub is_type_only: bool,
     pub uri: Url,
     pub package_root: Option<std::path::PathBuf>,
-    pub used_variables: Vec<String>,
-    pub used_fragments: Vec<String>,
-    pub requirements: std::collections::BTreeMap<String, String>,
+    pub used_variables: Vec<Arc<str>>,
+    pub used_fragments: Vec<Arc<str>>,
+    pub requirements: std::collections::BTreeMap<Arc<str>, Arc<str>>,
 }
 
 pub trait DocumentCompletion {
@@ -1285,7 +1287,7 @@ impl DocumentCompletion for DocumentState {
                 }
                 if let Some(parent) = expected_type {
                     let parent_name = parent.name();
-                    if f.type_condition == parent_name.as_str() {
+                    if f.type_condition.as_ref() == parent_name.as_str() {
                         return true;
                     }
 
@@ -1294,7 +1296,7 @@ impl DocumentCompletion for DocumentState {
                             if obj
                                 .implements_interfaces
                                 .iter()
-                                .any(|i| i.as_str() == f.type_condition)
+                                .any(|i| i.as_str() == f.type_condition.as_ref())
                             {
                                 return true;
                             }
@@ -1303,20 +1305,20 @@ impl DocumentCompletion for DocumentState {
                             if iface
                                 .implements_interfaces
                                 .iter()
-                                .any(|i| i.as_str() == f.type_condition)
+                                .any(|i| i.as_str() == f.type_condition.as_ref())
                             {
                                 return true;
                             }
                         }
                         schema::ExtendedType::Union(union) => {
-                            if union.members.iter().any(|m| m.as_str() == f.type_condition) {
+                            if union.members.iter().any(|m| m.as_str() == f.type_condition.as_ref()) {
                                 return true;
                             }
                         }
                         _ => {}
                     }
 
-                    if let Some(frag_type) = schema.types.get(f.type_condition.as_str())
+                    if let Some(frag_type) = schema.types.get(f.type_condition.as_ref())
                         && let schema::ExtendedType::Union(u) = frag_type
                         && u.members.iter().any(|m| m.as_str() == parent_name.as_str())
                     {
@@ -1328,7 +1330,7 @@ impl DocumentCompletion for DocumentState {
                 }
             })
             .map(|f| {
-                let mut documentation = f.description.clone().unwrap_or_default();
+                let mut documentation = f.description.as_ref().map(|s| s.to_string()).unwrap_or_default();
                 if !f.requirements.is_empty() {
                     if !documentation.is_empty() {
                         documentation.push_str("\n\n---\n");
@@ -1345,7 +1347,7 @@ impl DocumentCompletion for DocumentState {
                     documentation.push_str(&format!("Import: `{}`", import));
                 }
                 CompletionItem {
-                    label: f.name.clone(),
+                    label: f.name.to_string(),
                     kind: Some(CompletionItemKind::SNIPPET),
                     documentation: if documentation.is_empty() {
                         None

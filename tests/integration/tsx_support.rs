@@ -35,7 +35,7 @@ fn test_user_repro_pattern() {
 
     let fragments = doc.fragments();
     assert_eq!(fragments.len(), 1, "Should have found the fragment in TSX");
-    assert_eq!(fragments[0].name, "BlockedSongInfo");
+    assert_eq!(fragments[0].name.as_ref(), "BlockedSongInfo");
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn test_multiple_graphql_blocks_fragment_spreads() {
         1,
         "Should have found 1 fragment definition"
     );
-    assert_eq!(fragments[0].name, "PlaylistPage");
+    assert_eq!(fragments[0].name.as_ref(), "PlaylistPage");
 
     let spreads = doc.fragment_spreads;
     assert_eq!(
@@ -138,7 +138,7 @@ fn test_multiple_graphql_blocks_fragment_spreads() {
         2,
         "Should have found 2 fragment spreads across different blocks"
     );
-    assert!(spreads.iter().all(|s| s == "PlaylistPage"));
+    assert!(spreads.iter().all(|s| s.as_ref() == "PlaylistPage"));
 }
 
 #[test]
@@ -166,11 +166,11 @@ fn test_multiple_graphql_blocks_variables_fragment_interaction() {
     // 1. Check fragment extraction (metadata)
     let fragments = doc.fragments();
     assert_eq!(fragments.len(), 1);
-    assert_eq!(fragments[0].name, "PlaylistPage");
+    assert_eq!(fragments[0].name.as_ref(), "PlaylistPage");
     assert!(
         fragments[0]
             .used_variables
-            .contains(&"showPermissions".to_string())
+            .iter().any(|s| s.as_ref() == "showPermissions")
     );
 
     // 2. Check full diagnostic flow (LSP context)

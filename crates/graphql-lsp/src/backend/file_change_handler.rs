@@ -116,15 +116,15 @@ pub async fn process_file_created_or_changed(
 
     let new_doc = DocumentState::new(uri.clone(), &content, parser);
 
-    let old_fragments = params
+    let old_fragments: Option<Vec<Arc<str>>> = params
         .fragment_defs
         .get(&uri)
         .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
-    let old_spreads = params.fragment_spreads.get(&uri).map(|s| s.clone());
+    let old_spreads: Option<Vec<Arc<str>>> = params.fragment_spreads.get(&uri).map(|s| s.value().clone());
 
     let new_fragment_defs = new_doc.fragments().to_vec();
-    let new_fragment_names: Vec<_> = new_fragment_defs.iter().map(|f| f.name.clone()).collect();
-    let new_spreads = new_doc.fragment_spreads.clone();
+    let new_fragment_names: Vec<Arc<str>> = new_fragment_defs.iter().map(|f| f.name.clone()).collect();
+    let new_spreads: Vec<Arc<str>> = new_doc.fragment_spreads.clone();
 
     // Track changes to fragment definitions
     if let Some(old) = &old_fragments {
@@ -174,7 +174,7 @@ pub async fn process_file_created_or_changed(
     // Update operation name index
     if let Some(schema_key) = params.config.get_schema_for_path(&path) {
         // Remove old operations for this URI
-        let mut operations_to_update: Vec<String> = Vec::new();
+        let mut operations_to_update: Vec<Arc<str>> = Vec::new();
         for mut entry in params.operation_names.iter_mut() {
             let op_name = entry.key().clone();
             entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
@@ -188,13 +188,14 @@ pub async fn process_file_created_or_changed(
         }
 
         // Add new operations
+        let schema_key_arc: Arc<str> = schema_key.into();
         for op in new_doc.operations() {
             if let Some(name) = &op.name {
                 params
                     .operation_names
                     .entry(name.clone())
                     .or_default()
-                    .push((schema_key.clone(), uri.clone()));
+                    .push((schema_key_arc.clone(), uri.clone()));
             }
         }
     }
@@ -258,7 +259,7 @@ pub fn process_file_deleted(
     update_dependency_indices(params.fragment_dependents, &uri, old_spreads, vec![]);
 
     // Remove operations from index
-    let mut operations_to_clean: Vec<String> = Vec::new();
+    let mut operations_to_clean: Vec<Arc<str>> = Vec::new();
     for mut entry in params.operation_names.iter_mut() {
         let op_name = entry.key().clone();
         entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
@@ -267,7 +268,7 @@ pub fn process_file_deleted(
         }
     }
     for op_name in operations_to_clean {
-        params.operation_names.remove(&op_name);
+        params.operation_names.remove(op_name.as_ref());
     }
 
     let uris_to_validate = super::validation::get_affected_uris(
@@ -338,8 +339,8 @@ fn is_schema_file(path_str: &str, config: &Config) -> bool {
 fn update_definition_indices(
     fragment_definitions: &graphql_core::types::FragmentDefinitionsMap,
     uri: &Url,
-    old_fragments: Option<Vec<String>>,
-    new_fragments: Vec<String>,
+    old_fragments: Option<Vec<Arc<str>>>,
+    new_fragments: Vec<Arc<str>>,
 ) {
     super::fragment_manager::update_fragment_definitions(
         fragment_definitions,
@@ -353,8 +354,8 @@ fn update_definition_indices(
 fn update_dependency_indices(
     fragment_dependents: &graphql_core::types::FragmentDependentsMap,
     uri: &Url,
-    old_spreads: Option<Vec<String>>,
-    new_spreads: Vec<String>,
+    old_spreads: Option<Vec<Arc<str>>>,
+    new_spreads: Vec<Arc<str>>,
 ) {
     super::fragment_manager::update_fragment_dependents(
         fragment_dependents,

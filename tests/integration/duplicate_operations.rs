@@ -18,7 +18,7 @@ async fn test_document_operations_extraction() {
     let doc = create_doc(uri.as_str(), query_text);
 
     assert_eq!(doc.operations().len(), 1, "Should extract 1 operation");
-    assert_eq!(doc.operations()[0].name, Some("GetUser".to_string()));
+    assert_eq!(doc.operations()[0].name.as_ref().map(|s| s.as_ref()), Some("GetUser"));
 }
 
 #[tokio::test]

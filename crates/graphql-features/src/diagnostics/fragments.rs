@@ -39,13 +39,13 @@ pub(super) fn validate_fragment(
 
     if let Some(name_node) = name_node {
         let name = this.get_node_text(name_node, offset);
-        let current_frag_def = this.fragments.iter().find(|f| f.name == name);
+        let current_frag_def = this.fragments.iter().find(|f| f.name.as_ref() == name);
         let is_type_only = current_frag_def.map(|f| f.is_type_only).unwrap_or(false);
 
         // 1. Unused fragment check
         let is_used = ctx
             .used_fragments
-            .map(|u| u.contains(&name))
+            .map(|u| u.contains(name.as_str()))
             .unwrap_or(true);
 
         let no_unused_fragments_enabled = ctx
@@ -101,7 +101,7 @@ pub(super) fn validate_fragment(
             let current_is_public = current_frag.is_public;
 
             for other in ctx.all_fragments {
-                if other.name == name && other.uri != this.uri {
+                if other.name.as_ref() == name && other.uri != this.uri {
                     if current_is_public && other.is_public {
                         ctx.diagnostics.push(Diagnostic {
                             range: this.translate_to_file_range(name_node, offset),
@@ -161,6 +161,7 @@ pub(super) fn validate_fragment(
                                 type_def,
                                 ctx,
                                 depth + 1,
+                                None,
                             );
                         }
                     }
@@ -177,6 +178,7 @@ pub(super) fn validate_inline_fragment(
     parent_type: &ExtendedType,
     ctx: &mut ValidationContext,
     depth: usize,
+    parent_response_key: Option<&str>,
 ) {
     if depth > 100 {
         return;
@@ -198,16 +200,26 @@ pub(super) fn validate_inline_fragment(
     let target_type = if let Some(type_cond) = type_condition_node {
         let mut tc_cursor = type_cond.walk();
         let mut found_type = None;
+        let mut type_name = None;
         for tc_child in type_cond.children(&mut tc_cursor) {
             if tc_child.kind() == "named_type" {
                 let mut nt_cursor = tc_child.walk();
                 for nt_child in tc_child.children(&mut nt_cursor) {
                     if nt_child.kind() == "name" {
-                        let type_name = this.get_node_text(nt_child, offset);
-                        found_type = ctx.schema.types.get(type_name.as_str());
+                        type_name = Some(this.get_node_text(nt_child, offset));
                         break;
                     }
                 }
+            }
+        }
+        if let Some(name) = type_name {
+            found_type = ctx.schema.types.get(name.as_str());
+            // Track type condition for required fields validation
+            if let Some(rk) = parent_response_key {
+                ctx.response_key_type_conditions
+                    .entry(rk.to_string().into())
+                    .or_insert_with(ahash::AHashSet::new)
+                    .insert(name.clone().into());
             }
         }
         found_type
@@ -225,6 +237,7 @@ pub(super) fn validate_inline_fragment(
             t_type,
             ctx,
             depth + 1,
+            parent_response_key,
         );
     }
 }
@@ -263,7 +276,7 @@ pub(super) fn validate_fragment_spread(
                     // If the fragment exists but is marked @type_only, report a warning
                     if exists {
                         // Try to find metadata in workspace fragments first
-                        if let Some(meta) = ctx.all_fragments.iter().find(|f| f.name == name) {
+                        if let Some(meta) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
                             if meta.is_type_only {
                                 // Diagnostic at the spread location; include definition URI + fragment name
                                 ctx.diagnostics.push(Diagnostic {
@@ -281,7 +294,7 @@ pub(super) fn validate_fragment_spread(
                                     ..Default::default()
                                 });
                             }
-                        } else if let Some(def) = this.fragments().iter().find(|f| f.name == name)
+                        } else if let Some(def) = this.fragments().iter().find(|f| f.name.as_ref() == name)
                             && def.is_type_only
                         {
                             // Fragment defined in this document
@@ -410,11 +423,11 @@ fn mark_used_variables_recursive(
                 .iter()
                 .map(|n| {
                     let mut part = n.clone();
-                    if let Some(fmeta) = ctx.all_fragments.iter().find(|f| f.name == *n) {
+                    if let Some(fmeta) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == *n) {
                         part.push_str(" (");
                         part.push_str(fmeta.uri.path());
                         part.push(')');
-                    } else if this.fragments.iter().any(|f| f.name == *n) {
+                    } else if this.fragments.iter().any(|f| f.name.as_ref() == *n) {
                         part.push_str(" (");
                         part.push_str(this.uri.path());
                         part.push(')');
@@ -488,11 +501,11 @@ fn mark_used_variables_recursive(
         let mut fragment_exists = false;
         let mut used_variables = None;
         let mut used_fragments = None;
-        if let Some(f) = ctx.all_fragments.iter().find(|f| f.name == name) {
+        if let Some(f) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
             fragment_exists = true;
             used_variables = Some(&f.used_variables);
             used_fragments = Some(&f.used_fragments);
-        } else if let Some(f) = this.fragments.iter().find(|f| f.name == name) {
+        } else if let Some(f) = this.fragments.iter().find(|f| f.name.as_ref() == name) {
             fragment_exists = true;
             used_variables = Some(&f.used_variables);
             used_fragments = Some(&f.used_fragments);
@@ -508,9 +521,9 @@ fn mark_used_variables_recursive(
         // collect variables
         if let Some(vars) = used_variables {
             for var in vars {
-                ctx.used_variables.insert(var.clone());
+                ctx.used_variables.insert(var.to_string().into());
 
-                if !ctx.defined_variables.is_empty() && !ctx.defined_variables.contains(var) {
+                if !ctx.defined_variables.is_empty() && !ctx.defined_variables.contains(var.as_ref()) {
                     ctx.diagnostics.push(Diagnostic {
                         range: this.translate_to_file_range(trigger_node, offset),
                         severity: Some(DiagnosticSeverity::ERROR),

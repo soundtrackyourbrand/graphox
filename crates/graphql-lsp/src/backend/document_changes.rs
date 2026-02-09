@@ -37,13 +37,13 @@ pub fn process_document_change(
 ) -> Option<ChangeResult> {
     let mut affected_fragment_names = AHashSet::default();
     let mut old_fragment_names = Vec::new();
-    let old_spreads: Vec<String>;
+    let old_spreads: Vec<Arc<str>>;
 
     let new_fragments: Vec<graphql_core::document::FragmentDef>;
-    let new_spreads: Vec<String>;
+    let new_spreads: Vec<Arc<str>>;
     let package_root: Option<PathBuf>;
-    let new_fragment_names: Vec<String>;
-    let affected_spread_names: AHashSet<String>;
+    let new_fragment_names: Vec<Arc<str>>;
+    let affected_spread_names: AHashSet<Arc<str>>;
 
     // Get document and apply changes
     if let Some(doc_arc) = params.documents.get(uri).map(|r| r.value().clone()) {

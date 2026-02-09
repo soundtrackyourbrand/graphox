@@ -108,6 +108,7 @@ fn validate_directive_node(
     }
 }
 
+use std::sync::Arc;
 pub(super) fn validate_value(
     this: &DocumentState,
     node: Node,
@@ -126,10 +127,11 @@ pub(super) fn validate_value(
             for child in node.children(&mut cursor) {
                 if child.kind() == "name" {
                     let name = this.get_node_text(child, offset);
-                    ctx.used_variables.insert(name.clone());
+                    let name_arc: Arc<str> = name.clone().into();
+                    ctx.used_variables.insert(name_arc.clone());
 
                     if ctx.is_operation
-                        && !ctx.defined_variables.contains(&name)
+                        && !ctx.defined_variables.contains(name_arc.as_ref())
                         && ctx.workspace_loaded
                     {
                         ctx.diagnostics.push(Diagnostic {

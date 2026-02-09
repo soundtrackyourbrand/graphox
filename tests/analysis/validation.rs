@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString};
 
@@ -343,8 +344,8 @@ fn test_type_only_fragment_used() {
         query { user { ...UserFrag } }"#;
     let doc = create_doc("file:///test.graphql", doc_text);
 
-    let mut used_fragments = ahash::AHashSet::default();
-    used_fragments.insert("UserFrag".to_string());
+    let mut used_fragments: ahash::AHashSet<Arc<str>> = ahash::AHashSet::default();
+    used_fragments.insert("UserFrag".into());
 
     let diagnostics = doc.get_semantic_diagnostics(
         &validated_schema,

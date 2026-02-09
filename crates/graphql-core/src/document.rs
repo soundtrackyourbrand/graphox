@@ -63,21 +63,21 @@ impl fmt::Debug for GraphQLBlock {
 
 #[derive(Debug, Clone)]
 pub struct FragmentDef {
-    pub name: String,
-    pub type_condition: String,
+    pub name: Arc<str>,
+    pub type_condition: Arc<str>,
     pub is_public: bool,
     pub is_type_only: bool,
-    pub description: Option<String>,
+    pub description: Option<Arc<str>>,
     pub source_hash: u64,
-    pub used_variables: Vec<String>,
-    pub used_fragments: Vec<String>,
+    pub used_variables: Vec<Arc<str>>,
+    pub used_fragments: Vec<Arc<str>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct OperationDef {
-    pub name: Option<String>,
-    pub operation_type: String,
-    pub source_text: String,
+    pub name: Option<Arc<str>>,
+    pub operation_type: Arc<str>,
+    pub source_text: Arc<str>,
 }
 
 /// Components of a GraphQL field node.
@@ -98,10 +98,10 @@ pub struct DocumentState {
     pub language: DocumentLanguage,
     pub graphql_trees: Vec<GraphQLBlock>,
     pub fragments: Vec<FragmentDef>,
-    pub fragment_spreads: Vec<String>,
+    pub fragment_spreads: Vec<Arc<str>>,
     pub operations: Vec<OperationDef>,
     pub package_root: Option<PathBuf>,
-    pub masked_source: String,
+    pub masked_source: Arc<str>,
     pub version: i32,
 }
 
@@ -126,9 +126,9 @@ impl DocumentState {
         };
 
         let masked_source = if language.is_host_language() {
-            mask_interpolations(text)
+            mask_interpolations(text).into()
         } else {
-            text.to_string()
+            text.into()
         };
 
         let mut doc = Self {
@@ -517,13 +517,13 @@ impl DocumentState {
                                     description = Some(
                                         self.get_node_text(sv, offset)
                                             .trim_matches('"')
-                                            .to_string(),
+                                            .into(),
                                     );
                                 } else if let Some(sv) = child.child(0) {
                                     description = Some(
                                         self.get_node_text(sv, offset)
                                             .trim_matches('"')
-                                            .to_string(),
+                                            .into(),
                                     );
                                 }
                             }
@@ -562,13 +562,13 @@ impl DocumentState {
                                     for v_child in nn.children(&mut v_cursor) {
                                         if v_child.kind() == "name" {
                                             used_variables
-                                                .push(self.get_node_text(v_child, offset));
+                                                .push(self.get_node_text(v_child, offset).into());
                                         }
                                     }
                                 } else if let Some(parent) = nn.parent()
                                     && parent.kind() == "fragment_name"
                                 {
-                                    used_fragments.push(node_text);
+                                    used_fragments.push(node_text.into());
                                 }
                             }
                         }
@@ -583,15 +583,15 @@ impl DocumentState {
                                 let trimmed = line_text.trim();
                                 if trimmed.starts_with('#') {
                                     description =
-                                        Some(trimmed.trim_start_matches('#').trim().to_string());
+                                        Some(trimmed.trim_start_matches('#').trim().into());
                                 }
                             }
                         }
                     }
 
                     fragments.push(FragmentDef {
-                        name: n,
-                        type_condition: type_condition.unwrap_or_default(),
+                        name: n.into(),
+                        type_condition: type_condition.unwrap_or_default().into(),
                         is_public,
                         is_type_only,
                         description,
@@ -605,7 +605,7 @@ impl DocumentState {
         fragments
     }
 
-    pub fn extract_fragment_spreads(&self) -> Vec<String> {
+    pub fn extract_fragment_spreads(&self) -> Vec<Arc<str>> {
         let mut spreads = Vec::new();
         for block in self.get_graphql_trees() {
             spreads.extend(self.get_fragment_spreads_in_node(block.tree.root_node(), block.offset));
@@ -613,7 +613,7 @@ impl DocumentState {
         spreads
     }
 
-    pub fn get_fragment_spreads_in_node(&self, node: Node, offset: usize) -> Vec<String> {
+    pub fn get_fragment_spreads_in_node(&self, node: Node, offset: usize) -> Vec<Arc<str>> {
         let query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
@@ -650,7 +650,7 @@ impl DocumentState {
                     && let Some(parent) = name_node.parent()
                     && parent.kind() == "fragment_name"
                 {
-                    spreads.push(name);
+                    spreads.push(name.into());
                 }
             }
         }
@@ -678,14 +678,14 @@ impl DocumentState {
 
             while let Some(m) = matches.next() {
                 let mut name = None;
-                let mut op_type = String::from("query");
+                let mut op_type: Arc<str> = "query".into();
                 let mut is_operation = false;
                 let mut full_node = None;
 
                 for cap in m.captures {
                     let cap_name = query.capture_names()[cap.index as usize];
                     if cap_name == "symbol.name" {
-                        name = Some(self.get_node_text(cap.node, offset));
+                        name = Some(self.get_node_text(cap.node, offset).into());
                     } else if cap_name == "symbol.container"
                         && cap.node.kind() == "operation_definition"
                     {
@@ -695,21 +695,21 @@ impl DocumentState {
                         if let Some(op_type_node) =
                             self.find_child_by_kind(cap.node, "operation_type")
                         {
-                            op_type = self.get_node_text(op_type_node, offset);
+                            op_type = self.get_node_text(op_type_node, offset).into();
                         }
                     }
                 }
 
                 if is_operation {
                     let source_text = if let Some(n) = full_node {
-                        self.get_node_text(n, offset)
+                        self.get_node_text(n, offset).into()
                     } else {
                         block
                             .tree
                             .root_node()
                             .utf8_text(b"")
                             .unwrap_or("")
-                            .to_string()
+                            .into()
                     };
 
                     operations.push(OperationDef {
@@ -841,9 +841,9 @@ impl DocumentState {
         self.fragment_spreads = self.extract_fragment_spreads();
 
         self.masked_source = if self.language.is_host_language() {
-            mask_interpolations(&self.rope.to_string())
+            mask_interpolations(&self.rope.to_string()).into()
         } else {
-            self.rope.to_string()
+            self.rope.to_string().into()
         };
     }
 

@@ -79,8 +79,8 @@ fn test_diagnostics_update_on_fragment_change() {
 
     // 2. Fragment provided (simulating it being found in another file)
     let fragments = vec![FragmentCompletionInfo {
-        name: "UserFrag".to_string(),
-        type_condition: "User".to_string(),
+        name: "UserFrag".into(),
+        type_condition: "User".into(),
         description: None,
         import_path: None,
         is_public: false,
@@ -101,8 +101,8 @@ fn test_diagnostics_update_on_fragment_change() {
 
     // 3. Fragment renamed (simulating rename in another file)
     let fragments = vec![FragmentCompletionInfo {
-        name: "UserFragRenamed".to_string(),
-        type_condition: "User".to_string(),
+        name: "UserFragRenamed".into(),
+        type_condition: "User".into(),
         description: None,
         import_path: None,
         is_public: false,

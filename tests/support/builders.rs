@@ -210,8 +210,8 @@ impl FragmentInfoBuilder {
     /// Build the FragmentCompletionInfo object.
     pub fn build(self) -> FragmentCompletionInfo {
         FragmentCompletionInfo {
-            name: self.name,
-            type_condition: self.type_condition,
+            name: self.name.into(),
+            type_condition: self.type_condition.into(),
             description: None,
             import_path: None,
             is_public: self.is_public,

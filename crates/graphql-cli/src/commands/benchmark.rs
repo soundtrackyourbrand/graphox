@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use ahash::AHashMap as HashMap;
 use colored::*;
 use graphql_codegen as codegen;
@@ -16,14 +17,14 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let global_metadata = &workspace_metadata.fragments;
     let scan_timings = &workspace_metadata.timings;
 
-    let mut fragment_to_path_global: HashMap<String, String> = HashMap::default();
+    let mut fragment_to_path_global: HashMap<Arc<str>, Arc<str>> = HashMap::default();
     for meta in global_metadata {
         fragment_to_path_global.insert(meta.name.clone(), meta.path.clone());
     }
 
     let all_graphql_paths: Vec<_> = global_metadata
         .iter()
-        .map(|m| PathBuf::from(&m.path))
+        .map(|m| PathBuf::from(m.path.as_ref()))
         .collect();
     let _ = all_graphql_paths;
 

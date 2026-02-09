@@ -14,18 +14,20 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use std::sync::Arc;
+
 pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
-    pub fragment_to_path: &'a HashMap<String, String>,
-    pub fragment_to_import: &'a HashMap<String, String>,
-    pub fragment_to_type_only: &'a HashMap<String, bool>,
+    pub fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
+    pub fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
+    pub fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
     pub all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
     pub generate_ast_for_fragments: bool,
     /// Cached fragment dependencies from workspace scan
-    pub fragment_dependencies: &'a HashMap<String, Vec<String>>,
+    pub fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
     /// Shared cache for type conversions across all files in a project (thread-safe)
     type_cache: &'a TypeCache,
     pub document_suffix: &'a str,
@@ -89,15 +91,15 @@ impl<'a> CodegenContext<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         schema: &'a apollo_compiler::validation::Valid<Schema>,
-        fragment_to_path: &'a HashMap<String, String>,
-        fragment_to_import: &'a HashMap<String, String>,
-        fragment_to_type_only: &'a HashMap<String, bool>,
+        fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
+        fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
+        fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
         all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
         current_file_path: &'a Path,
         scalars: &'a Option<HashMap<String, String>>,
         schema_import: &'a Option<String>,
         generate_ast_for_fragments: bool,
-        fragment_dependencies: &'a HashMap<String, Vec<String>>,
+        fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
         type_cache: &'a TypeCache,
         document_suffix: &'a str,
         variables_suffix: &'a str,
@@ -280,12 +282,12 @@ pub fn generate_typescript_with_profile(
                 for dep in deps_list {
                     let is_type_only =
                         ctx.fragment_to_type_only
-                            .get(&dep)
+                            .get(dep.as_ref())
                             .copied()
                             .unwrap_or_else(|| {
                                 doc.fragments()
                                     .iter()
-                                    .find(|f| f.name == dep)
+                                    .find(|f| f.name.as_ref() == dep.as_ref())
                                     .map(|f| f.is_type_only)
                                     .unwrap_or(false)
                             });
@@ -368,7 +370,7 @@ pub fn generate_typescript_with_profile(
                 let is_type_only = doc
                     .fragments()
                     .iter()
-                    .find(|f| f.name == frag.name.as_str())
+                    .find(|f| f.name.as_ref() == frag.name.as_str())
                     .map(|f| f.is_type_only)
                     .unwrap_or(false);
 
@@ -391,12 +393,12 @@ pub fn generate_typescript_with_profile(
                     for dep in deps_list {
                         let is_dep_type_only = ctx
                             .fragment_to_type_only
-                            .get(&dep)
+                            .get(dep.as_ref())
                             .copied()
                             .unwrap_or_else(|| {
                                 doc.fragments()
                                     .iter()
-                                    .find(|f| f.name == dep)
+                                    .find(|f| f.name.as_ref() == dep.as_ref())
                                     .map(|f| f.is_type_only)
                                     .unwrap_or(false)
                             });
@@ -439,22 +441,22 @@ pub fn generate_typescript_with_profile(
     used_frag_names.sort_unstable();
 
     // Use BTreeMap to keep imports sorted, avoiding need to sort later
-    let mut imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut imports: BTreeMap<Arc<str>, Vec<Arc<str>>> = BTreeMap::new();
     let current_path = doc.uri.path();
     for frag_name in used_frag_names {
-        if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name) {
+        if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name[..]) {
             imports
                 .entry(import_alias.clone())
                 .or_default()
-                .push(frag_name);
-        } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name) {
+                .push(frag_name.clone().into());
+        } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name[..]) {
             // fragment_to_path contains absolute paths as strings.
             // doc.uri.path() is also absolute.
-            if other_path != current_path {
+            if other_path.as_ref() != current_path {
                 imports
                     .entry(other_path.clone())
                     .or_default()
-                    .push(frag_name);
+                    .push(frag_name.clone().into());
             }
         } else {
             return Err(format!(
@@ -497,11 +499,11 @@ pub fn generate_typescript_with_profile(
     for (path, names) in &imports {
         let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
             // It's an alias
-            path.clone()
+            path.to_string()
         } else {
             // It's a file path, need to relativize
-            let rel_path = pathdiff::diff_paths(path, current_file_parent)
-                .unwrap_or_else(|| Path::new(&path).to_path_buf());
+            let rel_path = pathdiff::diff_paths(path.as_ref(), current_file_parent)
+                .unwrap_or_else(|| Path::new(path.as_ref()).to_path_buf());
             let mut path_str = rel_path.to_string_lossy().to_string();
             if !path_str.starts_with('.') {
                 path_str.insert_str(0, "./");
@@ -535,12 +537,12 @@ pub fn generate_typescript_with_profile(
             for name in names {
                 let is_type_only =
                     ctx.fragment_to_type_only
-                        .get(name)
+                        .get(&name[..])
                         .copied()
                         .unwrap_or_else(|| {
                             doc.fragments()
                                 .iter()
-                                .find(|f| &f.name == name)
+                                .find(|f| f.name.as_ref() == name.as_ref())
                                 .map(|f| f.is_type_only)
                                 .unwrap_or(false)
                         });
@@ -1403,7 +1405,7 @@ fn get_operation_deps_cached(
     operation: &executable::Operation,
     ctx: &CodegenContext,
     doc: &DocumentState,
-) -> HashSet<String> {
+) -> HashSet<Arc<str>> {
     let mut all_deps = HashSet::default();
 
     // Collect direct fragment spreads from the operation (single pass)
@@ -1411,22 +1413,22 @@ fn get_operation_deps_cached(
 
     // Pre-allocate for transitive deps to reduce reallocations
     let initial_size = all_deps.len();
-    let mut transitive_deps: HashSet<String> =
+    let mut transitive_deps: HashSet<Arc<str>> =
         HashSet::with_capacity_and_hasher(initial_size * 2, Default::default());
 
     // For each direct dependency, add its transitive dependencies from cache
     for frag_name in &all_deps {
-        if let Some(cached_transitive) = ctx.fragment_dependencies.get(frag_name) {
+        if let Some(cached_transitive) = ctx.fragment_dependencies.get(&frag_name[..]) {
             // Use cached transitive dependencies - avoid cloning
-            transitive_deps.extend(cached_transitive.iter().map(|s| s.as_str().to_string()));
+            transitive_deps.extend(cached_transitive.iter().cloned());
         } else {
             // Fallback: compute manually (only for fragments defined in current file)
-            if let Some(local_frag) = doc.fragments().iter().find(|f| &f.name == frag_name) {
+            if let Some(local_frag) = doc.fragments().iter().find(|f| f.name.as_ref() == frag_name.as_ref()) {
                 // This fragment is local, compute its deps on the fly
-                if let Some(parsed_frag) = ctx.all_fragments.get(&local_frag.name) {
+                if let Some(parsed_frag) = ctx.all_fragments.get(local_frag.name.as_ref()) {
                     let frag_deps =
                         get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
-                    transitive_deps.extend(frag_deps);
+                    transitive_deps.extend(frag_deps.into_iter().map(|s| s.into()));
                 }
             }
         }
@@ -1438,7 +1440,7 @@ fn get_operation_deps_cached(
 }
 
 /// Get fragment dependencies using cache
-fn get_fragment_deps_cached(fragment_name: &str, ctx: &CodegenContext) -> HashSet<String> {
+fn get_fragment_deps_cached(fragment_name: &str, ctx: &CodegenContext) -> HashSet<Arc<str>> {
     if let Some(cached_deps) = ctx.fragment_dependencies.get(fragment_name) {
         // Use cached dependencies
         cached_deps.iter().cloned().collect()
@@ -1451,7 +1453,7 @@ fn get_fragment_deps_cached(fragment_name: &str, ctx: &CodegenContext) -> HashSe
 /// Collect direct fragment spreads from a selection set (non-recursive)
 fn collect_direct_fragment_spreads(
     selection_set: &executable::SelectionSet,
-    spreads: &mut HashSet<String>,
+    spreads: &mut HashSet<Arc<str>>,
 ) {
     for selection in &selection_set.selections {
         match selection {
@@ -1462,7 +1464,7 @@ fn collect_direct_fragment_spreads(
                 collect_direct_fragment_spreads(&inline.selection_set, spreads);
             }
             Selection::FragmentSpread(spread) => {
-                spreads.insert(spread.fragment_name.as_str().to_string());
+                spreads.insert(spread.fragment_name.as_str().into());
             }
         }
     }

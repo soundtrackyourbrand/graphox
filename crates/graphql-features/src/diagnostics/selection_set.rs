@@ -1,4 +1,5 @@
 use super::ValidationContext;
+use std::sync::Arc;
 use apollo_compiler::schema::ExtendedType;
 use graphql_core::document::DocumentState;
 use lsp_types::*;
@@ -11,6 +12,7 @@ pub(super) fn validate_selection_set(
     parent_type: &ExtendedType,
     ctx: &mut ValidationContext,
     depth: usize,
+    parent_response_key: Option<&str>,
 ) {
     if depth > 100 {
         return;
@@ -24,7 +26,7 @@ pub(super) fn validate_selection_set(
             for inner in child.children(&mut inner_cursor) {
                 let k = inner.kind();
                 if k == "field" {
-                    validate_field(this, inner, offset, parent_type, ctx, depth + 1);
+                    validate_field(this, inner, offset, parent_type, ctx, depth + 1, parent_response_key);
                 } else if k == "inline_fragment" {
                     crate::diagnostics::fragments::validate_inline_fragment(
                         this,
@@ -33,6 +35,7 @@ pub(super) fn validate_selection_set(
                         parent_type,
                         ctx,
                         depth + 1,
+                        parent_response_key,
                     );
                 } else if k == "fragment_spread" {
                     crate::diagnostics::fragments::validate_fragment_spread(
@@ -41,7 +44,7 @@ pub(super) fn validate_selection_set(
                 }
             }
         } else if kind == "field" {
-            validate_field(this, child, offset, parent_type, ctx, depth + 1);
+            validate_field(this, child, offset, parent_type, ctx, depth + 1, parent_response_key);
         } else if kind == "fragment_spread" {
             crate::diagnostics::fragments::validate_fragment_spread(this, child, offset, ctx);
         } else if kind == "inline_fragment" {
@@ -52,6 +55,7 @@ pub(super) fn validate_selection_set(
                 parent_type,
                 ctx,
                 depth + 1,
+                parent_response_key,
             );
         }
     }
@@ -64,6 +68,7 @@ pub(super) fn validate_field(
     parent_type: &ExtendedType,
     ctx: &mut ValidationContext,
     depth: usize,
+    parent_response_key: Option<&str>,
 ) {
     if depth > 100 {
         return;
@@ -237,9 +242,27 @@ pub(super) fn validate_field(
             }
         }
 
-        // Track selected response key if we're in an operation
-        if ctx.is_operation && depth == 1 {
-            ctx.selected_fields.insert(response_key.clone());
+        // Track selected field for required fields validation
+        // Fields are tracked by response key (alias or field name)
+        if ctx.is_operation {
+            if let Some(rk) = parent_response_key {
+                // Track field under parent response key (for nested fields)
+                ctx.response_key_selected_fields
+                    .entry(rk.to_string().into())
+                    .or_insert_with(ahash::AHashSet::new)
+                    .insert(actual_field_name.clone().into());
+            } else if depth == 1 {
+                // Root-level field - track under its own key AND a special empty key for root
+                ctx.response_key_selected_fields
+                    .entry(Arc::from(""))
+                    .or_insert_with(ahash::AHashSet::new)
+                    .insert(actual_field_name.clone().into());
+
+                ctx.response_key_selected_fields
+                    .entry(response_key.clone().into())
+                    .or_insert_with(ahash::AHashSet::new)
+                    .insert(actual_field_name.clone().into());
+            }
         }
 
         if actual_field_name == "__typename" {
@@ -287,7 +310,13 @@ pub(super) fn validate_field(
             if let Some(sel_set) = selection_set_node {
                 let field_type_name = field_def.ty.inner_named_type();
                 if let Some(field_type_def) = ctx.schema.types.get(field_type_name.as_str()) {
-                    validate_selection_set(this, sel_set, offset, field_type_def, ctx, depth + 1);
+                    // Use this field's response key as parent for nested fields
+                    let new_parent_rk = if ctx.is_operation {
+                        Some(response_key.as_str())
+                    } else {
+                        parent_response_key
+                    };
+                    validate_selection_set(this, sel_set, offset, field_type_def, ctx, depth + 1, new_parent_rk);
                 }
             }
         } else {
