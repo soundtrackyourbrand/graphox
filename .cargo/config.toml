@@ -1,5 +1,6 @@
-[build]
-rustflags = ["-Zthreads=8"]
+# Only works in nightly
+# [build]
+# rustflags = ["-Zthreads=8"]
 
 [target.aarch64-apple-darwin]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
