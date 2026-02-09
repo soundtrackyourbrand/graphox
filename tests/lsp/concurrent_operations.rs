@@ -791,3 +791,504 @@ async fn test_high_volume_concurrent_requests() {
     );
     assert_eq!(success_count, request_count, "All requests should succeed");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn test_concurrent_100_hover_requests() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let large_schema = r#"
+        type Query {
+            users: [User!]!
+            user(id: ID!): User
+            posts: [Post!]!
+            post(id: ID!): Post
+            comments: [Comment!]!
+            items: [Item!]!
+        }
+
+        type User {
+            id: ID!
+            username: String!
+            email: String!
+            posts: [Post!]!
+            comments: [Comment!]!
+        }
+
+        type Post {
+            id: ID!
+            title: String!
+            content: String!
+            author: User!
+            comments: [Comment!]!
+        }
+
+        type Comment {
+            id: ID!
+            text: String!
+            author: User!
+            post: Post!
+        }
+
+        type Item {
+            id: ID!
+            name: String!
+            value: String!
+        }
+    "#;
+
+    let uri = write_project_file_at(dir.path(), "schema.graphql", large_schema);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, large_schema).await;
+
+    let mut uris = Vec::new();
+    for i in 0..100 {
+        let query_text = r#"
+            query GetData {
+                users {
+                    id
+                    username
+                    email
+                }
+                posts {
+                    id
+                    title
+                }
+            }
+            "#
+        .to_string();
+        let query_uri =
+            write_project_file_at(dir.path(), &format!("query_{}.graphql", i), &query_text);
+        lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
+        uris.push(query_uri);
+    }
+
+    sleep(Duration::from_millis(50)).await;
+
+    let service_arc = std::sync::Arc::new(tokio::sync::Mutex::new(service));
+    let start = std::time::Instant::now();
+
+    let futures: Vec<_> = uris
+        .iter()
+        .map(|uri| {
+            let service = std::sync::Arc::clone(&service_arc);
+            let uri = uri.clone();
+            tokio::spawn(async move {
+                let mut svc = service.lock().await;
+                let params = HoverParams {
+                    text_document_position_params: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier { uri },
+                        position: pos(4, 20),
+                    },
+                    work_done_progress_params: Default::default(),
+                };
+                lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
+                    .await;
+                Ok::<(), tower_lsp::jsonrpc::Error>(())
+            })
+        })
+        .collect();
+
+    let results: Vec<Result<Result<(), tower_lsp::jsonrpc::Error>, _>> =
+        futures_util::future::join_all(futures).await;
+    let duration = start.elapsed();
+
+    let success_count = results
+        .iter()
+        .filter(|r| r.as_ref().is_ok_and(|r| r.is_ok()))
+        .count();
+    println!("100 concurrent hover requests completed in {:?}", duration);
+    println!("Success: {}/100", success_count);
+
+    assert!(
+        duration < std::time::Duration::from_secs(30),
+        "100 hover requests took too long: {:?}",
+        duration
+    );
+    assert_eq!(success_count, 100, "All 100 hover requests should succeed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn test_concurrent_mixed_large() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let mut all_uris = Vec::new();
+    let file_count = 50;
+
+    for i in 0..file_count {
+        let text = format!(
+            r#"
+            fragment UserFields{} on User {{
+                id
+                username
+                email
+            }}
+
+            fragment PostFields{} on Post {{
+                id
+                title
+                content
+                author {{
+                    id
+                    username
+                }}
+            }}
+
+            query GetPosts{} {{
+                posts {{
+                    ...PostFields{}
+                    ...UserFields{}
+                }}
+                users {{
+                    ...UserFields{}
+                }}
+            }}
+            "#,
+            i, i, i, i, i, i
+        );
+        let uri = write_project_file_at(dir.path(), &format!("file_{}.graphql", i), &text);
+        lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+        all_uris.push((uri, text));
+    }
+
+    sleep(Duration::from_millis(100)).await;
+
+    let service_arc = std::sync::Arc::new(tokio::sync::Mutex::new(service));
+    let mut tasks = Vec::new();
+    let request_count = 200;
+
+    println!(
+        "Executing {} concurrent mixed operations across {} files",
+        request_count, file_count
+    );
+
+    for i in 0..request_count {
+        let (uri, _) = &all_uris[i % file_count];
+        let service = std::sync::Arc::clone(&service_arc);
+        let uri = uri.clone();
+
+        let operation_type = i % 5;
+        let task = tokio::spawn(async move {
+            let mut svc = service.lock().await;
+            match operation_type {
+                0 => {
+                    let params = HoverParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier { uri },
+                            position: pos(3, 20),
+                        },
+                        work_done_progress_params: Default::default(),
+                    };
+                    lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
+                        .await;
+                }
+                1 => {
+                    let params = CompletionParams {
+                        text_document_position: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier { uri },
+                            position: pos(3, 20),
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                        context: None,
+                    };
+                    lsp_request_typed::<CompletionResponse, _>(
+                        &mut svc,
+                        "textDocument/completion",
+                        &params,
+                    )
+                    .await;
+                }
+                2 => {
+                    let params = ReferenceParams {
+                        text_document_position: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier { uri },
+                            position: pos(2, 25),
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                        context: ReferenceContext {
+                            include_declaration: true,
+                        },
+                    };
+                    lsp_request_typed::<Option<Vec<Location>>, _>(
+                        &mut svc,
+                        "textDocument/references",
+                        &params,
+                    )
+                    .await;
+                }
+                3 => {
+                    let params = GotoDefinitionParams {
+                        text_document_position_params: TextDocumentPositionParams {
+                            text_document: TextDocumentIdentifier { uri },
+                            position: pos(12, 25),
+                        },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    };
+                    lsp_request_typed::<Option<GotoDefinitionResponse>, _>(
+                        &mut svc,
+                        "textDocument/definition",
+                        &params,
+                    )
+                    .await;
+                }
+                _ => {
+                    let params = DocumentSymbolParams {
+                        text_document: TextDocumentIdentifier { uri },
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    };
+                    lsp_request_typed::<Option<DocumentSymbolResponse>, _>(
+                        &mut svc,
+                        "textDocument/documentSymbol",
+                        &params,
+                    )
+                    .await;
+                }
+            }
+            Ok::<(), tower_lsp::jsonrpc::Error>(())
+        });
+        tasks.push(task);
+    }
+
+    let start = std::time::Instant::now();
+    let mut success_count = 0;
+    let mut error_count = 0;
+
+    for task in tasks {
+        match task.await.unwrap() {
+            Ok(_) => success_count += 1,
+            Err(e) => {
+                error_count += 1;
+                eprintln!("Request failed: {:?}", e);
+            }
+        }
+    }
+
+    let elapsed = start.elapsed();
+    println!(
+        "Completed {} mixed operations in {:?} ({} successful, {} errors)",
+        request_count, elapsed, success_count, error_count
+    );
+    println!(
+        "Average: {:?} per request",
+        elapsed / (request_count as u32)
+    );
+
+    assert!(
+        error_count == 0,
+        "No requests should fail due to lock contention or race conditions"
+    );
+    assert_eq!(success_count, request_count, "All requests should succeed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn test_concurrent_document_changes_rapid() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let initial_text = r#"
+        fragment UserFields on User {
+            id
+            username
+            email
+        }
+
+        query GetData {
+            users {
+                ...UserFields
+            }
+        }
+    "#;
+    let uri = write_project_file_at(dir.path(), "test.graphql", initial_text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, initial_text).await;
+
+    sleep(Duration::from_millis(20)).await;
+
+    let service_arc = std::sync::Arc::new(tokio::sync::Mutex::new(service));
+    let mut tasks = Vec::new();
+    let change_count = 50;
+
+    for i in 0..change_count {
+        let service = std::sync::Arc::clone(&service_arc);
+        let uri = uri.clone();
+
+        let task = tokio::spawn(async move {
+            let mut svc = service.lock().await;
+
+            let version = i + 2;
+            let new_text = format!(
+                r#"
+                fragment UserFields on User {{
+                    id
+                    username
+                    email
+                    posts{} {{
+                        id
+                        title
+                    }}
+                }}
+
+                query GetData {{
+                    users {{
+                        ...UserFields
+                    }}
+                }}
+                "#,
+                i
+            );
+
+            let change_params = DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: new_text.clone(),
+                }],
+            };
+
+            svc.call(
+                tower_lsp::jsonrpc::Request::build("textDocument/didChange")
+                    .params(serde_json::to_value(&change_params).unwrap())
+                    .finish(),
+            )
+            .await
+        });
+        tasks.push(task);
+    }
+
+    let start = std::time::Instant::now();
+
+    for task in tasks {
+        task.await.unwrap().unwrap();
+    }
+
+    let elapsed = start.elapsed();
+    println!(
+        "Completed {} rapid document changes in {:?}",
+        change_count, elapsed
+    );
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "Rapid document changes took too long: {:?}",
+        elapsed
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn test_concurrent_cache_access() {
+    let dir = tempdir().unwrap();
+    let config = create_test_config(dir.path());
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_text = r#"
+        type Query {
+            users: [User!]!
+            posts: [Post!]!
+            comments: [Comment!]!
+        }
+
+        type User {
+            id: ID!
+            username: String!
+            email: String!
+        }
+
+        type Post {
+            id: ID!
+            title: String!
+            content: String!
+            author: User!
+        }
+
+        type Comment {
+            id: ID!
+            text: String!
+            post: Post!
+            author: User!
+        }
+    "#;
+    let schema_uri = write_project_file_at(dir.path(), "schema.graphql", schema_text);
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
+
+    for i in 0..30 {
+        let query_text = format!(
+            r#"
+            query GetData{} {{
+                users {{
+                    id
+                    username
+                    posts {{
+                        id
+                        title
+                    }}
+                }}
+            }}
+            "#,
+            i
+        );
+        let uri = write_project_file_at(dir.path(), &format!("query_{}.graphql", i), &query_text);
+        lsp_did_open(&mut service, uri.clone(), "graphql", 1, &query_text).await;
+    }
+
+    sleep(Duration::from_millis(50)).await;
+
+    let service_arc = std::sync::Arc::new(tokio::sync::Mutex::new(service));
+    let mut tasks = Vec::new();
+    let request_count = 100;
+
+    for _ in 0..request_count {
+        let service = std::sync::Arc::clone(&service_arc);
+        let uri = schema_uri.clone();
+
+        let task = tokio::spawn(async move {
+            let mut svc = service.lock().await;
+
+            let params = HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: pos(3, 20),
+                },
+                work_done_progress_params: Default::default(),
+            };
+
+            lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
+            Ok::<(), tower_lsp::jsonrpc::Error>(())
+        });
+        tasks.push(task);
+    }
+
+    let start = std::time::Instant::now();
+    let results: Vec<Result<Result<(), tower_lsp::jsonrpc::Error>, _>> =
+        futures_util::future::join_all(tasks).await;
+    let elapsed = start.elapsed();
+
+    let success_count = results
+        .iter()
+        .filter(|r| r.as_ref().is_ok_and(|r| r.is_ok()))
+        .count();
+    println!(
+        "{} concurrent cache accesses completed in {:?}",
+        request_count, elapsed
+    );
+    println!("Success: {}/{}", success_count, request_count);
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "Concurrent cache accesses took too long: {:?}",
+        elapsed
+    );
+    assert_eq!(
+        success_count, request_count,
+        "All cache accesses should succeed"
+    );
+}

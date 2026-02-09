@@ -871,3 +871,78 @@ pub async fn lsp_request_diagnostics(
 
 // Convenience wrapper around `LspService::new` was intentionally removed —
 // call `LspService::new(|client| Backend::new(client, config))` inline in tests.
+
+// =============================================================================
+// Performance Test Helpers
+// =============================================================================
+
+/// Measure current memory usage in bytes (platform-specific).
+pub fn measure_memory_usage() -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::getrusage(libc::RUSAGE_SELF, &mut info);
+        }
+        info.ru_maxrss as usize
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut info: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::getrusage(libc::RUSAGE_SELF, &mut info);
+        }
+        info.ru_maxrss as usize
+    }
+    #[cfg(target_os = "windows")]
+    {
+        0
+    }
+}
+
+/// Time a closure and return (duration, result).
+pub fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
+    let start = std::time::Instant::now();
+    let result = f();
+    (start.elapsed(), result)
+}
+
+/// Create a large schema with N types.
+pub fn create_large_schema(num_types: usize) -> String {
+    let mut schema = String::from("type Query { ");
+    for i in 0..num_types {
+        schema.push_str(&format!("item{}: Item{} ", i, i));
+    }
+    schema.push_str("}\n");
+
+    for i in 0..num_types {
+        schema.push_str(&format!("type Item{} {{ id: ID! name: String }}\n", i));
+    }
+    schema
+}
+
+/// Create N fragment definitions.
+pub fn create_many_fragments(num_fragments: usize) -> String {
+    let mut fragments = String::new();
+    for i in 0..num_fragments {
+        fragments.push_str(&format!(
+            "fragment Frag{} on Query {{ item{} {{ id }} }}\n",
+            i,
+            i % 100
+        ));
+    }
+    fragments
+}
+
+/// Create a deep fragment chain (N levels deep).
+pub fn create_deep_fragment_chain(depth: usize) -> String {
+    let mut result = String::new();
+    for i in 0..depth {
+        result.push_str(&format!("fragment Frag{} on Query {{ ", i));
+    }
+    result.push_str("id\n");
+    for i in (0..depth).rev() {
+        result.push_str(&format!("}} ...Frag{}\n", i));
+    }
+    result
+}

@@ -1,5 +1,6 @@
 // Test to verify that the two-tier schema cache is working correctly
 
+use apollo_compiler::schema::ExtendedType;
 use graphql_rust::schema;
 use graphql_rust::{config::SchemaSource, schema_cache};
 use std::time::Instant;
@@ -139,6 +140,104 @@ fn test_cache_invalidation_on_file_change() {
     assert!(
         !std::sync::Arc::ptr_eq(&schema1, &schema2),
         "Cache should be invalidated when file changes"
+    );
+
+    let _ = schema_cache::clear_cache();
+}
+
+#[test]
+#[ntest::timeout(500)]
+fn test_cache_corruption_handling() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+
+    std::fs::write(&schema_path, "type Query { hello: String }").unwrap();
+    let source = SchemaSource::Single("schema.graphql".to_string());
+
+    let _ = schema_cache::clear_cache();
+
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let query1 = schema1.types.get("Query");
+    assert_eq!(
+        query1
+            .map(|t| {
+                match t {
+                    ExtendedType::Object(obj) => obj.fields.len(),
+                    ExtendedType::Interface(iface) => iface.fields.len(),
+                    _ => 0,
+                }
+            })
+            .unwrap_or(0),
+        1
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    std::fs::write(&schema_path, "type Query { hello: String world: String }").unwrap();
+
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let query2 = schema2.types.get("Query");
+    assert_eq!(
+        query2
+            .map(|t| {
+                match t {
+                    ExtendedType::Object(obj) => obj.fields.len(),
+                    ExtendedType::Interface(iface) => iface.fields.len(),
+                    _ => 0,
+                }
+            })
+            .unwrap_or(0),
+        2
+    );
+
+    assert!(
+        !std::sync::Arc::ptr_eq(&schema1, &schema2),
+        "Cache should be invalidated and return new schema"
+    );
+
+    let _ = schema_cache::clear_cache();
+}
+
+#[test]
+#[ntest::timeout(600)]
+fn test_cache_memory_pressure() {
+    let dir = tempdir().unwrap();
+    let schema_path = dir.path().join("schema.graphql");
+
+    let large_schema = (0..500)
+        .map(|i| format!("type Item{} {{ id: ID! name{}: String! }}", i, i))
+        .chain(std::iter::once("type Query {".to_string()))
+        .chain((0..500).map(|i| format!("    item{}: Item{}", i, i)))
+        .chain(std::iter::once("}".to_string()))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    std::fs::write(&schema_path, &large_schema).unwrap();
+    let source = SchemaSource::Single("schema.graphql".to_string());
+
+    let _ = schema_cache::clear_cache();
+
+    let start = std::time::Instant::now();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let first_load = start.elapsed();
+
+    let start = std::time::Instant::now();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let cached_load = start.elapsed();
+
+    println!("Large schema first load: {:?}", first_load);
+    println!("Large schema cached load: {:?}", cached_load);
+
+    assert!(
+        cached_load < first_load / 5,
+        "Cached load should be significantly faster. First: {:?}, Cached: {:?}",
+        first_load,
+        cached_load
+    );
+
+    assert!(
+        std::sync::Arc::ptr_eq(&schema1, &schema2),
+        "Cached schema should return same Arc"
     );
 
     let _ = schema_cache::clear_cache();

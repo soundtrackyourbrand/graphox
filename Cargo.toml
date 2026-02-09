@@ -87,6 +87,7 @@ sonic-rs = { workspace = true }
 criterion = { workspace = true, optional = true }
 
 [dev-dependencies]
+libc = "0.2"
 ntest = "0.9"
 tempfile = "3.24.0"
 tower-service = "0.3.3"

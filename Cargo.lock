@@ -1199,6 +1199,7 @@ dependencies = [
  "graphql-features",
  "graphql-lsp",
  "ignore",
+ "libc",
  "log",
  "ntest",
  "once_cell",
