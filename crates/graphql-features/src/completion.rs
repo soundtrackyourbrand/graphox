@@ -1779,7 +1779,7 @@ impl DocumentCompletion for DocumentState {
                 start: start_pos,
                 end: end_pos,
             },
-            new_text: snippet.replace("$0", ""),
+            new_text: snippet.clone(),
         };
 
         Some((snippet, InsertTextFormat::SNIPPET, text_edit))

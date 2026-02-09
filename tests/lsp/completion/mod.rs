@@ -1,9 +1,9 @@
-pub mod fields;
 pub mod arguments;
-pub mod variables;
-pub mod fragments;
 pub mod directives;
-pub mod introspection;
+pub mod fields;
 pub mod filtering;
-pub mod tsx;
+pub mod fragments;
+pub mod introspection;
 pub mod triggers;
+pub mod tsx;
+pub mod variables;

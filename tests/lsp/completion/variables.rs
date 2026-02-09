@@ -1,4 +1,3 @@
-use tower_lsp::lsp_types::*;
 
 use crate::support::{
     completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,

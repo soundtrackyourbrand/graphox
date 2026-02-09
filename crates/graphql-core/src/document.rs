@@ -1307,7 +1307,9 @@ impl DocumentState {
                     .descendant_for_byte_range(local_byte.saturating_sub(1), local_byte)
                 {
                     // Check if we are inside a selection set
-                    if let Some(selection_set) = self.find_ancestor_by_kind(current, "selection_set") {
+                    if let Some(selection_set) =
+                        self.find_ancestor_by_kind(current, "selection_set")
+                    {
                         if let Some(parent_type) =
                             self.find_parent_type_for_node(selection_set, block.offset, schema)
                         {
