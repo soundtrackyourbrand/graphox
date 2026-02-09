@@ -362,6 +362,7 @@ async fn execute_codegen(
                 cfg.document_suffix(),
                 cfg.variables_suffix(),
             );
+            std::fs::create_dir_all(&out_dir_path).ok();
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
                 success = false;
@@ -399,6 +400,7 @@ async fn execute_codegen(
                 .collect();
 
             let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();
+            std::fs::create_dir_all(&out_dir_path).ok();
             if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
                 eprintln!("{}: {}", "Failed to write manifest".red(), e);
                 success = false;

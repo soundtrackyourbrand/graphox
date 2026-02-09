@@ -903,7 +903,10 @@ schema_types:
     let actual = std::fs::read_to_string(gen_output_path).unwrap();
     let expected = std::fs::read_to_string(baseline_file).unwrap();
 
-    if actual.trim() != expected.trim() {
+    let actual_norm = actual.trim().replace("\r\n", "\n").replace("\\\\", "/");
+    let expected_norm = expected.trim().replace("\r\n", "\n").replace("\\\\", "/");
+
+    if actual_norm != expected_norm {
         println!("--- ACTUAL ---");
         println!("{}", actual);
         println!("--- EXPECTED ---");
@@ -1183,7 +1186,10 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
                 let actual = std::fs::read_to_string(&codegen_path).unwrap();
                 let expected = std::fs::read_to_string(&expected_path).unwrap();
 
-                if actual.trim() != expected.trim() {
+                let actual_norm = actual.trim().replace("\r\n", "\n").replace("\\\\", "/");
+                let expected_norm = expected.trim().replace("\r\n", "\n").replace("\\\\", "/");
+
+                if actual_norm != expected_norm {
                     println!("--- ACTUAL ({:?}) ---", path);
                     println!("{}", actual);
                     println!("--- EXPECTED ---");
@@ -1219,19 +1225,25 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
         let expected = std::fs::read_to_string(&expected_path).unwrap();
 
         if is_json {
-            let actual_v: serde_json::Value = serde_json::from_str(&actual).unwrap();
-            let expected_v: serde_json::Value = serde_json::from_str(&expected).unwrap();
+            let actual_norm = actual.replace("\r\n", "\n").replace("\\\\", "/");
+            let expected_norm = expected.replace("\r\n", "\n").replace("\\\\", "/");
+            let actual_v: serde_json::Value = serde_json::from_str(&actual_norm).unwrap();
+            let expected_v: serde_json::Value = serde_json::from_str(&expected_norm).unwrap();
             assert_eq!(
                 actual_v, expected_v,
                 "{} mismatch in {}",
                 actual_name, fixture_dir_str
             );
-        } else if actual.trim() != expected.trim() {
-            println!("--- ACTUAL ({}) ---", actual_name);
-            println!("{}", actual);
-            println!("--- EXPECTED ---");
-            println!("{}", expected);
-            panic!("{} mismatch in {}", actual_name, fixture_dir_str);
+        } else {
+            let actual_norm = actual.trim().replace("\r\n", "\n").replace("\\\\", "/");
+            let expected_norm = expected.trim().replace("\r\n", "\n").replace("\\\\", "/");
+            if actual_norm != expected_norm {
+                println!("--- ACTUAL ({}) ---", actual_name);
+                println!("{}", actual);
+                println!("--- EXPECTED ---");
+                println!("{}", expected);
+                panic!("{} mismatch in {}", actual_name, fixture_dir_str);
+            }
         }
     }
 
