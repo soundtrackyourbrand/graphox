@@ -149,7 +149,6 @@ async fn test_aliased_field_hover() {
 }
 
 #[tokio::test]
-#[ignore] // Not implemented feature
 async fn test_alias_hover() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -162,10 +161,28 @@ async fn test_alias_hover() {
     let hover =
         crate::support::lsp_request_hover(&mut service, query_uri.clone(), cursor_pos).await;
 
-    assert!(
-        hover.is_some(),
-        "Hover should return information for aliased field"
-    );
+    assert!(hover.is_some(), "Hover should return information for alias");
+    let hover_content = hover.unwrap();
+    match hover_content.contents {
+        tower_lsp::lsp_types::HoverContents::Markup(markup) => {
+            assert!(
+                markup.value.contains("myAlias"),
+                "Hover content should contain alias name 'myAlias': {}",
+                markup.value
+            );
+            assert!(
+                markup.value.contains("alias"),
+                "Hover content should indicate this is an alias: {}",
+                markup.value
+            );
+            assert!(
+                markup.value.contains("id"),
+                "Hover content should contain the actual field name 'id': {}",
+                markup.value
+            );
+        }
+        _ => panic!("Expected Markup hover contents"),
+    }
 }
 
 #[tokio::test]

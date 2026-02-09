@@ -83,6 +83,7 @@ pub struct OperationDef {
 /// Components of a GraphQL field node.
 #[derive(Default)]
 pub struct FieldComponents<'a> {
+    pub alias: Option<Node<'a>>,
     pub name: Option<Node<'a>>,
     pub selection_set: Option<Node<'a>>,
     pub arguments: Option<Node<'a>>,
@@ -429,6 +430,7 @@ impl DocumentState {
 
         for child in field_node.children(&mut cursor) {
             match child.kind() {
+                "alias" => components.alias = Some(child),
                 "name" => components.name = Some(child),
                 "selection_set" => components.selection_set = Some(child),
                 "arguments" => components.arguments = Some(child),

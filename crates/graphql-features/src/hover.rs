@@ -108,6 +108,15 @@ pub trait DocumentHover {
     ) -> Option<String>;
     fn get_type_info_from_schema(&self, name: &str, schema: &Schema) -> Option<String>;
     fn find_description(&self, target_name: &str) -> Option<String>;
+    fn get_alias_name(&self, alias_node: Node, offset: usize) -> String;
+    fn extract_field_info_for_alias(
+        &self,
+        field_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        parent_type: &schema::ExtendedType,
+        schema: &Schema,
+    ) -> Option<(String, String, Option<String>)>;
 }
 
 impl DocumentHover for DocumentState {
@@ -450,6 +459,35 @@ impl DocumentHover for DocumentState {
 
         let components = self.extract_field_components(field_node);
 
+        if let Some(alias_node) = components.alias {
+            let alias_range = (alias_node.start_byte() + offset)..(alias_node.end_byte() + offset);
+            if cursor_offset >= alias_range.start && cursor_offset <= alias_range.end {
+                let alias_name = self.get_alias_name(alias_node, offset);
+                let field_info = self.extract_field_info_for_alias(
+                    field_node,
+                    offset,
+                    cursor_offset,
+                    parent_type,
+                    schema,
+                );
+                if let Some((field_name, field_type, field_desc)) = field_info {
+                    let hover_text = format!(
+                        "### alias `{}` → field `{}.{}`\n---\nType: `{}`\n",
+                        alias_name,
+                        parent_type.name(),
+                        field_name,
+                        field_type
+                    );
+                    if let Some(desc) = field_desc
+                        && !desc.trim().is_empty()
+                    {
+                        return Some(format!("{}{}", hover_text, desc));
+                    }
+                    return Some(hover_text);
+                }
+            }
+        }
+
         if let Some(name_node) = components.name {
             let field_name = self.get_node_text(name_node, offset);
             let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
@@ -462,6 +500,25 @@ impl DocumentHover for DocumentState {
 
             if let Some(field_def) = field_def {
                 if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                    let alias_name = components
+                        .alias
+                        .as_ref()
+                        .map(|a| self.get_alias_name(*a, offset));
+                    if let Some(alias) = alias_name {
+                        let hover_text = format!(
+                            "### field `{}.{}` (aliased as `{}`)\n---\nType: `{}`\n",
+                            parent_type.name(),
+                            field_name,
+                            alias,
+                            field_def.ty
+                        );
+                        if let Some(desc) = field_def.description.as_deref()
+                            && !desc.trim().is_empty()
+                        {
+                            return Some(format!("{}{}", hover_text, desc));
+                        }
+                        return Some(hover_text);
+                    }
                     return Some(describe_field_markdown(
                         parent_type.name(),
                         field_name.as_str(),
@@ -986,6 +1043,42 @@ impl DocumentHover for DocumentState {
                 {
                     return description.map(|d| d.trim_matches('"').to_string());
                 }
+            }
+        }
+        None
+    }
+
+    fn get_alias_name(&self, alias_node: Node, offset: usize) -> String {
+        let mut cursor = alias_node.walk();
+        for child in alias_node.children(&mut cursor) {
+            if child.kind() == "name" {
+                return self.get_node_text(child, offset);
+            }
+        }
+        self.get_node_text(alias_node, offset)
+    }
+
+    fn extract_field_info_for_alias(
+        &self,
+        field_node: Node,
+        offset: usize,
+        _cursor_offset: usize,
+        parent_type: &schema::ExtendedType,
+        _schema: &Schema,
+    ) -> Option<(String, String, Option<String>)> {
+        let components = self.extract_field_components(field_node);
+        if let Some(name_node) = components.name {
+            let field_name = self.get_node_text(name_node, offset);
+            let field_def = match parent_type {
+                schema::ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                schema::ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                _ => None,
+            };
+
+            if let Some(fd) = field_def {
+                let ty = fd.ty.to_string();
+                let desc = fd.description.as_ref().map(|d| d.to_string());
+                return Some((field_name, ty, desc));
             }
         }
         None
