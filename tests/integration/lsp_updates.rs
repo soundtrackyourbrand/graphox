@@ -6,7 +6,6 @@ use graphql_rust::{
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -112,7 +111,8 @@ async fn test_lsp_fragment_collisions() {
         .await;
     }
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Wait for all diagnostics to be received
+    let _ = support::wait_for_condition(|| received_diags.lock().unwrap().len() >= 6).await;
 
     let diags = received_diags.lock().unwrap();
 
@@ -226,7 +226,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Wait for initial diagnostics
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| !received_diags.lock().unwrap().is_empty()).await;
     {
         let diags = received_diags.lock().unwrap();
         assert!(
@@ -259,7 +259,15 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_send_notification(&mut service, "workspace/didChangeWatchedFiles", &params).await;
 
     // 6. Wait for diagnostics after schema change
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if diags.is_empty() {
+            return false;
+        }
+        let last = diags.last().unwrap();
+        !last["diagnostics"].as_array().unwrap().is_empty()
+    })
+    .await;
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -287,7 +295,15 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
 
     // 8. Verify diagnostics cleared
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if diags.is_empty() {
+            return false;
+        }
+        let last = diags.last().unwrap();
+        last["diagnostics"].as_array().unwrap().is_empty()
+    })
+    .await;
     {
         let diags = received_diags.lock().unwrap();
         let last = diags.last().unwrap();
@@ -363,7 +379,12 @@ async fn test_lsp_fragment_rename_same_project() {
     )
     .await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        diags.iter().any(|d| d["uri"] == query_uri.as_str())
+    })
+    .await;
+
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -392,7 +413,16 @@ async fn test_lsp_fragment_rename_same_project() {
     };
     lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if let Some(d) = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()) {
+            !d["diagnostics"].as_array().unwrap().is_empty()
+        } else {
+            false
+        }
+    })
+    .await;
+
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -428,7 +458,16 @@ async fn test_lsp_fragment_rename_same_project() {
     };
     lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if let Some(d) = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()) {
+            d["diagnostics"].as_array().unwrap().is_empty()
+        } else {
+            false
+        }
+    })
+    .await;
+
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -524,7 +563,12 @@ async fn test_lsp_fragment_rename_cross_project() {
     )
     .await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        diags.iter().any(|d| d["uri"] == query_uri.as_str())
+    })
+    .await;
+
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -553,7 +597,16 @@ async fn test_lsp_fragment_rename_cross_project() {
     };
     lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if let Some(d) = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()) {
+            !d["diagnostics"].as_array().unwrap().is_empty()
+        } else {
+            false
+        }
+    })
+    .await;
+
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags
@@ -589,7 +642,16 @@ async fn test_lsp_fragment_rename_cross_project() {
     };
     lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if let Some(d) = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()) {
+            d["diagnostics"].as_array().unwrap().is_empty()
+        } else {
+            false
+        }
+    })
+    .await;
+
     {
         let diags = received_diags.lock().unwrap();
         let query_diag = diags

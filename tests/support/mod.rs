@@ -634,6 +634,30 @@ pub fn range_for_token_at_index(
 
 // --- Assertion helpers -------------------------------------------------
 
+/// Wait for a condition to become true, polling at regular intervals.
+/// Default timeout is 2 seconds, with 10ms polling interval.
+pub async fn wait_for_condition<F>(condition: F) -> bool
+where
+    F: Fn() -> bool,
+{
+    wait_for_condition_with_timeout(condition, Duration::from_secs(2)).await
+}
+
+/// Wait for a condition to become true, with a custom timeout.
+pub async fn wait_for_condition_with_timeout<F>(condition: F, timeout: Duration) -> bool
+where
+    F: Fn() -> bool,
+{
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if condition() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    condition()
+}
+
 /// Assert that `diags` contains a diagnostic whose message equals `expected_message` exactly.
 /// Returns a reference to the found Diagnostic for further inspection.
 pub fn assert_diag_message_equals<'a>(
