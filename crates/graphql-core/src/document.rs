@@ -1291,4 +1291,38 @@ impl DocumentState {
             _ => {}
         }
     }
+
+    pub fn get_completion_context(
+        &self,
+        position: Position,
+        schema: &apollo_compiler::Schema,
+    ) -> CompletionContext {
+        let offset = self.position_to_byte(position);
+        for block in self.get_graphql_trees() {
+            if self.is_cursor_in_node_range(block.tree.root_node(), block.offset, offset) {
+                let local_byte = offset.saturating_sub(block.offset);
+                if let Some(current) = block
+                    .tree
+                    .root_node()
+                    .descendant_for_byte_range(local_byte.saturating_sub(1), local_byte)
+                {
+                    // Check if we are inside a selection set
+                    if let Some(selection_set) = self.find_ancestor_by_kind(current, "selection_set") {
+                        if let Some(parent_type) =
+                            self.find_parent_type_for_node(selection_set, block.offset, schema)
+                        {
+                            return CompletionContext::SelectionSet(parent_type);
+                        }
+                    }
+                }
+            }
+        }
+        CompletionContext::Other
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum CompletionContext {
+    SelectionSet(apollo_compiler::schema::ExtendedType),
+    Other,
 }

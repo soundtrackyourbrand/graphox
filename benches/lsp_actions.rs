@@ -15,24 +15,93 @@ use tower_lsp::{LanguageServer, LspService};
 
 fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project: usize) -> Config {
     let mut projects = Vec::new();
+    let type_count = 50; // Smaller schema
+    let fields_per_type = 20;
+    let max_nesting = 3;
+    let fragments_per_file = 2;
 
     for i in 0..projects_count {
         let project_dir = base_dir.join(format!("project_{}", i));
         fs::create_dir_all(&project_dir).unwrap();
 
         let schema_path = project_dir.join("schema.graphql");
-        fs::write(
-            &schema_path,
-            "type User { id: ID! name: String } type Query { me: User }",
-        )
-        .unwrap();
+        let mut schema_content = String::new();
 
+        // Generate 50 types with 20 fields each
+        for t in 0..type_count {
+            schema_content.push_str(&format!("type Type{} {{\n", t));
+            for f in 0..fields_per_type {
+                schema_content.push_str(&format!("  field_{}: String\n", f));
+            }
+            schema_content.push_str("}\n");
+        }
+
+        // Generate Query type with getters for each type
+        schema_content.push_str("type Query {\n");
+        for t in 0..type_count {
+            schema_content.push_str(&format!("  getType{}: Type{}\n", t, t));
+        }
+        // Add a large union
+        schema_content.push_str("  search: SearchResult\n");
+        schema_content.push_str("}\n");
+
+        // Large union with all types
+        schema_content.push_str("union SearchResult = ");
+        for t in 0..type_count {
+            if t > 0 {
+                schema_content.push_str(" | ");
+            }
+            schema_content.push_str(&format!("Type{}", t));
+        }
+        schema_content.push_str("\n");
+
+        schema_content.push_str("schema { query: Query }\n");
+
+        fs::write(&schema_path, schema_content).unwrap();
+
+        // Generate files with queries and cross-file fragments
+        // Each file's fragments spread fragments from OTHER files
+        // This creates expensive cross-project dependency resolution
         for j in 0..files_per_project {
             let file_path = project_dir.join(format!("file_{}.graphql", j));
-            let content = format!(
-                "query GetUser{}_{} {{ me {{ id name }} }}\nfragment UserInfo{}_{} on User {{ id }}",
-                i, j, i, j
-            );
+
+            // Calculate nesting depth based on file index
+            let nesting = j % max_nesting;
+
+            // Generate query at the specified nesting depth
+            let query = generate_nested_query(nesting, max_nesting);
+
+            // Generate 20 fragments that spread fragments from OTHER files
+            // Project 0 has self-contained fragments (base case)
+            // Projects 1+ spread fragments from project 0 (cross-project resolution)
+            // This creates expensive cross-project dependency resolution
+            let mut fragments = String::new();
+            for f in 0..fragments_per_file {
+                if i == 0 {
+                    // Project 0: base fragments, no cross-project spreads
+                    fragments.push_str(&format!(
+                        "\nfragment Frag{}_{}_{} on Type{} {{ field_{} }}",
+                        i,
+                        j,
+                        f,
+                        f % type_count,
+                        f % fields_per_type
+                    ));
+                } else {
+                    // Projects 1+: spread fragments from project 0 (all cross-project)
+                    fragments.push_str(&format!(
+                        "\nfragment Frag{}_{}_{} on Type{} {{ ...Frag0_{}_{} }}",
+                        i,
+                        j,
+                        f,
+                        f % type_count,
+                        j % files_per_project,
+                        f
+                    ));
+                }
+            }
+
+            let content = format!("{}{}", query, fragments);
             fs::write(file_path, content).unwrap();
         }
 
@@ -66,13 +135,42 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
     }
 }
 
+fn generate_nested_query(nesting: usize, _max_nesting: usize) -> String {
+    let mut query = String::from("query Q { ");
+
+    // Build nested selection: getType0 -> getType1 -> ... -> getType{nesting}
+    for i in 0..nesting {
+        query.push_str(&format!("getType{} {{ ", i + 450));
+    }
+
+    // Add the final field from the deepest nested type
+    query.push_str("field_0");
+
+    // Close all the opening braces
+    for _ in 0..nesting {
+        query.push('}');
+    }
+
+    query.push('}');
+    query
+}
+
+fn calculate_completion_position(nesting: usize) -> u32 {
+    let prefix = "query Q { ";
+    let segment = "getType0 { ";
+    prefix.len() as u32 + (nesting as u32 * segment.len() as u32)
+}
+
 fn bench_lsp_actions(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     let dir = tempdir().unwrap();
     let base_dir = dir.path().canonicalize().unwrap();
 
-    // 10 projects, 500 files each = 5000 files
-    let config = generate_workspace(&base_dir, 10, 500);
+    // 10 projects, 50 files each = 500 files
+    // 50 types × 20 fields each
+    // 2 fragments per file = 1,000 total fragments (cross-project spreads)
+    // Large union with 50 member types
+    let config = generate_workspace(&base_dir, 10, 50);
 
     // Enter the runtime context before creating Backend (which spawns tasks in CodegenThrottle::new)
     let _guard = rt.enter();
@@ -99,8 +197,10 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
     let target_uri = Url::from_file_path(base_dir.join("project_0/file_0.graphql")).unwrap();
 
-    let mut group = c.benchmark_group("LSP Actions (5000 files)");
+    let mut group =
+        c.benchmark_group("LSP Actions (500 files, 50 types × 20 fields, union, 1000 fragments)");
     group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(5));
 
     group.bench_function("Hover", |b| {
         b.to_async(&rt).iter(|| {
@@ -109,21 +209,54 @@ fn bench_lsp_actions(c: &mut Criterion) {
                     text_document: TextDocumentIdentifier {
                         uri: target_uri.clone(),
                     },
-                    position: Position::new(0, 20), // on 'me'
+                    position: Position::new(0, 18), // on 'getType0'
                 },
                 work_done_progress_params: Default::default(),
             })
         });
     });
 
-    group.bench_function("Completion", |b| {
+    group.bench_function("Completion (level 0)", |b| {
         b.to_async(&rt).iter(|| {
             backend.completion(CompletionParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier {
                         uri: target_uri.clone(),
                     },
-                    position: Position::new(0, 23), // after 'me {'
+                    position: Position::new(0, calculate_completion_position(0)),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            })
+        });
+    });
+
+    group.bench_function("Completion (level 4)", |b| {
+        b.to_async(&rt).iter(|| {
+            backend.completion(CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: target_uri.clone(),
+                    },
+                    position: Position::new(0, calculate_completion_position(4)),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            })
+        });
+    });
+
+    // Union completion: inside { search { ... } } - tests field merging across union members
+    group.bench_function("Completion (union)", |b| {
+        b.to_async(&rt).iter(|| {
+            backend.completion(CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: target_uri.clone(),
+                    },
+                    position: Position::new(0, 16), // inside { search { ... } }
                 },
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
@@ -139,7 +272,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
                     text_document: TextDocumentIdentifier {
                         uri: target_uri.clone(),
                     },
-                    position: Position::new(1, 25), // on 'User' in fragment
+                    position: Position::new(0, 18), // on 'getType0'
                 },
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
@@ -235,11 +368,12 @@ fn bench_lsp_actions(c: &mut Criterion) {
     group.bench_function("Check Workspace (Full Diagnostics)", |b| {
         b.to_async(&rt).iter(|| async {
             let used_fragments = backend.get_used_fragments();
+            let all_fragments = backend.get_all_fragments_info();
             for entry in backend.documents.iter() {
                 let uri = entry.key();
                 let doc = entry.value();
                 let schema = backend.get_schema_for_doc(uri);
-                let fragments = backend.get_fragments_for_doc(doc);
+                let fragments = backend.get_fragments_for_doc(doc, &all_fragments);
                 let _diagnostics = doc.get_semantic_diagnostics(
                     &schema,
                     &fragments,
@@ -250,6 +384,29 @@ fn bench_lsp_actions(c: &mut Criterion) {
                 );
             }
         });
+    });
+
+    // Single document diagnostics (matches user's textDocument/diagnostic call)
+    group.bench_function("Document Diagnostic", |b| {
+        b.to_async(&rt).iter(|| async {
+            let doc = backend
+                .documents
+                .get(&target_uri)
+                .map(|r| r.value().clone())
+                .unwrap();
+            let schema = backend.get_schema_for_doc(&target_uri);
+            let all_fragments = backend.get_all_fragments_info();
+            let fragments = backend.get_fragments_for_doc(&doc, &all_fragments);
+            let used_fragments = backend.get_used_fragments();
+            let _diagnostics = doc.get_semantic_diagnostics(
+                &schema,
+                &fragments,
+                Some(&used_fragments),
+                Some(&backend.config.read().unwrap()),
+                false,
+                true,
+            );
+        })
     });
 
     group.finish();

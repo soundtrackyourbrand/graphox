@@ -1,9 +1,33 @@
 use ahash::AHashMap;
 use colored::*;
-use globset::{Glob, GlobSetBuilder};
+use dashmap::DashMap;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
 use yaml_rust2::Yaml;
+
+static GLOBSET_CACHE: LazyLock<DashMap<Vec<String>, Arc<GlobSet>>> = LazyLock::new(DashMap::new);
+
+fn get_glob_set(patterns: &[String]) -> Arc<GlobSet> {
+    if let Some(set) = GLOBSET_CACHE.get(patterns) {
+        return set.value().clone();
+    }
+
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        if let Ok(glob) = Glob::new(pattern) {
+            builder.add(glob);
+        }
+    }
+    let set = Arc::new(
+        builder
+            .build()
+            .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap()),
+    );
+    GLOBSET_CACHE.insert(patterns.to_vec(), set.clone());
+    set
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
@@ -376,15 +400,8 @@ impl Config {
         for project in &self.projects {
             let mut matched = false;
             if let Some(rel_path) = relative_path {
-                let mut builder = GlobSetBuilder::new();
-                for pattern in project.include.patterns() {
-                    if let Ok(glob) = Glob::new(&pattern) {
-                        builder.add(glob);
-                    }
-                }
-                if let Ok(set) = builder.build()
-                    && set.is_match(rel_path)
-                {
+                let include_set = get_glob_set(&project.include.patterns());
+                if include_set.is_match(rel_path) {
                     matched = true;
                 }
             }
@@ -405,15 +422,8 @@ impl Config {
                 && let Some(exclude) = &project.exclude
                 && let Some(rel_path) = relative_path
             {
-                let mut builder = GlobSetBuilder::new();
-                for pattern in exclude.patterns() {
-                    if let Ok(glob) = Glob::new(&pattern) {
-                        builder.add(glob);
-                    }
-                }
-                if let Ok(set) = builder.build()
-                    && set.is_match(rel_path)
-                {
+                let exclude_set = get_glob_set(&exclude.patterns());
+                if exclude_set.is_match(rel_path) {
                     matched = false;
                 }
             }

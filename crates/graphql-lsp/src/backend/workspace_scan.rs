@@ -37,6 +37,7 @@ pub struct WorkspaceScanParams {
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
     pub supports_progress: bool,
+    pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
 }
 
 /// Spawns a background workspace scan task
@@ -99,6 +100,11 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         .report("Discovering GraphQL files...", Some(10))
         .await;
     let workspace_metadata = scan_and_index_workspace(&params, &cancelled);
+
+    // Invalidate fragment cache after indexing
+    if let Ok(mut cache) = params.fragment_metadata_cache.write() {
+        *cache = None;
+    }
 
     let total_docs = workspace_metadata.documents.len();
     progress

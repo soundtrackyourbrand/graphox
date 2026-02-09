@@ -20,7 +20,7 @@ use graphql_features::semantic_tokens::DocumentSemanticTokens;
 use graphql_features::signature_help::DocumentSignatureHelp;
 use graphql_features::symbols::DocumentSymbols;
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use rayon::prelude::*;
@@ -62,6 +62,8 @@ pub struct Backend {
     pub diagnostic_cache: DiagnosticCacheMap,
     /// Throttled codegen runner
     pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
+    /// Global cache for all fragments in the workspace
+    pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
 }
 
 impl Backend {
@@ -169,6 +171,7 @@ impl Backend {
             client_capabilities: Arc::new(std::sync::RwLock::new(ClientCapabilities::default())),
             diagnostic_cache: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             codegen_throttle,
+            fragment_metadata_cache: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
@@ -194,21 +197,44 @@ impl Backend {
     }
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
+        // Try to return cached metadata if available
+        if let Ok(cache) = self.fragment_metadata_cache.read() {
+            if let Some(metadata) = &*cache {
+                return metadata.clone();
+            }
+        }
+
+        // Cache miss: collect metadata and update cache
         let config = self.config.read().unwrap();
-        fragment_manager::collect_fragment_metadata(
+        let metadata = fragment_manager::collect_fragment_metadata(
             &self.fragment_defs,
             &config,
             &self.package_roots,
-        )
+        );
+
+        if let Ok(mut cache) = self.fragment_metadata_cache.write() {
+            *cache = Some(metadata.clone());
+        }
+
+        metadata
     }
 
-    pub fn get_fragments_for_doc(&self, doc: &DocumentState) -> Vec<FragmentCompletionInfo> {
+    pub fn invalidate_fragment_cache(&self) {
+        if let Ok(mut cache) = self.fragment_metadata_cache.write() {
+            *cache = None;
+        }
+    }
+
+    pub fn get_fragments_for_doc(
+        &self,
+        doc: &DocumentState,
+        all_fragments: &[FragmentCompletionInfo],
+    ) -> Vec<FragmentCompletionInfo> {
         let config = self.config.read().unwrap();
-        super::validation::get_fragments_for_doc(
+        super::validation::get_fragments_for_doc_with_metadata(
             doc,
             &config,
-            &self.fragment_defs,
-            &self.package_roots,
+            all_fragments,
         )
     }
 
@@ -254,6 +280,8 @@ impl Backend {
         name: &str,
         schema: &Schema,
         package_root: Option<&std::path::PathBuf>,
+        all_fragments: &[FragmentCompletionInfo],
+        variable_types_cache: &mut AHashMap<String, std::collections::BTreeMap<String, String>>,
     ) -> std::collections::BTreeMap<String, String> {
         let mut requirements = std::collections::BTreeMap::new();
         let mut visited = AHashSet::default();
@@ -261,8 +289,10 @@ impl Backend {
             name,
             schema,
             package_root,
+            all_fragments,
             &mut requirements,
             &mut visited,
+            variable_types_cache,
         );
         requirements
     }
@@ -272,11 +302,12 @@ impl Backend {
         initial_name: &str,
         schema: &Schema,
         package_root: Option<&std::path::PathBuf>,
+        all_fragments: &[FragmentCompletionInfo],
         requirements: &mut std::collections::BTreeMap<String, String>,
         visited: &mut AHashSet<String>,
+        variable_types_cache: &mut AHashMap<String, std::collections::BTreeMap<String, String>>,
     ) {
         let mut stack = vec![initial_name.to_string()];
-        let all_fragments = self.get_all_fragments_info();
 
         while let Some(name) = stack.pop() {
             if !visited.insert(name.clone()) {
@@ -287,8 +318,15 @@ impl Backend {
                 f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
             }) && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone())
             {
-                // Get variables from this fragment
-                let local_vars = doc.get_fragment_variable_types(&name, schema);
+                // Get variables from this fragment (use cache if available)
+                let local_vars = if let Some(cached) = variable_types_cache.get(&name) {
+                    cached.clone()
+                } else {
+                    let vars = doc.get_fragment_variable_types(&name, schema);
+                    variable_types_cache.insert(name.clone(), vars.clone());
+                    vars
+                };
+
                 for (var, ty) in local_vars {
                     requirements.insert(var, ty);
                 }
@@ -475,6 +513,7 @@ impl Backend {
             schemas: self.schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             supports_progress,
+            fragment_metadata_cache: self.fragment_metadata_cache.clone(),
         });
 
         self.client
@@ -777,6 +816,7 @@ impl LanguageServer for Backend {
             schemas: self.schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             supports_progress,
+            fragment_metadata_cache: self.fragment_metadata_cache.clone(),
         });
 
         // Register file watchers
@@ -812,10 +852,14 @@ impl LanguageServer for Backend {
                         {
                             let mut value = format!("```graphql\n{}\n```", info);
 
+                            let all_fragments = self.get_all_fragments_info();
+                            let mut variable_types_cache = AHashMap::default();
                             let requirements = self.get_fragment_requirements(
                                 &symbol_name,
                                 &schema,
                                 doc.package_root.as_ref(),
+                                &all_fragments,
+                                &mut variable_types_cache,
                             );
                             if !requirements.is_empty() {
                                 value.push_str("\n\n**Requires Variables:**\n");
@@ -863,16 +907,127 @@ impl LanguageServer for Backend {
 
             if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = self.get_schema_for_doc(&uri);
-                let mut fragments = self.get_fragments_for_doc(&doc);
+                let all_fragments = self.get_all_fragments_info();
+
+                // Optimization: Identify completion context first.
+                // If we are not in a selection set, we can skip fragments entirely.
+                let context = doc.get_completion_context(position, &schema);
+
+                let mut fragments = match context {
+                    graphql_core::document::CompletionContext::SelectionSet(parent_type) => {
+                        let mut filtered = self.get_fragments_for_doc(&doc, &all_fragments);
+                        let parent_name = parent_type.name();
+
+                        filtered.retain(|f| {
+                            if f.is_type_only {
+                                return false;
+                            }
+                            // Keep fragment if it's on the same type
+                            if f.type_condition == parent_name.as_str() {
+                                return true;
+                            }
+
+                            // Get the fragment's type from schema
+                            let frag_type = match schema.types.get(f.type_condition.as_str()) {
+                                Some(t) => t,
+                                None => return true, // If type unknown, play it safe and keep it
+                            };
+
+                            // Check for intersection between parent_type and frag_type
+                            match (&parent_type, frag_type) {
+                                // Object and Interface/Object
+                                (
+                                    apollo_compiler::schema::ExtendedType::Object(obj),
+                                    apollo_compiler::schema::ExtendedType::Interface(_),
+                                ) => obj
+                                    .implements_interfaces
+                                    .iter()
+                                    .any(|i| i.as_str() == f.type_condition),
+                                (
+                                    apollo_compiler::schema::ExtendedType::Interface(_),
+                                    apollo_compiler::schema::ExtendedType::Object(obj),
+                                ) => obj
+                                    .implements_interfaces
+                                    .iter()
+                                    .any(|i| i.as_str() == parent_name.as_str()),
+
+                                // Union cases
+                                (
+                                    apollo_compiler::schema::ExtendedType::Union(u),
+                                    apollo_compiler::schema::ExtendedType::Object(_),
+                                ) => u.members.iter().any(|m| m.as_str() == f.type_condition),
+                                (
+                                    apollo_compiler::schema::ExtendedType::Object(_),
+                                    apollo_compiler::schema::ExtendedType::Union(u),
+                                ) => u.members.iter().any(|m| m.as_str() == parent_name.as_str()),
+
+                                // Interface and Interface (intersection if they share implementors)
+                                (
+                                    apollo_compiler::schema::ExtendedType::Interface(_),
+                                    apollo_compiler::schema::ExtendedType::Interface(_),
+                                ) => true,
+
+                                // Union and Interface
+                                (
+                                    apollo_compiler::schema::ExtendedType::Union(u),
+                                    apollo_compiler::schema::ExtendedType::Interface(_),
+                                ) => u.members.iter().any(|m| {
+                                    if let Some(apollo_compiler::schema::ExtendedType::Object(obj)) =
+                                        schema.types.get(m.as_str())
+                                    {
+                                        obj.implements_interfaces
+                                            .iter()
+                                            .any(|i| i.as_str() == f.type_condition)
+                                    } else {
+                                        false
+                                    }
+                                }),
+                                (
+                                    apollo_compiler::schema::ExtendedType::Interface(_),
+                                    apollo_compiler::schema::ExtendedType::Union(u),
+                                ) => u.members.iter().any(|m| {
+                                    if let Some(apollo_compiler::schema::ExtendedType::Object(obj)) =
+                                        schema.types.get(m.as_str())
+                                    {
+                                        obj.implements_interfaces
+                                            .iter()
+                                            .any(|i| i.as_str() == parent_name.as_str())
+                                    } else {
+                                        false
+                                    }
+                                }),
+
+                                // Union and Union
+                                (
+                                    apollo_compiler::schema::ExtendedType::Union(u1),
+                                    apollo_compiler::schema::ExtendedType::Union(u2),
+                                ) => u1.members.iter().any(|m1| {
+                                    u2.members.iter().any(|m2| m1.as_str() == m2.as_str())
+                                }),
+
+                                _ => false,
+                            }
+                        });
+                        filtered
+                    }
+                    graphql_core::document::CompletionContext::Other => Vec::new(),
+                };
+
                 log::trace!(
                     "completion: fragments for doc {} = {:?}",
                     doc.uri,
                     fragments.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
                 );
 
+                let mut variable_types_cache = AHashMap::default();
                 for f in &mut fragments {
-                    f.requirements =
-                        self.get_fragment_requirements(&f.name, &schema, doc.package_root.as_ref());
+                    f.requirements = self.get_fragment_requirements(
+                        &f.name,
+                        &schema,
+                        doc.package_root.as_ref(),
+                        &all_fragments,
+                        &mut variable_types_cache,
+                    );
                 }
 
                 let items = doc.get_completion_items(position, &schema, fragments);
@@ -1047,6 +1202,7 @@ impl LanguageServer for Backend {
         }
 
         // Update performance indices
+        self.invalidate_fragment_cache();
         self.fragment_defs
             .insert(uri.clone(), doc.fragments().to_vec());
         self.fragment_spreads
@@ -1101,6 +1257,9 @@ impl LanguageServer for Backend {
             version,
             &change_params,
         ) {
+            // Invalidate fragment metadata cache since fragments might have changed
+            self.invalidate_fragment_cache();
+
             // Validate affected documents
             self.validate_uris(result.uris_to_validate).await;
 
@@ -1666,6 +1825,9 @@ impl LanguageServer for Backend {
                 };
 
                 if let Some(result) = result {
+                    // Invalidate fragment metadata cache since fragments might have changed
+                    self.invalidate_fragment_cache();
+
                     // Config reload takes precedence - if config changed, reload everything
                     if result.should_reload_config {
                         self.reload_config().await;

@@ -75,6 +75,13 @@ pub async fn validate_uris(
     let workspace_loaded = params.workspace_loaded.load(Ordering::SeqCst);
     let total = uris.len();
 
+    // Collect fragment metadata once for all documents being validated
+    let all_fragments = super::fragment_manager::collect_fragment_metadata(
+        params.fragment_defs,
+        params.config,
+        params.package_roots,
+    );
+
     for (idx, uri) in uris.into_iter().enumerate() {
         if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
             // Skip validating schema files as executable documents
@@ -92,11 +99,10 @@ pub async fn validate_uris(
                 params.validated_schemas,
                 params.valid_empty_schema,
             );
-            let filtered_fragments = get_fragments_for_doc(
+            let filtered_fragments = get_fragments_for_doc_with_metadata(
                 &doc,
                 params.config,
-                params.fragment_defs,
-                params.package_roots,
+                &all_fragments,
             );
 
             let mut diagnostics = doc.get_semantic_diagnostics(
@@ -249,6 +255,15 @@ pub fn get_fragments_for_doc(
     let all_fragments =
         super::fragment_manager::collect_fragment_metadata(fragment_defs, config, package_roots);
 
+    get_fragments_for_doc_with_metadata(doc, config, &all_fragments)
+}
+
+/// Gets fragments available for a given document using pre-collected metadata
+pub fn get_fragments_for_doc_with_metadata(
+    doc: &DocumentState,
+    config: &Config,
+    all_fragments: &[FragmentCompletionInfo],
+) -> Vec<FragmentCompletionInfo> {
     let target_package_root = doc.package_root.as_ref();
     let doc_path = doc.uri.to_file_path().ok();
     let schema_key = doc_path
@@ -256,7 +271,7 @@ pub fn get_fragments_for_doc(
         .and_then(|p| config.get_schema_for_path(p));
 
     let mut filtered: Vec<_> = all_fragments
-        .into_iter()
+        .iter()
         .filter(|f| {
             let is_same_package = f.package_root.as_ref() == target_package_root;
             if is_same_package || f.is_public {
@@ -269,6 +284,7 @@ pub fn get_fragments_for_doc(
             }
             false
         })
+        .cloned()
         .collect();
 
     // Prioritize fragments from same package
