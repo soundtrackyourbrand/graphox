@@ -216,11 +216,18 @@ impl CacheEntry {
 // Memory Cache (L1) - Fully parsed schemas
 // ============================================================================
 
+// Helper function to generate a unique cache key including the base directory
+fn make_cache_key(base_dir: &Path, source: &SchemaSource) -> String {
+    let source_key = source.as_key();
+    let base_path = base_dir.to_string_lossy();
+    format!("{}:{}", base_path, source_key)
+}
+
 pub fn try_load_parsed_from_memory(
     base_dir: &Path,
     source: &SchemaSource,
 ) -> Option<Arc<Valid<Schema>>> {
-    let key = source.as_key();
+    let key = make_cache_key(base_dir, source);
     let entry = MEMORY_CACHE.get(&key)?;
 
     if !entry.metadata.is_valid(base_dir) {
@@ -240,7 +247,7 @@ pub fn save_parsed_to_memory(
     source: &SchemaSource,
     schema: Arc<Valid<Schema>>,
 ) -> Result<(), String> {
-    let key = source.as_key();
+    let key = make_cache_key(base_dir, source);
     let files = source.files();
     let metadata = CacheMetadata::from_files(base_dir, &files)?;
     let entry = MemoryCacheEntry { schema, metadata };
@@ -248,8 +255,8 @@ pub fn save_parsed_to_memory(
     Ok(())
 }
 
-pub fn clear_memory_cache_for(source: &SchemaSource) {
-    let key = source.as_key();
+pub fn clear_memory_cache_for(base_dir: &Path, source: &SchemaSource) {
+    let key = make_cache_key(base_dir, source);
     MEMORY_CACHE.remove(&key);
 }
 
@@ -281,9 +288,9 @@ fn get_cache_dir() -> PathBuf {
     }
 }
 
-fn get_cache_path(source: &SchemaSource) -> PathBuf {
+fn get_cache_path(base_dir: &Path, source: &SchemaSource) -> PathBuf {
     let cache_dir = get_cache_dir();
-    let key = source.as_key();
+    let key = make_cache_key(base_dir, source);
     let hash = {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -295,7 +302,7 @@ fn get_cache_path(source: &SchemaSource) -> PathBuf {
 }
 
 pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<String> {
-    let cache_path = get_cache_path(source);
+    let cache_path = get_cache_path(base_dir, source);
     if !cache_path.exists() {
         return None;
     }
@@ -325,7 +332,7 @@ pub fn save_to_cache(
     };
 
     let cache_data = entry.to_bytes();
-    let cache_path = get_cache_path(source);
+    let cache_path = get_cache_path(base_dir, source);
     if let Some(parent) = cache_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create cache directory: {}", e))?;
