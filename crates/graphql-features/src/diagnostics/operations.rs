@@ -1,5 +1,7 @@
 use super::ValidationContext;
+use apollo_compiler::Schema;
 use apollo_compiler::ast::OperationType;
+use apollo_compiler::schema::ExtendedType;
 use graphql_core::document::DocumentState;
 use lsp_types::*;
 use tree_sitter::Node;
@@ -121,6 +123,33 @@ pub(super) fn validate_operation(
     }
 }
 
+fn field_exists_in_root_type(
+    schema: &apollo_compiler::validation::Valid<Schema>,
+    operation_type: &str,
+    field_name: &str,
+) -> bool {
+    use apollo_compiler::ast::OperationType;
+
+    let op_type = match operation_type {
+        "query" => OperationType::Query,
+        "mutation" => OperationType::Mutation,
+        "subscription" => OperationType::Subscription,
+        _ => return false,
+    };
+
+    if let Some(root_def_name) = schema.root_operation(op_type)
+        && let Some(root_type) = schema.types.get(root_def_name.as_str())
+    {
+        let field_def = match root_type {
+            ExtendedType::Object(obj) => obj.fields.get(field_name),
+            ExtendedType::Interface(iface) => iface.fields.get(field_name),
+            _ => None,
+        };
+        return field_def.is_some();
+    }
+    false
+}
+
 pub(super) fn check_required_fields(
     this: &DocumentState,
     node: Node,
@@ -144,6 +173,18 @@ pub(super) fn check_required_fields(
         for (field_name, rule) in required_fields {
             // Check if this rule applies to the current operation type
             if rule.applies_to_operation(operation_type) {
+                // Check if the field exists on the root type
+                let field_exists_on_root =
+                    field_exists_in_root_type(ctx.schema, operation_type, field_name);
+
+                // If the field doesn't exist on the root type, skip the check
+                // because it's either a nested field or a non-existent field
+                // - Nested fields: user would get apollo-compiler error for undefined field
+                // - Non-existent fields: user would get apollo-compiler error for undefined field
+                if !field_exists_on_root {
+                    continue;
+                }
+
                 // Check if the field was selected
                 if !ctx.selected_fields.contains(field_name) {
                     ctx.diagnostics.push(Diagnostic {

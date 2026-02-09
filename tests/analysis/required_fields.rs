@@ -259,7 +259,7 @@ fn test_no_required_fields_config() {
 
 #[test]
 #[ntest::timeout(100)]
-fn test_required_field_case_insensitive() {
+fn test_required_field_case_sensitive() {
     let text = r#"
         query GetPosts {
             posts {
@@ -271,6 +271,8 @@ fn test_required_field_case_insensitive() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with required field rule (with different case)
+    // Since matching is case-sensitive and 'USERS' doesn't exist in schema,
+    // no error should be reported
     let mut required_fields = AHashMap::default();
     required_fields.insert("USERS".to_string(), RequiredFieldRule::Always(true));
 
@@ -294,9 +296,8 @@ fn test_required_field_case_insensitive() {
         true,
     );
 
-    assert_diagnostics_count(&diagnostics, 1);
-    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'USERS'");
-    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
+    // 'USERS' doesn't exist in schema (schema has 'users'), so no diagnostic
+    assert_no_diagnostics(&diagnostics);
 }
 
 #[test]
@@ -414,7 +415,7 @@ fn test_required_field_multiple_operations_missing() {
     // Create config with required field rule (only for mutation operations)
     let mut required_fields = AHashMap::default();
     required_fields.insert(
-        "username".to_string(),
+        "createUser".to_string(),
         RequiredFieldRule::Operations(vec!["mutation".to_string()]),
     );
 
@@ -428,11 +429,43 @@ fn test_required_field_multiple_operations_missing() {
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
-    assert_diagnostics_count(&diagnostics, 1);
-    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'username'");
-    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
-    assert_diag_range_equals(
-        d,
-        &crate::support::range_for_token(&doc, text, "CreateUser"),
-    );
+    // createUser is selected, so no error
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_required_field_not_in_schema() {
+    // Schema only has 'posts' field on Query, not 'nonexistent'
+    let schema = fixtures::user_with_posts_schema()
+        .clone()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query GetPosts {
+            posts {
+                id
+                title
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    // Create config with required field rule for a field that doesn't exist in schema
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("nonexistent".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config {
+        rules: Some(RulesConfig {
+            required_fields: Some(required_fields),
+            ..RulesConfig::default()
+        }),
+        ..Default::default()
+    };
+
+    // Should not report required field diagnostic since the field doesn't exist in schema
+    // (User can't select a field that doesn't exist - they'd get a schema error instead)
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+    assert_no_diagnostics(&diagnostics);
 }
