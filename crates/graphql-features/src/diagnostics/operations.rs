@@ -193,31 +193,30 @@ pub(super) fn check_required_fields(
                 };
 
                 if let Some(rtn) = root_type_name_check
-                    && let Some(root_type) = ctx.schema.types.get(rtn.as_str()) {
-                        let field_exists_on_root = match root_type {
-                            ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                            ExtendedType::Interface(iface) => {
-                                iface.fields.contains_key(field_name_str)
-                            }
-                            _ => false,
-                        };
+                    && let Some(root_type) = ctx.schema.types.get(rtn.as_str())
+                {
+                    let field_exists_on_root = match root_type {
+                        ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
+                        ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                        _ => false,
+                    };
 
-                        if field_exists_on_root {
-                            ctx.diagnostics.push(Diagnostic {
-                                range,
-                                severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!(
-                                    "Required field '{}' must be selected in {} operations",
-                                    field_name, operation_type
-                                ),
-                                code: Some(NumberOrString::String(
-                                    "required_field_missing".to_string(),
-                                )),
-                                ..Default::default()
-                            });
-                            continue; // Move to next required field
-                        }
+                    if field_exists_on_root {
+                        ctx.diagnostics.push(Diagnostic {
+                            range,
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: format!(
+                                "Required field '{}' must be selected in {} operations",
+                                field_name, operation_type
+                            ),
+                            code: Some(NumberOrString::String(
+                                "required_field_missing".to_string(),
+                            )),
+                            ..Default::default()
+                        });
+                        continue; // Move to next required field
                     }
+                }
             }
 
             // 2. Check nested fields (non-root level)
@@ -241,31 +240,29 @@ pub(super) fn check_required_fields(
                     response_key.as_ref(),
                     operation_type.as_ref(),
                     ctx,
-                )
-                    && let Some(type_def) = ctx.schema.types.get(return_type.as_str()) {
-                        let field_exists = match type_def {
-                            ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                            ExtendedType::Interface(iface) => {
-                                iface.fields.contains_key(field_name_str)
-                            }
-                            _ => false,
-                        };
+                ) && let Some(type_def) = ctx.schema.types.get(return_type.as_str())
+                {
+                    let field_exists = match type_def {
+                        ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
+                        ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                        _ => false,
+                    };
 
-                        if field_exists && !selected_fields.contains(field_name_str) {
-                            ctx.diagnostics.push(Diagnostic {
-                                range,
-                                severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!(
-                                    "Required field '{}' must be selected in '{}'",
-                                    field_name, response_key
-                                ),
-                                code: Some(NumberOrString::String(
-                                    "required_field_missing".to_string(),
-                                )),
-                                ..Default::default()
-                            });
-                        }
+                    if field_exists && !selected_fields.contains(field_name_str) {
+                        ctx.diagnostics.push(Diagnostic {
+                            range,
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: format!(
+                                "Required field '{}' must be selected in '{}'",
+                                field_name, response_key
+                            ),
+                            code: Some(NumberOrString::String(
+                                "required_field_missing".to_string(),
+                            )),
+                            ..Default::default()
+                        });
                     }
+                }
             }
 
             // 3. Check inline fragment type conditions
@@ -327,9 +324,10 @@ fn find_return_type_for_response_key(
     };
 
     if let Some(root_def_name) = ctx.schema.root_operation(op_type)
-        && let Some(root_type) = ctx.schema.types.get(root_def_name.as_str()) {
-            return find_field_type_recursive(this, node, offset, response_key, root_type, ctx);
-        }
+        && let Some(root_type) = ctx.schema.types.get(root_def_name.as_str())
+    {
+        return find_field_type_recursive(this, node, offset, response_key, root_type, ctx);
+    }
     None
 }
 
@@ -358,9 +356,9 @@ fn find_field_type_recursive(
         if child.kind() == "selection_set"
             && let Some(found) =
                 search_in_selection_set(this, child, offset, target_response_key, current_type, ctx)
-            {
-                return Some(found);
-            }
+        {
+            return Some(found);
+        }
     }
 
     None
@@ -452,9 +450,10 @@ fn search_in_selection_set(
                                 target_response_key,
                                 return_type_def,
                                 ctx,
-                            ) {
-                                return Some(found);
-                            }
+                            )
+                        {
+                            return Some(found);
+                        }
                     }
                 }
             }
@@ -485,16 +484,17 @@ fn search_in_selection_set(
 
             if let (Some(tname), Some(sel_set)) = (type_name, sel_set_node)
                 && let Some(type_def) = ctx.schema.types.get(tname.as_str())
-                    && let Some(found) = search_in_selection_set(
-                        this,
-                        sel_set,
-                        offset,
-                        target_response_key,
-                        type_def,
-                        ctx,
-                    ) {
-                        return Some(found);
-                    }
+                && let Some(found) = search_in_selection_set(
+                    this,
+                    sel_set,
+                    offset,
+                    target_response_key,
+                    type_def,
+                    ctx,
+                )
+            {
+                return Some(found);
+            }
         }
     }
 

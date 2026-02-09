@@ -1,6 +1,6 @@
 use ahash::RandomState;
-use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::Schema;
+use apollo_compiler::schema::ExtendedType;
 use dashmap::DashMap;
 use graphql_core::document::DocumentState;
 use graphql_core::queries::*;
@@ -198,13 +198,13 @@ impl DocumentDefinition for DocumentState {
                                     if vd.kind() == "variable_definition"
                                         && let Some(var_node) =
                                             self.find_child_by_kind(vd, "variable")
-                                            && self.get_node_text(var_node, offset) == name {
-                                                return Some(Location {
-                                                    uri: self.uri.clone(),
-                                                    range: self
-                                                        .translate_to_file_range(var_node, offset),
-                                                });
-                                            }
+                                        && self.get_node_text(var_node, offset) == name
+                                    {
+                                        return Some(Location {
+                                            uri: self.uri.clone(),
+                                            range: self.translate_to_file_range(var_node, offset),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -255,9 +255,10 @@ impl DocumentDefinition for DocumentState {
                                             parent_type.name(),
                                             &name,
                                             symbol_query,
-                                        ) {
-                                            return Some(loc);
-                                        }
+                                        )
+                                    {
+                                        return Some(loc);
+                                    }
                                 }
 
                                 return self.find_field_in_type_definition(
@@ -286,14 +287,19 @@ impl DocumentDefinition for DocumentState {
                                             let field_name =
                                                 self.get_node_text(field_name_node, offset);
                                             if let Some(parent_type) = self
-                                                .find_parent_type_for_node(field_node, offset, schema)
+                                                .find_parent_type_for_node(
+                                                    field_node, offset, schema,
+                                                )
                                             {
-                                                let symbol_query =
-                                                    GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-                                                        let lang = tree_sitter_graphql::LANGUAGE
-                                                            .into();
-                                                        tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY)
-                                                            .unwrap()
+                                                let symbol_query = GQL_SYMBOL_QUERY_CACHE
+                                                    .get_or_init(|| {
+                                                        let lang =
+                                                            tree_sitter_graphql::LANGUAGE.into();
+                                                        tree_sitter::Query::new(
+                                                            &lang,
+                                                            GQL_SYMBOL_QUERY,
+                                                        )
+                                                        .unwrap()
                                                     });
 
                                                 for p_uri in preferred_uris {
@@ -307,9 +313,9 @@ impl DocumentDefinition for DocumentState {
                                                                 &name,
                                                                 symbol_query,
                                                             )
-                                                        {
-                                                            return Some(loc);
-                                                        }
+                                                    {
+                                                        return Some(loc);
+                                                    }
                                                 }
 
                                                 return self.find_argument_in_field_definition(
@@ -327,11 +333,12 @@ impl DocumentDefinition for DocumentState {
                                         let directive_name =
                                             self.get_node_text(directive_name_node, offset);
 
-                                        let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-                                            let lang = tree_sitter_graphql::LANGUAGE.into();
-                                            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY)
-                                                .unwrap()
-                                        });
+                                        let symbol_query =
+                                            GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                                                let lang = tree_sitter_graphql::LANGUAGE.into();
+                                                tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY)
+                                                    .unwrap()
+                                            });
 
                                         for p_uri in preferred_uris {
                                             if let Some(doc) =
@@ -343,9 +350,9 @@ impl DocumentDefinition for DocumentState {
                                                         &name,
                                                         symbol_query,
                                                     )
-                                                {
-                                                    return Some(loc);
-                                                }
+                                            {
+                                                return Some(loc);
+                                            }
                                         }
 
                                         return self.find_argument_in_field_definition(
@@ -494,7 +501,10 @@ impl DocumentDefinition for DocumentState {
                             }
                         }
 
-                        if is_definition && let Some(nn) = name_node && self.get_node_text(nn, offset) == enum_value_name {
+                        if is_definition
+                            && let Some(nn) = name_node
+                            && self.get_node_text(nn, offset) == enum_value_name
+                        {
                             return Some(Location {
                                 uri: self.uri.clone(),
                                 range: self.translate_to_file_range(nn, offset),
@@ -553,11 +563,8 @@ impl DocumentDefinition for DocumentState {
 
             for p_uri in preferred_uris {
                 if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone())
-                    && let Some(loc) = doc.find_enum_value_in_schema(
-                        enum_name,
-                        &enum_value_name,
-                        symbol_query,
-                    )
+                    && let Some(loc) =
+                        doc.find_enum_value_in_schema(enum_name, &enum_value_name, symbol_query)
                 {
                     return Some(loc);
                 }
@@ -568,7 +575,6 @@ impl DocumentDefinition for DocumentState {
 
         None
     }
-
 
     fn find_type_condition_definition(
         &self,
@@ -592,7 +598,8 @@ impl DocumentDefinition for DocumentState {
 
         let mut curr = Some(node);
         while let Some(current_node) = curr {
-            if (current_node.kind() == "inline_fragment" || current_node.kind() == "fragment_definition")
+            if (current_node.kind() == "inline_fragment"
+                || current_node.kind() == "fragment_definition")
                 && let Some(type_name) = self.get_fragment_type_condition(current_node, offset)
             {
                 // Ensure the cursor is actually on the type name or within the type condition
@@ -618,9 +625,9 @@ impl DocumentDefinition for DocumentState {
                     if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone())
                         && let Some(loc) =
                             doc.find_type_definition_in_schema(&type_name, symbol_query)
-                        {
-                            return Some(loc);
-                        }
+                    {
+                        return Some(loc);
+                    }
                 }
 
                 return self.find_type_definition_in_schema(&type_name, symbol_query);
@@ -674,54 +681,54 @@ impl DocumentDefinition for DocumentState {
                                 if field_def.kind() == "field_definition"
                                     && let Some(f_name_node) =
                                         self.find_child_by_kind(field_def, "name")
-                                        && self.get_node_text(f_name_node, offset) == field_name {
-                                            return Some(Location {
-                                                uri: self.uri.clone(),
-                                                range: self
-                                                    .translate_to_file_range(f_name_node, offset),
-                                            });
-                                        }
+                                    && self.get_node_text(f_name_node, offset) == field_name
+                                {
+                                    return Some(Location {
+                                        uri: self.uri.clone(),
+                                        range: self.translate_to_file_range(f_name_node, offset),
+                                    });
+                                }
                             }
                         }
                     }
                 }
-             }
-         }
-         None
-     }
- 
-     fn find_argument_in_field_definition(
-         &self,
-         type_name: &str,
-         field_name: &str,
-         arg_name: &str,
-         query: &tree_sitter::Query,
-     ) -> Option<Location> {
-         let mut cursor = QueryCursor::new();
-         for block in self.get_graphql_trees() {
-             let offset = block.offset;
-             let mut matches =
-                 cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
-                     let start = n.start_byte();
-                     let end = n.end_byte();
-                     self.rope
-                         .byte_slice((start + offset)..(end + offset))
-                         .chunks()
-                 });
- 
-             while let Some(m) = matches.next() {
-                 let mut name = None;
-                 let mut container_node = None;
- 
-                 for cap in m.captures {
-                     let cap_name = query.capture_names()[cap.index as usize];
-                     if cap_name == "symbol.name" {
-                         name = Some(self.get_node_text(cap.node, offset));
-                     } else if cap_name == "symbol.container" {
-                         container_node = Some(cap.node);
-                     }
-                 }
- 
+            }
+        }
+        None
+    }
+
+    fn find_argument_in_field_definition(
+        &self,
+        type_name: &str,
+        field_name: &str,
+        arg_name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location> {
+        let mut cursor = QueryCursor::new();
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches =
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut container_node = None;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
+                    }
+                }
+
                 if let Some(n) = name
                     && n == type_name
                     && let Some(container) = container_node
@@ -734,15 +741,13 @@ impl DocumentDefinition for DocumentState {
                                 if arg_def.kind() == "input_value_definition"
                                     && let Some(a_name_node) =
                                         self.find_child_by_kind(arg_def, "name")
-                                        && self.get_node_text(a_name_node, offset) == arg_name {
-                                            return Some(Location {
-                                                uri: self.uri.clone(),
-                                                range: self.translate_to_file_range(
-                                                    a_name_node,
-                                                    offset,
-                                                ),
-                                            });
-                                        }
+                                    && self.get_node_text(a_name_node, offset) == arg_name
+                                {
+                                    return Some(Location {
+                                        uri: self.uri.clone(),
+                                        range: self.translate_to_file_range(a_name_node, offset),
+                                    });
+                                }
                             }
                         } else if child.kind().contains("field") {
                             let mut fd_walker = child.walk();
@@ -750,41 +755,41 @@ impl DocumentDefinition for DocumentState {
                                 if field_def.kind() == "field_definition"
                                     && let Some(f_name_node) =
                                         self.find_child_by_kind(field_def, "name")
-                                        && self.get_node_text(f_name_node, offset) == field_name {
-                                            // Found the field, now find the argument
-                                            if let Some(ad_node) =
-                                                self.find_child_by_kind(field_def, "arguments_definition")
+                                    && self.get_node_text(f_name_node, offset) == field_name
+                                {
+                                    // Found the field, now find the argument
+                                    if let Some(ad_node) =
+                                        self.find_child_by_kind(field_def, "arguments_definition")
+                                    {
+                                        let mut ad_walker = ad_node.walk();
+                                        for arg_def in ad_node.children(&mut ad_walker) {
+                                            if arg_def.kind() == "input_value_definition"
+                                                && let Some(a_name_node) =
+                                                    self.find_child_by_kind(arg_def, "name")
+                                                && self.get_node_text(a_name_node, offset)
+                                                    == arg_name
                                             {
-                                                let mut ad_walker = ad_node.walk();
-                                                for arg_def in ad_node.children(&mut ad_walker) {
-                                                    if arg_def.kind() == "input_value_definition"
-                                                        && let Some(a_name_node) =
-                                                            self.find_child_by_kind(arg_def, "name")
-                                                            && self.get_node_text(a_name_node, offset)
-                                                                == arg_name
-                                                            {
-                                                                return Some(Location {
-                                                                    uri: self.uri.clone(),
-                                                                    range: self
-                                                                        .translate_to_file_range(
-                                                                            a_name_node,
-                                                                            offset,
-                                                                        ),
-                                                                });
-                                                            }
-                                                }
+                                                return Some(Location {
+                                                    uri: self.uri.clone(),
+                                                    range: self.translate_to_file_range(
+                                                        a_name_node,
+                                                        offset,
+                                                    ),
+                                                });
                                             }
                                         }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-             }
-         }
-         None
-     }
- 
-     fn find_input_field_definition(
+            }
+        }
+        None
+    }
+
+    fn find_input_field_definition(
         &self,
         position: Position,
         schema: &Schema,
@@ -831,16 +836,13 @@ impl DocumentDefinition for DocumentState {
                     &container_type_name,
                     &field_name,
                     symbol_query,
-                ) {
-                    return Some(loc);
-                }
+                )
+            {
+                return Some(loc);
+            }
         }
 
-        self.find_input_field_in_type_definition(
-            &container_type_name,
-            &field_name,
-            symbol_query,
-        )
+        self.find_input_field_in_type_definition(&container_type_name, &field_name, symbol_query)
     }
 
     fn find_input_field_in_type_definition(
@@ -886,15 +888,13 @@ impl DocumentDefinition for DocumentState {
                                 if field_def.kind() == "input_value_definition"
                                     && let Some(f_name_node) =
                                         self.find_child_by_kind(field_def, "name")
-                                        && self.get_node_text(f_name_node, offset) == field_name {
-                                            return Some(Location {
-                                                uri: self.uri.clone(),
-                                                range: self.translate_to_file_range(
-                                                    f_name_node,
-                                                    offset,
-                                                ),
-                                            });
-                                        }
+                                    && self.get_node_text(f_name_node, offset) == field_name
+                                {
+                                    return Some(Location {
+                                        uri: self.uri.clone(),
+                                        range: self.translate_to_file_range(f_name_node, offset),
+                                    });
+                                }
                             }
                         }
                     }

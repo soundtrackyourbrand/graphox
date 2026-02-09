@@ -1,0 +1,4 @@
+directive @myDir(arg1: String, arg2: Int) on FIELD
+query {
+  user @myDir(
+}

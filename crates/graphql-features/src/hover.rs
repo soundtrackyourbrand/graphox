@@ -233,21 +233,21 @@ impl DocumentHover for DocumentState {
                             } else if vd_child.kind() == "default_value" {
                                 let range = (vd_child.start_byte() + offset)
                                     ..(vd_child.end_byte() + offset);
-                                if byte_offset >= range.start && byte_offset <= range.end
-                                    && let Some(ty_text) = var_type {
-                                        return Some(Hover {
-                                            contents: HoverContents::Markup(MarkupContent {
-                                                kind: MarkupKind::Markdown,
-                                                value: format!(
-                                                    "### default value\n---\nType: `{}`\n\nMatches variable type",
-                                                    ty_text
-                                                ),
-                                            }),
-                                            range: Some(
-                                                self.translate_to_file_range(vd_child, offset),
+                                if byte_offset >= range.start
+                                    && byte_offset <= range.end
+                                    && let Some(ty_text) = var_type
+                                {
+                                    return Some(Hover {
+                                        contents: HoverContents::Markup(MarkupContent {
+                                            kind: MarkupKind::Markdown,
+                                            value: format!(
+                                                "### default value\n---\nType: `{}`\n\nMatches variable type",
+                                                ty_text
                                             ),
-                                        });
-                                    }
+                                        }),
+                                        range: Some(self.translate_to_file_range(vd_child, offset)),
+                                    });
+                                }
                             }
                         }
                     }
@@ -874,9 +874,9 @@ impl DocumentHover for DocumentState {
             if directive_node.kind() == "directive"
                 && let Some(info) =
                     self.find_single_directive_info(directive_node, offset, cursor_offset, schema)
-                {
-                    return Some(info);
-                }
+            {
+                return Some(info);
+            }
         }
         None
     }

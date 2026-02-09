@@ -1,0 +1,3 @@
+type A { id: ID }
+type B { id: ID }
+union MyUnion = 

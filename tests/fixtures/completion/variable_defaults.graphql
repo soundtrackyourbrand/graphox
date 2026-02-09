@@ -1,0 +1,4 @@
+enum Status { ACTIVE, INACTIVE }
+query ($s: Status = ) {
+  user(status: $s)
+}

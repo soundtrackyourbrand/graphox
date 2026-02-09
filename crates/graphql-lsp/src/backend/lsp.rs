@@ -763,9 +763,10 @@ impl Backend {
         let preferred_uris = self.get_preferred_schema_uris(uri);
         for p_uri in preferred_uris {
             if let Some(d) = self.documents.get(&p_uri).map(|r| r.value().clone())
-                && let Some(loc) = d.find_type_definition_in_schema(directive_name, symbol_query) {
-                    return Some(loc);
-                }
+                && let Some(loc) = d.find_type_definition_in_schema(directive_name, symbol_query)
+            {
+                return Some(loc);
+            }
         }
 
         doc.find_type_definition_in_schema(directive_name, symbol_query)
@@ -1456,7 +1457,8 @@ impl LanguageServer for Backend {
             }
 
             // Try directive definition
-            if let Some(location) = self.try_goto_directive_definition(&uri, &doc_arc, &symbol_name) {
+            if let Some(location) = self.try_goto_directive_definition(&uri, &doc_arc, &symbol_name)
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 

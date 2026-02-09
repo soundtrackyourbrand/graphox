@@ -1,6 +1,6 @@
 use crate::support::{
     completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
-    make_temp_project_with_schema, with_cursor, write_project_file,
+    make_temp_project_with_schema, pos, with_cursor, write_project_file,
 };
 
 #[tokio::test]
@@ -45,4 +45,99 @@ async fn test_completion_variables() {
         "Expected $userId in completions: {:?}",
         labels
     );
+}
+
+#[tokio::test]
+async fn test_completion_variable_default_value() {
+    let schema = r#"
+      enum Status { ACTIVE, INACTIVE }
+      type Query {
+        user(status: Status, isAdmin: Boolean): User
+      }
+      type User { id: ID! }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "query ($status: Status=) { user(status: $status) { id } }";
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(0, 23)).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"ACTIVE"));
+    assert!(labels.contains(&"INACTIVE"));
+    assert!(labels.contains(&"null"));
+}
+
+#[tokio::test]
+async fn test_completion_variable_default_value_boolean() {
+    let schema = r#"
+      type Query {
+        user(isAdmin: Boolean): User
+      }
+      type User { id: ID! }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "query ($isAdmin: Boolean = ) { user(isAdmin: $isAdmin) { id } }";
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(0, 27)).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"true"));
+    assert!(labels.contains(&"false"));
+    assert!(labels.contains(&"null"));
+}
+
+#[tokio::test]
+async fn test_completion_list_default_value() {
+    let schema = r#"
+      type Query {
+        users(ids: [ID]): [User]
+      }
+      type User { id: ID! }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "query ($ids: [ID] = ) { users(ids: $ids) { id } }";
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(0, 20)).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"[]"));
+    assert!(labels.contains(&"null"));
+}
+
+#[tokio::test]
+async fn test_completion_non_null_no_null_suggestion() {
+    let schema = r#"
+      enum Status { ACTIVE, INACTIVE }
+      type Query { user: User }
+      type User { id: ID! }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "query ($status: Status! = ) { user { id } }";
+    let uri = write_project_file(&dir, "test.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), pos(0, 26)).await;
+    let items = completion_items_array(&result);
+
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"ACTIVE"));
+    assert!(labels.contains(&"INACTIVE"));
+    assert!(!labels.contains(&"null"));
 }

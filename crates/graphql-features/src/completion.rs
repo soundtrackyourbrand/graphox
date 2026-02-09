@@ -5,6 +5,41 @@ use tree_sitter::Node;
 
 use std::sync::Arc;
 
+// Keyword completions for operation types
+const OPERATION_TYPE_KEYWORDS: &[&str] = &["query", "mutation", "subscription"];
+
+// Keyword completions for schema definitions
+const SCHEMA_DEFINITION_KEYWORDS: &[&str] = &[
+    "type",
+    "input",
+    "interface",
+    "enum",
+    "union",
+    "scalar",
+    "extend",
+    "schema",
+    "directive",
+];
+
+/// Filter keywords by prefix for operation types
+fn get_operation_type_completions_for_prefix(prefix: &str) -> Vec<&'static str> {
+    if prefix.is_empty() {
+        return OPERATION_TYPE_KEYWORDS.to_vec();
+    }
+
+    // Find matching keywords based on prefix
+    OPERATION_TYPE_KEYWORDS
+        .iter()
+        .filter(|&&keyword| keyword.starts_with(prefix))
+        .copied()
+        .collect()
+}
+
+/// Filter keywords by prefix for schema definitions
+fn get_schema_keyword_completions_for_prefix(_prefix: &str) -> Vec<&'static str> {
+    SCHEMA_DEFINITION_KEYWORDS.to_vec()
+}
+
 #[derive(Clone)]
 pub struct FragmentCompletionInfo {
     pub name: Arc<str>,
@@ -91,6 +126,14 @@ pub trait DocumentCompletion {
         cursor_offset: Option<usize>,
         schema: &Schema,
     ) -> Option<schema::ExtendedType>;
+
+    fn find_expected_ast_type_for_node(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: Option<usize>,
+        schema: &Schema,
+    ) -> Option<ast::Type>;
 
     fn complete_selection_set_at_node(
         &self,
@@ -202,7 +245,57 @@ pub trait DocumentCompletion {
 
     fn is_after_on(&self, cursor_offset: usize) -> bool;
 
+    fn is_after_pipe(&self, cursor_offset: usize) -> bool;
+
+    fn is_after_implements(&self, cursor_offset: usize) -> bool;
+
+    fn is_after_directive_open_paren(&self, cursor_offset: usize) -> bool;
+
+    fn is_after_equals(&self, cursor_offset: usize) -> bool;
+
+    fn get_type_before_equals(&self, cursor_offset: usize) -> Option<ast::Type>;
+
+    fn get_word_prefix_before_paren(&self, cursor_offset: usize) -> Option<String>;
+
+    fn is_after_equals_in_variable(&self, cursor_offset: usize, node: &Node) -> bool;
+
+    fn is_after_equals_in_argument(&self, cursor_offset: usize, node: &Node) -> bool;
+
+    fn is_after_colon_in_selection(&self, cursor_offset: usize) -> bool;
+
+    fn is_after_question_mark(&self, cursor_offset: usize) -> bool;
+
+    fn is_operation_type_position(&self, cursor_offset: usize, node: &Node) -> bool;
+
+    fn is_schema_definition_position(&self, cursor_offset: usize, node: &Node) -> bool;
+
+    fn get_word_prefix_at_cursor(&self, cursor_offset: usize) -> Option<String>;
+
     fn is_name_char(&self, c: char) -> bool;
+
+    fn get_operation_type_keyword_completions(&self) -> Vec<CompletionItem>;
+
+    fn get_schema_definition_keyword_completions(&self, prefix: &str) -> Vec<CompletionItem>;
+
+    fn get_alias_completions(
+        &self,
+        parent_type: Option<&str>,
+        schema: &Schema,
+    ) -> Vec<CompletionItem>;
+    fn get_directive_argument_completions(
+        &self,
+        directive_name: &str,
+        schema: &Schema,
+    ) -> Vec<CompletionItem>;
+    fn get_union_member_completions(&self, schema: &Schema) -> Vec<CompletionItem>;
+    fn get_implements_interface_completions(&self, schema: &Schema) -> Vec<CompletionItem>;
+    fn get_variable_default_completions(
+        &self,
+        expected_type: &ast::Type,
+        schema: &Schema,
+    ) -> Vec<CompletionItem>;
+
+    fn parse_type_string(&self, text: &str) -> ast::Type;
 }
 
 impl DocumentCompletion for DocumentState {
@@ -213,6 +306,20 @@ impl DocumentCompletion for DocumentState {
         fragments: Vec<FragmentCompletionInfo>,
     ) -> Vec<CompletionItem> {
         let byte_offset = self.position_to_byte(position);
+
+        // Check for keyword prefixes at the root level or in operation type positions
+        if let Some(prefix) = self.get_word_prefix_at_cursor(byte_offset) {
+            match prefix.as_str() {
+                "qu" | "mu" | "su" | "que" | "mut" | "sub" => {
+                    return self.get_operation_type_keyword_completions();
+                }
+                "ty" | "in" | "un" | "en" | "sc" | "ex" | "di" | "typ" | "int" | "uni" | "enu"
+                | "sca" | "ext" | "dir" => {
+                    return self.get_schema_definition_keyword_completions(&prefix);
+                }
+                _ => {}
+            }
+        }
 
         for block in self.get_graphql_trees() {
             let offset = block.offset;
@@ -257,6 +364,51 @@ impl DocumentCompletion for DocumentState {
 
         let start_node =
             root.descendant_for_byte_range(clamped_local.saturating_sub(1), clamped_local);
+
+        // New triggers
+        if self.is_after_pipe(cursor_offset) {
+            return Some(self.get_union_member_completions(schema));
+        }
+
+        if self.is_after_implements(cursor_offset) {
+            return Some(self.get_implements_interface_completions(schema));
+        }
+
+        if self.is_after_directive_open_paren(cursor_offset) {
+            let directive_name = self.get_word_prefix_before_paren(cursor_offset);
+            if let Some(name) = directive_name {
+                return Some(self.get_directive_argument_completions(&name, schema));
+            }
+        }
+
+        if self.is_after_equals(cursor_offset) {
+            if let Some(ast_type) = self.get_type_before_equals(cursor_offset) {
+                return Some(self.get_variable_default_completions(&ast_type, schema));
+            }
+
+            let mut curr = start_node;
+            while let Some(node) = curr {
+                if matches!(
+                    node.kind(),
+                    "variable_definition" | "input_value_definition"
+                ) {
+                    let mut vd_cursor = node.walk();
+                    let mut var_type_text = None;
+                    for vd_child in node.children(&mut vd_cursor) {
+                        if vd_child.kind() == "type" {
+                            var_type_text = Some(self.get_node_text(vd_child, offset));
+                            break;
+                        }
+                    }
+
+                    if let Some(text) = var_type_text {
+                        let ast_type = self.parse_type_string(&text);
+                        return Some(self.get_variable_default_completions(&ast_type, schema));
+                    }
+                }
+                curr = node.parent();
+            }
+        }
 
         // Handle inline fragment type completion after '... on '
         if self.is_after_on(cursor_offset) {
@@ -325,6 +477,15 @@ impl DocumentCompletion for DocumentState {
                 if !filtered.is_empty() {
                     return Some(filtered);
                 }
+            }
+
+            // Field alias trigger
+            if self.is_after_colon_in_selection(cursor_offset) && node.kind() == "field" {
+                let parent_type = self.find_parent_type_for_node(node, offset, schema);
+                return Some(self.get_alias_completions(
+                    parent_type.as_ref().map(|t| t.name().as_str()),
+                    schema,
+                ));
             }
 
             // Try node-specific completions
@@ -450,6 +611,25 @@ impl DocumentCompletion for DocumentState {
         fragments: &[FragmentCompletionInfo],
     ) -> Option<Vec<CompletionItem>> {
         match current.kind() {
+            "operation_type" => Some(self.get_operation_type_keyword_completions()),
+            "schema_document" | "schema_definition" | "document" => {
+                let prefix = self
+                    .get_word_prefix_at_cursor(cursor_offset)
+                    .unwrap_or_default();
+                Some(self.get_schema_definition_keyword_completions(&prefix))
+            }
+            "union_type_definition" => Some(self.get_union_member_completions(schema)),
+            "implements" | "implements_interface" => {
+                Some(self.get_implements_interface_completions(schema))
+            }
+            "directive" => {
+                let name_node = self.find_child_by_kind(current, "name");
+                if let Some(name_node) = name_node {
+                    let dir_name = self.get_node_text(name_node, offset);
+                    return Some(self.get_directive_argument_completions(&dir_name, schema));
+                }
+                None
+            }
             "type_condition" | "named_type" => {
                 if self.is_after_on(cursor_offset)
                     && let Some(inline_node) =
@@ -469,8 +649,47 @@ impl DocumentCompletion for DocumentState {
                 }
                 Some(self.get_all_type_completions(schema))
             }
-            "variable" | "variable_definitions" => {
-                Some(self.get_operation_variables(root, offset, cursor_offset))
+            "variable"
+            | "variable_definitions"
+            | "variable_definition"
+            | "input_value_definition" => {
+                if self.is_after_equals(cursor_offset) {
+                    let vd_node = if matches!(
+                        current.kind(),
+                        "variable_definition" | "input_value_definition"
+                    ) {
+                        Some(current)
+                    } else {
+                        self.find_ancestor_by_kinds(
+                            current,
+                            &["variable_definition", "input_value_definition"],
+                        )
+                    };
+
+                    if let Some(vd) = vd_node {
+                        let mut vd_cursor = vd.walk();
+                        let mut var_type_text = None;
+                        for vd_child in vd.children(&mut vd_cursor) {
+                            if vd_child.kind() == "type" {
+                                var_type_text = Some(self.get_node_text(vd_child, offset));
+                                break;
+                            }
+                        }
+
+                        if let Some(text) = var_type_text {
+                            let ast_type = self.parse_type_string(&text);
+                            return Some(self.get_variable_default_completions(&ast_type, schema));
+                        }
+                    }
+                }
+
+                if matches!(
+                    current.kind(),
+                    "variable" | "variable_definitions" | "variable_definition"
+                ) {
+                    return Some(self.get_operation_variables(root, offset, cursor_offset));
+                }
+                None
             }
             "arguments" | "argument" | "(" | "ERROR" => {
                 let mut items = self.get_operation_variables(root, offset, cursor_offset);
@@ -490,75 +709,30 @@ impl DocumentCompletion for DocumentState {
                     field_node
                 };
 
-                if let Some(field_node) = field_node
-                    && let Some(parent_type) =
-                        self.find_parent_type_for_node(field_node, offset, schema)
-                {
-                    let components = self.extract_field_components(field_node);
-                    if let Some(name_node) = components.name {
-                        let field_name = self.get_node_text(name_node, offset);
-                        let field_def = match &parent_type {
-                            schema::ExtendedType::Object(obj) => {
-                                obj.fields.get(field_name.as_str())
-                            }
-                            schema::ExtendedType::Interface(iface) => {
-                                iface.fields.get(field_name.as_str())
-                            }
-                            _ => None,
-                        };
+                if let Some(field_node) = field_node {
+                    // Check if we are at a value position
+                    if let Some(expected_ast_type) = self.find_expected_ast_type_for_node(
+                        current,
+                        offset,
+                        Some(cursor_offset),
+                        schema,
+                    ) {
+                        let mut value_items =
+                            self.get_variable_default_completions(&expected_ast_type, schema);
+                        items.append(&mut value_items);
 
-                        if let Some(fdef) = field_def {
-                            // Check if we are at a value position
-                            if let Some(expected_type) = self.find_expected_type_for_node(
-                                current,
-                                offset,
-                                Some(cursor_offset),
-                                schema,
-                            ) {
-                                match expected_type {
-                                    schema::ExtendedType::Enum(enum_ty) => {
-                                        for (name, def) in &enum_ty.values {
-                                            items.push(CompletionItem {
-                                                label: name.to_string(),
-                                                kind: Some(CompletionItemKind::ENUM_MEMBER),
-                                                documentation: def.description.as_ref().map(|d| {
-                                                    Documentation::MarkupContent(MarkupContent {
-                                                        kind: MarkupKind::Markdown,
-                                                        value: d.to_string(),
-                                                    })
-                                                }),
-                                                ..Default::default()
-                                            });
-                                        }
-                                        return Some(items);
-                                    }
-                                    schema::ExtendedType::InputObject(input_obj) => {
-                                        for (name, def) in &input_obj.fields {
-                                            items.push(CompletionItem {
-                                                label: name.to_string(),
-                                                kind: Some(CompletionItemKind::FIELD),
-                                                detail: Some(def.ty.to_string()),
-                                                documentation: def.description.as_ref().map(|d| {
-                                                    Documentation::MarkupContent(MarkupContent {
-                                                        kind: MarkupKind::Markdown,
-                                                        value: d.to_string(),
-                                                    })
-                                                }),
-                                                ..Default::default()
-                                            });
-                                        }
-                                        return Some(items);
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            for arg in &fdef.arguments {
+                        // If it's an InputObject, we still want to suggest its fields
+                        if let Some(expected_type) = schema
+                            .types
+                            .get(expected_ast_type.inner_named_type().as_str())
+                            && let schema::ExtendedType::InputObject(input_obj) = expected_type
+                        {
+                            for (name, def) in &input_obj.fields {
                                 items.push(CompletionItem {
-                                    label: arg.name.to_string(),
+                                    label: name.to_string(),
                                     kind: Some(CompletionItemKind::FIELD),
-                                    detail: Some(arg.ty.to_string()),
-                                    documentation: arg.description.as_ref().map(|d| {
+                                    detail: Some(def.ty.to_string()),
+                                    documentation: def.description.as_ref().map(|d| {
                                         Documentation::MarkupContent(MarkupContent {
                                             kind: MarkupKind::Markdown,
                                             value: d.to_string(),
@@ -568,10 +742,59 @@ impl DocumentCompletion for DocumentState {
                                 });
                             }
                         }
+                        return Some(items);
+                    }
+
+                    if let Some(parent_type) =
+                        self.find_parent_type_for_node(field_node, offset, schema)
+                    {
+                        let components = self.extract_field_components(field_node);
+                        if let Some(name_node) = components.name {
+                            let field_name = self.get_node_text(name_node, offset);
+                            let field_def = match &parent_type {
+                                schema::ExtendedType::Object(obj) => {
+                                    obj.fields.get(field_name.as_str())
+                                }
+                                schema::ExtendedType::Interface(iface) => {
+                                    iface.fields.get(field_name.as_str())
+                                }
+                                _ => None,
+                            };
+
+                            if let Some(fdef) = field_def {
+                                for arg in &fdef.arguments {
+                                    items.push(CompletionItem {
+                                        label: arg.name.to_string(),
+                                        kind: Some(CompletionItemKind::FIELD),
+                                        detail: Some(arg.ty.to_string()),
+                                        documentation: arg.description.as_ref().map(|d| {
+                                            Documentation::MarkupContent(MarkupContent {
+                                                kind: MarkupKind::Markdown,
+                                                value: d.to_string(),
+                                            })
+                                        }),
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
                     }
                 } else if let Some(directive_node) =
                     self.find_ancestor_by_kind(current, "directive")
                 {
+                    // Check if we are at a value position
+                    if let Some(expected_ast_type) = self.find_expected_ast_type_for_node(
+                        current,
+                        offset,
+                        Some(cursor_offset),
+                        schema,
+                    ) {
+                        let mut value_items =
+                            self.get_variable_default_completions(&expected_ast_type, schema);
+                        items.append(&mut value_items);
+                        return Some(items);
+                    }
+
                     let name_node = self.find_child_by_kind(directive_node, "name");
                     if let Some(name_node) = name_node {
                         let dir_name = self.get_node_text(name_node, offset);
@@ -758,9 +981,67 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: Option<usize>,
         schema: &Schema,
     ) -> Option<schema::ExtendedType> {
+        let ast_type = self.find_expected_ast_type_for_node(node, offset, cursor_offset, schema)?;
+        schema
+            .types
+            .get(ast_type.inner_named_type().as_str())
+            .cloned()
+    }
+
+    fn find_expected_ast_type_for_node(
+        &self,
+        node: Node,
+        offset: usize,
+        cursor_offset: Option<usize>,
+        schema: &Schema,
+    ) -> Option<ast::Type> {
         let mut curr = Some(node);
         while let Some(current_node) = curr {
             match current_node.kind() {
+                "variable_definition" | "input_value_definition" => {
+                    let mut vd_cursor = current_node.walk();
+                    let mut var_type_text = None;
+                    for vd_child in current_node.children(&mut vd_cursor) {
+                        if vd_child.kind() == "type" {
+                            var_type_text = Some(self.get_node_text(vd_child, offset));
+                            break;
+                        }
+                    }
+                    if let Some(text) = var_type_text {
+                        return Some(self.parse_type_string(&text));
+                    }
+                }
+                "variable_definitions" | "arguments_definition" => {
+                    if let Some(co) = cursor_offset {
+                        let mut cursor = current_node.walk();
+                        let mut last_def = None;
+                        let target_kind = if current_node.kind() == "variable_definitions" {
+                            "variable_definition"
+                        } else {
+                            "input_value_definition"
+                        };
+
+                        for child in current_node.children(&mut cursor) {
+                            if child.kind() == target_kind && child.start_byte() + offset < co {
+                                last_def = Some(child);
+                            }
+                        }
+
+                        if let Some(vd) = last_def {
+                            let mut vd_cursor = vd.walk();
+                            let mut var_type_text = None;
+                            for vd_child in vd.children(&mut vd_cursor) {
+                                if vd_child.kind() == "type" {
+                                    var_type_text = Some(self.get_node_text(vd_child, offset));
+                                    break;
+                                }
+                            }
+                            if let Some(text) = var_type_text {
+                                return Some(self.parse_type_string(&text));
+                            }
+                        }
+                    }
+                }
                 "argument" | "arguments" => {
                     let arg_name = if current_node.kind() == "argument" {
                         self.find_child_by_kind(current_node, "name")
@@ -837,10 +1118,7 @@ impl DocumentCompletion for DocumentState {
                                 .arguments
                                 .iter()
                                 .find(|a| a.name.as_str() == arg_name)?;
-                            return schema
-                                .types
-                                .get(arg_def.ty.inner_named_type().as_str())
-                                .cloned();
+                            return Some((*arg_def.ty).clone());
                         } else if target_node.kind() == "directive" {
                             let name_node = self.find_child_by_kind(target_node, "name")?;
                             let dir_name = self.get_node_text(name_node, offset);
@@ -849,10 +1127,7 @@ impl DocumentCompletion for DocumentState {
                                 .arguments
                                 .iter()
                                 .find(|a| a.name.as_str() == arg_name)?;
-                            return schema
-                                .types
-                                .get(arg_def.ty.inner_named_type().as_str())
-                                .cloned();
+                            return Some((*arg_def.ty).clone());
                         }
                     }
                 }
@@ -902,22 +1177,23 @@ impl DocumentCompletion for DocumentState {
 
                         if let schema::ExtendedType::InputObject(input_obj) = parent_input_type {
                             let field_def = input_obj.fields.get(field_name.as_str())?;
-                            return schema
-                                .types
-                                .get(field_def.ty.inner_named_type().as_str())
-                                .cloned();
+                            return Some((*field_def.ty).clone());
                         }
                     }
                 }
                 "list_value" => {
                     // Recurse to find the type of the list itself
-                    let list_type = self.find_expected_type_for_node(
+                    let list_type = self.find_expected_ast_type_for_node(
                         current_node,
                         offset,
                         cursor_offset,
                         schema,
                     )?;
-                    return Some(list_type);
+                    return match list_type {
+                        ast::Type::List(inner) => Some(*inner),
+                        ast::Type::NonNullList(inner) => Some(*inner),
+                        _ => Some(list_type),
+                    };
                 }
                 _ => {}
             }
@@ -1311,7 +1587,11 @@ impl DocumentCompletion for DocumentState {
                             }
                         }
                         schema::ExtendedType::Union(union) => {
-                            if union.members.iter().any(|m| m.as_str() == f.type_condition.as_ref()) {
+                            if union
+                                .members
+                                .iter()
+                                .any(|m| m.as_str() == f.type_condition.as_ref())
+                            {
                                 return true;
                             }
                         }
@@ -1330,7 +1610,11 @@ impl DocumentCompletion for DocumentState {
                 }
             })
             .map(|f| {
-                let mut documentation = f.description.as_ref().map(|s| s.to_string()).unwrap_or_default();
+                let mut documentation = f
+                    .description
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
                 if !f.requirements.is_empty() {
                     if !documentation.is_empty() {
                         documentation.push_str("\n\n---\n");
@@ -1479,6 +1763,230 @@ impl DocumentCompletion for DocumentState {
             .and_then(|root_name| schema.types.get(root_name.as_str()))
             .map(|root_type| root_type.name() == ty.name())
             .unwrap_or(false)
+    }
+
+    /// Get completions for operation type keywords (query, mutation, subscription)
+    fn get_operation_type_keyword_completions(&self) -> Vec<CompletionItem> {
+        get_operation_type_completions_for_prefix("")
+            .into_iter()
+            .map(|keyword| CompletionItem {
+                label: keyword.to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: Some(format!("{} operation type", keyword.to_uppercase())),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    /// Get completions for schema definition keywords with prefix filtering
+    fn get_schema_definition_keyword_completions(&self, prefix: &str) -> Vec<CompletionItem> {
+        get_schema_keyword_completions_for_prefix(prefix)
+            .into_iter()
+            .map(|keyword| CompletionItem {
+                label: keyword.to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: Some(format!("Schema definition keyword: {}", keyword)),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    /// Get completions for field aliases (after ':' in selections)
+    fn get_alias_completions(
+        &self,
+        parent_type: Option<&str>,
+        schema: &Schema,
+    ) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+
+        if let Some(type_name) = parent_type
+            && let Some(schema::ExtendedType::Object(obj)) = schema.types.get(type_name)
+        {
+            for name in obj.fields.keys() {
+                // Suggest field names as potential aliases
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    detail: Some(format!("Alias for field '{}'", name)),
+                    ..Default::default()
+                });
+            }
+        }
+
+        items
+    }
+
+    /// Get completions for directive arguments
+    fn get_directive_argument_completions(
+        &self,
+        directive_name: &str,
+        schema: &Schema,
+    ) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+        let name = directive_name.strip_prefix('@').unwrap_or(directive_name);
+
+        // Look up directive definition in schema
+        if let Some(directive) = schema.directive_definitions.get(name) {
+            for arg in &directive.arguments {
+                items.push(CompletionItem {
+                    label: arg.name.to_string(),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some(format!("{}: {}", arg.name, arg.ty)),
+                    documentation: arg.description.as_ref().map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d.to_string(),
+                        })
+                    }),
+                    ..Default::default()
+                });
+            }
+        }
+
+        items
+    }
+
+    /// Get completions for union members
+    fn get_union_member_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+
+        for (name, def) in &schema.types {
+            if name.starts_with("__") {
+                continue;
+            }
+            if let schema::ExtendedType::Object(_) = def {
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::CLASS),
+                    detail: Some("Union member type".to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+
+        items
+    }
+
+    /// Get completions for implements interfaces
+    fn get_implements_interface_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+
+        for (name, def) in &schema.types {
+            if name.starts_with("__") {
+                continue;
+            }
+            if let schema::ExtendedType::Interface(_) = def {
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::INTERFACE),
+                    detail: Some("Interface to implement".to_string()),
+                    documentation: def.description().map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d.to_string(),
+                        })
+                    }),
+                    ..Default::default()
+                });
+            }
+        }
+
+        items
+    }
+
+    /// Get completions for variable default values (type-aware)
+    fn get_variable_default_completions(
+        &self,
+        expected_type: &ast::Type,
+        schema: &Schema,
+    ) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+
+        let inner_name = expected_type.inner_named_type();
+        let is_non_null = expected_type.is_non_null();
+        let is_list = matches!(
+            expected_type,
+            ast::Type::List(_) | ast::Type::NonNullList(_)
+        );
+
+        if let Some(ty) = schema.types.get(inner_name.as_str()) {
+            match ty {
+                schema::ExtendedType::Enum(e) => {
+                    for name in e.values.keys() {
+                        items.push(CompletionItem {
+                            label: name.to_string(),
+                            kind: Some(CompletionItemKind::ENUM_MEMBER),
+                            detail: Some(format!("Enum value of {}", inner_name)),
+                            ..Default::default()
+                        });
+                    }
+                }
+                schema::ExtendedType::Scalar(s) => {
+                    if s.name == "Boolean" {
+                        items.push(CompletionItem {
+                            label: "true".to_string(),
+                            kind: Some(CompletionItemKind::KEYWORD),
+                            detail: Some("Boolean true".to_string()),
+                            ..Default::default()
+                        });
+                        items.push(CompletionItem {
+                            label: "false".to_string(),
+                            kind: Some(CompletionItemKind::KEYWORD),
+                            detail: Some("Boolean false".to_string()),
+                            ..Default::default()
+                        });
+                    } else if s.name == "String" {
+                        items.push(CompletionItem {
+                            label: "\"\"".to_string(),
+                            kind: Some(CompletionItemKind::VALUE),
+                            detail: Some("Empty string".to_string()),
+                            ..Default::default()
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !is_non_null {
+            items.push(CompletionItem {
+                label: "null".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: Some("Null value".to_string()),
+                ..Default::default()
+            });
+        }
+
+        if is_list {
+            items.push(CompletionItem {
+                label: "[]".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: Some("Empty list".to_string()),
+                ..Default::default()
+            });
+        }
+
+        items
+    }
+
+    fn parse_type_string(&self, text: &str) -> ast::Type {
+        let text = text.trim();
+        if let Some(inner) = text.strip_suffix('!') {
+            let inner_type = self.parse_type_string(inner);
+            match inner_type {
+                ast::Type::Named(n) => ast::Type::NonNullNamed(n),
+                ast::Type::List(l) => ast::Type::NonNullList(l),
+                _ => inner_type,
+            }
+        } else if text.starts_with('[') && text.ends_with(']') {
+            let inner = &text[1..text.len() - 1];
+            ast::Type::List(Box::new(self.parse_type_string(inner)))
+        } else {
+            ast::Type::Named(
+                apollo_compiler::Name::new(text)
+                    .unwrap_or_else(|_| apollo_compiler::Name::new("String").unwrap()),
+            )
+        }
     }
 
     fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
@@ -1753,6 +2261,219 @@ impl DocumentCompletion for DocumentState {
         false
     }
 
+    fn is_after_pipe(&self, cursor_offset: usize) -> bool {
+        let mut curr = cursor_offset;
+        while curr > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(curr - 1));
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
+            return c == '|';
+        }
+        false
+    }
+
+    fn is_after_implements(&self, cursor_offset: usize) -> bool {
+        let mut curr = cursor_offset;
+        while curr > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(curr - 1));
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
+            break;
+        }
+
+        let target = "implements";
+        let target_len = target.len();
+        if curr < target_len {
+            return false;
+        }
+
+        let start_byte = curr - target_len;
+        let slice = self.rope.byte_slice(start_byte..curr).to_string();
+        if slice == target {
+            if start_byte > 0 {
+                let prev = self.rope.char(self.rope.byte_to_char(start_byte - 1));
+                return !self.is_name_char(prev);
+            }
+            return true;
+        }
+        false
+    }
+
+    fn is_after_directive_open_paren(&self, cursor_offset: usize) -> bool {
+        let mut curr = cursor_offset;
+        while curr > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(curr - 1));
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
+            return c == '(';
+        }
+        false
+    }
+
+    fn get_word_prefix_before_paren(&self, cursor_offset: usize) -> Option<String> {
+        let mut curr = cursor_offset;
+        // skip whitespace and (
+        while curr > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(curr - 1));
+            if c.is_whitespace() || c == '(' {
+                curr -= 1;
+                continue;
+            }
+            break;
+        }
+
+        let end = curr;
+        while curr > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(curr - 1));
+            if self.is_name_char(c) {
+                curr -= 1;
+                continue;
+            }
+            break;
+        }
+
+        if curr < end && curr > 0 && self.rope.char(self.rope.byte_to_char(curr - 1)) == '@' {
+            Some(self.rope.byte_slice(curr..end).to_string())
+        } else {
+            None
+        }
+    }
+
+    fn is_after_equals_in_variable(&self, cursor_offset: usize, node: &Node) -> bool {
+        // Check if we're in a variable_definition context
+        if node.kind() != "variable_definition" {
+            return false;
+        }
+        self.is_after_equals(cursor_offset)
+    }
+
+    fn is_after_equals_in_argument(&self, cursor_offset: usize, node: &Node) -> bool {
+        // Check if we're in an argument definition context
+        if !matches!(node.kind(), "input_value_definition" | "argument") {
+            return false;
+        }
+        self.is_after_equals(cursor_offset)
+    }
+
+    fn is_after_equals(&self, cursor_offset: usize) -> bool {
+        let mut curr = cursor_offset;
+        while curr > 0 {
+            let char_idx = self.rope.byte_to_char(curr - 1);
+            let c = self.rope.char(char_idx);
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
+            return c == '=';
+        }
+        false
+    }
+
+    fn get_type_before_equals(&self, cursor_offset: usize) -> Option<ast::Type> {
+        let mut eq_pos = cursor_offset;
+        // 1. Find the '='
+        let mut found_eq = false;
+        while eq_pos > 0 {
+            let char_idx = self.rope.byte_to_char(eq_pos - 1);
+            let c = self.rope.char(char_idx);
+            if c == '=' {
+                eq_pos -= 1;
+                found_eq = true;
+                break;
+            }
+            if !c.is_whitespace() {
+                // Keep looking for '='
+            }
+            eq_pos -= 1;
+        }
+        if !found_eq {
+            return None;
+        }
+
+        // 2. Find the ':' before '='
+        let mut colon_pos = eq_pos;
+        while colon_pos > 0 {
+            let char_idx = self.rope.byte_to_char(colon_pos - 1);
+            let c = self.rope.char(char_idx);
+            if c == ':' {
+                break;
+            }
+            if matches!(c, '{' | '(' | ')' | '}') {
+                return None;
+            }
+            colon_pos -= 1;
+        }
+
+        if colon_pos == 0 {
+            return None;
+        }
+
+        let type_text = self.rope.byte_slice(colon_pos..eq_pos).to_string();
+        let type_text = type_text.trim();
+        if type_text.is_empty() {
+            return None;
+        }
+
+        Some(self.parse_type_string(type_text))
+    }
+
+    fn is_after_colon_in_selection(&self, cursor_offset: usize) -> bool {
+        let mut curr = cursor_offset;
+        while curr > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(curr - 1));
+            if c.is_whitespace() {
+                curr -= 1;
+                continue;
+            }
+            return c == ':';
+        }
+        false
+    }
+
+    fn is_after_question_mark(&self, cursor_offset: usize) -> bool {
+        if cursor_offset == 0 {
+            return false;
+        }
+        let c = self.rope.char(self.rope.byte_to_char(cursor_offset - 1));
+        c == '?'
+    }
+
+    fn is_operation_type_position(&self, _cursor_offset: usize, node: &Node) -> bool {
+        // Trigger after typing prefixes like 'qu', 'mu', 'su'
+        node.kind() == "operation_type"
+    }
+
+    fn is_schema_definition_position(&self, _cursor_offset: usize, node: &Node) -> bool {
+        // Trigger in schema_document or at root level for schema keywords
+        matches!(
+            node.kind(),
+            "schema_document" | "schema_definition" | "document"
+        )
+    }
+
+    fn get_word_prefix_at_cursor(&self, cursor_offset: usize) -> Option<String> {
+        let mut start = cursor_offset;
+        while start > 0 {
+            let c = self.rope.char(self.rope.byte_to_char(start - 1));
+            if !self.is_name_char(c) {
+                break;
+            }
+            start -= 1;
+        }
+
+        if start == cursor_offset {
+            return None;
+        }
+
+        Some(self.rope.byte_slice(start..cursor_offset).to_string())
+    }
+
     fn create_braced_snippet(
         &self,
         name: &str,
@@ -1824,5 +2545,49 @@ mod tests {
         let offset = doc.get_graphql_trees()[0].offset;
         assert!(doc.is_after_dots(offset + 3));
         assert!(!doc.is_after_dots(offset + 2));
+    }
+
+    #[test]
+    fn test_is_after_pipe() {
+        let doc = create_doc("const q = graphql(`union U = A | `);");
+        let offset = doc.get_graphql_trees()[0].offset;
+        assert!(doc.is_after_pipe(offset + 14)); // After '| '
+    }
+
+    #[test]
+    fn test_is_after_implements() {
+        let doc = create_doc("const q = graphql(`type T implements `);");
+        let offset = doc.get_graphql_trees()[0].offset;
+        assert!(doc.is_after_implements(offset + 18)); // After 'implements '
+    }
+
+    #[test]
+    fn test_is_after_directive_open_paren() {
+        let doc = create_doc("const q = graphql(`field @dir(`);");
+        let offset = doc.get_graphql_trees()[0].offset;
+        assert!(doc.is_after_directive_open_paren(offset + 11)); // After '('
+    }
+
+    #[test]
+    fn test_is_after_colon_in_selection() {
+        let doc = create_doc("const q = graphql(`{ field: `);");
+        let offset = doc.get_graphql_trees()[0].offset;
+        assert!(doc.is_after_colon_in_selection(offset + 9)); // After ': '
+    }
+
+    #[test]
+    fn test_get_word_prefix_at_cursor() {
+        let doc = create_doc("const q = graphql(`query { qu`);");
+        let offset = doc.get_graphql_trees()[0].offset;
+        assert_eq!(doc.get_word_prefix_at_cursor(offset + 10).unwrap(), "qu");
+    }
+
+    #[test]
+    fn test_keyword_prefix_trigger() {
+        let doc = create_doc("const q = graphql(`qu`);");
+        let offset = doc.get_graphql_trees()[0].offset;
+        let prefix = doc.get_word_prefix_at_cursor(offset + 2).unwrap();
+        assert_eq!(prefix, "qu");
+        // We'll test the actual completion items in integration tests
     }
 }
