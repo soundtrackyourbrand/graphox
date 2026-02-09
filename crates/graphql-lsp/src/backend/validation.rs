@@ -258,28 +258,16 @@ pub fn get_fragments_for_doc(
 /// Gets fragments available for a given document using pre-collected metadata
 pub fn get_fragments_for_doc_with_metadata(
     doc: &DocumentState,
-    config: &Config,
+    _config: &Config,
     all_fragments: &[FragmentCompletionInfo],
 ) -> Vec<FragmentCompletionInfo> {
     let target_package_root = doc.package_root.as_ref();
-    let doc_path = doc.uri.to_file_path().ok();
-    let schema_key = doc_path
-        .as_ref()
-        .and_then(|p| config.get_schema_for_path(p));
 
     let mut filtered: Vec<_> = all_fragments
         .iter()
         .filter(|f| {
             let is_same_package = f.package_root.as_ref() == target_package_root;
-            if is_same_package || f.is_public {
-                return true;
-            }
-
-            if let Ok(f_path) = f.uri.to_file_path() {
-                let f_schema_key = config.get_schema_for_path(&f_path);
-                return f_schema_key.is_some() && f_schema_key == schema_key;
-            }
-            false
+            is_same_package || f.is_public
         })
         .cloned()
         .collect();

@@ -1,6 +1,6 @@
 use crate::support::{
-    completion_items_array, create_service, lsp_did_open, lsp_initialize_sequence,
-    lsp_request_completion, lsp_request_typed, pos,
+    completion_items_array, create_initialized_lsp_service, create_service, lsp_did_open,
+    lsp_initialize_sequence, lsp_request_completion, lsp_request_typed, pos, with_cursor,
 };
 use graphql_rust::Config;
 use std::path::Path;
@@ -8,8 +8,10 @@ use tower_lsp::lsp_types::*;
 
 #[tokio::test]
 async fn test_lsp_fragment_scoping() {
-    let (mut service, _handle) = create_service(Config::new_empty());
-    lsp_initialize_sequence(&mut service).await;
+    let config_dir = std::fs::canonicalize(Path::new("tests/fixtures/public_test")).unwrap();
+    let config = graphql_rust::Config::load_from_dir(&config_dir)
+        .expect("Failed to load config from fixtures");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Open Public/Private fragments in pkg_a
     let pkg_a_frag_path = std::fs::canonicalize(Path::new(
@@ -25,20 +27,21 @@ async fn test_lsp_fragment_scoping() {
     let pkg_b_query_path =
         std::fs::canonicalize(Path::new("tests/fixtures/public_test/pkg_b/query.graphql")).unwrap();
     let pkg_b_uri = Url::from_file_path(pkg_b_query_path).unwrap();
-    let pkg_b_text = r#"
+    let (pkg_b_text, cursor_pos) = with_cursor(
+        r#"
         query {
             users {
                 ...PublicFrag
-                ...PrivateFrag
+                ...P|rivateFrag
             }
         }
-    "#;
+    "#,
+    );
 
-    lsp_did_open(&mut service, pkg_b_uri.clone(), "graphql", 1, pkg_b_text).await;
+    lsp_did_open(&mut service, pkg_b_uri.clone(), "graphql", 1, &pkg_b_text).await;
 
     // 3. Request completions at "...P" in pkg_b
-    // Line 4: "                ...PublicFrag"
-    let result = lsp_request_completion(&mut service, pkg_b_uri.clone(), pos(3, 19)).await;
+    let result = lsp_request_completion(&mut service, pkg_b_uri.clone(), cursor_pos).await;
     let items = completion_items_array(&result);
 
     let has_public = items.iter().any(|i| i.label == "PublicFrag");
