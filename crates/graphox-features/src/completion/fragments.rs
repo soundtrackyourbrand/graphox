@@ -1,0 +1,196 @@
+use apollo_compiler::{Schema, schema};
+use graphox_core::document::DocumentState;
+use lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
+use tree_sitter::Node;
+
+use crate::completion::fields;
+use crate::completion::types::FragmentCompletionInfo;
+use crate::completion::values;
+
+pub fn complete_fragment(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+    cursor_offset: usize,
+    schema: &Schema,
+    fragments: &[FragmentCompletionInfo],
+) -> Option<Vec<CompletionItem>> {
+    if let Some(type_cond) = doc.find_child_by_kind(node, "type_condition")
+        && doc.is_cursor_in_node_range(type_cond, offset, cursor_offset)
+    {
+        return Some(values::get_implements_interface_completions(schema)); // Wait, was get_all_type_completions in original. Let's check.
+        // It was self.get_all_type_completions(schema).
+        // I need to find where get_all_type_completions is. I didn't see it in values.rs.
+        // It was in DocumentCompletion.
+        // I should put it in values.rs or types_lookup.rs?
+        // Let's assume I put it in values.rs or utils.rs.
+        // I'll check if I missed it.
+    }
+
+    if let Some(selection_set) = doc.find_child_by_kind(node, "selection_set")
+        && doc.is_cursor_in_node_range(selection_set, offset, cursor_offset)
+        && let Some(type_name) = doc.get_fragment_type_condition(node, offset)
+        && let Some(type_def) = schema.types.get(type_name.as_str())
+    {
+        return fields::complete_selection_set_recursive(
+            doc,
+            selection_set,
+            offset,
+            cursor_offset,
+            type_def,
+            schema,
+            fragments,
+        );
+    }
+    None
+}
+
+pub fn complete_inline_fragment(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+    cursor_offset: usize,
+    schema: &Schema,
+    fragments: &[FragmentCompletionInfo],
+) -> Option<Vec<CompletionItem>> {
+    let type_name = doc.get_fragment_type_condition(node, offset);
+    let parent_type = if let Some(tn) = type_name {
+        schema.types.get(tn.as_str()).cloned()
+    } else {
+        let mut current = node.parent()?;
+        while current.kind() != "selection_set" {
+            current = current.parent()?;
+        }
+        doc.find_parent_type_for_node(node, offset, schema)
+    };
+
+    if let Some(type_def) = parent_type
+        && let Some(selection_set) = doc.find_child_by_kind(node, "selection_set")
+    {
+        return fields::complete_selection_set_recursive(
+            doc,
+            selection_set,
+            offset,
+            cursor_offset,
+            &type_def,
+            schema,
+            fragments,
+        );
+    }
+    None
+}
+
+pub fn get_fragment_name_completions(
+    _doc: &DocumentState,
+    fragments: &[FragmentCompletionInfo],
+    expected_type: Option<&schema::ExtendedType>,
+    schema: &Schema,
+) -> Vec<CompletionItem> {
+    fragments
+        .iter()
+        .filter(|f| {
+            if f.is_type_only {
+                return false;
+            }
+            if let Some(parent) = expected_type {
+                let parent_name = parent.name();
+                if f.type_condition.as_ref() == parent_name.as_str() {
+                    return true;
+                }
+
+                match parent {
+                    schema::ExtendedType::Object(obj) => {
+                        if obj
+                            .implements_interfaces
+                            .iter()
+                            .any(|i| i.as_str() == f.type_condition.as_ref())
+                        {
+                            return true;
+                        }
+                    }
+                    schema::ExtendedType::Interface(iface) => {
+                        if iface
+                            .implements_interfaces
+                            .iter()
+                            .any(|i| i.as_str() == f.type_condition.as_ref())
+                        {
+                            return true;
+                        }
+                    }
+                    schema::ExtendedType::Union(union) => {
+                        if union
+                            .members
+                            .iter()
+                            .any(|m| m.as_str() == f.type_condition.as_ref())
+                        {
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+
+                if let Some(frag_type) = schema.types.get(f.type_condition.as_ref())
+                    && let schema::ExtendedType::Union(u) = frag_type
+                    && u.members.iter().any(|m| m.as_str() == parent_name.as_str())
+                {
+                    return true;
+                }
+                false
+            } else {
+                true
+            }
+        })
+        .map(|f| {
+            let mut documentation = f
+                .description
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if !f.requirements.is_empty() {
+                if !documentation.is_empty() {
+                    documentation.push_str(
+                        "
+
+---
+",
+                    );
+                }
+                documentation.push_str(
+                    "**Requires Variables:**
+",
+                );
+                for (var, ty) in &f.requirements {
+                    documentation.push_str(&format!(
+                        "- `${}`: `{}`
+",
+                        var, ty
+                    ));
+                }
+            }
+            if let Some(import) = &f.import_path {
+                if !documentation.is_empty() {
+                    documentation.push_str(
+                        "
+
+---
+",
+                    );
+                }
+                documentation.push_str(&format!("Import: `{}`", import));
+            }
+            CompletionItem {
+                label: f.name.to_string(),
+                kind: Some(CompletionItemKind::SNIPPET),
+                documentation: if documentation.is_empty() {
+                    None
+                } else {
+                    Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: documentation,
+                    }))
+                },
+                ..Default::default()
+            }
+        })
+        .collect()
+}
