@@ -94,6 +94,8 @@ tower-service = "0.3.3"
 futures-util = "0.3"
 tokio-stream = "0.1"
 
+
+
 [[bench]]
 name = "processing"
 harness = false
@@ -128,6 +130,9 @@ split-debuginfo = "packed"
 lto = "thin"
 strip = true
 codegen-units = 1
+
+[patch.crates-io]
+ariadne = { git = "https://github.com/Pajn/ariadne", branch = "5-1" }
 
 # Optimize dependencies even in debug mode for faster runtime (e.g. tests)
 # This slows down initial build slightly but speeds up iteration
