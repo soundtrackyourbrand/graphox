@@ -164,6 +164,8 @@ pub trait DocumentCompletion {
         &self,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        add_braces: bool,
+        cursor_offset: usize,
     ) -> Vec<CompletionItem>;
 
     fn is_query_root(&self, ty: &schema::ExtendedType, schema: &Schema) -> bool;
@@ -179,6 +181,12 @@ pub trait DocumentCompletion {
     ) -> Vec<CompletionItem>;
 
     fn get_prefix_at_cursor(&self, cursor_offset: usize) -> (usize, usize);
+
+    fn create_braced_snippet(
+        &self,
+        name: &str,
+        cursor_offset: usize,
+    ) -> Option<(String, InsertTextFormat, TextEdit)>;
 
     fn get_directive_completions(
         &self,
@@ -1212,7 +1220,8 @@ impl DocumentCompletion for DocumentState {
             }
         }
 
-        Some(self.get_field_completions(parent_type, schema))
+        let has_selection_set = self.has_trailing_selection_set_internal(cursor_offset);
+        Some(self.get_field_completions(parent_type, schema, !has_selection_set, cursor_offset))
     }
 
     fn complete_field(
@@ -1356,12 +1365,14 @@ impl DocumentCompletion for DocumentState {
         &self,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        add_braces: bool,
+        cursor_offset: usize,
     ) -> Vec<CompletionItem> {
         let mut items = Vec::new();
         match parent_type {
             schema::ExtendedType::Object(obj) => {
                 for (name, def) in &obj.fields {
-                    items.push(CompletionItem {
+                    let mut item = CompletionItem {
                         label: name.to_string(),
                         kind: Some(CompletionItemKind::FIELD),
                         detail: Some(def.ty.to_string()),
@@ -1372,12 +1383,31 @@ impl DocumentCompletion for DocumentState {
                             })
                         }),
                         ..Default::default()
-                    });
+                    };
+
+                    let field_type_name = def.ty.inner_named_type();
+                    let returns_object_or_interface = matches!(
+                        schema.types.get(field_type_name.as_str()),
+                        Some(schema::ExtendedType::Object(_))
+                            | Some(schema::ExtendedType::Interface(_))
+                    );
+
+                    if add_braces && returns_object_or_interface {
+                        if let Some((snippet, format, text_edit)) =
+                            self.create_braced_snippet(name, cursor_offset)
+                        {
+                            item.insert_text = Some(snippet);
+                            item.insert_text_format = Some(format);
+                            item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
+                        }
+                    }
+
+                    items.push(item);
                 }
             }
             schema::ExtendedType::Interface(iface) => {
                 for (name, def) in &iface.fields {
-                    items.push(CompletionItem {
+                    let mut item = CompletionItem {
                         label: name.to_string(),
                         kind: Some(CompletionItemKind::FIELD),
                         detail: Some(def.ty.to_string()),
@@ -1388,7 +1418,26 @@ impl DocumentCompletion for DocumentState {
                             })
                         }),
                         ..Default::default()
-                    });
+                    };
+
+                    let field_type_name = def.ty.inner_named_type();
+                    let returns_object_or_interface = matches!(
+                        schema.types.get(field_type_name.as_str()),
+                        Some(schema::ExtendedType::Object(_))
+                            | Some(schema::ExtendedType::Interface(_))
+                    );
+
+                    if add_braces && returns_object_or_interface {
+                        if let Some((snippet, format, text_edit)) =
+                            self.create_braced_snippet(name, cursor_offset)
+                        {
+                            item.insert_text = Some(snippet);
+                            item.insert_text_format = Some(format);
+                            item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
+                        }
+                    }
+
+                    items.push(item);
                 }
             }
             _ => {}
@@ -1548,27 +1597,13 @@ impl DocumentCompletion for DocumentState {
                 let end_pos = self.byte_to_position(cursor_offset);
 
                 if add_braces {
-                    let line_idx = self.rope.byte_to_line(cursor_offset);
-                    let line_start = self.rope.line_to_byte(line_idx);
-                    let line_slice = self.rope.byte_slice(line_start..cursor_offset).to_string();
-                    let mut indent = String::new();
-                    for c in line_slice.chars() {
-                        if c.is_whitespace() {
-                            indent.push(c);
-                        } else {
-                            break;
-                        }
+                    if let Some((snippet, format, text_edit)) =
+                        self.create_braced_snippet(name, cursor_offset)
+                    {
+                        item.insert_text = Some(snippet);
+                        item.insert_text_format = Some(format);
+                        item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
                     }
-                    let snippet = format!("{} {{\n{}  $0\n{}}}", name, indent, indent);
-                    item.insert_text = Some(snippet.clone());
-                    item.insert_text_format = Some(InsertTextFormat::SNIPPET);
-                    item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
-                        range: Range {
-                            start: start_pos,
-                            end: end_pos,
-                        },
-                        new_text: snippet.replace("$0", ""),
-                    }));
                 } else {
                     item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
                         range: Range {
@@ -1714,6 +1749,40 @@ impl DocumentCompletion for DocumentState {
             }
         }
         false
+    }
+
+    fn create_braced_snippet(
+        &self,
+        name: &str,
+        cursor_offset: usize,
+    ) -> Option<(String, InsertTextFormat, TextEdit)> {
+        let line_idx = self.rope.byte_to_line(cursor_offset);
+        let line_start = self.rope.line_to_byte(line_idx);
+        let line_slice = self.rope.byte_slice(line_start..cursor_offset).to_string();
+
+        let mut indent = String::new();
+        for c in line_slice.chars() {
+            if c.is_whitespace() {
+                indent.push(c);
+            } else {
+                break;
+            }
+        }
+
+        let (_prefix_len, start_offset) = self.get_prefix_at_cursor(cursor_offset);
+        let start_pos = self.byte_to_position(start_offset);
+        let end_pos = self.byte_to_position(cursor_offset);
+
+        let snippet = format!("{} {{\n{}  $0\n{}}}", name, indent, indent);
+        let text_edit = TextEdit {
+            range: Range {
+                start: start_pos,
+                end: end_pos,
+            },
+            new_text: snippet.replace("$0", ""),
+        };
+
+        Some((snippet, InsertTextFormat::SNIPPET, text_edit))
     }
 
     fn is_name_char(&self, c: char) -> bool {
