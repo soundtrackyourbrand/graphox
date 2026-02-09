@@ -87,7 +87,7 @@ pub fn collect_fragment_metadata_with_schema(
             let (import_path, schema_key) = if let Ok(p) = uri.to_file_path() {
                 let project = config.get_project_for_path(&p);
                 (
-                    project.and_then(|proj| proj.import.as_deref().map(|s| Arc::from(s))),
+                    project.and_then(|proj| proj.import.as_deref().map(Arc::from)),
                     project.map(|proj| Arc::from(proj.schema.as_key())),
                 )
             } else {

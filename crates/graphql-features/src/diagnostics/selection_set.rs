@@ -26,7 +26,16 @@ pub(super) fn validate_selection_set(
             for inner in child.children(&mut inner_cursor) {
                 let k = inner.kind();
                 if k == "field" {
-                    validate_field(this, inner, offset, parent_type, ctx, depth + 1, parent_response_key, type_name);
+                    validate_field(
+                        this,
+                        inner,
+                        offset,
+                        parent_type,
+                        ctx,
+                        depth + 1,
+                        parent_response_key,
+                        type_name,
+                    );
                 } else if k == "inline_fragment" {
                     crate::diagnostics::fragments::validate_inline_fragment(
                         this,
@@ -44,7 +53,16 @@ pub(super) fn validate_selection_set(
                 }
             }
         } else if kind == "field" {
-            validate_field(this, child, offset, parent_type, ctx, depth + 1, parent_response_key, type_name);
+            validate_field(
+                this,
+                child,
+                offset,
+                parent_type,
+                ctx,
+                depth + 1,
+                parent_response_key,
+                type_name,
+            );
         } else if kind == "fragment_spread" {
             crate::diagnostics::fragments::validate_fragment_spread(this, child, offset, ctx);
         } else if kind == "inline_fragment" {
@@ -250,23 +268,23 @@ pub(super) fn validate_field(
                 // Track field under parent response key (for nested fields)
                 ctx.response_key_selected_fields
                     .entry(rk.to_string().into())
-                    .or_insert_with(ahash::AHashSet::new)
+                    .or_default()
                     .insert(actual_field_name.clone().into());
-                
+
                 // If we're in an inline fragment context, also track in type_condition_fields
                 if let Some(tn) = type_name {
                     ctx.type_condition_fields
                         .entry(rk.to_string().into())
-                        .or_insert_with(ahash::AHashMap::default)
+                        .or_default()
                         .entry(tn.to_string().into())
-                        .or_insert_with(ahash::AHashSet::new)
+                        .or_default()
                         .insert(actual_field_name.clone().into());
                 }
             } else if depth == 1 {
                 // Root-level field - track under its own key
                 ctx.response_key_selected_fields
                     .entry(response_key.clone().into())
-                    .or_insert_with(ahash::AHashSet::new)
+                    .or_default()
                     .insert(actual_field_name.clone().into());
                 // Mark this response key as root-level (skip required field validation)
                 ctx.root_response_keys.insert(response_key.clone().into());
@@ -324,7 +342,16 @@ pub(super) fn validate_field(
                     } else {
                         parent_response_key
                     };
-                    validate_selection_set(this, sel_set, offset, field_type_def, ctx, depth + 1, new_parent_rk, None);
+                    validate_selection_set(
+                        this,
+                        sel_set,
+                        offset,
+                        field_type_def,
+                        ctx,
+                        depth + 1,
+                        new_parent_rk,
+                        None,
+                    );
                 }
             }
         } else {

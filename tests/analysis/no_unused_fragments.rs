@@ -2,12 +2,12 @@ use crate::support::assert_diag_range_equals;
 use crate::support::assert_diagnostic_with_message;
 use crate::support::assert_diagnostics_count;
 use crate::support::create_doc;
-use std::sync::Arc;
 use ahash::AHashSet;
 use graphql_rust::Config;
 use graphql_rust::config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource};
 use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use std::fs;
+use std::sync::Arc;
 use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 

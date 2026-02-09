@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use std::sync::Arc;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString};
 
 use crate::support::assert_diag_range_equals;

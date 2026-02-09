@@ -2,8 +2,8 @@ use ahash::AHashMap;
 use apollo_compiler::Schema;
 use graphql_rust::features::diagnostics::DocumentDiagnostics;
 use graphql_rust::{
-    config::{RequiredFieldRule, RulesConfig},
     Config,
+    config::{RequiredFieldRule, RulesConfig},
 };
 use tower_lsp::lsp_types::DiagnosticSeverity;
 

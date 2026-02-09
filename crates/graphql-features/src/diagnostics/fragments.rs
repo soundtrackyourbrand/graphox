@@ -218,7 +218,7 @@ pub(super) fn validate_inline_fragment(
             if let Some(rk) = parent_response_key {
                 ctx.response_key_type_conditions
                     .entry(rk.to_string().into())
-                    .or_insert_with(ahash::AHashSet::new)
+                    .or_default()
                     .insert(name.clone().into());
             }
         }
@@ -279,7 +279,9 @@ pub(super) fn validate_fragment_spread(
                     // If the fragment exists but is marked @type_only, report a warning
                     if exists {
                         // Try to find metadata in workspace fragments first
-                        if let Some(meta) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
+                        if let Some(meta) =
+                            ctx.all_fragments.iter().find(|f| f.name.as_ref() == name)
+                        {
                             if meta.is_type_only {
                                 // Diagnostic at the spread location; include definition URI + fragment name
                                 ctx.diagnostics.push(Diagnostic {
@@ -297,7 +299,8 @@ pub(super) fn validate_fragment_spread(
                                     ..Default::default()
                                 });
                             }
-                        } else if let Some(def) = this.fragments().iter().find(|f| f.name.as_ref() == name)
+                        } else if let Some(def) =
+                            this.fragments().iter().find(|f| f.name.as_ref() == name)
                             && def.is_type_only
                         {
                             // Fragment defined in this document
@@ -526,7 +529,9 @@ fn mark_used_variables_recursive(
             for var in vars {
                 ctx.used_variables.insert(var.to_string().into());
 
-                if !ctx.defined_variables.is_empty() && !ctx.defined_variables.contains(var.as_ref()) {
+                if !ctx.defined_variables.is_empty()
+                    && !ctx.defined_variables.contains(var.as_ref())
+                {
                     ctx.diagnostics.push(Diagnostic {
                         range: this.translate_to_file_range(trigger_node, offset),
                         severity: Some(DiagnosticSeverity::ERROR),

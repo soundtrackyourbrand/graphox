@@ -280,17 +280,17 @@ pub fn generate_typescript_with_profile(
                 deps_list.sort_unstable(); // unstable sort is faster
 
                 for dep in deps_list {
-                    let is_type_only =
-                        ctx.fragment_to_type_only
-                            .get(dep.as_ref())
-                            .copied()
-                            .unwrap_or_else(|| {
-                                doc.fragments()
-                                    .iter()
-                                    .find(|f| f.name.as_ref() == dep.as_ref())
-                                    .map(|f| f.is_type_only)
-                                    .unwrap_or(false)
-                            });
+                    let is_type_only = ctx
+                        .fragment_to_type_only
+                        .get(dep.as_ref())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            doc.fragments()
+                                .iter()
+                                .find(|f| f.name.as_ref() == dep.as_ref())
+                                .map(|f| f.is_type_only)
+                                .unwrap_or(false)
+                        });
 
                     if !is_type_only {
                         // Use direct string building instead of format! macro
@@ -535,17 +535,17 @@ pub fn generate_typescript_with_profile(
         if ctx.generate_ast_for_fragments {
             let mut doc_names = Vec::new();
             for name in names {
-                let is_type_only =
-                    ctx.fragment_to_type_only
-                        .get(&name[..])
-                        .copied()
-                        .unwrap_or_else(|| {
-                            doc.fragments()
-                                .iter()
-                                .find(|f| f.name.as_ref() == name.as_ref())
-                                .map(|f| f.is_type_only)
-                                .unwrap_or(false)
-                        });
+                let is_type_only = ctx
+                    .fragment_to_type_only
+                    .get(&name[..])
+                    .copied()
+                    .unwrap_or_else(|| {
+                        doc.fragments()
+                            .iter()
+                            .find(|f| f.name.as_ref() == name.as_ref())
+                            .map(|f| f.is_type_only)
+                            .unwrap_or(false)
+                    });
 
                 if !is_type_only {
                     let mut doc_name =
@@ -1423,7 +1423,11 @@ fn get_operation_deps_cached(
             transitive_deps.extend(cached_transitive.iter().cloned());
         } else {
             // Fallback: compute manually (only for fragments defined in current file)
-            if let Some(local_frag) = doc.fragments().iter().find(|f| f.name.as_ref() == frag_name.as_ref()) {
+            if let Some(local_frag) = doc
+                .fragments()
+                .iter()
+                .find(|f| f.name.as_ref() == frag_name.as_ref())
+            {
                 // This fragment is local, compute its deps on the fly
                 if let Some(parsed_frag) = ctx.all_fragments.get(local_frag.name.as_ref()) {
                     let frag_deps =

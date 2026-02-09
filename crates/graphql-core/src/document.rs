@@ -515,15 +515,11 @@ impl DocumentState {
                             if child.kind() == "description" {
                                 if let Some(sv) = child.child_by_field_name("content") {
                                     description = Some(
-                                        self.get_node_text(sv, offset)
-                                            .trim_matches('"')
-                                            .into(),
+                                        self.get_node_text(sv, offset).trim_matches('"').into(),
                                     );
                                 } else if let Some(sv) = child.child(0) {
                                     description = Some(
-                                        self.get_node_text(sv, offset)
-                                            .trim_matches('"')
-                                            .into(),
+                                        self.get_node_text(sv, offset).trim_matches('"').into(),
                                     );
                                 }
                             }
@@ -704,12 +700,7 @@ impl DocumentState {
                     let source_text = if let Some(n) = full_node {
                         self.get_node_text(n, offset).into()
                     } else {
-                        block
-                            .tree
-                            .root_node()
-                            .utf8_text(b"")
-                            .unwrap_or("")
-                            .into()
+                        block.tree.root_node().utf8_text(b"").unwrap_or("").into()
                     };
 
                     operations.push(OperationDef {
@@ -845,6 +836,68 @@ impl DocumentState {
         } else {
             self.rope.to_string().into()
         };
+    }
+
+    pub fn get_symbol_at_position(&self, position: Position) -> Option<String> {
+        let byte_offset = self.position_to_byte(position);
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let root = block.tree.root_node();
+            let tree_len = root.end_byte();
+            if byte_offset >= offset && byte_offset < offset + tree_len {
+                let local_byte = byte_offset - offset;
+                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+                if node.kind() == "name"
+                    && let Some(parent) = node.parent()
+                    && parent.kind() == "variable"
+                {
+                    return Some(self.get_node_text(parent, offset));
+                }
+                if node.kind() == "name"
+                    && let Some(parent) = node.parent()
+                    && (parent.kind() == "directive" || parent.kind() == "directive_definition")
+                {
+                    return Some(format!("@{}", self.get_node_text(node, offset)));
+                }
+                if node.kind() == "name" || node.kind() == "variable" {
+                    return Some(self.get_node_text(node, offset));
+                }
+                if node.kind() == "@"
+                    && let Some(parent) = node.parent()
+                    && (parent.kind() == "directive" || parent.kind() == "directive_definition")
+                    && let Some(name_node) = self.find_child_by_kind(parent, "name")
+                {
+                    return Some(format!("@{}", self.get_node_text(name_node, offset)));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_containing_operation_node(
+        &self,
+        position: Position,
+    ) -> Option<(tree_sitter::Node<'_>, usize)> {
+        let byte_offset = self.position_to_byte(position);
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let root = block.tree.root_node();
+            let tree_len = root.end_byte();
+            if byte_offset >= offset && byte_offset < offset + tree_len {
+                let local_byte = byte_offset - offset;
+                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+                let mut curr = node;
+                while let Some(parent) = curr.parent() {
+                    if parent.kind() == "operation_definition"
+                        || parent.kind() == "fragment_definition"
+                    {
+                        return Some((parent, offset));
+                    }
+                    curr = parent;
+                }
+            }
+        }
+        None
     }
 
     pub fn find_parent_type_for_node(
@@ -1326,5 +1379,13 @@ impl DocumentState {
 #[derive(Debug, Clone)]
 pub enum CompletionContext {
     SelectionSet(apollo_compiler::schema::ExtendedType),
+    OperationDefinition,
+    SchemaDefinition,
+    FieldAlias,
+    DirectiveArguments,
+    UnionMembers,
+    ImplementsClause,
+    VariableDefaultValue,
+    ArgumentDefaultValue,
     Other,
 }

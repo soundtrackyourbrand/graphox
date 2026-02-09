@@ -125,10 +125,41 @@ pub const GQL_COMPLETION_QUERY: &str = r#"
 "#;
 
 pub const GQL_REFERENCES_QUERY: &str = r#"
+    ;; Fragment usages/definitions
     (fragment_spread (fragment_name (name) @name)) @reference
     (fragment_definition (fragment_name (name) @name)) @definition
+
+    ;; Variables
     (variable) @name @reference
-    (variable_definition (variable) @name @definition)
+    (variable_definition (variable) @name) @definition
+
+    ;; Field selections and field definitions
+    (field (name) @name) @reference
+    (field_definition (name) @name) @definition
+
+    ;; Named type usages and type definitions
+    (named_type (name) @name) @reference
+    (object_type_definition (name) @name) @definition
+    (interface_type_definition (name) @name) @definition
+    (enum_type_definition (name) @name) @definition
+    (union_type_definition (name) @name) @definition
+    (input_object_type_definition (name) @name) @definition
+    (scalar_type_definition (name) @name) @definition
+
+    ;; Arguments and input value definitions
+    (argument (name) @name) @reference
+    (input_value_definition (name) @name) @definition
+
+    ;; Directives (usage and definition)
+    (directive (name) @name) @reference
+    (directive_definition (name) @name) @definition
+
+    ;; Enum value usages and definitions
+    (enum_value (name) @name) @reference
+    (enum_value_definition (enum_value (name) @name)) @definition
+
+    ;; Operation names
+    (operation_definition (name) @name) @definition
 "#;
 
 pub const GQL_MERGE_QUERY: &str = r#"

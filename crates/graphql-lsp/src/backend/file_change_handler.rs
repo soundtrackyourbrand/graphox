@@ -120,10 +120,12 @@ pub async fn process_file_created_or_changed(
         .fragment_defs
         .get(&uri)
         .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
-    let old_spreads: Option<Vec<Arc<str>>> = params.fragment_spreads.get(&uri).map(|s| s.value().clone());
+    let old_spreads: Option<Vec<Arc<str>>> =
+        params.fragment_spreads.get(&uri).map(|s| s.value().clone());
 
     let new_fragment_defs = new_doc.fragments().to_vec();
-    let new_fragment_names: Vec<Arc<str>> = new_fragment_defs.iter().map(|f| f.name.clone()).collect();
+    let new_fragment_names: Vec<Arc<str>> =
+        new_fragment_defs.iter().map(|f| f.name.clone()).collect();
     let new_spreads: Vec<Arc<str>> = new_doc.fragment_spreads.clone();
 
     // Track changes to fragment definitions

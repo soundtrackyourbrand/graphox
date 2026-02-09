@@ -152,6 +152,57 @@ async fn test_goto_definition_directive() {
 }
 
 #[tokio::test]
+async fn test_goto_definition_enum_value() {
+    let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ntype Query { users(status: OrderStatus): [User] }\ntype User { id: ID }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config.base_dir = tmpdir.path().to_path_buf();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_path = tmpdir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
+
+    // Open schema
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    // Create query with enum value
+    let query_text = "query GetUsers { users(status: ACTIVE) { id } }";
+    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    // Trigger Go to Definition on "ACTIVE"
+    // query GetUsers { users(status: ACTIVE) { id } }
+    // 0         1         2         3         4
+    //          0123456789012345678901234567890123456
+    // Position 31 is the 'A' of "ACTIVE"
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position: pos(0, 31),
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
+
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        assert_eq!(loc.uri, schema_uri);
+        assert_eq!(
+            loc.range,
+            crate::support::range_for_token(&schema_doc, &schema_text, "ACTIVE")
+        );
+    } else {
+        panic!("Expected definition of ACTIVE enum value, got {:?}", result);
+    }
+}
+
+#[tokio::test]
 async fn test_goto_definition_variable_in_argument() {
     let (tmpdir, mut config) = make_temp_project_with_schema(
         "type Query { user(id: ID!): User }\ntype User { id: ID! name: String }",
@@ -224,5 +275,142 @@ async fn test_goto_definition_variable_in_argument() {
             "Expected definition of id argument in schema, got {:?}",
             result
         );
+    }
+}
+
+#[tokio::test]
+async fn test_goto_definition_inline_fragment_type() {
+    let schema = "type Query { user: User }\ntype User { id: ID! name: String }\ntype Admin { id: ID! privileges: [String] }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config.base_dir = tmpdir.path().to_path_buf();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_path = tmpdir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    let _schema_doc = create_doc(schema_uri.as_str(), &schema_text);
+
+    // Open schema
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    // Create query with inline fragment
+    let query_text = "query GetUser { user { ... on User { name } } }";
+    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    // Trigger Go to Definition on "User" in "... on User"
+    // query GetUser { user { ... on User { name } } }
+    // 0         1         2         3         4
+    //          0123456789012345678901234567890123456
+    // Position 30 is the 'U' of "User" in "... on User"
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position: pos(0, 30), // On 'U' of "User" in "... on User"
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
+
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        assert_eq!(loc.uri, schema_uri);
+        // Should navigate to the User type definition in schema
+        assert!(
+            loc.range.start.line >= 0 && loc.range.start.line <= 2,
+            "Expected definition in schema file, got range {:?}",
+            loc.range
+        );
+    } else {
+        panic!("Expected definition of User type, got {:?}", result);
+    }
+}
+
+#[tokio::test]
+async fn test_goto_definition_input_object_field() {
+    let schema = "input CreateUserInput { id: ID! name: String }\ntype Mutation { createUser(input: CreateUserInput): ID }\ntype Query { dummy: String }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config.base_dir = tmpdir.path().to_path_buf();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_path = tmpdir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    let _schema_doc = create_doc(schema_uri.as_str(), &schema_text);
+
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    let query_text = "mutation { createUser(input: { id: \"1\", name: \"test\" }) }";
+    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    // Trigger on "id" in "{ id: \"1\" }"
+    // Position 31 is roughly where "id" is
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position: pos(0, 31),
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        assert_eq!(loc.uri, schema_uri);
+        // Should find "id" in CreateUserInput
+    } else {
+        panic!("Expected definition of input field id, got {:?}", result);
+    }
+}
+
+#[tokio::test]
+async fn test_goto_definition_nested_enum_value() {
+    let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ninput OrderFilter { status: OrderStatus }\ntype Query { orders(filter: OrderFilter): [ID] }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config.base_dir = tmpdir.path().to_path_buf();
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_path = tmpdir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
+
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    let query_text = "query { orders(filter: { status: ACTIVE }) }";
+    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    // Trigger on "ACTIVE"
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position: pos(0, 33),
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        assert_eq!(loc.uri, schema_uri);
+        assert_eq!(
+            loc.range,
+            crate::support::range_for_token(&schema_doc, &schema_text, "ACTIVE")
+        );
+    } else {
+        panic!("Expected definition of ACTIVE enum value, got {:?}", result);
     }
 }

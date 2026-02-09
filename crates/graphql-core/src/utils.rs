@@ -260,7 +260,7 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
 
             #[cfg(not(windows))]
             {
-                return false;
+                false
             }
         }
         (None, None) => true,

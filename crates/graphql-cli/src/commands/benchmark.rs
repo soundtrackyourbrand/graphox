@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use ahash::AHashMap as HashMap;
 use colored::*;
 use graphql_codegen as codegen;
@@ -7,6 +6,7 @@ use graphql_core::engine::Engine;
 use graphql_core::schema;
 use rayon::prelude::*;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub async fn run_benchmark(config: Config, _verbose: bool) {

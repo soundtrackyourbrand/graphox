@@ -1,53 +1,181 @@
-use std::sync::Arc;
+use ahash::RandomState;
+use apollo_compiler::schema::ExtendedType;
+use apollo_compiler::Schema;
+use dashmap::DashMap;
 use graphql_core::document::DocumentState;
 use graphql_core::queries::*;
 use lsp_types::*;
+use std::sync::Arc;
 use tree_sitter::{QueryCursor, StreamingIterator};
+use url::Url;
 
 pub trait DocumentDefinition {
-    fn get_symbol_at_position(&self, position: Position) -> Option<String>;
-    fn find_containing_operation_node(
-        &self,
-        position: Position,
-    ) -> Option<(tree_sitter::Node<'_>, usize)>;
-    fn find_variable_definition(&self, symbol_name: &str, position: Position) -> Option<Location>;
-    fn find_definition_in_tree(&self, target_name: &str) -> Option<Location>;
+    fn find_variable_definition(&self, name: &str, position: Position) -> Option<Location>;
     fn get_field_definition_location(
         &self,
         position: Position,
-        schema: &apollo_compiler::Schema,
-        documents: &dashmap::DashMap<Url, std::sync::Arc<DocumentState>, ahash::RandomState>,
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
         preferred_uris: &[Url],
-        fragment_definitions: &dashmap::DashMap<Arc<str>, ahash::AHashSet<Url>, ahash::RandomState>,
+        fragment_definitions: &DashMap<Arc<str>, ahash::AHashSet<Url>, RandomState>,
     ) -> Option<Location>;
+    fn find_definition_in_tree(&self, name: &str) -> Option<Location>;
     fn find_type_definition_in_schema(
         &self,
-        type_name: &str,
+        name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location>;
-    fn find_field_definition_in_schema(
+    fn find_enum_value_definition(
+        &self,
+        position: Position,
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Url],
+    ) -> Option<Location>;
+    fn find_type_condition_definition(
+        &self,
+        position: Position,
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Url],
+    ) -> Option<Location>;
+    fn find_enum_value_in_schema(
+        &self,
+        enum_name: &str,
+        enum_value_name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location>;
+    fn find_field_in_type_definition(
         &self,
         type_name: &str,
         field_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location>;
-    fn find_argument_definition_in_schema(
+    fn find_argument_in_field_definition(
         &self,
         type_name: &str,
         field_name: &str,
         arg_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location>;
-    fn find_expected_type_for_value(
+    fn find_input_field_definition(
         &self,
-        node: tree_sitter::Node,
-        offset: usize,
-        schema: &apollo_compiler::Schema,
-    ) -> Option<apollo_compiler::schema::ExtendedType>;
+        position: Position,
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Url],
+    ) -> Option<Location>;
+    fn find_input_field_in_type_definition(
+        &self,
+        type_name: &str,
+        field_name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location>;
+}
+
+fn resolve_input_context(
+    doc: &DocumentState,
+    node: tree_sitter::Node,
+    offset: usize,
+    schema: &Schema,
+) -> Option<(String, Vec<String>)> {
+    let mut curr = Some(node);
+    let mut field_path = Vec::new();
+
+    while let Some(current_node) = curr {
+        if current_node.kind() == "object_field" {
+            if let Some(name_node) = doc.find_child_by_kind(current_node, "name") {
+                field_path.push(doc.get_node_text(name_node, offset));
+            }
+        } else if current_node.kind() == "argument" {
+            let arg_name = doc
+                .find_child_by_kind(current_node, "name")
+                .map(|n| doc.get_node_text(n, offset))?;
+
+            let parent = current_node.parent()?;
+            let target_node = if parent.kind() == "arguments" {
+                parent.parent()
+            } else {
+                Some(parent)
+            }?;
+
+            let target_name = doc
+                .find_child_by_kind(target_node, "name")
+                .map(|n| doc.get_node_text(n, offset))?;
+
+            let arg_type_name = if target_node.kind() == "field" {
+                let parent_type = doc.find_parent_type_for_node(target_node, offset, schema)?;
+                match &parent_type {
+                    ExtendedType::Object(obj) => obj
+                        .fields
+                        .get(target_name.as_str())?
+                        .arguments
+                        .iter()
+                        .find(|a| a.name.as_str() == arg_name)?
+                        .ty
+                        .inner_named_type()
+                        .to_string(),
+                    ExtendedType::Interface(iface) => iface
+                        .fields
+                        .get(target_name.as_str())?
+                        .arguments
+                        .iter()
+                        .find(|a| a.name.as_str() == arg_name)?
+                        .ty
+                        .inner_named_type()
+                        .to_string(),
+                    _ => return None,
+                }
+            } else if target_node.kind() == "directive" {
+                schema
+                    .directive_definitions
+                    .get(target_name.as_str())?
+                    .arguments
+                    .iter()
+                    .find(|a| a.name.as_str() == arg_name)?
+                    .ty
+                    .inner_named_type()
+                    .to_string()
+            } else {
+                return None;
+            };
+
+            field_path.reverse();
+            return Some((arg_type_name, field_path));
+        } else if current_node.kind() == "variable_definition" {
+            let type_node = doc.find_child_by_kind(current_node, "type")?;
+            let mut type_name = doc.get_node_text(type_node, offset);
+            type_name = type_name.replace(['!', '[', ']'], "");
+
+            field_path.reverse();
+            return Some((type_name, field_path));
+        }
+        curr = current_node.parent();
+    }
+    None
+}
+
+fn resolve_type_from_path(
+    schema: &Schema,
+    mut current_type_name: String,
+    path: &[String],
+) -> Option<String> {
+    for segment in path {
+        if let Some(ExtendedType::InputObject(io)) = schema.types.get(current_type_name.as_str()) {
+            if let Some(f) = io.fields.get(segment.as_str()) {
+                current_type_name = f.ty.inner_named_type().to_string();
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+    Some(current_type_name)
 }
 
 impl DocumentDefinition for DocumentState {
-    fn get_symbol_at_position(&self, position: Position) -> Option<String> {
+    fn find_variable_definition(&self, name: &str, position: Position) -> Option<Location> {
         let byte_offset = self.position_to_byte(position);
 
         for block in self.get_graphql_trees() {
@@ -56,36 +184,46 @@ impl DocumentDefinition for DocumentState {
             let tree_len = root.end_byte();
 
             if byte_offset >= offset && byte_offset < offset + tree_len {
-                let local_byte = byte_offset - offset;
-                let trigger_node = root.descendant_for_byte_range(local_byte, local_byte)?;
-
-                let mut target_node = trigger_node;
-                if target_node.kind() == "name"
-                    && let Some(parent) = target_node.parent()
-                    && parent.kind() == "variable"
-                {
-                    target_node = parent;
-                }
-
-                if target_node.kind() == "name" || target_node.kind() == "variable" {
-                    return Some(
-                        self.rope
-                            .slice(
-                                self.rope.byte_to_char(target_node.start_byte() + offset)
-                                    ..self.rope.byte_to_char(target_node.end_byte() + offset),
-                            )
-                            .to_string(),
-                    );
+                let mut node =
+                    root.descendant_for_byte_range(byte_offset - offset, byte_offset - offset)?;
+                while let Some(parent) = node.parent() {
+                    if parent.kind() == "operation_definition"
+                        || parent.kind() == "fragment_definition"
+                    {
+                        let mut walker = parent.walk();
+                        for child in parent.children(&mut walker) {
+                            if child.kind() == "variable_definitions" {
+                                let mut vd_walker = child.walk();
+                                for vd in child.children(&mut vd_walker) {
+                                    if vd.kind() == "variable_definition"
+                                        && let Some(var_node) =
+                                            self.find_child_by_kind(vd, "variable")
+                                            && self.get_node_text(var_node, offset) == name {
+                                                return Some(Location {
+                                                    uri: self.uri.clone(),
+                                                    range: self
+                                                        .translate_to_file_range(var_node, offset),
+                                                });
+                                            }
+                                }
+                            }
+                        }
+                    }
+                    node = parent;
                 }
             }
         }
         None
     }
 
-    fn find_containing_operation_node(
+    fn get_field_definition_location(
         &self,
         position: Position,
-    ) -> Option<(tree_sitter::Node<'_>, usize)> {
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Url],
+        _fragment_definitions: &DashMap<Arc<str>, ahash::AHashSet<Url>, RandomState>,
+    ) -> Option<Location> {
         let byte_offset = self.position_to_byte(position);
 
         for block in self.get_graphql_trees() {
@@ -95,73 +233,210 @@ impl DocumentDefinition for DocumentState {
 
             if byte_offset >= offset && byte_offset < offset + tree_len {
                 let local_byte = byte_offset - offset;
-                let trigger_node = root.descendant_for_byte_range(local_byte, local_byte)?;
+                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
-                // Find containing operation
-                if let Some(op_node) =
-                    self.find_ancestor_by_kind(trigger_node, "operation_definition")
-                {
-                    return Some((op_node, offset));
+                if node.kind() == "name" {
+                    let name = self.get_node_text(node, offset);
+                    let mut curr = Some(node);
+                    while let Some(current_node) = curr {
+                        if current_node.kind() == "field" {
+                            if let Some(parent_type) =
+                                self.find_parent_type_for_node(current_node, offset, schema)
+                            {
+                                let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                                    let lang = tree_sitter_graphql::LANGUAGE.into();
+                                    tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+                                });
+
+                                for p_uri in preferred_uris {
+                                    if let Some(doc) =
+                                        documents.get(p_uri).map(|r| r.value().clone())
+                                        && let Some(loc) = doc.find_field_in_type_definition(
+                                            parent_type.name(),
+                                            &name,
+                                            symbol_query,
+                                        ) {
+                                            return Some(loc);
+                                        }
+                                }
+
+                                return self.find_field_in_type_definition(
+                                    parent_type.name(),
+                                    &name,
+                                    symbol_query,
+                                );
+                            }
+                            break;
+                        } else if current_node.kind() == "argument" {
+                            if let Some(parent) = current_node.parent() {
+                                let field_node = if parent.kind() == "arguments" {
+                                    parent.parent()
+                                } else {
+                                    Some(parent)
+                                };
+
+                                if let Some(field_node) = field_node
+                                    && (field_node.kind() == "field"
+                                        || field_node.kind() == "directive")
+                                {
+                                    if field_node.kind() == "field" {
+                                        if let Some(field_name_node) =
+                                            self.find_child_by_kind(field_node, "name")
+                                        {
+                                            let field_name =
+                                                self.get_node_text(field_name_node, offset);
+                                            if let Some(parent_type) = self
+                                                .find_parent_type_for_node(field_node, offset, schema)
+                                            {
+                                                let symbol_query =
+                                                    GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                                                        let lang = tree_sitter_graphql::LANGUAGE
+                                                            .into();
+                                                        tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY)
+                                                            .unwrap()
+                                                    });
+
+                                                for p_uri in preferred_uris {
+                                                    if let Some(doc) = documents
+                                                        .get(p_uri)
+                                                        .map(|r| r.value().clone())
+                                                        && let Some(loc) = doc
+                                                            .find_argument_in_field_definition(
+                                                                parent_type.name(),
+                                                                &field_name,
+                                                                &name,
+                                                                symbol_query,
+                                                            )
+                                                        {
+                                                            return Some(loc);
+                                                        }
+                                                }
+
+                                                return self.find_argument_in_field_definition(
+                                                    parent_type.name(),
+                                                    &field_name,
+                                                    &name,
+                                                    symbol_query,
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // Directive argument
+                                        let directive_name_node =
+                                            self.find_child_by_kind(field_node, "name")?;
+                                        let directive_name =
+                                            self.get_node_text(directive_name_node, offset);
+
+                                        let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                                            let lang = tree_sitter_graphql::LANGUAGE.into();
+                                            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY)
+                                                .unwrap()
+                                        });
+
+                                        for p_uri in preferred_uris {
+                                            if let Some(doc) =
+                                                documents.get(p_uri).map(|r| r.value().clone())
+                                                && let Some(loc) = doc
+                                                    .find_argument_in_field_definition(
+                                                        &directive_name,
+                                                        "", // Empty field name for directive
+                                                        &name,
+                                                        symbol_query,
+                                                    )
+                                                {
+                                                    return Some(loc);
+                                                }
+                                        }
+
+                                        return self.find_argument_in_field_definition(
+                                            &directive_name,
+                                            "",
+                                            &name,
+                                            symbol_query,
+                                        );
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        curr = current_node.parent();
+                    }
                 }
             }
         }
         None
     }
 
-    fn find_variable_definition(&self, symbol_name: &str, position: Position) -> Option<Location> {
-        if !symbol_name.starts_with('$') {
-            return None;
-        }
-
-        if let Some((op_node, offset)) = self.find_containing_operation_node(position) {
-            // Search within this operation ONLY
-            let query = GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
-                let lang = tree_sitter_graphql::LANGUAGE.into();
-                tree_sitter::Query::new(&lang, GQL_DEFINITION_QUERY).unwrap()
-            });
-
-            let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(query, op_node, |node: tree_sitter::Node| {
-                let start = node.start_byte();
-                let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
-            });
-
-            while let Some(m) = matches.next() {
-                let name_node = m.captures[0].node;
-                let name = self
-                    .rope
-                    .slice(
-                        self.rope.byte_to_char(name_node.start_byte() + offset)
-                            ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                    )
-                    .to_string();
-
-                if name == symbol_name {
-                    let range = self.translate_to_file_range(name_node, offset);
-                    return Some(Location {
-                        uri: self.uri.clone(),
-                        range,
-                    });
-                }
-            }
-        }
-
-        None
-    }
-
-    fn find_definition_in_tree(&self, target_name: &str) -> Option<Location> {
-        if target_name.starts_with('$') {
-            return None;
-        }
-
+    fn find_definition_in_tree(&self, name: &str) -> Option<Location> {
         let query = GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_DEFINITION_QUERY).unwrap()
         });
 
+        let mut cursor = QueryCursor::new();
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches =
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
+
+            while let Some(m) = matches.next() {
+                for cap in m.captures {
+                    if self.get_node_text(cap.node, offset) == name {
+                        return Some(Location {
+                            uri: self.uri.clone(),
+                            range: self.translate_to_file_range(cap.node, offset),
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_type_definition_in_schema(
+        &self,
+        name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location> {
+        let mut cursor = QueryCursor::new();
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches =
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
+
+            while let Some(m) = matches.next() {
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" && self.get_node_text(cap.node, offset) == name {
+                        return Some(Location {
+                            uri: self.uri.clone(),
+                            range: self.translate_to_file_range(cap.node, offset),
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_enum_value_in_schema(
+        &self,
+        enum_name: &str,
+        enum_value_name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location> {
         let mut cursor = QueryCursor::new();
 
         for block in self.get_graphql_trees() {
@@ -176,39 +451,134 @@ impl DocumentDefinition for DocumentState {
                 });
 
             while let Some(m) = matches.next() {
-                let name_node = m.captures[0].node;
-                let name = self
-                    .rope
-                    .slice(
-                        self.rope.byte_to_char(name_node.start_byte() + offset)
-                            ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                    )
-                    .to_string();
+                let mut name = None;
+                let mut container_node = None;
 
-                if name == target_name {
-                    let range = self.translate_to_file_range(name_node, offset);
-                    return Some(Location {
-                        uri: self.uri.clone(),
-                        range,
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
+                    }
+                }
+
+                if let Some(n) = name
+                    && n == enum_name
+                    && let Some(container) = container_node
+                {
+                    let ref_query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
+                        let lang = tree_sitter_graphql::LANGUAGE.into();
+                        tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
                     });
+                    let mut ref_cursor = QueryCursor::new();
+                    let mut ref_matches =
+                        ref_cursor.matches(ref_query, container, |node: tree_sitter::Node| {
+                            let start = node.start_byte();
+                            let end = node.end_byte();
+                            self.rope
+                                .byte_slice((start + offset)..(end + offset))
+                                .chunks()
+                        });
+
+                    while let Some(rm) = ref_matches.next() {
+                        let mut is_definition = false;
+                        let mut name_node = None;
+
+                        for rcap in rm.captures {
+                            let rcap_name = ref_query.capture_names()[rcap.index as usize];
+                            if rcap_name == "definition" {
+                                is_definition = true;
+                            } else if rcap_name == "name" {
+                                name_node = Some(rcap.node);
+                            }
+                        }
+
+                        if is_definition && let Some(nn) = name_node && self.get_node_text(nn, offset) == enum_value_name {
+                            return Some(Location {
+                                uri: self.uri.clone(),
+                                range: self.translate_to_file_range(nn, offset),
+                            });
+                        }
+                    }
                 }
             }
+        }
+        None
+    }
+
+    fn find_enum_value_definition(
+        &self,
+        position: Position,
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Url],
+    ) -> Option<Location> {
+        let byte_offset = self.position_to_byte(position);
+
+        let block = self.get_graphql_trees().iter().find(|b| {
+            let root = b.tree.root_node();
+            let tree_len = root.end_byte();
+            byte_offset >= b.offset && byte_offset < b.offset + tree_len
+        })?;
+
+        let offset = block.offset;
+        let root = block.tree.root_node();
+        let local_byte = byte_offset - offset;
+        let mut node = root.descendant_for_byte_range(local_byte, local_byte)?;
+
+        if node.kind() == "name"
+            && let Some(parent) = node.parent()
+            && parent.kind() == "enum_value"
+        {
+            node = parent;
+        }
+
+        if node.kind() != "enum_value" {
+            return None;
+        }
+
+        let enum_value_name = self.get_node_text(node, offset);
+
+        let (root_type, path) = resolve_input_context(self, node, offset, schema)?;
+        let enum_type_name = resolve_type_from_path(schema, root_type, &path)?;
+
+        if let Some(ExtendedType::Enum(enum_type)) = schema.types.get(enum_type_name.as_str()) {
+            let enum_name = enum_type.name.as_str();
+
+            let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                let lang = tree_sitter_graphql::LANGUAGE.into();
+                tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+            });
+
+            for p_uri in preferred_uris {
+                if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone())
+                    && let Some(loc) = doc.find_enum_value_in_schema(
+                        enum_name,
+                        &enum_value_name,
+                        symbol_query,
+                    )
+                {
+                    return Some(loc);
+                }
+            }
+
+            return self.find_enum_value_in_schema(enum_name, &enum_value_name, symbol_query);
         }
 
         None
     }
 
-    fn get_field_definition_location(
+
+    fn find_type_condition_definition(
         &self,
         position: Position,
-        schema: &apollo_compiler::Schema,
-        documents: &dashmap::DashMap<Url, std::sync::Arc<DocumentState>, ahash::RandomState>,
+        _schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
         preferred_uris: &[Url],
-        fragment_definitions: &dashmap::DashMap<Arc<str>, ahash::AHashSet<Url>, ahash::RandomState>,
     ) -> Option<Location> {
         let byte_offset = self.position_to_byte(position);
 
-        // Targeted lookup: only check the block that contains the position
         let block = self.get_graphql_trees().iter().find(|b| {
             let root = b.tree.root_node();
             let tree_len = root.end_byte();
@@ -220,390 +590,272 @@ impl DocumentDefinition for DocumentState {
         let local_byte = byte_offset - offset;
         let node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
+        let mut curr = Some(node);
+        while let Some(current_node) = curr {
+            if (current_node.kind() == "inline_fragment" || current_node.kind() == "fragment_definition")
+                && let Some(type_name) = self.get_fragment_type_condition(current_node, offset)
+            {
+                // Ensure the cursor is actually on the type name or within the type condition
+                let mut is_on_type_condition = false;
+                if let Some(tc_node) = self.find_child_by_kind(current_node, "type_condition") {
+                    let start = tc_node.start_byte();
+                    let end = tc_node.end_byte();
+                    if local_byte >= start && local_byte < end {
+                        is_on_type_condition = true;
+                    }
+                }
+
+                if !is_on_type_condition {
+                    return None;
+                }
+
+                let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                    let lang = tree_sitter_graphql::LANGUAGE.into();
+                    tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+                });
+
+                for p_uri in preferred_uris {
+                    if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone())
+                        && let Some(loc) =
+                            doc.find_type_definition_in_schema(&type_name, symbol_query)
+                        {
+                            return Some(loc);
+                        }
+                }
+
+                return self.find_type_definition_in_schema(&type_name, symbol_query);
+            }
+            curr = current_node.parent();
+        }
+
+        None
+    }
+
+    fn find_field_in_type_definition(
+        &self,
+        type_name: &str,
+        field_name: &str,
+        query: &tree_sitter::Query,
+    ) -> Option<Location> {
+        let mut cursor = QueryCursor::new();
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches =
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
+
+            while let Some(m) = matches.next() {
+                let mut name = None;
+                let mut container_node = None;
+
+                for cap in m.captures {
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    if cap_name == "symbol.name" {
+                        name = Some(self.get_node_text(cap.node, offset));
+                    } else if cap_name == "symbol.container" {
+                        container_node = Some(cap.node);
+                    }
+                }
+
+                if let Some(n) = name
+                    && n == type_name
+                    && let Some(container) = container_node
+                {
+                    let mut walker = container.walk();
+                    for child in container.children(&mut walker) {
+                        if child.kind().contains("field") {
+                            let mut fd_walker = child.walk();
+                            for field_def in child.children(&mut fd_walker) {
+                                if field_def.kind() == "field_definition"
+                                    && let Some(f_name_node) =
+                                        self.find_child_by_kind(field_def, "name")
+                                        && self.get_node_text(f_name_node, offset) == field_name {
+                                            return Some(Location {
+                                                uri: self.uri.clone(),
+                                                range: self
+                                                    .translate_to_file_range(f_name_node, offset),
+                                            });
+                                        }
+                            }
+                        }
+                    }
+                }
+             }
+         }
+         None
+     }
+ 
+     fn find_argument_in_field_definition(
+         &self,
+         type_name: &str,
+         field_name: &str,
+         arg_name: &str,
+         query: &tree_sitter::Query,
+     ) -> Option<Location> {
+         let mut cursor = QueryCursor::new();
+         for block in self.get_graphql_trees() {
+             let offset = block.offset;
+             let mut matches =
+                 cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                     let start = n.start_byte();
+                     let end = n.end_byte();
+                     self.rope
+                         .byte_slice((start + offset)..(end + offset))
+                         .chunks()
+                 });
+ 
+             while let Some(m) = matches.next() {
+                 let mut name = None;
+                 let mut container_node = None;
+ 
+                 for cap in m.captures {
+                     let cap_name = query.capture_names()[cap.index as usize];
+                     if cap_name == "symbol.name" {
+                         name = Some(self.get_node_text(cap.node, offset));
+                     } else if cap_name == "symbol.container" {
+                         container_node = Some(cap.node);
+                     }
+                 }
+ 
+                if let Some(n) = name
+                    && n == type_name
+                    && let Some(container) = container_node
+                {
+                    let mut walker = container.walk();
+                    for child in container.children(&mut walker) {
+                        if child.kind().contains("arguments_definition") {
+                            let mut ad_walker = child.walk();
+                            for arg_def in child.children(&mut ad_walker) {
+                                if arg_def.kind() == "input_value_definition"
+                                    && let Some(a_name_node) =
+                                        self.find_child_by_kind(arg_def, "name")
+                                        && self.get_node_text(a_name_node, offset) == arg_name {
+                                            return Some(Location {
+                                                uri: self.uri.clone(),
+                                                range: self.translate_to_file_range(
+                                                    a_name_node,
+                                                    offset,
+                                                ),
+                                            });
+                                        }
+                            }
+                        } else if child.kind().contains("field") {
+                            let mut fd_walker = child.walk();
+                            for field_def in child.children(&mut fd_walker) {
+                                if field_def.kind() == "field_definition"
+                                    && let Some(f_name_node) =
+                                        self.find_child_by_kind(field_def, "name")
+                                        && self.get_node_text(f_name_node, offset) == field_name {
+                                            // Found the field, now find the argument
+                                            if let Some(ad_node) =
+                                                self.find_child_by_kind(field_def, "arguments_definition")
+                                            {
+                                                let mut ad_walker = ad_node.walk();
+                                                for arg_def in ad_node.children(&mut ad_walker) {
+                                                    if arg_def.kind() == "input_value_definition"
+                                                        && let Some(a_name_node) =
+                                                            self.find_child_by_kind(arg_def, "name")
+                                                            && self.get_node_text(a_name_node, offset)
+                                                                == arg_name
+                                                            {
+                                                                return Some(Location {
+                                                                    uri: self.uri.clone(),
+                                                                    range: self
+                                                                        .translate_to_file_range(
+                                                                            a_name_node,
+                                                                            offset,
+                                                                        ),
+                                                                });
+                                                            }
+                                                }
+                                            }
+                                        }
+                            }
+                        }
+                    }
+                }
+             }
+         }
+         None
+     }
+ 
+     fn find_input_field_definition(
+        &self,
+        position: Position,
+        schema: &Schema,
+        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Url],
+    ) -> Option<Location> {
+        let byte_offset = self.position_to_byte(position);
+
+        let block = self.get_graphql_trees().iter().find(|b| {
+            let root = b.tree.root_node();
+            let tree_len = root.end_byte();
+            byte_offset >= b.offset && byte_offset < b.offset + tree_len
+        })?;
+
+        let offset = block.offset;
+        let root = block.tree.root_node();
+        let local_byte = byte_offset - offset;
+        let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+
+        if node.kind() != "name" {
+            return None;
+        }
+
+        let field_name = self.get_node_text(node, offset);
+
+        let (root_type, path) = resolve_input_context(self, node, offset, schema)?;
+
+        // We want the type containing the current field.
+        // The path contains the current field as the last element.
+        if path.is_empty() {
+            return None;
+        }
+        let container_type_name =
+            resolve_type_from_path(schema, root_type, &path[..path.len() - 1])?;
+
         let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
         });
 
-        if node.kind() == "name" {
-            let mut curr = node;
-            while let Some(parent) = curr.parent() {
-                if parent.kind() == "field"
-                    || parent.kind() == "argument"
-                    || parent.kind() == "object_field"
-                {
-                    let field_name = self.get_node_text(node, offset);
-
-                    let mut search_type = self.find_parent_type_for_node(parent, offset, schema);
-                    // Fallback: sometimes the immediate parent node doesn't provide enough
-                    // context (parser quirks). Try the parent's parent as a heuristic.
-                    if search_type.is_none()
-                        && let Some(grand) = parent.parent()
-                    {
-                        search_type = self.find_parent_type_for_node(grand, offset, schema);
-                    }
-
-                    if parent.kind() == "argument" {
-                        if let Some(field_node) = parent.parent().and_then(|p| p.parent()) {
-                            if field_node.kind() == "field" {
-                                if let Some(parent_type) =
-                                    self.find_parent_type_for_node(field_node, offset, schema)
-                                {
-                                    let field_node_name = self
-                                        .find_child_by_kind(field_node, "name")
-                                        .map(|child| self.get_node_text(child, offset))
-                                        .unwrap_or_default();
-
-                                    let mut found_loc = None;
-                                    for p_uri in preferred_uris {
-                                        if let Some(doc) = documents
-                                            .get(p_uri)
-                                            .map(|r| std::sync::Arc::clone(r.value()))
-                                        {
-                                            if let Some(loc) = doc
-                                                .find_argument_definition_in_schema(
-                                                    parent_type.name().as_str(),
-                                                    &field_node_name,
-                                                    &field_name,
-                                                    symbol_query,
-                                                )
-                                            {
-                                                found_loc = Some(loc);
-                                                break;
-                                            }
-                                        } else if let Ok(path) = p_uri.to_file_path()
-                                            && let Some(doc) =
-                                                graphql_core::Engine::parse_doc(&path)
-                                            && let Some(loc) = doc
-                                                .find_argument_definition_in_schema(
-                                                    parent_type.name().as_str(),
-                                                    &field_node_name,
-                                                    &field_name,
-                                                    symbol_query,
-                                                )
-                                        {
-                                            found_loc = Some(loc);
-                                            break;
-                                        }
-                                    }
-
-                                    if found_loc.is_none()
-                                        && let Some(uris) =
-                                            fragment_definitions.get(parent_type.name().as_str())
-                                    {
-                                        for uri in uris.value().iter() {
-                                            if preferred_uris.contains(uri) {
-                                                continue;
-                                            }
-                                            if let Some(doc) =
-                                                documents.get(uri).map(|r| r.value().clone())
-                                            {
-                                                if let Some(loc) = doc
-                                                    .find_argument_definition_in_schema(
-                                                        parent_type.name().as_str(),
-                                                        &field_node_name,
-                                                        &field_name,
-                                                        symbol_query,
-                                                    )
-                                                {
-                                                    found_loc = Some(loc);
-                                                    break;
-                                                }
-                                            } else if let Ok(path) = uri.to_file_path()
-                                                && let Some(doc) =
-                                                    graphql_core::Engine::parse_doc(&path)
-                                                && let Some(loc) = doc
-                                                    .find_argument_definition_in_schema(
-                                                        parent_type.name().as_str(),
-                                                        &field_node_name,
-                                                        &field_name,
-                                                        symbol_query,
-                                                    )
-                                            {
-                                                found_loc = Some(loc);
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if let Some(loc) = found_loc {
-                                        return Some(loc);
-                                    }
-                                }
-                            } else if field_node.kind() == "directive" {
-                                let dir_name = self
-                                    .find_child_by_kind(field_node, "name")
-                                    .map(|child| self.get_node_text(child, offset))
-                                    .unwrap_or_default();
-
-                                let mut found_loc = None;
-                                for p_uri in preferred_uris {
-                                    if let Some(doc) =
-                                        documents.get(p_uri).map(|r| r.value().clone())
-                                    {
-                                        if let Some(loc) = doc.find_argument_definition_in_schema(
-                                            "Directive",
-                                            &dir_name,
-                                            &field_name,
-                                            symbol_query,
-                                        ) {
-                                            found_loc = Some(loc);
-                                            break;
-                                        }
-                                    } else if let Ok(path) = p_uri.to_file_path()
-                                        && let Some(doc) = graphql_core::Engine::parse_doc(&path)
-                                        && let Some(loc) = doc.find_argument_definition_in_schema(
-                                            "Directive",
-                                            &dir_name,
-                                            &field_name,
-                                            symbol_query,
-                                        )
-                                    {
-                                        found_loc = Some(loc);
-                                        break;
-                                    }
-                                }
-
-                                if found_loc.is_none()
-                                    && let Some(uris) = fragment_definitions.get(dir_name.as_str())
-                                {
-                                    for uri in uris.value().iter() {
-                                        if preferred_uris.contains(uri) {
-                                            continue;
-                                        }
-                                        if let Some(doc) =
-                                            documents.get(uri).map(|r| r.value().clone())
-                                        {
-                                            if let Some(loc) = doc
-                                                .find_argument_definition_in_schema(
-                                                    "Directive",
-                                                    &dir_name,
-                                                    &field_name,
-                                                    symbol_query,
-                                                )
-                                            {
-                                                found_loc = Some(loc);
-                                                break;
-                                            }
-                                        } else if let Ok(path) = uri.to_file_path()
-                                            && let Some(doc) =
-                                                graphql_core::Engine::parse_doc(&path)
-                                            && let Some(loc) = doc
-                                                .find_argument_definition_in_schema(
-                                                    "Directive",
-                                                    &dir_name,
-                                                    &field_name,
-                                                    symbol_query,
-                                                )
-                                        {
-                                            found_loc = Some(loc);
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                if let Some(loc) = found_loc {
-                                    return Some(loc);
-                                }
-                            }
-                        }
-                    } else if parent.kind() == "object_field"
-                        && let Some(obj_value) = parent.parent()
-                        && let Some(val_node) = obj_value.parent()
-                        && let Some(pt) =
-                            self.find_expected_type_for_value(val_node, offset, schema)
-                    {
-                        search_type = Some(pt);
-                    }
-
-                    if let Some(pt) = search_type {
-                        let mut found_loc = None;
-                        for p_uri in preferred_uris {
-                            if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone()) {
-                                if let Some(loc) = doc.find_field_definition_in_schema(
-                                    pt.name().as_str(),
-                                    &field_name,
-                                    symbol_query,
-                                ) {
-                                    found_loc = Some(loc);
-                                    break;
-                                }
-                            } else if let Ok(path) = p_uri.to_file_path()
-                                && let Some(doc) = graphql_core::Engine::parse_doc(&path)
-                                && let Some(loc) = doc.find_field_definition_in_schema(
-                                    pt.name().as_str(),
-                                    &field_name,
-                                    symbol_query,
-                                )
-                            {
-                                found_loc = Some(loc);
-                                break;
-                            }
-                        }
-
-                        if found_loc.is_none()
-                            && let Some(uris) = fragment_definitions.get(pt.name().as_str())
-                        {
-                            for uri in uris.value().iter() {
-                                if preferred_uris.contains(uri) {
-                                    continue;
-                                }
-                                if let Some(doc) = documents.get(uri).map(|r| r.value().clone()) {
-                                    if let Some(loc) = doc.find_field_definition_in_schema(
-                                        pt.name().as_str(),
-                                        &field_name,
-                                        symbol_query,
-                                    ) {
-                                        found_loc = Some(loc);
-                                        break;
-                                    }
-                                } else if let Ok(path) = uri.to_file_path()
-                                    && let Some(doc) = graphql_core::Engine::parse_doc(&path)
-                                    && let Some(loc) = doc.find_field_definition_in_schema(
-                                        pt.name().as_str(),
-                                        &field_name,
-                                        symbol_query,
-                                    )
-                                {
-                                    found_loc = Some(loc);
-                                    break;
-                                }
-                            }
-                        }
-
-                        if let Some(loc) = found_loc {
-                            return Some(loc);
-                        }
-                    }
-                    break;
-                } else if parent.kind() == "named_type" || parent.kind() == "directive" {
-                    let type_name = self.get_node_text(node, offset);
-                    let mut found_loc = None;
-
-                    for p_uri in preferred_uris {
-                        if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone()) {
-                            if let Some(loc) =
-                                doc.find_type_definition_in_schema(&type_name, symbol_query)
-                            {
-                                found_loc = Some(loc);
-                                break;
-                            }
-                        } else if let Ok(path) = p_uri.to_file_path()
-                            && let Some(doc) = graphql_core::Engine::parse_doc(&path)
-                            && let Some(loc) =
-                                doc.find_type_definition_in_schema(&type_name, symbol_query)
-                        {
-                            found_loc = Some(loc);
-                            break;
-                        }
-                    }
-
-                    if found_loc.is_none()
-                        && let Some(uris) = fragment_definitions.get(type_name.as_str())
-                    {
-                        for uri in uris.value().iter() {
-                            if preferred_uris.contains(uri) {
-                                continue;
-                            }
-                            if let Some(doc) = documents.get(uri).map(|r| r.value().clone()) {
-                                if let Some(loc) =
-                                    doc.find_type_definition_in_schema(&type_name, symbol_query)
-                                {
-                                    found_loc = Some(loc);
-                                    break;
-                                }
-                            } else if let Ok(path) = uri.to_file_path()
-                                && let Some(doc) = graphql_core::Engine::parse_doc(&path)
-                                && let Some(loc) =
-                                    doc.find_type_definition_in_schema(&type_name, symbol_query)
-                            {
-                                found_loc = Some(loc);
-                                break;
-                            }
-                        }
-                    }
-
-                    if let Some(loc) = found_loc {
-                        return Some(loc);
-                    }
-                    return None;
+        for p_uri in preferred_uris {
+            if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone())
+                && let Some(loc) = doc.find_input_field_in_type_definition(
+                    &container_type_name,
+                    &field_name,
+                    symbol_query,
+                ) {
+                    return Some(loc);
                 }
-                curr = parent;
-            }
         }
-        None
+
+        self.find_input_field_in_type_definition(
+            &container_type_name,
+            &field_name,
+            symbol_query,
+        )
     }
 
-    fn find_type_definition_in_schema(
-        &self,
-        type_name: &str,
-        query: &tree_sitter::Query,
-    ) -> Option<Location> {
-        let mut cursor = QueryCursor::new();
-
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let mut matches =
-                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
-                    self.rope
-                        .byte_slice((start + offset)..(end + offset))
-                        .chunks()
-                });
-
-            while let Some(m) = matches.next() {
-                let mut name = None;
-                let mut name_node = None;
-                let mut container_node = None;
-
-                for cap in m.captures {
-                    let cap_name = query.capture_names()[cap.index as usize];
-                    if cap_name == "symbol.name" {
-                        name = Some(self.get_node_text(cap.node, offset));
-                        name_node = Some(cap.node);
-                    } else if cap_name == "symbol.container" {
-                        container_node = Some(cap.node);
-                    }
-                }
-
-                if let Some(n) = name
-                    && n == type_name
-                    && let Some(container) = container_node
-                {
-                    let kind = container.kind();
-                    if (kind.ends_with("_type_definition")
-                        || kind.ends_with("_type_extension")
-                        || kind == "scalar_type_definition"
-                        || kind == "directive_definition")
-                        && let Some(node) = name_node
-                    {
-                        return Some(Location {
-                            uri: self.uri.clone(),
-                            range: self.translate_to_file_range(node, offset),
-                        });
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn find_field_definition_in_schema(
+    fn find_input_field_in_type_definition(
         &self,
         type_name: &str,
         field_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location> {
-        // searching for field definition in tree
         let mut cursor = QueryCursor::new();
-
         for block in self.get_graphql_trees() {
             let offset = block.offset;
             let mut matches =
-                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
                     self.rope
                         .byte_slice((start + offset)..(end + offset))
                         .chunks()
@@ -628,187 +880,27 @@ impl DocumentDefinition for DocumentState {
                 {
                     let mut walker = container.walk();
                     for child in container.children(&mut walker) {
-                        match child.kind() {
-                            "fields_definition" => {
-                                let mut f_walker = child.walk();
-                                for f_child in child.children(&mut f_walker) {
-                                    if f_child.kind() == "field_definition"
-                                        && let Some(name_node) =
-                                            self.find_child_by_kind(f_child, "name")
-                                    {
-                                        let f_name = self.get_node_text(name_node, offset);
-                                        if f_name == field_name {
+                        if child.kind().contains("input_field") {
+                            let mut if_walker = child.walk();
+                            for field_def in child.children(&mut if_walker) {
+                                if field_def.kind() == "input_value_definition"
+                                    && let Some(f_name_node) =
+                                        self.find_child_by_kind(field_def, "name")
+                                        && self.get_node_text(f_name_node, offset) == field_name {
                                             return Some(Location {
                                                 uri: self.uri.clone(),
-                                                range: self
-                                                    .translate_to_file_range(name_node, offset),
+                                                range: self.translate_to_file_range(
+                                                    f_name_node,
+                                                    offset,
+                                                ),
                                             });
                                         }
-                                    }
-                                }
-                            }
-                            "field_definition" | "input_value_definition" => {
-                                if let Some(name_node) = self.find_child_by_kind(child, "name") {
-                                    let f_name = self.get_node_text(name_node, offset);
-                                    if f_name == field_name {
-                                        return Some(Location {
-                                            uri: self.uri.clone(),
-                                            range: self.translate_to_file_range(name_node, offset),
-                                        });
-                                    }
-                                }
-                            }
-                            "enum_values_definition" => {
-                                let mut f_walker = child.walk();
-                                for f_child in child.children(&mut f_walker) {
-                                    if f_child.kind() == "enum_value_definition"
-                                        && let Some(enum_value) =
-                                            self.find_child_by_kind(f_child, "enum_value")
-                                        && let Some(name_node) =
-                                            self.find_child_by_kind(enum_value, "name")
-                                    {
-                                        let f_name = self.get_node_text(name_node, offset);
-                                        if f_name == field_name {
-                                            return Some(Location {
-                                                uri: self.uri.clone(),
-                                                range: self
-                                                    .translate_to_file_range(name_node, offset),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn find_argument_definition_in_schema(
-        &self,
-        type_name: &str,
-        field_name: &str,
-        arg_name: &str,
-        query: &tree_sitter::Query,
-    ) -> Option<Location> {
-        let mut cursor = QueryCursor::new();
-
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let mut matches =
-                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
-                    self.rope
-                        .byte_slice((start + offset)..(end + offset))
-                        .chunks()
-                });
-
-            while let Some(m) = matches.next() {
-                let mut name = None;
-                let mut container_node = None;
-                let mut is_directive = false;
-
-                for cap in m.captures {
-                    let cap_name = query.capture_names()[cap.index as usize];
-                    if cap_name == "symbol.name" {
-                        name = Some(self.get_node_text(cap.node, offset));
-                    } else if cap_name == "symbol.container" {
-                        container_node = Some(cap.node);
-                        if cap.node.kind() == "directive_definition" {
-                            is_directive = true;
-                        }
-                    }
-                }
-
-                if is_directive
-                    && type_name == "Directive"
-                    && name.as_deref() == Some(field_name)
-                    && let Some(container) = container_node
-                {
-                    let mut walker = container.walk();
-                    for child in container.children(&mut walker) {
-                        if child.kind() == "arguments_definition" {
-                            let mut a_walker = child.walk();
-                            for a_child in child.children(&mut a_walker) {
-                                if a_child.kind() == "input_value_definition"
-                                    && let Some(name_node) =
-                                        self.find_child_by_kind(a_child, "name")
-                                    && self.get_node_text(name_node, offset) == arg_name
-                                {
-                                    return Some(Location {
-                                        uri: self.uri.clone(),
-                                        range: self.translate_to_file_range(name_node, offset),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if let Some(n) = name
-                    && n == type_name
-                    && let Some(container) = container_node
-                {
-                    let mut walker = container.walk();
-                    for child in container.children(&mut walker) {
-                        if child.kind() == "fields_definition" {
-                            let mut f_walker = child.walk();
-                            for f_child in child.children(&mut f_walker) {
-                                if f_child.kind() == "field_definition" {
-                                    let mut fd_walker = f_child.walk();
-                                    let mut found_field = false;
-                                    for fd_child in f_child.children(&mut fd_walker) {
-                                        if fd_child.kind() == "name" {
-                                            if self.get_node_text(fd_child, offset) == field_name {
-                                                found_field = true;
-                                            }
-                                        } else if fd_child.kind() == "arguments_definition"
-                                            && found_field
-                                        {
-                                            let mut a_walker = fd_child.walk();
-                                            for a_child in fd_child.children(&mut a_walker) {
-                                                if a_child.kind() == "input_value_definition" {
-                                                    let mut iv_walker = a_child.walk();
-                                                    for iv_child in a_child.children(&mut iv_walker)
-                                                    {
-                                                        if iv_child.kind() == "name"
-                                                            && self.get_node_text(iv_child, offset)
-                                                                == arg_name
-                                                        {
-                                                            return Some(Location {
-                                                                uri: self.uri.clone(),
-                                                                range: self
-                                                                    .translate_to_file_range(
-                                                                        iv_child, offset,
-                                                                    ),
-                                                            });
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
                 }
             }
         }
-        None
-    }
-
-    fn find_expected_type_for_value(
-        &self,
-        _node: tree_sitter::Node,
-        _offset: usize,
-        _schema: &apollo_compiler::Schema,
-    ) -> Option<apollo_compiler::schema::ExtendedType> {
-        // Placeholder for now as it's complex to implement correctly
         None
     }
 }

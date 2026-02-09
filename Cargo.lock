@@ -1143,6 +1143,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-graphql",
  "tree-sitter-typescript",
+ "url",
 ]
 
 [[package]]

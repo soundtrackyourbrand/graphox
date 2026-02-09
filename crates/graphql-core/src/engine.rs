@@ -244,7 +244,7 @@ impl Engine {
         let mut all_operations = Vec::new();
 
         for (paths, import_alias) in &project_info {
-            let import_alias_arc = import_alias.as_deref().map(|s| Arc::from(s));
+            let import_alias_arc = import_alias.as_deref().map(Arc::from);
             for path in paths {
                 if let Some(doc) = path_to_doc.get(path) {
                     let path_str: Arc<str> = path.to_string_lossy().to_string().into();

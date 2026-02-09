@@ -1,6 +1,7 @@
 use super::{capabilities, fragment_manager, helpers};
 use graphql_core::config::SchemaSource;
 use graphql_core::document::DocumentLanguage;
+use graphql_core::queries::*;
 use graphql_core::types::{
     DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
     FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
@@ -282,7 +283,10 @@ impl Backend {
         schema: &Schema,
         package_root: Option<&std::path::PathBuf>,
         all_fragments: &[FragmentCompletionInfo],
-        variable_types_cache: &mut AHashMap<Arc<str>, std::collections::BTreeMap<Arc<str>, Arc<str>>>,
+        variable_types_cache: &mut AHashMap<
+            Arc<str>,
+            std::collections::BTreeMap<Arc<str>, Arc<str>>,
+        >,
     ) -> std::collections::BTreeMap<Arc<str>, Arc<str>> {
         let mut requirements = std::collections::BTreeMap::new();
         let mut visited = AHashSet::default();
@@ -689,6 +693,18 @@ impl Backend {
         )
     }
 
+    /// Try to find input field definition location
+    fn try_goto_input_field_definition(
+        &self,
+        uri: &Url,
+        doc: &Arc<DocumentState>,
+        position: Position,
+        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
+    ) -> Option<Location> {
+        let preferred_uris = self.get_preferred_schema_uris(uri);
+        doc.find_input_field_definition(position, schema.as_ref(), &self.documents, &preferred_uris)
+    }
+
     /// Get preferred schema URIs for a document
     fn get_preferred_schema_uris(&self, uri: &Url) -> Vec<Url> {
         let mut preferred_uris = Vec::new();
@@ -721,6 +737,67 @@ impl Backend {
 
         // Fallback to full scan if not in index
         self.scan_all_documents_for_fragment(name, doc).await
+    }
+
+    /// Try to find directive definition location
+    fn try_goto_directive_definition(
+        &self,
+        uri: &Url,
+        doc: &Arc<DocumentState>,
+        symbol_name: &Option<String>,
+    ) -> Option<Location> {
+        let name = symbol_name.as_ref()?;
+        if !name.starts_with('@') {
+            return None;
+        }
+
+        // Strip the '@' to get the directive name
+        let directive_name = &name[1..];
+
+        // Use the symbol query to find directive definitions
+        let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+        });
+
+        let preferred_uris = self.get_preferred_schema_uris(uri);
+        for p_uri in preferred_uris {
+            if let Some(d) = self.documents.get(&p_uri).map(|r| r.value().clone())
+                && let Some(loc) = d.find_type_definition_in_schema(directive_name, symbol_query) {
+                    return Some(loc);
+                }
+        }
+
+        doc.find_type_definition_in_schema(directive_name, symbol_query)
+    }
+
+    /// Try to find enum value definition location
+    fn try_goto_enum_value_definition(
+        &self,
+        uri: &Url,
+        doc: &Arc<DocumentState>,
+        position: Position,
+        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
+    ) -> Option<Location> {
+        let preferred_uris = self.get_preferred_schema_uris(uri);
+        doc.find_enum_value_definition(position, schema.as_ref(), &self.documents, &preferred_uris)
+    }
+
+    /// Try to find inline fragment type definition location
+    fn try_goto_inline_fragment_type_definition(
+        &self,
+        uri: &Url,
+        doc: &Arc<DocumentState>,
+        position: Position,
+        schema: &Arc<apollo_compiler::validation::Valid<Schema>>,
+    ) -> Option<Location> {
+        let preferred_uris = self.get_preferred_schema_uris(uri);
+        doc.find_type_condition_definition(
+            position,
+            schema.as_ref(),
+            &self.documents,
+            &preferred_uris,
+        )
     }
 
     /// Look up fragment definition using the fragment index
@@ -997,7 +1074,10 @@ impl LanguageServer for Backend {
                                 (
                                     apollo_compiler::schema::ExtendedType::Union(u),
                                     apollo_compiler::schema::ExtendedType::Object(_),
-                                ) => u.members.iter().any(|m| m.as_str() == f.type_condition.as_ref()),
+                                ) => u
+                                    .members
+                                    .iter()
+                                    .any(|m| m.as_str() == f.type_condition.as_ref()),
                                 (
                                     apollo_compiler::schema::ExtendedType::Object(_),
                                     apollo_compiler::schema::ExtendedType::Union(u),
@@ -1054,6 +1134,14 @@ impl LanguageServer for Backend {
                         });
                         filtered
                     }
+                    graphql_core::document::CompletionContext::OperationDefinition => Vec::new(),
+                    graphql_core::document::CompletionContext::SchemaDefinition => Vec::new(),
+                    graphql_core::document::CompletionContext::FieldAlias => Vec::new(),
+                    graphql_core::document::CompletionContext::DirectiveArguments => Vec::new(),
+                    graphql_core::document::CompletionContext::UnionMembers => Vec::new(),
+                    graphql_core::document::CompletionContext::ImplementsClause => Vec::new(),
+                    graphql_core::document::CompletionContext::VariableDefaultValue => Vec::new(),
+                    graphql_core::document::CompletionContext::ArgumentDefaultValue => Vec::new(),
                     graphql_core::document::CompletionContext::Other => Vec::new(),
                 };
 
@@ -1319,22 +1407,24 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         self.with_tracing("goto_definition", async move {
-            let uri = self.normalize_uri(
-                params
-                    .text_document_position_params
-                    .text_document
-                    .uri
-                    .clone(),
-            );
+            let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
             let position = params.text_document_position_params.position;
 
-            let doc_arc = match self.documents.get(&uri).map(|r| r.value().clone()) {
-                Some(doc) => doc,
-                None => return Ok(None),
+            let doc_arc = if let Some(d) = self.documents.get(&uri).map(|r| r.value().clone()) {
+                d
+            } else {
+                return Ok(None);
             };
 
-            let schema = self.get_schema_for_doc(&uri);
             let symbol_name = doc_arc.get_symbol_at_position(position);
+            let schema = self.get_schema_for_doc(&uri);
+
+            // Try inline fragment type definition
+            if let Some(location) =
+                self.try_goto_inline_fragment_type_definition(&uri, &doc_arc, position, &schema)
+            {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
 
             // Try variable definition
             if let Some(location) =
@@ -1350,10 +1440,29 @@ impl LanguageServer for Backend {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
+            // Try input field definition
+            if let Some(location) =
+                self.try_goto_input_field_definition(&uri, &doc_arc, position, &schema)
+            {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+
             // Try fragment definition
             if let Some(location) = self
                 .try_goto_fragment_definition(&symbol_name, &doc_arc)
                 .await
+            {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+
+            // Try directive definition
+            if let Some(location) = self.try_goto_directive_definition(&uri, &doc_arc, &symbol_name) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+
+            // Try enum value definition
+            if let Some(location) =
+                self.try_goto_enum_value_definition(&uri, &doc_arc, position, &schema)
             {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }

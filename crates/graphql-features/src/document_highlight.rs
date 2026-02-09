@@ -1,4 +1,3 @@
-use crate::definition::DocumentDefinition;
 use crate::references::DocumentReferences;
 use graphql_core::document::DocumentState;
 use lsp_types::*;

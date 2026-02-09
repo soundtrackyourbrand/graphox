@@ -301,9 +301,9 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
             let filtered_fragments: Vec<FragmentCompletionInfo> = all_fragments_info
                 .iter()
                 .filter(|(f, f_schema_key)| {
-                    let is_same_project = f_schema_key.as_ref().is_some_and(|k| {
-                        schema_key.as_ref().is_some_and(|sk| k.as_ref() == sk)
-                    });
+                    let is_same_project = f_schema_key
+                        .as_ref()
+                        .is_some_and(|k| schema_key.as_ref().is_some_and(|sk| k.as_ref() == sk));
                     let is_same_package = graphql_core::utils::paths_match(
                         f.package_root.as_deref(),
                         target_package_root.map(|p| p.as_path()),

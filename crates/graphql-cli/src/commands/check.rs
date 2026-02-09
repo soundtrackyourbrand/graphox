@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use ahash::AHashMap as HashMap;
 use apollo_compiler::Schema;
 use colored::*;
@@ -9,6 +8,7 @@ use graphql_core::{Config, DocumentState};
 use graphql_features::completion::FragmentCompletionInfo;
 use graphql_features::diagnostics::DocumentDiagnostics;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 pub async fn run_check(config: Config, verbose: bool) {
@@ -31,7 +31,7 @@ pub async fn run_check(config: Config, verbose: bool) {
         let package_root = doc.package_root.clone();
         let project_import = cfg
             .get_project_for_path(&doc.uri.to_file_path().unwrap_or_default())
-            .and_then(|p| p.import.as_deref().map(|s| Arc::from(s)));
+            .and_then(|p| p.import.as_deref().map(Arc::from));
 
         for frag in doc.fragments() {
             if frag.is_public {

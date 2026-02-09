@@ -169,10 +169,9 @@ pub(super) fn check_required_fields(
 
                     if field_exists_on_root {
                         // Check if this field was selected at root level
-                        ctx.response_key_selected_fields.iter()
-                            .any(|(rk, fields)| {
-                                ctx.root_response_keys.contains(rk) && fields.contains(field_name_str)
-                            })
+                        ctx.response_key_selected_fields.iter().any(|(rk, fields)| {
+                            ctx.root_response_keys.contains(rk) && fields.contains(field_name_str)
+                        })
                     } else {
                         false
                     }
@@ -193,11 +192,13 @@ pub(super) fn check_required_fields(
                     _ => None,
                 };
 
-                if let Some(rtn) = root_type_name_check {
-                    if let Some(root_type) = ctx.schema.types.get(rtn.as_str()) {
+                if let Some(rtn) = root_type_name_check
+                    && let Some(root_type) = ctx.schema.types.get(rtn.as_str()) {
                         let field_exists_on_root = match root_type {
                             ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                            ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                            ExtendedType::Interface(iface) => {
+                                iface.fields.contains_key(field_name_str)
+                            }
                             _ => false,
                         };
 
@@ -209,13 +210,14 @@ pub(super) fn check_required_fields(
                                     "Required field '{}' must be selected in {} operations",
                                     field_name, operation_type
                                 ),
-                                code: Some(NumberOrString::String("required_field_missing".to_string())),
+                                code: Some(NumberOrString::String(
+                                    "required_field_missing".to_string(),
+                                )),
                                 ..Default::default()
                             });
                             continue; // Move to next required field
                         }
                     }
-                }
             }
 
             // 2. Check nested fields (non-root level)
@@ -233,12 +235,19 @@ pub(super) fn check_required_fields(
 
                 // Find the return type for this response key
                 if let Some(return_type) = find_return_type_for_response_key(
-                    this, node, offset, response_key.as_ref(), operation_type.as_ref(), ctx
-                ) {
-                    if let Some(type_def) = ctx.schema.types.get(return_type.as_str()) {
+                    this,
+                    node,
+                    offset,
+                    response_key.as_ref(),
+                    operation_type.as_ref(),
+                    ctx,
+                )
+                    && let Some(type_def) = ctx.schema.types.get(return_type.as_str()) {
                         let field_exists = match type_def {
                             ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                            ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                            ExtendedType::Interface(iface) => {
+                                iface.fields.contains_key(field_name_str)
+                            }
                             _ => false,
                         };
 
@@ -250,18 +259,20 @@ pub(super) fn check_required_fields(
                                     "Required field '{}' must be selected in '{}'",
                                     field_name, response_key
                                 ),
-                                code: Some(NumberOrString::String("required_field_missing".to_string())),
+                                code: Some(NumberOrString::String(
+                                    "required_field_missing".to_string(),
+                                )),
                                 ..Default::default()
                             });
                         }
                     }
-                }
             }
 
             // 3. Check inline fragment type conditions
             for (response_key, type_conditions) in &ctx.response_key_type_conditions {
                 for type_name in type_conditions {
-                    let type_fields = ctx.type_condition_fields
+                    let type_fields = ctx
+                        .type_condition_fields
                         .get(response_key)
                         .and_then(|m| m.get(type_name))
                         .cloned()
@@ -271,7 +282,9 @@ pub(super) fn check_required_fields(
                     if let Some(type_def) = ctx.schema.types.get(&*type_name_str) {
                         let field_exists = match type_def {
                             ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                            ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                            ExtendedType::Interface(iface) => {
+                                iface.fields.contains_key(field_name_str)
+                            }
                             _ => false,
                         };
 
@@ -283,7 +296,9 @@ pub(super) fn check_required_fields(
                                     "Required field '{}' must be selected in '... on {}'",
                                     field_name, type_name
                                 ),
-                                code: Some(NumberOrString::String("required_field_missing".to_string())),
+                                code: Some(NumberOrString::String(
+                                    "required_field_missing".to_string(),
+                                )),
                                 ..Default::default()
                             });
                         }
@@ -311,13 +326,10 @@ fn find_return_type_for_response_key(
         _ => return None,
     };
 
-    if let Some(root_def_name) = ctx.schema.root_operation(op_type) {
-        if let Some(root_type) = ctx.schema.types.get(root_def_name.as_str()) {
-            return find_field_type_recursive(
-                this, node, offset, response_key, root_type, ctx
-            );
+    if let Some(root_def_name) = ctx.schema.root_operation(op_type)
+        && let Some(root_type) = ctx.schema.types.get(root_def_name.as_str()) {
+            return find_field_type_recursive(this, node, offset, response_key, root_type, ctx);
         }
-    }
     None
 }
 
@@ -343,13 +355,12 @@ fn find_field_type_recursive(
     // Search recursively in selection sets
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "selection_set" {
-            if let Some(found) = search_in_selection_set(
-                this, child, offset, target_response_key, current_type, ctx
-            ) {
+        if child.kind() == "selection_set"
+            && let Some(found) =
+                search_in_selection_set(this, child, offset, target_response_key, current_type, ctx)
+            {
                 return Some(found);
             }
-        }
     }
 
     None
@@ -368,7 +379,9 @@ fn search_in_selection_set(
         if child.kind() == "selection" || child.kind() == "field" {
             let field_node = if child.kind() == "selection" {
                 let mut inner_cursor = child.walk();
-                child.children(&mut inner_cursor).find(|c| c.kind() == "field")
+                child
+                    .children(&mut inner_cursor)
+                    .find(|c| c.kind() == "field")
             } else {
                 Some(child)
             };
@@ -399,7 +412,10 @@ fn search_in_selection_set(
                     continue;
                 }
 
-                let rk = response_key.as_ref().unwrap_or(actual_name.as_ref().unwrap()).as_str();
+                let rk = response_key
+                    .as_ref()
+                    .unwrap_or(actual_name.as_ref().unwrap())
+                    .as_str();
 
                 if rk == target_response_key {
                     // Found the field, return its type
@@ -428,13 +444,17 @@ fn search_in_selection_set(
 
                     if let Some(field_def) = fdef {
                         let return_type = field_def.ty.inner_named_type();
-                        if let Some(return_type_def) = ctx.schema.types.get(return_type.as_str()) {
-                            if let Some(found) = search_in_selection_set(
-                                this, sel_set, offset, target_response_key, return_type_def, ctx
+                        if let Some(return_type_def) = ctx.schema.types.get(return_type.as_str())
+                            && let Some(found) = search_in_selection_set(
+                                this,
+                                sel_set,
+                                offset,
+                                target_response_key,
+                                return_type_def,
+                                ctx,
                             ) {
                                 return Some(found);
                             }
-                        }
                     }
                 }
             }
@@ -463,15 +483,18 @@ fn search_in_selection_set(
                 }
             }
 
-            if let (Some(tname), Some(sel_set)) = (type_name, sel_set_node) {
-                if let Some(type_def) = ctx.schema.types.get(tname.as_str()) {
-                    if let Some(found) = search_in_selection_set(
-                        this, sel_set, offset, target_response_key, type_def, ctx
+            if let (Some(tname), Some(sel_set)) = (type_name, sel_set_node)
+                && let Some(type_def) = ctx.schema.types.get(tname.as_str())
+                    && let Some(found) = search_in_selection_set(
+                        this,
+                        sel_set,
+                        offset,
+                        target_response_key,
+                        type_def,
+                        ctx,
                     ) {
                         return Some(found);
                     }
-                }
-            }
         }
     }
 

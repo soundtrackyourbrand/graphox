@@ -170,7 +170,8 @@ fn test_multiple_graphql_blocks_variables_fragment_interaction() {
     assert!(
         fragments[0]
             .used_variables
-            .iter().any(|s| s.as_ref() == "showPermissions")
+            .iter()
+            .any(|s| s.as_ref() == "showPermissions")
     );
 
     // 2. Check full diagnostic flow (LSP context)

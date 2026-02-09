@@ -29,7 +29,8 @@ pub struct ValidationContext<'a> {
     pub current_operation_type: Option<Arc<str>>,
     pub response_key_selected_fields: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
     pub response_key_type_conditions: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
-    pub type_condition_fields: ahash::AHashMap<Arc<str>, ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>>,
+    pub type_condition_fields:
+        ahash::AHashMap<Arc<str>, ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>>,
     pub root_response_keys: ahash::AHashSet<Arc<str>>,
 }
 
