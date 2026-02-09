@@ -281,60 +281,42 @@ impl Backend {
     ) -> std::collections::BTreeMap<String, String> {
         let mut requirements = std::collections::BTreeMap::new();
         let mut visited = AHashSet::default();
-        self.collect_fragment_requirements_recursive(
-            name,
-            schema,
-            package_root,
-            all_fragments,
-            &mut requirements,
-            &mut visited,
-            variable_types_cache,
-        );
-        requirements
-    }
 
-    fn collect_fragment_requirements_recursive(
-        &self,
-        initial_name: &str,
-        schema: &Schema,
-        package_root: Option<&std::path::PathBuf>,
-        all_fragments: &[FragmentCompletionInfo],
-        requirements: &mut std::collections::BTreeMap<String, String>,
-        visited: &mut AHashSet<String>,
-        variable_types_cache: &mut AHashMap<String, std::collections::BTreeMap<String, String>>,
-    ) {
-        let mut stack = vec![initial_name.to_string()];
+        let mut collect = |initial_name: &str| {
+            let mut stack = vec![initial_name.to_string()];
 
-        while let Some(name) = stack.pop() {
-            if !visited.insert(name.clone()) {
-                continue;
-            }
-
-            if let Some(frag) = all_fragments.iter().find(|f| {
-                f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
-            }) && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone())
-            {
-                // Get variables from this fragment (use cache if available)
-                let local_vars = if let Some(cached) = variable_types_cache.get(&name) {
-                    cached.clone()
-                } else {
-                    let vars = doc.get_fragment_variable_types(&name, schema);
-                    variable_types_cache.insert(name.clone(), vars.clone());
-                    vars
-                };
-
-                for (var, ty) in local_vars {
-                    requirements.insert(var, ty);
+            while let Some(name) = stack.pop() {
+                if !visited.insert(name.clone()) {
+                    continue;
                 }
 
-                // Get nested fragments
-                if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
-                    for nested in &def.used_fragments {
-                        stack.push(nested.clone());
+                if let Some(frag) = all_fragments.iter().find(|f| {
+                    f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
+                }) && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone())
+                {
+                    let local_vars = if let Some(cached) = variable_types_cache.get(&name) {
+                        cached.clone()
+                    } else {
+                        let vars = doc.get_fragment_variable_types(&name, schema);
+                        variable_types_cache.insert(name.clone(), vars.clone());
+                        vars
+                    };
+
+                    for (var, ty) in local_vars {
+                        requirements.insert(var, ty);
+                    }
+
+                    if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
+                        for nested in &def.used_fragments {
+                            stack.push(nested.clone());
+                        }
                     }
                 }
             }
-        }
+        };
+
+        collect(name);
+        requirements
     }
 
     pub fn get_used_fragments(&self) -> AHashSet<String> {

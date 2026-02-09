@@ -53,7 +53,7 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
             }
             schema_content.push_str(&format!("Type{}", t));
         }
-        schema_content.push_str("\n");
+        schema_content.push('\n');
 
         schema_content.push_str("schema { query: Query }\n");
 
