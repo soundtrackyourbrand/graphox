@@ -1,6 +1,13 @@
 # Plugin Development Guide
 
-This guide covers how to develop, test, and contribute to the GraphQL Rust plugins.
+This guide covers how to develop, test, and contribute to the GraphQL Rust build tool plugins (Babel and SWC).
+
+## Quick Links
+
+- [Babel Plugin](./plugins/babel/README.md)
+- [SWC Plugin](./plugins/swc/README.md)
+- [Architecture Overview](./architecture.md)
+- [Contributing](../CONTRIBUTING.md)
 
 ## Project Structure
 
@@ -25,34 +32,6 @@ graphql-rust/
 │           ├── Cargo.toml
 │           ├── src/
 │           └── lib.rs
-│
-├── tests/
-│   ├── fixtures/
-│   │   └── swc_cli/        # SWC integration test fixtures
-│   │       ├── graphql.yaml
-│   │       ├── schema.graphql
-│   │       └── src/
-│   │           └── app.ts
-│   │
-│   └── integration/
-│       └── swc_cli.rs       # SWC integration test
-│
-└── .github/workflows/
-    └── plugins.yml          # CI for plugins
-```
-graphql-rust/
-├── plugins/
-│   ├── babel/               # Babel transformation plugin
-│   │   ├── index.js         # Main plugin code
-│   │   ├── index.test.js    # Unit tests
-│   │   ├── package.json    # npm configuration
-│   │   └── README.md        # User documentation
-│   │
-│   └── swc/                 # SWC transformation plugin (Rust/WASM)
-│       ├── src/
-│       │   └── lib.rs      # Main plugin code
-│       ├── Cargo.toml       # Rust configuration
-│       └── README.md         # User documentation
 │
 ├── tests/
 │   ├── fixtures/
