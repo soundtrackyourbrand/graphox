@@ -1,6 +1,6 @@
 use crate::support::{self, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphql_rust::{
+use graphox::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
     Config,
 };

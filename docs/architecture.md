@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document describes the internal architecture of graphql-rust, explaining how its components work together to provide LSP, validation, and type generation.
+This document describes the internal architecture of Graphox, explaining how its components work together to provide LSP, validation, and type generation.
 
 ## System Architecture
 
@@ -12,7 +12,7 @@ This document describes the internal architecture of graphql-rust, explaining ho
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    graphql-rust LSP Server                       │
+│                    graphox LSP Server                       │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │                       Backend                              │  │
 │  │  • DocumentState map (DashMap)                           │  │
@@ -23,7 +23,7 @@ This document describes the internal architecture of graphql-rust, explaining ho
 │            │                    │                    │          │
 │            ▼                    ▼                    ▼          │
 │  ┌────────────────┐   ┌────────────────┐   ┌────────────────┐  │
-│  │ graphql-core   │   │graphql-features│   │  Diagnostics   │  │
+│  │ graphox-core   │   │graphox-features│   │  Diagnostics   │  │
 │  │                │   │                │   │    Engine      │  │
 │  │ • Tree-sitter  │   │ • Hover        │   │                │  │
 │  │   parsing      │   │ • Completion   │   │ • Validation    │  │
@@ -47,7 +47,7 @@ This document describes the internal architecture of graphql-rust, explaining ho
 
 ## Core Components
 
-### graphql-core
+### graphox-core
 
 The foundation of the entire system, providing:
 
@@ -66,9 +66,9 @@ The foundation of the entire system, providing:
   - **L2 (Disk)**: Persistent cache in OS-specific cache directory
   - Schema merging from multiple files
 
-- **Config**: Parses and validates `graphql.yaml`
+- **Config**: Parses and validates `graphox.yaml`
 
-### graphql-features
+### graphox-features
 
 LSP capabilities implemented as extension traits on `DocumentState`:
 
@@ -81,7 +81,7 @@ LSP capabilities implemented as extension traits on `DocumentState`:
 | **Diagnostics** | Real-time validation using Tree-sitter + apollo-compiler |
 | **Semantic Tokens** | Enhanced syntax highlighting |
 
-### graphql-lsp
+### graphox-lsp
 
 The LSP server implementation using `tower-lsp`:
 
@@ -90,7 +90,7 @@ The LSP server implementation using `tower-lsp`:
 - **Diagnostics**: Push-based real-time feedback
 - **Request handling**: Cancellable operations via `AtomicBool`
 
-### graphql-codegen
+### graphox-codegen
 
 TypeScript type generation:
 
@@ -104,7 +104,7 @@ TypeScript type generation:
 ### LSP Initialization
 
 1. Client sends `initialize` request
-2. Server loads configuration (`graphql.yaml`)
+2. Server loads configuration (`graphox.yaml`)
 3. Server initializes schema cache
 4. Server scans workspace for GraphQL files
 5. Server returns capabilities to client
@@ -148,7 +148,7 @@ graph TD
 
 The LSP automatically watches:
 - GraphQL schema files
-- Configuration files (`graphql.yaml`)
+- Configuration files (`graphox.yaml`)
 - Source files containing GraphQL operations
 
 Changes trigger:

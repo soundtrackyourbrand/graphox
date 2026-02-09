@@ -1,6 +1,6 @@
 use crate::support;
 use futures_util::StreamExt;
-use graphql_rust::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
+use graphox::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};

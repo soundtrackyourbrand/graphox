@@ -1,5 +1,5 @@
 use crate::support::{create_service, lsp_did_open, lsp_initialize_sequence};
-use graphql_rust::Config;
+use graphox::Config;
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
@@ -25,7 +25,7 @@ async fn test_config_file_change_triggers_reload() {
     )
     .unwrap();
 
-    let config_path = base_dir.join("graphql.yaml");
+    let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
         r#"
@@ -100,7 +100,7 @@ async fn test_invalid_config_reload_fails_gracefully() {
     )
     .unwrap();
 
-    let config_path = base_dir.join("graphql.yaml");
+    let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
         r#"
@@ -163,7 +163,7 @@ async fn test_non_config_file_changes_work() {
     )
     .unwrap();
 
-    let config_path = base_dir.join("graphql.yaml");
+    let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
         r#"

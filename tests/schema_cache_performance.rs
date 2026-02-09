@@ -1,8 +1,8 @@
 // Test to verify that the two-tier schema cache is working correctly
 
 use apollo_compiler::schema::ExtendedType;
-use graphql_rust::schema;
-use graphql_rust::{config::SchemaSource, schema_cache};
+use graphox::schema;
+use graphox::{config::SchemaSource, schema_cache};
 use std::time::Instant;
 use tempfile::tempdir;
 

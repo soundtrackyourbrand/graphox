@@ -1,7 +1,7 @@
 {
-  "name": "graphql-rust",
-  "displayName": "GraphQL Rust",
-  "description": "GraphQL Language Server and Codegen for Rust",
+  "name": "graphox",
+  "displayName": "Graphox",
+  "description": "GraphQL Language Server and Codegen",
   "version": "0.1.0",
   "publisher": "soundtrack",
   "engines": {
@@ -30,14 +30,14 @@
       }
     ],
     "configuration": {
-      "title": "GraphQL Rust",
+      "title": "Graphox",
       "properties": {
-        "graphql-rust.serverPath": {
+        "graphox.serverPath": {
           "type": "string",
-          "description": "Path to graphql-rust binary. If empty, uses 'graphql-rust' from PATH.",
+          "description": "Path to graphox binary. If empty, uses 'graphox' from PATH.",
           "default": ""
         },
-        "graphql-rust.logLevel": {
+        "graphox.logLevel": {
           "type": "string",
           "enum": ["error", "warn", "info", "debug", "trace"],
           "default": "info",
@@ -59,9 +59,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
-    "install-local": "code --install-extension graphql-rust-*.vsix",
-    "build:dev": "cargo build",
-    "build:release": "cargo build --release"
+    "install-local": "code --install-extension graphox-*.vsix",
+    "build:dev": "cargo build -p graphox",
+    "build:release": "cargo build -p graphox --release"
   },
   "dependencies": {
     "vscode-languageclient": "^8.1.0"

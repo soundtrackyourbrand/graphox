@@ -1,6 +1,6 @@
 # Validation Rules
 
-graphql-rust includes configurable validation rules that you can enable in `graphql.yaml`. All rules are errors that fail validation.
+graphox includes configurable validation rules that you can enable in `graphox.yaml`. All rules are errors that fail validation.
 
 ## Quick Reference
 
@@ -14,7 +14,7 @@ graphql-rust includes configurable validation rules that you can enable in `grap
 ## Enabling Rules
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 rules:
   unique_operation_name: true
   no_duplicate_fields: true
@@ -144,7 +144,7 @@ query GetUser {
 ## Example Configuration
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 projects:

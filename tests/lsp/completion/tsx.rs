@@ -1,5 +1,5 @@
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-use graphql_rust::{Backend, Config};
+use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::LspService;

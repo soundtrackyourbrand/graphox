@@ -4,7 +4,7 @@ use crate::support::{
     make_temp_project_with_schema, write_project_file,
 };
 use futures_util::StreamExt;
-use graphql_rust::config::RulesConfig;
+use graphox::config::RulesConfig;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]

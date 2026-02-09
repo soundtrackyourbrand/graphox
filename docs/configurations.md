@@ -83,7 +83,7 @@ fragment_suffix: ""                               # Global suffix for Fragment i
 
 ### Configuration Notes
 
-- Configuration is discovered by searching current directory and parent directories for `graphql.yaml` or `graphql.yml`
+- Configuration is discovered by searching current directory and parent directories for `graphox.yaml` or `graphox.yml`
 - All file paths in the config are resolved relative to the config file location
 - Schema files can be specified as single strings or arrays for multi-file schemas
 - Include/exclude patterns support standard glob syntax (`**/*.ts`, `src/**/*.{ts,tsx}`)
@@ -96,7 +96,7 @@ fragment_suffix: ""                               # Global suffix for Fragment i
 The simplest configuration for a single GraphQL schema and operations.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 projects:
@@ -111,7 +111,7 @@ projects:
 Configure multiple projects in a monorepo, each with its own schema and source patterns.
 
 ```yaml
-# graphql.yaml (root of monorepo)
+# graphox.yaml (root of monorepo)
 output_dir: "__generated__"
 
 projects:
@@ -177,7 +177,7 @@ query GetPosts {
 
 **Configuration:**
 ```yaml
-# graphql.yaml
+# graphox.yaml
 projects:
   - schema: "packages/api/schema.graphql"
     include: "packages/api/**/*.graphql"
@@ -208,7 +208,7 @@ export interface GetPostsQuery {
 Map GraphQL scalar types to TypeScript types.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 scalars:
@@ -250,7 +250,7 @@ export interface MyQuery {
 Generate standalone TypeScript types from the schema without operations.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 schema_types:
@@ -286,7 +286,7 @@ export interface Query {
 Disable codegen for specific projects or enable it only where needed.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 projects:
@@ -312,7 +312,7 @@ projects:
 Suppress warnings for deprecated fields or types.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 ignore_deprecations:
@@ -332,7 +332,7 @@ projects:
 Configure performance-related settings for large workspaces.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 # LSP settings
@@ -356,7 +356,7 @@ projects:
 Debug slow LSP requests by enabling tracing.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 tracing:
@@ -377,7 +377,7 @@ Logs appear in the LSP output panel of your editor.
 Enable additional validation rules for stricter checks.
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 
 rules:

@@ -1,7 +1,7 @@
 use ahash::AHashMap;
 use apollo_compiler::Schema;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
-use graphql_rust::{
+use graphox::features::diagnostics::DocumentDiagnostics;
+use graphox::{
     Config,
     config::{RequiredFieldRule, RulesConfig},
 };

@@ -3,7 +3,7 @@
 use crate::support::lsp_did_open;
 use crate::support::lsp_initialize_sequence;
 use crate::support::lsp_send_notification;
-use graphql_rust::Backend as LspBackend;
+use graphox::Backend as LspBackend;
 use std::path::Path;
 use tempfile::TempDir;
 use tower_lsp::LspService;
@@ -27,7 +27,7 @@ use tower_lsp::lsp_types::*;
 pub struct LspTestScenario {
     temp_dir: TempDir,
     files: Vec<(String, String)>, // (relative_path, content)
-    config: Option<graphql_rust::Config>,
+    config: Option<graphox::Config>,
 }
 
 impl LspTestScenario {
@@ -47,7 +47,7 @@ impl LspTestScenario {
     }
 
     /// Set a custom config.
-    pub fn with_config(mut self, config: graphql_rust::Config) -> Self {
+    pub fn with_config(mut self, config: graphox::Config) -> Self {
         self.config = Some(config);
         self
     }
@@ -68,7 +68,7 @@ impl LspTestScenario {
     }
 
     /// Build the config with all files included.
-    pub fn build_config(&self, base_dir: &Path) -> graphql_rust::Config {
+    pub fn build_config(&self, base_dir: &Path) -> graphox::Config {
         if let Some(config) = &self.config {
             return config.clone();
         }
@@ -105,12 +105,12 @@ impl LspTestScenario {
             );
         }
 
-        graphql_rust::Config {
+        graphox::Config {
             base_dir: base_dir.to_path_buf(),
             projects,
             enable_schema_cache: Some(true),
             lsp_automatic_codegen: Some(false),
-            ..graphql_rust::Config::new_empty()
+            ..graphox::Config::new_empty()
         }
     }
 

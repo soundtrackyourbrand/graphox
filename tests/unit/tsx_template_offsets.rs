@@ -1,5 +1,5 @@
 use crate::support::pos;
-use graphql_rust::DocumentLanguage;
+use graphox::DocumentLanguage;
 use tower_lsp::lsp_types::Url;
 
 #[test]

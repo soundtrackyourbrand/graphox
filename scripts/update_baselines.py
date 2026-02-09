@@ -6,7 +6,7 @@ import sys
 
 # Get the absolute path to the project root
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BIN_PATH = os.path.join(ROOT, "target/debug/graphql-rust")
+BIN_PATH = os.path.join(ROOT, "target/debug/graphox")
 SIMPLE_SCHEMA = os.path.join(ROOT, "tests/fixtures/simple_schema.graphql")
 
 def update_baselines(fixture_rel, baseline_rel):

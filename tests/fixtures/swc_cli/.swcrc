@@ -7,7 +7,7 @@
     "experimental": {
       "plugins": [
         [
-          "../../target/wasm32-wasip1/release/graphql_rust_swc_plugin.wasm",
+          "../../target/wasm32-wasip1/release/graphox_swc_plugin.wasm",
           {
             "manifestData": {
               "entries": [

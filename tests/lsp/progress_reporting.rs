@@ -1,6 +1,6 @@
 use crate::support::{self};
 use futures_util::StreamExt;
-use graphql_rust::{
+use graphox::{
     Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };

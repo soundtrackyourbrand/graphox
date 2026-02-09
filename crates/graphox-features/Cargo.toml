@@ -1,0 +1,21 @@
+[package]
+name = "graphox-features"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+graphox-core = { path = "../graphox-core" }
+apollo-compiler = { workspace = true }
+lsp-types = { workspace = true }
+ahash = { workspace = true }
+dashmap = { workspace = true }
+colored = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+regex = { workspace = true }
+url = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-graphql = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+strsim = { workspace = true }
+once_cell = { workspace = true }

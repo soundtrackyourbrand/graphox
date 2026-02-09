@@ -2,7 +2,7 @@ use crate::support::{
     create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
     pos, write_project_file_at,
 };
-use graphql_rust::Config;
+use graphox::Config;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;

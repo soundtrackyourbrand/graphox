@@ -3,8 +3,8 @@
 
 use crate::support::lsp::LspTestScenario;
 use crate::support::{create_large_schema, measure_memory_usage};
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-use graphql_rust::Config;
+use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::Config;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -90,7 +90,7 @@ async fn test_memory_open_close_cycles() {
 
     let config = create_100_file_config(&base_dir);
     let (mut service, _) = tower_lsp::LspService::new(|client| {
-        graphql_rust::Backend::new(client, config)
+        graphox::Backend::new(client, config)
     });
         crate::support::lsp_initialize_sequence(&mut service).await;
 
@@ -132,8 +132,8 @@ async fn test_memory_cached_documents_100() {
     }
 
     let config = create_100_file_config(&base_dir);
-    let (mut service, _) = graphql_rust::LspService::new(|client| {
-        graphql_rust::Backend::new(client, config)
+    let (mut service, _) = graphox::LspService::new(|client| {
+        graphox::Backend::new(client, config)
     });
     crate::support::lsp_initialize_sequence(&mut service).await;
 
@@ -181,7 +181,7 @@ async fn test_memory_cached_documents_1000() {
 
     let config = create_1000_file_config(&base_dir);
     let (mut service, _) = tower_lsp::LspService::new(|client| {
-        graphql_rust::Backend::new(client, config)
+        graphox::Backend::new(client, config)
     });
     crate::support::lsp_initialize_sequence(&mut service).await;
 
@@ -232,7 +232,7 @@ async fn test_memory_schema_caching() {
     for (i, base_dir) in temp_dirs.iter().enumerate() {
     let config = create_10_schema_config(base_dir);
     let (mut service, _) = tower_lsp::LspService::new(|client| {
-            graphql_rust::Backend::new(client, config)
+            graphox::Backend::new(client, config)
         });
         crate::support::lsp_initialize_sequence(&mut service).await;
 
@@ -287,8 +287,8 @@ async fn test_memory_fragment_index() {
     fs::write(base_dir.join("fragments.graphql"), all_fragments).unwrap();
 
     let config = create_100_file_config(&base_dir);
-    let (mut service, _) = graphql_rust::LspService::new(|client| {
-        graphql_rust::Backend::new(client, config)
+    let (mut service, _) = graphox::LspService::new(|client| {
+        graphox::Backend::new(client, config)
     });
     crate::support::lsp_initialize_sequence(&mut service).await;
 
@@ -331,8 +331,8 @@ async fn test_memory_large_schema() {
     }
 
     let config = create_100_file_config(&base_dir);
-    let (mut service, _) = graphql_rust::LspService::new(|client| {
-        graphql_rust::Backend::new(client, config)
+    let (mut service, _) = graphox::LspService::new(|client| {
+        graphox::Backend::new(client, config)
     });
     crate::support::lsp_initialize_sequence(&mut service).await;
 

@@ -1,7 +1,7 @@
 //! Builders for creating complex test objects with less boilerplate.
 
-use graphql_rust::Config;
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::Config;
+use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
 use std::path::{Path, PathBuf};
 
 // =============================================================================
@@ -153,7 +153,7 @@ impl Default for ProjectConfigBuilder {
 // FragmentCompletionInfo Builder
 // =============================================================================
 
-use graphql_rust::features::completion::FragmentCompletionInfo;
+use graphox::features::completion::FragmentCompletionInfo;
 use std::collections::BTreeMap;
 use tower_lsp::lsp_types::Url;
 

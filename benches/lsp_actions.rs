@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use graphql_rust::{
+use graphox::{
     Backend, Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
     document::DocumentState,

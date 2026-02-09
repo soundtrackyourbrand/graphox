@@ -1,13 +1,13 @@
-# graphql-rust-swc-plugin
+# graphox-swc-plugin
 
 ## Overview
 
-SWC plugin for GraphQL Rust codesplitting.
+SWC plugin for Graphox codesplitting.
 
 **For TypeScript/JavaScript users:**
 
 ```bash
-pnpm add @soundtrack/graphql-rust-swc
+pnpm add @soundtrack/graphox-swc
 ```
 
 See [node/README.md](node/README.md) for usage instructions.
@@ -16,7 +16,7 @@ See [node/README.md](node/README.md) for usage instructions.
 
 ```
 swc/
-├── node/          # Node.js package (@soundtrack/graphql-rust-swc)
+├── node/          # Node.js package (@soundtrack/graphox-swc)
 │   ├── package.json
 │   ├── src/
 │   └── wasm/      # Bundled WASM
@@ -33,6 +33,6 @@ See [rust/README.md](rust/README.md) for Rust development instructions.
 
 ## See Also
 
-- [@soundtrack/graphql-rust-swc (npm)](node/README.md)
+- [@soundtrack/graphox-swc (npm)](node/README.md)
 - [Babel Plugin](../babel/README.md)
-- [graphql-rust CLI](../../README.md)
+- [graphox CLI](../../README.md)

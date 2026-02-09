@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use graphql_rust::utils::merge_schema_texts;
+use graphox::utils::merge_schema_texts;
 use std::time::Duration;
 
 fn generate_large_schema(start_idx: usize, count: usize) -> String {

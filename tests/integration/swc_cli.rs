@@ -5,7 +5,7 @@ use std::process::Command;
 #[test]
 #[ignore] // This test is slow and requires node/npm and wasm32-wasip1 target
 fn test_swc_cli_integration() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
     let root_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixture_dir = root_dir.join("tests/fixtures/swc_cli");
     let temp_dir = tempfile::tempdir().unwrap();
@@ -33,7 +33,7 @@ fn test_swc_cli_integration() {
     let build_output = Command::new("cargo")
         .arg("build")
         .arg("-p")
-        .arg("graphql-rust-swc-plugin")
+        .arg("graphox-swc-plugin")
         .arg("--target")
         .arg("wasm32-wasip1")
         .arg("--release")
@@ -47,7 +47,7 @@ fn test_swc_cli_integration() {
         String::from_utf8_lossy(&build_output.stderr)
     );
 
-    let wasm_path = root_dir.join("target/wasm32-wasip1/release/graphql_rust_swc_plugin.wasm");
+    let wasm_path = root_dir.join("target/wasm32-wasip1/release/graphox_swc_plugin.wasm");
     assert!(wasm_path.exists(), "WASM plugin missing at {:?}", wasm_path);
 
     // 3. Install SWC CLI

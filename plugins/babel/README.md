@@ -1,4 +1,4 @@
-# @soundtrack/graphql-rust-babel
+# @soundtrack/graphox-babel
 
 ## Overview
 
@@ -23,15 +23,15 @@ Lazy chunks: each operation in its chunk
 ## Installation
 
 ```bash
-pnpm add --save-dev @soundtrack/graphql-rust-babel
+pnpm add --save-dev @soundtrack/graphox-babel
 ```
 
 ## Quick Start
 
-### 1. Configure graphql-rust
+### 1. Configure graphox
 
 ```yaml
-# graphql.yaml
+# graphox.yaml
 output_dir: "__generated__"
 projects:
   - schema: "schema.graphql"
@@ -41,7 +41,7 @@ projects:
 ### 2. Run Codegen
 
 ```bash
-pnpm graphql-rust codegen
+pnpm graphox codegen
 ```
 
 ### 3. Configure Babel
@@ -53,7 +53,7 @@ const path = require('path');
 module.exports = {
   presets: ['@babel/preset-typescript'],
   plugins: [
-    ['@soundtrack/graphql-rust-babel', {
+    ['@soundtrack/graphox-babel', {
       manifestPath: path.resolve(__dirname, '__generated__/manifest.json'),
       outputDir: path.resolve(__dirname, '__generated__'),
       graphqlImportPaths: ['@/graphql']
@@ -70,7 +70,7 @@ Metro uses Babel transformers under the hood. Configure in `metro.config.js`:
 // metro.config.js
 module.exports = {
   transformer: {
-    babelTransformerPath: require.resolve('@soundtrack/graphql-rust-babel'),
+    babelTransformerPath: require.resolve('@soundtrack/graphox-babel'),
   },
 };
 ```
@@ -106,4 +106,4 @@ For full compatibility, also configure in `babel.config.js`.
 ## See Also
 
 - [SWC Plugin](../swc/README.md)
-- [graphql-rust CLI](../../README.md)
+- [graphox CLI](../../README.md)

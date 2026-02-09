@@ -1,5 +1,5 @@
 {
-  "name": "@soundtrack/graphql-rust-swc",
+  "name": "@soundtrack/graphox-swc",
   "version": "0.1.0",
   "description": "SWC plugin for GraphQL Rust codesplitting",
   "main": "dist/index.js",
@@ -36,7 +36,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/soundtrack/graphql-rust.git",
+    "url": "https://github.com/soundtrack/graphox.git",
     "directory": "plugins/swc/node"
   },
   "license": "MIT"

@@ -5,9 +5,9 @@
 #![allow(clippy::collapsible_if)]
 
 use apollo_compiler::Schema;
-use graphql_rust::DocumentState;
-use graphql_rust::features::definition::DocumentDefinition;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::DocumentState;
+use graphox::features::definition::DocumentDefinition;
+use graphox::features::diagnostics::DocumentDiagnostics;
 // DocumentState not referenced directly; tests use `create_doc` helper
 use crate::support::create_doc;
 use tower_lsp::lsp_types::*;

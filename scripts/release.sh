@@ -72,14 +72,14 @@ if [ -f "editors/vscode/package.json" ]; then
 fi
 
 # Update version in NPM CLI package.json
-if [ -f "npm/@soundtrack/graphql-rust-cli/package.json" ]; then
-    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/@soundtrack/graphql-rust-cli/package.json
-    rm npm/@soundtrack/graphql-rust-cli/package.json.bak
+if [ -f "npm/@soundtrack/graphox-cli/package.json" ]; then
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/@soundtrack/graphox-cli/package.json
+    rm npm/@soundtrack/graphox-cli/package.json.bak
 fi
 
 # Update Cargo.lock
-cargo update -p graphql-rust 2>/dev/null || true
-cargo update -p graphql-rust-swc-plugin 2>/dev/null || true
+cargo update -p graphox 2>/dev/null || true
+cargo update -p graphox-swc-plugin 2>/dev/null || true
 
 # Commit changes
 git add Cargo.toml Cargo.lock
@@ -92,8 +92,8 @@ fi
 if [ -f "editors/vscode/package.json" ]; then
     git add editors/vscode/package.json
 fi
-if [ -f "npm/@soundtrack/graphql-rust-cli/package.json" ]; then
-    git add npm/@soundtrack/graphql-rust-cli/package.json
+if [ -f "npm/@soundtrack/graphox-cli/package.json" ]; then
+    git add npm/@soundtrack/graphox-cli/package.json
 fi
 git commit -m "chore: bump version to $NEW_VERSION"
 

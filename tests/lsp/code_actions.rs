@@ -11,7 +11,7 @@ async fn test_code_action_remove_unused_fragment() {
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
     // tweak config for timeouts/watch behavior used in test
     config.watch_all_files = Some(false);
-    config.timeouts = Some(graphql_rust::config::TimeoutConfig {
+    config.timeouts = Some(graphox::config::TimeoutConfig {
         workspace_scan_ms: 50,
         lsp_request_ms: 50,
     });

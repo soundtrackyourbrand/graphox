@@ -1,6 +1,6 @@
 use apollo_compiler::Schema;
 use criterion::{Criterion, criterion_group, criterion_main};
-use graphql_rust::{
+use graphox::{
     DocumentState,
     features::{diagnostics::DocumentDiagnostics, semantic_tokens::DocumentSemanticTokens},
 };

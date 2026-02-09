@@ -3,8 +3,8 @@ use std::process::Command;
 #[test]
 #[ntest::timeout(100)]
 fn test_cli_cross_project_circular_fragments() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_circular");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_cross_project_circular");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -40,7 +40,7 @@ fn test_cli_cross_project_circular_fragments() {
 
     // Create config including both projects
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -75,8 +75,8 @@ projects:
 #[test]
 #[ntest::timeout(100)]
 fn test_cli_cross_project_private_fragments_no_cross() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_circular_private");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_cross_project_circular_private");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -112,7 +112,7 @@ fn test_cli_cross_project_private_fragments_no_cross() {
 
     // Create config including both projects
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"

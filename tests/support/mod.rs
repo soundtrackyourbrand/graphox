@@ -2,8 +2,8 @@
 
 use apollo_compiler::Schema;
 use futures_util::StreamExt;
-use graphql_rust::Backend as LspBackend;
-use graphql_rust::{DocumentLanguage, DocumentState};
+use graphox::Backend as LspBackend;
+use graphox::{DocumentLanguage, DocumentState};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -19,7 +19,7 @@ use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::Url;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range};
 // serde_json is used via explicit fully-qualified calls in this module.
-use graphql_rust::Config;
+use graphox::Config;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::{
     CompletionResponse, DidOpenTextDocumentParams, DocumentDiagnosticParams,
@@ -305,7 +305,7 @@ pub fn make_temp_project_with_schema(
     schema_text: &str,
     include_pattern: &str,
 ) -> (TempDir, Config) {
-    use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
+    use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
 
     let dir = TempDir::new().expect("failed to create tempdir");
     let schema_path = dir.path().join("schema.graphql");

@@ -1,4 +1,4 @@
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::features::diagnostics::DocumentDiagnostics;
 use std::sync::Arc;
 use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString};
 

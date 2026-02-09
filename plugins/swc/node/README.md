@@ -1,8 +1,8 @@
-# @soundtrack/graphql-rust-swc
+# @soundtrack/graphox-swc
 
 ## Overview
 
-Pre-built SWC plugin for GraphQL Rust codesplitting. This package bundles the WASM binary for easy use with rsbuild, Turbopack, or native SWC.
+Pre-built SWC plugin for Graphox codesplitting. This package bundles the WASM binary for easy use with rsbuild, Turbopack, or native SWC.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ For users of the pre-built package, only Node.js 18+ is required.
 ## Installation
 
 ```bash
-pnpm add @soundtrack/graphql-rust-swc
+pnpm add @soundtrack/graphox-swc
 ```
 
 ## Requirements
@@ -34,7 +34,7 @@ pnpm add @soundtrack/graphql-rust-swc
 ```typescript
 // rsbuild.config.ts
 import { defineConfig } from '@rsbuild/core';
-import { createSWCPlugin } from '@soundtrack/graphql-rust-swc';
+import { createSWCPlugin } from '@soundtrack/graphox-swc';
 import path from 'path';
 
 export default defineConfig({
@@ -68,7 +68,7 @@ export default defineConfig({
 
 ```javascript
 // next.config.js
-import { createSWCPlugin } from '@soundtrack/graphql-rust-swc';
+import { createSWCPlugin } from '@soundtrack/graphox-swc';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -128,5 +128,5 @@ pnpm test
 ## See Also
 
 - [Babel Plugin](../babel/README.md)
-- [graphql-rust CLI](../../README.md)
+- [graphox CLI](../../README.md)
 - [Plugin Development Guide](../../docs/development.md)

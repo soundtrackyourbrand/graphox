@@ -1,4 +1,4 @@
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::features::diagnostics::DocumentDiagnostics;
 
 use crate::support::{assert_diagnostic_with_message, assert_diagnostics_count, create_doc};
 

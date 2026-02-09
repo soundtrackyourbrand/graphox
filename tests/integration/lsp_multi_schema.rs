@@ -13,7 +13,7 @@ async fn test_lsp_multi_schema_support() {
     write_project_file(&dir, "ext.graphql", "extend type User { email: String }");
 
     // 4. Update Config
-    config.projects[0].schema = graphql_rust::config::SchemaSource::Multiple(vec![
+    config.projects[0].schema = graphox::config::SchemaSource::Multiple(vec![
         "schema.graphql".to_string(),
         "ext.graphql".to_string(),
     ]);

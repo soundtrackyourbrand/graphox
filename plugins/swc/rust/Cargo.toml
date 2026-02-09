@@ -1,5 +1,5 @@
 [package]
-name = "graphql-rust-swc-plugin"
+name = "graphox-swc-plugin"
 version = "0.1.0"
 edition = "2024"
 

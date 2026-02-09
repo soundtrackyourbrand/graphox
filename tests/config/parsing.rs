@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 
-use graphql_rust::Config;
+use graphox::Config;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -8,7 +8,7 @@ use tempfile::TempDir;
 #[test]
 fn test_config_invalid_yaml() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
     fs::write(&config_path, "invalid: yaml: content: [").unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
@@ -18,7 +18,7 @@ fn test_config_invalid_yaml() {
 #[test]
 fn test_config_missing_schema() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
     let config_content = r#"
         projects:
           - name: test
@@ -42,7 +42,7 @@ fn test_config_empty_base_dir() {
 #[test]
 fn test_config_valid_empty_config() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
     let config_content = r#"
         projects:
           - name: test
@@ -61,7 +61,7 @@ fn test_config_valid_empty_config() {
 #[test]
 fn test_config_multiple_projects() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
 
     let schema1_path = temp_dir.path().join("schema1.graphql");
     fs::write(&schema1_path, "type Query { user: String }").unwrap();
@@ -92,7 +92,7 @@ fn test_config_multiple_projects() {
 #[test]
 fn test_config_default_values() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
     let schema_path = temp_dir.path().join("schema.graphql");
     fs::write(&schema_path, "type Query { user: String }").unwrap();
 
@@ -115,7 +115,7 @@ fn test_config_default_values() {
 #[test]
 fn test_config_schema_as_list() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
 
     let schema1_path = temp_dir.path().join("base.graphql");
     fs::write(&schema1_path, "type Query { a: String }").unwrap();
@@ -140,7 +140,7 @@ fn test_config_schema_as_list() {
 #[test]
 fn test_config_with_exclude_pattern() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
     let schema_path = temp_dir.path().join("schema.graphql");
     fs::write(&schema_path, "type Query { user: String }").unwrap();
 
@@ -165,7 +165,7 @@ fn test_config_relative_schema_path() {
     let subdir = temp_dir.path().join("subdir");
     fs::create_dir_all(&subdir).unwrap();
 
-    let config_path = temp_dir.path().join("graphql.yaml");
+    let config_path = temp_dir.path().join("graphox.yaml");
     let schema_path = subdir.join("schema.graphql");
     fs::write(&schema_path, "type Query { user: String }").unwrap();
 

@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use graphql_rust::{
+use graphox::{
     Config,
     config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource},
     engine::Engine,

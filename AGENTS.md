@@ -1,6 +1,6 @@
-# Agent Instructions for graphql-rust
+# Agent Instructions for Graphox
 
-You are an agentic coding assistant working on `graphql-rust`, a comprehensive Rust toolset for GraphQL development. It provides a Language Server (LSP), TypeScript type generation (codegen), and validation utilities.
+You are an agentic coding assistant working on `Graphox`, a comprehensive Rust toolset for GraphQL development. It provides a Language Server (LSP), TypeScript type generation (codegen), and validation utilities.
 
 All modifying git actions MUST be handled by the user. Never commit and never even suggest committing.
 
@@ -20,7 +20,7 @@ All modifying git actions MUST be handled by the user. Never commit and never ev
 
 ## Project Overview
 
-`graphql-rust` handles GraphQL in two main forms:
+`Graphox` handles GraphQL in two main forms:
 1.  **Standalone:** `.graphql` files containing schemas or operations.
 2.  **Embedded:** GraphQL operations inside TypeScript/TSX template literals (e.g., `gql` or `graphql` tags).
 
@@ -36,7 +36,7 @@ Comments should be used to explain why something is done, not what is being done
 - **Async Runtime:** `tokio` (multi-threaded).
 - **LSP Framework:** `tower-lsp`.
 - **Concurrency:** Uses `DashMap` for shared state and `Arc` for immutable data. Use `rayon` for parallel processing of files during codegen/scan.
-- **Performance Tracing:** Built-in tracing for LSP requests that exceed a threshold (configurable via `tracing` in `graphql.yaml`).
+- **Performance Tracing:** Built-in tracing for LSP requests that exceed a threshold (configurable via `tracing` in `graphox.yaml`).
 
 ### Formatting & Naming
 - Follow standard Rust naming conventions: `PascalCase` for types/traits, `snake_case` for functions, variables, and modules.
@@ -54,34 +54,34 @@ This project is organized as a Rust workspace to separate concerns and improve m
 
 ### Core Workspace Packages
 
-- **`graphql-core`** (`crates/graphql-core`): The foundation of the toolset.
+- **`graphox-core`** (`crates/graphox-core`): The foundation of the toolset.
     - `document.rs`: `DocumentState` manages a file's content (via `ropey`), its Tree-sitter tree, and embedded GraphQL blocks.
     - `engine.rs`: High-level operations like workspace scanning, fragment resolution, and validation orchestration.
     - `schema.rs` & `schema_cache.rs`: Schema loading and two-tier caching.
-    - `config.rs`: Configuration file (`graphql.yaml`) parsing.
+    - `config.rs`: Configuration file (`graphox.yaml`) parsing.
     - `queries.rs`: Tree-sitter query management.
-- **`graphql-features`** (`crates/graphql-features`): Implementation of GraphQL-specific intelligence.
+- **`graphox-features`** (`crates/graphox-features`): Implementation of GraphQL-specific intelligence.
     - LSP capabilities (Hover, Completion, etc.) are implemented as extension traits on `DocumentState`.
     - `diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
-- **`graphql-codegen`** (`crates/graphql-codegen`): Standalone crate for TypeScript type generation.
-- **`graphql-lsp`** (`crates/graphql-lsp`): The Language Server implementation. Lean crate without CLI/watch dependencies for faster incremental builds.
+- **`graphox-codegen`** (`crates/graphox-codegen`): Standalone crate for TypeScript type generation.
+- **`graphox-lsp`** (`crates/graphox-lsp`): The Language Server implementation. Lean crate without CLI/watch dependencies for faster incremental builds.
     - `backend/lsp.rs`: Main `Backend` struct and LSP protocol implementation using `tower-lsp`.
     - `backend/file_change_handler.rs`: Processes file system changes and updates state.
-- **`graphql-cli`** (`crates/graphql-cli`): CLI commands and watch mode. Contains `check`, `codegen`, and `benchmark` commands with file watching via `notify`.
+- **`graphox-cli`** (`crates/graphox-cli`): CLI commands and watch mode. Contains `check`, `codegen`, and `benchmark` commands with file watching via `notify`.
 
 ### CLI and Re-exports
 
 - `src/main.rs`: Root CLI entry point. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
 - `src/lib.rs`: Consolidates the public API by re-exporting modules from the workspace crates for backward compatibility.
-- `crates/graphql-cli/src/`: CLI command implementations (check, codegen with watch mode, benchmark).
-- `crates/graphql-lsp/src/backend/lsp.rs`: Exports `run_lsp()` function for starting the LSP server.
+- `crates/graphox-cli/src/`: CLI command implementations (check, codegen with watch mode, benchmark).
+- `crates/graphox-lsp/src/backend/lsp.rs`: Exports `run_lsp()` function for starting the LSP server.
 
 ## Key Patterns
 
 ### LSP Feature Extension Traits
-LSP features are decoupled from `DocumentState` using extension traits defined in `graphql-features`. To use a feature, you must import the corresponding trait:
+LSP features are decoupled from `DocumentState` using extension traits defined in `graphox-features`. To use a feature, you must import the corresponding trait:
 ```rust
-use graphql_features::hover::DocumentHover;
+use graphox_features::hover::DocumentHover;
 let hover = document.get_hover_info(params, schema, engine);
 ```
 
@@ -114,7 +114,7 @@ The schema cache (`src/schema_cache.rs`) provides two-tier caching for performan
 - **Disk cache (L2):** Holds merged schema text in OS-specific cache directory. Skips file I/O and merging but still requires parsing. Persistent across runs.
 - Cache keys are based on schema source paths and file modification times.
 - Use `load_schema_with_cache()` to leverage caching (95-99% faster for L1, 10-80% faster for L2).
-- Disable caching in `graphql.yaml` with `enable_schema_cache: false` if needed.
+- Disable caching in `graphox.yaml` with `enable_schema_cache: false` if needed.
 
 ### Codegen & Baselines
 The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/`.
@@ -154,12 +154,12 @@ This pattern prevents tests from breaking when new optional config fields are ad
 ## Adding New Features
 
 1.  **LSP Feature:**
-    - Implement logic in `crates/graphql-features/src/`.
-    - Add the method to `Backend` in `crates/graphql-lsp/src/backend/lsp.rs`.
+    - Implement logic in `crates/graphox-features/src/`.
+    - Add the method to `Backend` in `crates/graphox-lsp/src/backend/lsp.rs`.
     - Add integration tests in `tests/`.
 2.  **CLI Command:**
-    - Add to `Commands` enum in `src/main.rs` and implement in `crates/graphql-cli/src/commands/`.
-    - If the command needs watch mode, use `notify` and `notify-debouncer-mini` dependencies (available in graphql-cli, not graphql-lsp).
+    - Add to `Commands` enum in `src/main.rs` and implement in `crates/graphox-cli/src/commands/`.
+    - If the command needs watch mode, use `notify` and `notify-debouncer-mini` dependencies (available in graphox-cli, not graphox-lsp).
 3.  **Grammar/Query Changes:**
     - Update `src/queries.rs` if needed. Verify against multiple host languages (TS, TSX, GraphQL).
 

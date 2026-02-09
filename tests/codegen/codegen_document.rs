@@ -3,8 +3,8 @@ use std::process::Command;
 #[test]
 #[ntest::timeout(100)]
 fn test_codegen_document_node() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_document_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_document_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -28,7 +28,7 @@ fn test_codegen_document_node() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -82,8 +82,8 @@ projects:
 #[test]
 #[ntest::timeout(100)]
 fn test_codegen_aliases_and_enums() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_quirks_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_quirks_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -107,7 +107,7 @@ fn test_codegen_aliases_and_enums() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -157,8 +157,8 @@ projects:
 #[test]
 #[ntest::timeout(500)]
 fn test_codegen_document_node_no_vars() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_document_no_vars_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_document_no_vars_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -182,7 +182,7 @@ fn test_codegen_document_node_no_vars() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"

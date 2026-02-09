@@ -2,7 +2,7 @@ use crate::support::{
     create_lsp_service_with_socket, create_service, lsp_did_open, lsp_request_typed,
 };
 use futures_util::StreamExt;
-use graphql_rust::{
+use graphox::{
     Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };

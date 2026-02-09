@@ -6,7 +6,7 @@ use tempfile::tempdir;
 #[test]
 #[ntest::timeout(5000)]
 fn test_codegen_watch_mode() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
 
@@ -21,7 +21,7 @@ fn test_codegen_watch_mode() {
     let query_path = base_dir.join("query.graphql");
     fs::write(&query_path, "query GetMe { me { id } }").unwrap();
 
-    let config_path = base_dir.join("graphql.yaml");
+    let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
         "projects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"",
@@ -79,7 +79,7 @@ fn test_codegen_watch_mode() {
 #[test]
 #[ntest::timeout(500)]
 fn test_codegen_watch_schema_changes() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
 
@@ -94,7 +94,7 @@ fn test_codegen_watch_schema_changes() {
     let query_path = base_dir.join("query.graphql");
     fs::write(&query_path, "query GetMe { me { id } }").unwrap();
 
-    let config_path = base_dir.join("graphql.yaml");
+    let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
         "projects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"",

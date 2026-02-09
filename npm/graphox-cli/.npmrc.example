@@ -1,0 +1,16 @@
+# Example configuration for installing from GitHub Packages
+#
+# To use this package from GitHub Packages:
+# 1. Copy this file to your project root as .npmrc
+# 2. Replace TOKEN with your GitHub Personal Access Token (with read:packages scope)
+#
+# To create a token:
+# 1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+# 2. Generate new token with 'read:packages' scope
+# 3. Copy the token and add it below
+#
+# Then install with:
+#   pnpm add @soundtrack/graphox-cli
+
+@soundtrack:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=TOKEN

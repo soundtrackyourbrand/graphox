@@ -1,6 +1,6 @@
-use graphql_rust::Config;
-use graphql_rust::config::RulesConfig;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::Config;
+use graphox::config::RulesConfig;
+use graphox::features::diagnostics::DocumentDiagnostics;
 
 use crate::support::{
     assert_diagnostic_with_message, assert_diagnostics_count, create_doc, fixtures,

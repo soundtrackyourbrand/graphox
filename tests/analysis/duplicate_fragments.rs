@@ -4,7 +4,7 @@ use crate::support::assert_diagnostics_count;
 use crate::support::builders::FragmentInfoBuilder;
 use crate::support::create_doc;
 use apollo_compiler::Schema;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::*;
 
 #[test]
@@ -73,16 +73,16 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     .validate()
     .unwrap();
 
-    let config = graphql_rust::Config {
+    let config = graphox::Config {
         output_dir: None,
-        projects: vec![graphql_rust::config::ProjectConfig {
-            schema: graphql_rust::config::SchemaSource::Single("schema.graphql".to_string()),
-            include: graphql_rust::config::GlobPattern::Single("**/*.graphql".to_string()),
+        projects: vec![graphox::config::ProjectConfig {
+            schema: graphox::config::SchemaSource::Single("schema.graphql".to_string()),
+            include: graphox::config::GlobPattern::Single("**/*.graphql".to_string()),
             codegen: Some(false),
             ..Default::default()
         }],
         base_dir: base.clone(),
-        ..graphql_rust::Config::new_empty()
+        ..graphox::Config::new_empty()
     };
 
     let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")

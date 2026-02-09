@@ -13,7 +13,7 @@ function transform(code, options, filename = 'test.ts') {
   return result.code;
 }
 
-describe('@soundtrack/graphql-rust-babel', () => {
+describe('@soundtrack/graphox-babel', () => {
   const defaultManifest = [
     {
       source: 'query { me { id } }',

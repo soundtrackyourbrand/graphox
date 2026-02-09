@@ -105,7 +105,7 @@ jobs:
         if: matrix.archive == 'tar.gz'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../graphql-rust-${{ matrix.target }}.tar.gz graphql-rust
+          tar czf ../../../graphox-${{ matrix.target }}.tar.gz graphox
           cd ../../..
 
       - name: Create archive (Windows)
@@ -113,7 +113,7 @@ jobs:
         shell: pwsh
         run: |
           cd target/${{ matrix.target }}/release
-          Compress-Archive -Path graphql-rust.exe -DestinationPath ../../../graphql-rust-${{ matrix.target }}.zip
+          Compress-Archive -Path graphox.exe -DestinationPath ../../../graphox-${{ matrix.target }}.zip
           cd ../../..
 
       - name: Upload Release Asset (tar.gz)
@@ -123,8 +123,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./graphql-rust-${{ matrix.target }}.tar.gz
-          asset_name: graphql-rust-${{ matrix.target }}.tar.gz
+          asset_path: ./graphox-${{ matrix.target }}.tar.gz
+          asset_name: graphox-${{ matrix.target }}.tar.gz
           asset_content_type: application/gzip
 
       - name: Upload Release Asset (zip)
@@ -134,8 +134,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./graphql-rust-${{ matrix.target }}.zip
-          asset_name: graphql-rust-${{ matrix.target }}.zip
+          asset_path: ./graphox-${{ matrix.target }}.zip
+          asset_name: graphox-${{ matrix.target }}.zip
           asset_content_type: application/zip
 
   build-swc-wasm:
@@ -196,8 +196,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./plugins/swc/node/wasm/graphql_rust_swc_plugin.wasm
-          asset_name: graphql_rust_swc_plugin.wasm
+          asset_path: ./plugins/swc/node/wasm/graphox_swc_plugin.wasm
+          asset_name: graphox_swc_plugin.wasm
           asset_content_type: application/wasm
 
   build-vscode-extension:
@@ -266,24 +266,24 @@ jobs:
         with:
           node-version: '18'
           cache: 'pnpm'
-          cache-dependency-path: npm/graphql-rust-cli/pnpm-lock.yaml
+          cache-dependency-path: npm/graphox-cli/pnpm-lock.yaml
           registry-url: 'https://npm.pkg.github.com'
           scope: '@soundtrack'
 
       - name: Configure package for GitHub Packages
-        working-directory: npm/graphql-rust-cli
+        working-directory: npm/graphox-cli
         run: |
           # Update package name to include scope for GitHub Packages
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@soundtrack/graphql-rust-cli';
+          pkg.name = '@soundtrack/graphox-cli';
           pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
       - name: Publish CLI to GitHub Packages
-        working-directory: npm/graphql-rust-cli
+        working-directory: npm/graphox-cli
         run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -333,7 +333,7 @@ jobs:
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@soundtrack/graphql-rust-swc';
+          pkg.name = '@soundtrack/graphox-swc';
           pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "

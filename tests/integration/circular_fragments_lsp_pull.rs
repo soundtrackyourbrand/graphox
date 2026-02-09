@@ -1,7 +1,7 @@
 use crate::support::{self, lsp_did_open, lsp_request_typed};
 use futures_util::StreamExt;
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-use graphql_rust::Config;
+use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;

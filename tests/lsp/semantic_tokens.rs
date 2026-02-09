@@ -3,7 +3,7 @@ use tower_lsp::lsp_types::{Position, Range, SemanticTokenType};
 
 use crate::support::create_doc;
 use crate::support::fixtures::{user_schema, user_with_deprecated_field_schema};
-use graphql_rust::features::semantic_tokens::DocumentSemanticTokens;
+use graphox::features::semantic_tokens::DocumentSemanticTokens;
 
 #[test]
 fn test_semantic_tokens_basic() {

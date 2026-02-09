@@ -1,0 +1,43 @@
+{
+  "name": "@soundtrack/graphox-cli",
+  "version": "0.1.0",
+  "description": "Graphox CLI - High-performance GraphQL toolset",
+  "bin": {
+    "graphox": "./bin/graphox"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "prepack": "node scripts/prepare-package.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soundtrack/graphox.git"
+  },
+  "keywords": [
+    "graphql",
+    "lsp",
+    "language-server",
+    "codegen",
+    "typescript",
+    "rust"
+  ],
+  "author": "soundtrack",
+  "license": "MIT",
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

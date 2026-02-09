@@ -3,9 +3,9 @@ use crate::support::{
     lsp_request_code_actions, make_temp_project_with_schema, range_for_token_at_index,
     write_project_file,
 };
-use graphql_rust::Config;
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::Config;
+use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::features::diagnostics::DocumentDiagnostics;
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
@@ -320,7 +320,7 @@ async fn test_alias_allowed_and_duplicate_code_action_removes_later() {
         };
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(&graphql_rust::DocumentLanguage::GraphQL.get_parser_language())
+            .set_language(&graphox::DocumentLanguage::GraphQL.get_parser_language())
             .unwrap();
         doc.apply_change(&t, &mut parser, 2);
 

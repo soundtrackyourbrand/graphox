@@ -3,7 +3,7 @@ use crate::support::{
     lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
 };
 use apollo_compiler::Schema;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::*;
 
 #[test]

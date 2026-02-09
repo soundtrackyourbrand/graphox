@@ -1,6 +1,6 @@
 use crate::support::{self, create_initialized_lsp_service, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphql_rust::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
+use graphox::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::{Duration, sleep};

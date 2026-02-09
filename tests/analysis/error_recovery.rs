@@ -2,7 +2,7 @@
 
 use crate::support::create_doc;
 use crate::support::fixtures::{union_interface_schema, user_schema};
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
+use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::*;
 
 #[test]

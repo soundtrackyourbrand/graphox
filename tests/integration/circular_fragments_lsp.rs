@@ -1,6 +1,6 @@
 use crate::support::{self, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphql_rust::Config;
+use graphox::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
@@ -18,9 +18,9 @@ async fn test_lsp_circular_fragment_diagnostic() {
     let base_dir = scenario.write_files().unwrap();
 
     let config = Config {
-        projects: vec![graphql_rust::config::ProjectConfig {
-            schema: graphql_rust::config::SchemaSource::Single("schema.graphql".to_string()),
-            include: graphql_rust::config::GlobPattern::Single("frags.graphql".to_string()),
+        projects: vec![graphox::config::ProjectConfig {
+            schema: graphox::config::SchemaSource::Single("schema.graphql".to_string()),
+            include: graphox::config::GlobPattern::Single("frags.graphql".to_string()),
             exclude: None,
             output_dir: None,
             import: None,

@@ -1,5 +1,5 @@
 [package]
-name = "graphql-rust"
+name = "graphox"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,11 +7,11 @@ edition = "2024"
 members = [
     ".",
     "plugins/swc/rust",
-    "crates/graphql-core",
-    "crates/graphql-features",
-    "crates/graphql-codegen",
-    "crates/graphql-lsp",
-    "crates/graphql-cli",
+    "crates/graphox-core",
+    "crates/graphox-features",
+    "crates/graphox-codegen",
+    "crates/graphox-lsp",
+    "crates/graphox-cli",
 ]
 
 [workspace.dependencies]
@@ -54,11 +54,11 @@ doctest = false
 bench = ["dep:criterion"]
 
 [dependencies]
-graphql-core = { path = "crates/graphql-core" }
-graphql-features = { path = "crates/graphql-features" }
-graphql-codegen = { path = "crates/graphql-codegen" }
-graphql-lsp = { path = "crates/graphql-lsp" }
-graphql-cli = { path = "crates/graphql-cli" }
+graphox-core = { path = "crates/graphox-core" }
+graphox-features = { path = "crates/graphox-features" }
+graphox-codegen = { path = "crates/graphox-codegen" }
+graphox-lsp = { path = "crates/graphox-lsp" }
+graphox-cli = { path = "crates/graphox-cli" }
 apollo-compiler = { workspace = true }
 clap = { workspace = true }
 dashmap = { workspace = true }

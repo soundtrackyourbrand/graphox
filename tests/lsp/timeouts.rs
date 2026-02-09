@@ -2,7 +2,7 @@ use crate::support::{
     create_initialized_lsp_service, create_service, lsp_did_open, lsp_request_typed,
     lsp_send_notification, make_temp_project_with_schema, pos, write_project_file,
 };
-use graphql_rust::config::TimeoutConfig;
+use graphox::config::TimeoutConfig;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-# graphql-rust
+# Graphox
 
 A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type generation, and validation.
 
@@ -45,12 +45,12 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 
 1. **Install the CLI**
    ```bash
-   pnpm add @soundtrack/graphql-rust-cli
+   pnpm add @soundtrack/graphox-cli
    ```
 
 2. **Create configuration**
    ```yaml
-   # graphql.yaml
+   # graphox.yaml
    output_dir: "__generated__"
    projects:
      - schema: "schema.graphql"
@@ -61,9 +61,9 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 
 4. **Run commands**
    ```bash
-   pnpm graphql-rust check     # Validate GraphQL files
-   pnpm graphql-rust codegen   # Generate TypeScript types
-   pnpm graphql-rust lsp       # Start LSP (for editors)
+   pnpm graphox check     # Validate GraphQL files
+   pnpm graphox codegen   # Generate TypeScript types
+   pnpm graphox lsp       # Start LSP (for editors)
    ```
 
 ---
@@ -75,37 +75,37 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 Install via pnpm to automatically download the correct binary for your platform:
 
 ```bash
-pnpm add @soundtrack/graphql-rust-cli
-npm install @soundtrack/graphql-rust-cli
-yarn add @soundtrack/graphql-rust-cli
+pnpm add @soundtrack/graphox-cli
+npm install @soundtrack/graphox-cli
+yarn add @soundtrack/graphox-cli
 ```
 
 Then use with pnpm:
 
 ```bash
-pnpm graphql-rust lsp
-pnpm graphql-rust check
-pnpm graphql-rust codegen
+pnpm graphox lsp
+pnpm graphox check
+pnpm graphox codegen
 ```
 
 Or install globally:
 
 ```bash
-pnpm add -g @soundtrack/graphql-rust-cli
-graphql-rust lsp
-graphql-rust check
-graphql-rust codegen
+pnpm add -g @soundtrack/graphox-cli
+graphox lsp
+graphox check
+graphox codegen
 ```
 
 **GitHub Packages:**
 
 ```bash
-pnpm add @soundtrack/graphql-rust-cli --registry=https://npm.pkg.github.com
+pnpm add @soundtrack/graphox-cli --registry=https://npm.pkg.github.com
 ```
 
 ### Manual Binary Installation
 
-Download pre-built binaries from the [releases page](https://github.com/soundtrack/graphql-rust/releases) for:
+Download pre-built binaries from the [releases page](https://github.com/soundtrack/graphox/releases) for:
 - macOS (x86_64, ARM64)
 - Linux (x86_64, ARM64)
 - Windows (x86_64, ARM64)
@@ -127,7 +127,7 @@ Optimize bundle size by ensuring GraphQL AST files are properly codesplit.
 
 ## Editor Setup
 
-Set up `graphql-rust` as a language server in your editor:
+Set up `Graphox` as a language server in your editor:
 
 | Editor | Setup Guide |
 |--------|-------------|
@@ -137,18 +137,18 @@ Set up `graphql-rust` as a language server in your editor:
 
 ### Quick Editor Configuration
 
-**VSCode:** Install the [GraphQL Rust extension](https://marketplace.visualstudio.com/items?itemName=graphql-rust.graphql-rust) or use the npm package.
+**VSCode:** Install the [Graphox extension](https://marketplace.visualstudio.com/items?itemName=graphox.graphox) or use the npm package.
 
 **Neovim:** Configure LSP with `nvim-lspconfig`:
 
 ```lua
-require('lspconfig').graphql_rust.setup({
-  cmd = { 'pnpm', 'exec', 'graphql-rust', 'lsp' },
+require('lspconfig').graphox.setup({
+  cmd = { 'pnpm', 'exec', 'graphox', 'lsp' },
   filetypes = { 'graphql', 'typescript', 'typescriptreact' },
 })
 ```
 
-**IntelliJ/JetBrains:** Install LSP4IJ plugin and configure to run `pnpm exec graphql-rust lsp`.
+**IntelliJ/JetBrains:** Install LSP4IJ plugin and configure to run `pnpm exec graphox lsp`.
 
 ---
 
@@ -156,18 +156,18 @@ require('lspconfig').graphql_rust.setup({
 
 ```bash
 # Start the Language Server
-graphql-rust lsp
+graphox lsp
 
 # Validate GraphQL files
-graphql-rust check
+graphox check
 
 # Generate TypeScript types
-graphql-rust codegen
-graphql-rust codegen --clean  # Remove generated files and caches
-graphql-rust codegen --watch   # Watches and runs codegen of file changes
+graphox codegen
+graphox codegen --clean  # Remove generated files and caches
+graphox codegen --watch   # Watches and runs codegen of file changes
 
 # Run performance benchmarks
-graphql-rust benchmark
+graphox benchmark
 ```
 
 ### Command Options
@@ -180,7 +180,7 @@ graphql-rust benchmark
 
 ## Configuration
 
-Create a `graphql.yaml` file in your project root.
+Create a `graphox.yaml` file in your project root.
 
 ### Basic Example
 
@@ -203,7 +203,7 @@ See [Common Configurations](docs/configurations.md) for detailed examples includ
 
 ### Configuration Notes
 
-- Configuration is discovered by searching current directory and parent directories for `graphql.yaml` or `graphql.yml`
+- Configuration is discovered by searching current directory and parent directories for `graphox.yaml` or `graphox.yml`
 - All file paths in the config are resolved relative to the config file location
 - Schema files can be specified as single strings or arrays for multi-file schemas
 - Include/exclude patterns support standard glob syntax (`**/*.ts`, `src/**/*.{ts,tsx}`)
@@ -347,4 +347,4 @@ MIT
 
 ## Repository
 
-https://github.com/soundtrack/graphql-rust
+https://github.com/soundtrack/graphox

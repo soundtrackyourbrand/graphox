@@ -1,4 +1,4 @@
-use graphql_rust::{
+use graphox::{
     Backend, Config,
     config::{GlobPattern, ProjectConfig, SchemaSource},
 };

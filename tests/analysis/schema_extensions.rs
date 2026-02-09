@@ -1,4 +1,4 @@
-use graphql_rust::Config;
+use graphox::Config;
 use std::fs;
 use tempfile::tempdir;
 
@@ -6,7 +6,7 @@ use tempfile::tempdir;
 #[ntest::timeout(100)]
 fn test_config_multiple_schemas() {
     let dir = tempdir().unwrap();
-    let config_path = dir.path().join("graphql.yaml");
+    let config_path = dir.path().join("graphox.yaml");
     fs::write(
         config_path,
         r#"
@@ -42,7 +42,7 @@ async fn test_multiple_schemas_loading() {
     )
     .unwrap();
 
-    let config_path = dir.path().join("graphql.yaml");
+    let config_path = dir.path().join("graphox.yaml");
     fs::write(
         config_path,
         r#"

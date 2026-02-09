@@ -1,4 +1,4 @@
-# graphql-rust-swc-plugin (Rust Crate)
+# graphox-swc-plugin (Rust Crate)
 
 ## Overview
 
@@ -7,10 +7,10 @@ This is the Rust source for the SWC plugin. It compiles to WASM for use with Nod
 **For TypeScript/JavaScript users, use the Node.js package:**
 
 ```bash
-pnpm add @soundtrack/graphql-rust-swc
+pnpm add @soundtrack/graphox-swc
 ```
 
-See [@soundtrack/graphql-rust-swc](../node/README.md) for usage instructions.
+See [@soundtrack/graphox-swc](../node/README.md) for usage instructions.
 
 ## For Contributors
 
@@ -29,8 +29,8 @@ cargo build
 cargo build --target wasm32-wasip1 --release
 
 # Output location:
-# target/wasm32-wasip1/debug/graphql_rust_swc_plugin.wasm
-# target/wasm32-wasip1/release/graphql_rust_swc_plugin.wasm
+# target/wasm32-wasip1/debug/graphox_swc_plugin.wasm
+# target/wasm32-wasip1/release/graphox_swc_plugin.wasm
 ```
 
 ### Testing
@@ -45,10 +45,10 @@ cargo test --include-ignored
 
 ### Version
 
-This crate version must match the Node.js package version (`@soundtrack/graphql-rust-swc`).
+This crate version must match the Node.js package version (`@soundtrack/graphox-swc`).
 
 ## See Also
 
-- [@soundtrack/graphql-rust-swc (npm)](../node/README.md)
+- [@soundtrack/graphox-swc (npm)](../node/README.md)
 - [Babel Plugin](../babel/README.md)
-- [graphql-rust CLI](../../README.md)
+- [graphox CLI](../../README.md)

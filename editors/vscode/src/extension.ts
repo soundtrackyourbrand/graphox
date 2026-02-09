@@ -26,14 +26,14 @@ function findNpmPackagePath(): string | undefined {
     
     // Check node_modules/.bin in workspace
     const nodeModulesBin = path.join(workspacePath, 'node_modules', '.bin');
-    const graphqlRustBinary = path.join(nodeModulesBin, process.platform === 'win32' ? 'graphql-rust.exe' : 'graphql-rust');
+    const graphoxBinary = path.join(nodeModulesBin, process.platform === 'win32' ? 'graphox.exe' : 'graphox');
     
-    if (existsSync(graphqlRustBinary)) {
-      return graphqlRustBinary;
+    if (existsSync(graphoxBinary)) {
+      return graphoxBinary;
     }
     
-    // For monorepos, also check if there's a graphql-rust-cli in node_modules
-    const cliPath = path.join(nodeModulesBin, 'graphql-rust');
+    // For monorepos, also check if there's a graphox-cli in node_modules
+    const cliPath = path.join(nodeModulesBin, 'graphox');
     if (existsSync(cliPath)) {
       return cliPath;
     }
@@ -44,8 +44,8 @@ function findNpmPackagePath(): string | undefined {
 
 function findLocalBuildPath(): string | undefined {
   const targetDir = path.join(__dirname, '..', '..');
-  const debugPath = path.join(targetDir, 'target', 'debug', 'graphql-rust');
-  const releasePath = path.join(targetDir, 'target', 'release', 'graphql-rust');
+  const debugPath = path.join(targetDir, 'target', 'debug', 'graphox');
+  const releasePath = path.join(targetDir, 'target', 'release', 'graphox');
   
   if (process.platform === 'win32') {
     const debugPathExe = debugPath + '.exe';
@@ -70,14 +70,14 @@ function findLocalBuildPath(): string | undefined {
 }
 
 function findServerPath(context: ExtensionContext): string {
-  const config = workspace.getConfiguration('graphql-rust');
+  const config = workspace.getConfiguration('graphox');
   const configuredPath = config.get<string>('serverPath', '').trim();
 
   if (configuredPath) {
     return configuredPath;
   }
 
-  // Priority 1: npm package in workspace (node_modules/.bin/graphql-rust)
+  // Priority 1: npm package in workspace (node_modules/.bin/graphox)
   const npmPath = findNpmPackagePath();
   if (npmPath) {
     return npmPath;
@@ -90,18 +90,18 @@ function findServerPath(context: ExtensionContext): string {
   }
 
   // Priority 3: System PATH
-  return 'graphql-rust';
+  return 'graphox';
 }
 
 async function showBinaryNotFoundMessage(serverPath: string, usedNpm: boolean): Promise<void> {
-  const docsUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphql-rust#installation');
-  const configUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphql-rust/blob/main/editors/vscode/README.md');
+  const docsUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphox#installation');
+  const configUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphox/blob/main/editors/vscode/README.md');
 
   let message: string;
   if (usedNpm) {
-    message = `graphql-rust binary from npm package was found but failed to start. Check the Output panel for details.`;
+    message = `graphox binary from npm package was found but failed to start. Check the Output panel for details.`;
   } else {
-    message = `graphql-rust binary not found. Install via 'pnpm add @soundtrack/graphql-rust-cli' or build from source.`;
+    message = `graphox binary not found. Install via 'pnpm add @soundtrack/graphox-cli' or build from source.`;
   }
 
   const action = await window.showErrorMessage(
@@ -121,7 +121,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const serverPath = findServerPath(context);
   const usedNpm = serverPath.includes('node_modules');
 
-  const logLevel = workspace.getConfiguration('graphql-rust').get<string>('logLevel', 'info');
+  const logLevel = workspace.getConfiguration('graphox').get<string>('logLevel', 'info');
 
   const run: Executable = {
     command: serverPath,
@@ -153,8 +153,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
   };
 
   client = new LanguageClient(
-    'graphqlRust',
-    'GraphQL Rust Language Server',
+    'graphox',
+    'Graphox Language Server',
     serverOptions,
     clientOptions
   );
@@ -163,9 +163,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     await client.start();
 
     const sourceMessage = usedNpm 
-      ? 'Using graphql-rust from npm package in workspace'
-      : serverPath === 'graphql-rust'
-        ? 'Using graphql-rust from system PATH'
+      ? 'Using graphox from npm package in workspace'
+      : serverPath === 'graphox'
+        ? 'Using graphox from system PATH'
         : `Using local build: ${serverPath}`;
     
     window.setStatusBarMessage(`$(check) ${sourceMessage}`, 5000);
@@ -203,8 +203,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
         await client?.stop();
         client?.dispose();
         client = new LanguageClient(
-          'graphqlRust',
-          'GraphQL Rust Language Server',
+          'graphox',
+          'Graphox Language Server',
           serverOptions,
           clientOptions
         );
@@ -212,9 +212,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
         const newPath = findServerPath(context);
         const newUsedNpm = newPath.includes('node_modules');
         const newSourceMessage = newUsedNpm
-          ? 'Using graphql-rust from npm package in workspace'
-          : newPath === 'graphql-rust'
-            ? 'Using graphql-rust from system PATH'
+          ? 'Using graphox from npm package in workspace'
+          : newPath === 'graphox'
+            ? 'Using graphox from system PATH'
             : `Using local build: ${newPath}`;
         window.showInformationMessage(`GraphQL Rust server restarted. ${newSourceMessage}`);
       })

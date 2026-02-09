@@ -4,8 +4,8 @@ use std::process::Command;
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_check_no_deprecations() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_check_no_deprecations");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_check_no_deprecations");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -21,7 +21,7 @@ fn test_cli_check_no_deprecations() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -46,8 +46,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_check_with_deprecations() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_check_with_deprecations");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_check_with_deprecations");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -67,7 +67,7 @@ fn test_cli_check_with_deprecations() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -94,8 +94,8 @@ projects:
 #[test]
 #[ntest::timeout(100)]
 fn test_cli_check_cross_project_fragment_usage() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_cross_project_frag");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_cross_project_frag");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -124,7 +124,7 @@ fn test_cli_check_cross_project_fragment_usage() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -156,8 +156,8 @@ projects:
 #[test]
 #[ntest::timeout(100)]
 fn test_cli_check_recursive_fragment_usage() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_recursive_frag");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_recursive_frag");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -189,7 +189,7 @@ fn test_cli_check_recursive_fragment_usage() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -218,8 +218,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_ignore_files() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_ignore_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_ignore_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -240,7 +240,7 @@ fn test_cli_ignore_files() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -270,8 +270,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_codegen_error() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_error_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_error_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -291,7 +291,7 @@ fn test_cli_codegen_error() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -318,8 +318,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_codegen_invalid_schema() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_invalid_schema_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_invalid_schema_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -331,7 +331,7 @@ fn test_cli_codegen_invalid_schema() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -358,8 +358,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_codegen_clean() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_clean_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_clean_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -379,7 +379,7 @@ fn test_cli_codegen_clean() {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -446,8 +446,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_check_verbose_ignored_deprecations() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_check_verbose_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_check_verbose_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -467,7 +467,7 @@ type Query {
     .unwrap();
 
     // Create config that ignores it
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -525,8 +525,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_fragment_ast_generation() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_fragment_ast_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_fragment_ast_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -553,7 +553,7 @@ fn test_cli_fragment_ast_generation() {
     std::fs::write(&query_file, "query GetMe { me { ...UserFields } }").unwrap();
 
     // Create config
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -602,8 +602,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_graphql_entrypoint() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_entrypoint_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -623,7 +623,7 @@ fn test_cli_graphql_entrypoint() {
     std::fs::write(&query_file, query_text).unwrap();
 
     // Create YAML config
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -675,8 +675,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_config_file() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_config_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_config_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -695,7 +695,7 @@ fn test_cli_config_file() {
     std::fs::write(&query_file, "query { user { id } }").unwrap();
 
     // Create YAML config
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -726,8 +726,8 @@ projects:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_config_output_dir() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_config_output_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_config_output_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -746,7 +746,7 @@ fn test_cli_config_output_dir() {
     std::fs::write(&query_file, "query GetUser { user { id } }").unwrap();
 
     // Create YAML config
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -785,8 +785,8 @@ projects:
 #[test]
 #[ntest::timeout(150)]
 fn test_cli_check_input_deprecations() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_input_deprecations_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_input_deprecations_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -827,7 +827,7 @@ query Test($old: OldInput) {
 
     // Create config
     std::fs::write(
-        temp_dir.join("graphql.yaml"),
+        temp_dir.join("graphox.yaml"),
         r#"
 projects:
   - schema: "schema.graphql"
@@ -855,8 +855,8 @@ projects:
 #[test]
 #[ntest::timeout(100)]
 fn test_cli_schema_types() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_schema_types_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_schema_types_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -867,7 +867,7 @@ fn test_cli_schema_types() {
     let gen_output_path = temp_dir.join("schema_types.ts");
 
     // Create YAML config
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         format!(
@@ -921,8 +921,8 @@ schema_types:
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_custom_scalars() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_scalars_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_scalars_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -955,7 +955,7 @@ query GetNow {
     .unwrap();
 
     // Create YAML config with scalar mapping
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -1118,11 +1118,11 @@ fn test_cli_suffixes_baselines() {
 }
 
 fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path: Option<&str>) {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
     let fixture_dir = Path::new(fixture_dir_str);
     let baseline_dir = Path::new(baseline_dir_str);
     let temp_dir = std::env::temp_dir().join(format!(
-        "graphql_rust_baselines_{}",
+        "graphox_baselines_{}",
         fixture_dir_str.replace("/", "_")
     ));
     if temp_dir.exists() {
@@ -1252,8 +1252,8 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
 
 #[test]
 fn test_cli_type_only_ast_generation() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_type_only_ast_test");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_type_only_ast_test");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1280,7 +1280,7 @@ fn test_cli_type_only_ast_generation() {
     std::fs::write(&query_file, "query GetMe { me { ...TypeOnlyFields } }").unwrap();
 
     // Create config
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -1323,8 +1323,8 @@ projects:
 #[test]
 #[ntest::timeout(200)]
 fn test_cli_codegen_disabled() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_codegen_disabled");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_disabled");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1356,7 +1356,7 @@ type User {
     std::fs::write(&disabled_query, "query GetUsers { users { id name } }").unwrap();
 
     // Create config with one project enabled and one disabled
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"
@@ -1421,8 +1421,8 @@ projects:
 #[test]
 #[ntest::timeout(200)]
 fn test_cli_check_with_codegen_disabled() {
-    let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
-    let temp_dir = std::env::temp_dir().join("graphql_rust_check_disabled");
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_check_disabled");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1450,7 +1450,7 @@ type User {
     std::fs::write(&query, "query GetMe { me { id name invalidField } }").unwrap();
 
     // Create config with codegen disabled
-    let config_file = temp_dir.join("graphql.yaml");
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
         &config_file,
         r#"

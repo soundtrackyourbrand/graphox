@@ -2,7 +2,7 @@ use crate::support::{
     create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
     lsp_request_code_actions, make_temp_project_with_schema, write_project_file,
 };
-use graphql_rust::{config::RequiredFieldRule, config::RulesConfig};
+use graphox::{config::RequiredFieldRule, config::RulesConfig};
 use tower_lsp::lsp_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -1054,133 +1054,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphql-cli"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "apollo-compiler",
- "clap",
- "colored",
- "env_logger",
- "glob",
- "globset",
- "graphql-codegen",
- "graphql-core",
- "graphql-features",
- "notify",
- "notify-debouncer-mini",
- "once_cell",
- "pathdiff",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "sonic-rs",
- "tokio",
- "tower-lsp",
-]
-
-[[package]]
-name = "graphql-codegen"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "apollo-compiler",
- "colored",
- "dashmap 6.1.0",
- "graphql-core",
- "log",
- "pathdiff",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "graphql-core"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "apollo-compiler",
- "colored",
- "dashmap 6.1.0",
- "dirs",
- "glob",
- "globset",
- "ignore",
- "log",
- "lsp-types",
- "ntest",
- "once_cell",
- "pathdiff",
- "rayon",
- "regex",
- "ropey",
- "serde",
- "serde_json",
- "tempfile",
- "tree-sitter",
- "tree-sitter-graphql",
- "tree-sitter-typescript",
- "url",
- "yaml-rust2",
-]
-
-[[package]]
-name = "graphql-features"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "apollo-compiler",
- "colored",
- "dashmap 6.1.0",
- "graphql-core",
- "log",
- "lsp-types",
- "once_cell",
- "regex",
- "serde_json",
- "strsim",
- "tree-sitter",
- "tree-sitter-graphql",
- "tree-sitter-typescript",
- "url",
-]
-
-[[package]]
-name = "graphql-lsp"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "apollo-compiler",
- "colored",
- "dashmap 6.1.0",
- "env_logger",
- "glob",
- "globset",
- "graphql-codegen",
- "graphql-core",
- "graphql-features",
- "ignore",
- "log",
- "notify",
- "notify-debouncer-mini",
- "once_cell",
- "pathdiff",
- "rayon",
- "regex",
- "ropey",
- "serde",
- "serde_json",
- "tokio",
- "tower-lsp",
- "tree-sitter",
- "tree-sitter-graphql",
- "tree-sitter-typescript",
- "url",
-]
-
-[[package]]
-name = "graphql-rust"
+name = "graphox"
 version = "0.1.0"
 dependencies = [
  "ahash",
@@ -1193,11 +1067,11 @@ dependencies = [
  "futures-util",
  "glob",
  "globset",
- "graphql-cli",
- "graphql-codegen",
- "graphql-core",
- "graphql-features",
- "graphql-lsp",
+ "graphox-cli",
+ "graphox-codegen",
+ "graphox-core",
+ "graphox-features",
+ "graphox-lsp",
  "ignore",
  "libc",
  "log",
@@ -1223,7 +1097,133 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphql-rust-swc-plugin"
+name = "graphox-cli"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "clap",
+ "colored",
+ "env_logger",
+ "glob",
+ "globset",
+ "graphox-codegen",
+ "graphox-core",
+ "graphox-features",
+ "notify",
+ "notify-debouncer-mini",
+ "once_cell",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "sonic-rs",
+ "tokio",
+ "tower-lsp",
+]
+
+[[package]]
+name = "graphox-codegen"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "graphox-core",
+ "log",
+ "pathdiff",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "graphox-core"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "dirs",
+ "glob",
+ "globset",
+ "ignore",
+ "log",
+ "lsp-types",
+ "ntest",
+ "once_cell",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "ropey",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tree-sitter",
+ "tree-sitter-graphql",
+ "tree-sitter-typescript",
+ "url",
+ "yaml-rust2",
+]
+
+[[package]]
+name = "graphox-features"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "graphox-core",
+ "log",
+ "lsp-types",
+ "once_cell",
+ "regex",
+ "serde_json",
+ "strsim",
+ "tree-sitter",
+ "tree-sitter-graphql",
+ "tree-sitter-typescript",
+ "url",
+]
+
+[[package]]
+name = "graphox-lsp"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "apollo-compiler",
+ "colored",
+ "dashmap 6.1.0",
+ "env_logger",
+ "glob",
+ "globset",
+ "graphox-codegen",
+ "graphox-core",
+ "graphox-features",
+ "ignore",
+ "log",
+ "notify",
+ "notify-debouncer-mini",
+ "once_cell",
+ "pathdiff",
+ "rayon",
+ "regex",
+ "ropey",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-lsp",
+ "tree-sitter",
+ "tree-sitter-graphql",
+ "tree-sitter-typescript",
+ "url",
+]
+
+[[package]]
+name = "graphox-swc-plugin"
 version = "0.1.0"
 dependencies = [
  "pathdiff",

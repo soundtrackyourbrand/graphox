@@ -1,6 +1,6 @@
 # Plugin Development Guide
 
-This guide covers how to develop, test, and contribute to the GraphQL Rust build tool plugins (Babel and SWC).
+This guide covers how to develop, test, and contribute to the Graphox build tool plugins (Babel and SWC).
 
 ## Quick Links
 
@@ -12,7 +12,7 @@ This guide covers how to develop, test, and contribute to the GraphQL Rust build
 ## Project Structure
 
 ```
-graphql-rust/
+graphox/
 ├── plugins/
 │   ├── babel/               # Babel transformation plugin
 │   │   ├── index.js         # Main plugin code
@@ -21,7 +21,7 @@ graphql-rust/
 │   │   └── README.md        # User documentation
 │   │
 │   └── swc/                 # SWC transformation plugin
-│       ├── node/            # Node.js package (@soundtrack/graphql-rust-swc)
+│       ├── node/            # Node.js package (@soundtrack/graphox-swc)
 │       │   ├── package.json
 │       │   ├── src/
 │       │   ├── test/
@@ -36,7 +36,7 @@ graphql-rust/
 ├── tests/
 │   ├── fixtures/
 │   │   └── swc_cli/        # SWC integration test fixtures
-│   │       ├── graphql.yaml
+│   │       ├── graphox.yaml
 │   │       ├── schema.graphql
 │   │       └── src/
 │   │           └── app.ts
@@ -215,14 +215,14 @@ npm publish --registry https://npm.pkg.github.com
 cd plugins/swc
 
 # Debug build (faster)
-cargo build -p graphql-rust-swc-plugin
+cargo build -p graphox-swc-plugin
 
 # Release build (for production/WASM)
-cargo build -p graphql-rust-swc-plugin --target wasm32-wasip1 --release
+cargo build -p graphox-swc-plugin --target wasm32-wasip1 --release
 
 # Output location:
-# target/wasm32-wasip1/debug/graphql_rust_swc_plugin.wasm
-# target/wasm32-wasip1/release/graphql_rust_swc_plugin.wasm
+# target/wasm32-wasip1/debug/graphox_swc_plugin.wasm
+# target/wasm32-wasip1/release/graphox_swc_plugin.wasm
 ```
 
 ### Running Tests
@@ -308,8 +308,8 @@ npm publish --registry https://npm.pkg.github.com
 ```
 
 **Distribution:**
-- **NPM Package**: `@soundtrack/graphql-rust-swc` (published to GitHub Packages)
-- **Release Asset**: Standalone WASM file (`graphql_rust_swc_plugin.wasm`)
+- **NPM Package**: `@soundtrack/graphox-swc` (published to GitHub Packages)
+- **Release Asset**: Standalone WASM file (`graphox_swc_plugin.wasm`)
 - **Version**: Always synced with main project via `release.sh`
 
 ## Continuous Integration
@@ -333,8 +333,8 @@ Three workflows handle the project:
 - Builds binaries for all platforms (6 targets)
 - Builds SWC WASM plugin
 - Publishes to GitHub Packages:
-  - `@soundtrack/graphql-rust-cli`
-  - `@soundtrack/graphql-rust-swc`
+  - `@soundtrack/graphox-cli`
+  - `@soundtrack/graphox-swc`
 - Uploads assets to release:
   - Platform binaries
   - WASM file
@@ -389,7 +389,7 @@ Three workflows handle the project:
 console.log('Processing:', state.file.opts.filename);
 
 // Or use Babel's built-in debugging
-const debug = require('debug')('graphql-rust:babel');
+const debug = require('debug')('graphox:babel');
 debug('Transforming %s', state.file.opts.filename);
 ```
 

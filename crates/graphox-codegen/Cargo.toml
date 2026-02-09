@@ -1,0 +1,15 @@
+[package]
+name = "graphox-codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+graphox-core = { path = "../graphox-core" }
+apollo-compiler = { workspace = true }
+ahash = { workspace = true }
+dashmap = { workspace = true }
+colored = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+pathdiff = { workspace = true }

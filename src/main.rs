@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
-use graphql_cli::{run_benchmark, run_check, run_codegen};
-use graphql_core::Config;
-use graphql_lsp::run_lsp;
+use graphox_cli::{run_benchmark, run_check, run_codegen};
+use graphox_core::Config;
+use graphox_lsp::run_lsp;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

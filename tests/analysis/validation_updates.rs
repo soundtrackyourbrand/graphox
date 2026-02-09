@@ -1,7 +1,7 @@
 use apollo_compiler::Schema;
-use graphql_rust::features::completion::FragmentCompletionInfo;
-use graphql_rust::features::diagnostics::DocumentDiagnostics;
-use graphql_rust::{Backend, Config};
+use graphox::features::completion::FragmentCompletionInfo;
+use graphox::features::diagnostics::DocumentDiagnostics;
+use graphox::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::LspService;

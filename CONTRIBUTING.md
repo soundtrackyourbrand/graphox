@@ -1,14 +1,14 @@
-# Contributing to graphql-rust
+# Contributing to Graphox
 
-Thank you for your interest in contributing to graphql-rust! This guide covers development setup, testing, and release processes.
+Thank you for your interest in contributing to Graphox! This guide covers development setup, testing, and release processes.
 
 ## Development Setup
 
 This project is organized as a Rust workspace with specialized crates:
-- **`graphql-core`**: Core models (`DocumentState`), schema loading, and validation engine.
-- **`graphql-features`**: LSP features (Hover, Completion, etc.) implemented as extension traits.
-- **`graphql-codegen`**: TypeScript type generation logic.
-- **`graphql-lsp`**: Language Server implementation using `tower-lsp`.
+- **`graphox-core`**: Core models (`DocumentState`), schema loading, and validation engine.
+- **`graphox-features`**: LSP features (Hover, Completion, etc.) implemented as extension traits.
+- **`graphox-codegen`**: TypeScript type generation logic.
+- **`graphox-lsp`**: Language Server implementation using `tower-lsp`.
 
 ### Prerequisites
 
@@ -20,8 +20,8 @@ This project is organized as a Rust workspace with specialized crates:
 
 1. **Clone and install dependencies**
    ```bash
-   git clone https://github.com/soundtrack/graphql-rust.git
-   cd graphql-rust
+   git clone https://github.com/soundtrack/graphox.git
+   cd graphox
    ```
 
 2. **Build the project**
@@ -43,8 +43,8 @@ This project is organized as a Rust workspace with specialized crates:
 **Option 1: Using the local binary directly**
 ```bash
 cargo build
-./target/debug/graphql-rust check
-./target/debug/graphql-rust codegen
+./target/debug/graphox check
+./target/debug/graphox codegen
 ```
 
 **Option 2: Using the npm package with local build**
@@ -53,14 +53,14 @@ cargo build
 cargo build --release
 
 # Set up npm package to use local build
-export GRAPHQL_RUST_LOCAL_BUILD=$(pwd)/target/release/graphql-rust
-cd npm/@soundtrack/graphql-rust-cli
+export GRAPHOX_LOCAL_BUILD=$(pwd)/target/release/graphox
+cd npm/@soundtrack/graphox-cli
 pnpm install
 
-# Now pnpm graphql-rust uses your local build
+# Now pnpm graphox uses your local build
 cd /path/to/test/project
-pnpm graphql-rust check
-pnpm graphql-rust codegen
+pnpm graphox check
+pnpm graphox codegen
 ```
 
 **Quick setup script:**
@@ -78,7 +78,7 @@ pnpm graphql-rust codegen
 **Neovim:**
 ```lua
 -- Point to your local build
-cmd = { '/path/to/graphql-rust/target/release/graphql-rust', 'lsp' }
+cmd = { '/path/to/graphox/target/release/graphox', 'lsp' }
 ```
 
 **IntelliJ:**
@@ -126,7 +126,7 @@ make release-major
 ```
 
 The release script will:
-- Update version in `Cargo.toml`, `plugins/swc/Cargo.toml`, `editors/vscode/package.json`, and `npm/graphql-rust-cli/package.json`
+- Update version in `Cargo.toml`, `plugins/swc/Cargo.toml`, `editors/vscode/package.json`, and `npm/graphox-cli/package.json`
 - Update `Cargo.lock`
 - Create a commit with message: `chore: bump version to X.Y.Z`
 - Create a git tag: `vX.Y.Z`
@@ -151,20 +151,20 @@ git push && git push --tags
 - Publishes NPM package to GitHub Packages
 - Creates a GitHub Release with all artifacts attached
 
-The release will be available at: `https://github.com/soundtrack/graphql-rust/releases`
+The release will be available at: `https://github.com/soundtrack/graphox/releases`
 
 ---
 
 ## Project Structure
 
 ```
-graphql-rust/
+graphox/
 ├── crates/
-│   ├── graphql-core/        # Core models and validation
-│   ├── graphql-features/    # LSP features (extension traits)
-│   ├── graphql-codegen/     # TypeScript type generation
-│   ├── graphql-lsp/         # LSP server implementation
-│   └── graphql-cli/         # CLI commands
+│   ├── graphox-core/        # Core models and validation
+│   ├── graphox-features/    # LSP features (extension traits)
+│   ├── graphox-codegen/     # TypeScript type generation
+│   ├── graphox-lsp/         # LSP server implementation
+│   └── graphox-cli/         # CLI commands
 ├── editors/
 │   ├── vscode/              # VSCode extension
 │   ├── neovim.md            # Neovim configuration
@@ -188,4 +188,4 @@ graphql-rust/
 
 - [Architecture Documentation](./docs/architecture.md)
 - [Plugin Development Guide](./docs/development.md)
-- [API Documentation](https://docs.rs/graphql-rust)
+- [API Documentation](https://docs.rs/graphox)

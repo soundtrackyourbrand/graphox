@@ -3,8 +3,8 @@
 
 use crate::support::lsp::{LspTestScenario, LspTestInitialized};
 use crate::support::{create_large_schema, create_many_fragments, create_deep_fragment_chain, timed};
-use graphql_rust::config::{GlobPattern, ProjectConfig, SchemaSource};
-use graphql_rust::Config;
+use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::Config;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -114,7 +114,7 @@ async fn test_workspace_scan_100_files() {
             .unwrap();
         runtime.block_on(async {
             let (mut service, _) = LspService::new(|client| {
-                graphql_rust::Backend::new(client, config.clone())
+                graphox::Backend::new(client, config.clone())
             });
             crate::support::lsp_initialize_sequence(&mut service).await;
             service
@@ -154,7 +154,7 @@ async fn test_workspace_scan_500_files() {
             .unwrap();
         runtime.block_on(async {
             let (mut service, _) = LspService::new(|client| {
-                graphql_rust::Backend::new(client, config.clone())
+                graphox::Backend::new(client, config.clone())
             });
             crate::support::lsp_initialize_sequence(&mut service).await;
             service
@@ -194,7 +194,7 @@ async fn test_workspace_scan_1000_files() {
             .unwrap();
         runtime.block_on(async {
             let (mut service, _) = LspService::new(|client| {
-                graphql_rust::Backend::new(client, config.clone())
+                graphox::Backend::new(client, config.clone())
             });
             crate::support::lsp_initialize_sequence(&mut service).await;
             service
@@ -228,7 +228,7 @@ async fn test_fragment_resolution_chain() {
             .unwrap();
         runtime.block_on(async {
             let (mut service, _) = LspService::new(|client| {
-                graphql_rust::Backend::new(client, config.clone())
+                graphox::Backend::new(client, config.clone())
             });
             crate::support::lsp_initialize_sequence(&mut service).await;
 
@@ -281,7 +281,7 @@ async fn test_many_projects() {
             .unwrap();
         runtime.block_on(async {
             let (mut service, _) = LspService::new(|client| {
-                graphql_rust::Backend::new(client, config.clone())
+                graphox::Backend::new(client, config.clone())
             });
             crate::support::lsp_initialize_sequence(&mut service).await;
             service
@@ -315,7 +315,7 @@ async fn test_many_fragments_index() {
             .unwrap();
         runtime.block_on(async {
             let (mut service, _) = LspService::new(|client| {
-                graphql_rust::Backend::new(client, config.clone())
+                graphox::Backend::new(client, config.clone())
             });
             crate::support::lsp_initialize_sequence(&mut service).await;
             service

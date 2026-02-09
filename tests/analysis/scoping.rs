@@ -2,15 +2,15 @@ use crate::support::{
     completion_items_array, create_initialized_lsp_service, create_service, lsp_did_open,
     lsp_initialize_sequence, lsp_request_completion, lsp_request_typed, pos, with_cursor,
 };
-use graphql_rust::Config;
+use graphox::Config;
 use std::path::Path;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
 async fn test_lsp_fragment_scoping() {
     let config_dir = std::fs::canonicalize(Path::new("tests/fixtures/public_test")).unwrap();
-    let config = graphql_rust::Config::load_from_dir(&config_dir)
-        .expect("Failed to load config from fixtures");
+    let config =
+        graphox::Config::load_from_dir(&config_dir).expect("Failed to load config from fixtures");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Open Public/Private fragments in pkg_a

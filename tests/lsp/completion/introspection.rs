@@ -1,4 +1,4 @@
-use graphql_rust::{Backend, Config};
+use graphox::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;
 use tower_lsp::LspService;
@@ -21,9 +21,9 @@ async fn test_completion_introspection_fields() {
     .unwrap();
 
     let config = Config {
-        projects: vec![graphql_rust::config::ProjectConfig {
-            schema: graphql_rust::config::SchemaSource::Single("schema.graphql".to_string()),
-            include: graphql_rust::config::GlobPattern::Single("test.graphql".to_string()),
+        projects: vec![graphox::config::ProjectConfig {
+            schema: graphox::config::SchemaSource::Single("schema.graphql".to_string()),
+            include: graphox::config::GlobPattern::Single("test.graphql".to_string()),
             codegen: Some(false),
             ..Default::default()
         }],
