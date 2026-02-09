@@ -5,6 +5,7 @@ mod error_recovery;
 mod field_definition;
 mod fragment_scoping;
 mod no_duplicate_fields;
+mod no_unused_fragments;
 mod required_fields;
 mod schema_extensions;
 mod schema_merge;

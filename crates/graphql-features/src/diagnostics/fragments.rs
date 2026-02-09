@@ -48,7 +48,14 @@ pub(super) fn validate_fragment(
             .map(|u| u.contains(&name))
             .unwrap_or(true);
 
-        if !is_used && ctx.workspace_loaded && !is_type_only {
+        let no_unused_fragments_enabled = ctx
+            .config
+            .as_ref()
+            .and_then(|c| c.rules.as_ref())
+            .and_then(|r| r.no_unused_fragments)
+            .unwrap_or(true);
+
+        if !is_used && ctx.workspace_loaded && !is_type_only && no_unused_fragments_enabled {
             ctx.diagnostics.push(Diagnostic {
                 range: this.translate_to_file_range(name_node, offset),
                 severity: Some(DiagnosticSeverity::WARNING),

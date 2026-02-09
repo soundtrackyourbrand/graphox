@@ -38,6 +38,7 @@ pub struct RulesConfig {
     pub required_fields: Option<AHashMap<String, RequiredFieldRule>>,
     pub unique_operation_name: Option<bool>,
     pub no_duplicate_fields: Option<bool>,
+    pub no_unused_fragments: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -391,6 +392,7 @@ impl Config {
             }
             rules.unique_operation_name = rules_node["unique_operation_name"].as_bool();
             rules.no_duplicate_fields = rules_node["no_duplicate_fields"].as_bool();
+            rules.no_unused_fragments = rules_node["no_unused_fragments"].as_bool();
             config.rules = Some(rules);
         }
 

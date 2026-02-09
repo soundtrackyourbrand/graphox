@@ -99,11 +99,8 @@ pub async fn validate_uris(
                 params.validated_schemas,
                 params.valid_empty_schema,
             );
-            let filtered_fragments = get_fragments_for_doc_with_metadata(
-                &doc,
-                params.config,
-                &all_fragments,
-            );
+            let filtered_fragments =
+                get_fragments_for_doc_with_metadata(&doc, params.config, &all_fragments);
 
             let mut diagnostics = doc.get_semantic_diagnostics(
                 &schema,

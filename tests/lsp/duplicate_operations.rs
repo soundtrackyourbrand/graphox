@@ -19,6 +19,7 @@ async fn test_duplicate_operation_names_cross_file() {
         required_fields: None,
         unique_operation_name: Some(true),
         no_duplicate_fields: None,
+        no_unused_fragments: None,
     });
 
     // Create service and capture server->client messages so we can assert push diagnostics

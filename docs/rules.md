@@ -82,3 +82,29 @@ query GetUser {
   }
 }
 ```
+
+## no_unused_fragments
+
+Detects fragment definitions that are not used by any operation in the workspace.
+
+**Enable:**
+```yaml
+rules:
+  no_unused_fragments: true
+```
+
+**Disallows:**
+```graphql
+# File: fragments.graphql
+fragment UnusedFragment on Query {  # Warning: unused fragment
+  me { name }
+}
+
+# File: queries.graphql
+query GetUser {
+  me { id }
+}
+# UnusedFragment is never referenced
+```
+
+**Note:** Fragments marked with `@type_only` directive are excluded from this check. Fragments are considered "used" when referenced via the spread syntax (`...FragmentName`) in any operation across the workspace.
