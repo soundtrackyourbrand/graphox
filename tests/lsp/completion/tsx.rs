@@ -26,11 +26,8 @@ async fn test_embedded_fragment_spreads_interface_tsx() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("test.tsx".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),
@@ -133,11 +130,8 @@ async fn test_embedded_fragment_spreads_union_tsx() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("test.tsx".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),

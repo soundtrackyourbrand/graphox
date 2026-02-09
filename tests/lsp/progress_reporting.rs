@@ -33,11 +33,8 @@ async fn test_progress_on_workspace_scan() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
@@ -156,11 +153,8 @@ async fn test_no_progress_without_capability() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
@@ -247,11 +241,8 @@ async fn test_progress_on_codegen() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: None, // This test needs codegen enabled
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
@@ -375,11 +366,8 @@ async fn test_progress_messages_contain_percentage() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),

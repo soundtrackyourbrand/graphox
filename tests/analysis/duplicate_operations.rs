@@ -57,11 +57,7 @@ fn test_duplicate_operation_names_same_file() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             unique_operation_name: Some(true),
@@ -116,11 +112,7 @@ fn test_unique_operation_names_no_error() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             unique_operation_name: Some(true),
@@ -178,11 +170,7 @@ fn test_duplicate_operation_rule_disabled() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             unique_operation_name: Some(false),
@@ -239,11 +227,7 @@ fn test_duplicate_operation_no_rules_config() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: None,
         ..Default::default()

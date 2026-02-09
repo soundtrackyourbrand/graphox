@@ -29,11 +29,8 @@ async fn test_pull_diagnostics_basic() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
@@ -140,11 +137,8 @@ async fn test_pull_diagnostics_unchanged() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
@@ -245,11 +239,8 @@ async fn test_workspace_diagnostics() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),
@@ -352,11 +343,8 @@ async fn test_fallback_to_push_diagnostics() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),

@@ -1,0 +1,7 @@
+document_suffix: "GQL"
+variables_suffix: "Vars"
+fragment_suffix: "Frag"
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+    import: "@workspace/suffixes"

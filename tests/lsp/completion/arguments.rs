@@ -1,4 +1,3 @@
-
 use crate::support::{
     completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
     make_temp_project_with_schema, with_cursor, write_project_file,

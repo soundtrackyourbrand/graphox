@@ -33,20 +33,14 @@ async fn test_cross_project_references_and_rename() {
             ProjectConfig {
                 schema: SchemaSource::Single("../schema.graphql".to_string()),
                 include: GlobPattern::Single("**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("../schema.graphql".to_string()),
                 include: GlobPattern::Single("**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
         ],
         enable_schema_cache: Some(true),
@@ -218,20 +212,14 @@ async fn test_unrelated_projects_rename_isolation() {
             ProjectConfig {
                 schema: SchemaSource::Single("../schema.graphql".to_string()),
                 include: GlobPattern::Single("project1/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("../schema.graphql".to_string()),
                 include: GlobPattern::Single("project2/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
         ],
         enable_schema_cache: Some(true),

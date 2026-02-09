@@ -44,28 +44,21 @@ async fn test_cross_project_docs_and_imports() {
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("project1/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
                 import: Some("@my/project1".to_string()),
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("project2/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
                 import: Some("@my/project2".to_string()),
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
         ],
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
         lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
         ..Config::new_empty()
     };
 

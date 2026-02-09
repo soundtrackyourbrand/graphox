@@ -78,11 +78,8 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
         projects: vec![graphql_rust::config::ProjectConfig {
             schema: graphql_rust::config::SchemaSource::Single("schema.graphql".to_string()),
             include: graphql_rust::config::GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         base_dir: base.clone(),
         ..graphql_rust::Config::new_empty()

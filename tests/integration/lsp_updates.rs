@@ -51,20 +51,14 @@ async fn test_lsp_fragment_collisions() {
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
         ],
         enable_schema_cache: Some(true),
@@ -320,11 +314,8 @@ async fn test_lsp_fragment_rename_same_project() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: base_dir.clone(),
@@ -477,20 +468,14 @@ async fn test_lsp_fragment_rename_cross_project() {
             ProjectConfig {
                 schema: SchemaSource::Single("pkg_a/schema.graphql".to_string()),
                 include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("pkg_a/schema.graphql".to_string()),
                 include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false),
+                ..Default::default()
             },
         ],
         enable_schema_cache: Some(true),

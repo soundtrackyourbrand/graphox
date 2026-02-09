@@ -25,29 +25,16 @@ async fn test_lsp_automatic_codegen() {
     fs::write(&query_path, query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         lsp_automatic_codegen: Some(true),
         lsp_codegen_throttle_ms: Some(50),
-        codegen_watch_debounce_ms: None, // Short throttle for tests
-        timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -228,40 +215,25 @@ async fn test_lsp_automatic_codegen_disabled() {
     fs::write(&disabled_query_path, disabled_query_text).unwrap();
 
     let config = Config {
-        output_dir: None,
         projects: vec![
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("enabled.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(true), // Explicitly enabled
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("disabled.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
                 codegen: Some(false), // Disabled
+                ..Default::default()
             },
         ],
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        watch_all_files: None,
         lsp_automatic_codegen: Some(true),
         lsp_codegen_throttle_ms: Some(50),
-        codegen_watch_debounce_ms: None, // Short throttle for tests
-        timeouts: None,
         enable_schema_cache: Some(true),
         base_dir: base_dir.to_path_buf(),
-        rules: None,
+        ..Config::new_empty()
     };
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);

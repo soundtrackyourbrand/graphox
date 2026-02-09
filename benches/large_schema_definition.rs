@@ -50,11 +50,7 @@ fn generate_complex_workspace(
         projects.push(ProjectConfig {
             schema: SchemaSource::Single(format!("project_{}/schema.graphql", i)),
             include: GlobPattern::Multiple(vec![format!("project_{}/**/*.graphql", i)]),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         });
     }
 

@@ -1392,14 +1392,14 @@ impl DocumentCompletion for DocumentState {
                             | Some(schema::ExtendedType::Interface(_))
                     );
 
-                    if add_braces && returns_object_or_interface {
-                        if let Some((snippet, format, text_edit)) =
+                    if add_braces
+                        && returns_object_or_interface
+                        && let Some((snippet, format, text_edit)) =
                             self.create_braced_snippet(name, cursor_offset)
-                        {
-                            item.insert_text = Some(snippet);
-                            item.insert_text_format = Some(format);
-                            item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
-                        }
+                    {
+                        item.insert_text = Some(snippet);
+                        item.insert_text_format = Some(format);
+                        item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
                     }
 
                     items.push(item);
@@ -1427,14 +1427,14 @@ impl DocumentCompletion for DocumentState {
                             | Some(schema::ExtendedType::Interface(_))
                     );
 
-                    if add_braces && returns_object_or_interface {
-                        if let Some((snippet, format, text_edit)) =
+                    if add_braces
+                        && returns_object_or_interface
+                        && let Some((snippet, format, text_edit)) =
                             self.create_braced_snippet(name, cursor_offset)
-                        {
-                            item.insert_text = Some(snippet);
-                            item.insert_text_format = Some(format);
-                            item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
-                        }
+                    {
+                        item.insert_text = Some(snippet);
+                        item.insert_text_format = Some(format);
+                        item.text_edit = Some(CompletionTextEdit::Edit(text_edit));
                     }
 
                     items.push(item);

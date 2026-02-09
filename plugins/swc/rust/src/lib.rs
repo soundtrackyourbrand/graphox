@@ -69,14 +69,14 @@ impl TransformVisitor {
     fn get_relative_import_path(&self, codegen_rel_path: &str) -> String {
         if let Some(current_file) = &self.current_file {
             let codegen_abs_path = self.output_dir.join(codegen_rel_path);
-            if let Some(parent) = current_file.parent() {
-                if let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent) {
-                    let mut s = rel_path.to_string_lossy().to_string();
-                    if !s.starts_with('.') && !s.starts_with('/') {
-                        s = format!("./{}", s);
-                    }
-                    return s;
+            if let Some(parent) = current_file.parent()
+                && let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent)
+            {
+                let mut s = rel_path.to_string_lossy().to_string();
+                if !s.starts_with('.') && !s.starts_with('/') {
+                    s = format!("./{}", s);
                 }
+                return s;
             }
         }
         // Fallback to the path in the manifest
@@ -104,26 +104,26 @@ impl TransformVisitor {
         // 3. Fallback to relative path detection
         if let Some(current_file) = &self.current_file {
             let entrypoint_abs_path = self.output_dir.join("graphql");
-            if let Some(parent) = current_file.parent() {
-                if let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent) {
-                    let mut s = rel_path.to_string_lossy().to_string();
-                    if !s.starts_with('.') && !s.starts_with('/') {
-                        s = format!("./{}", s);
-                    }
-
-                    let src_normalized = src
-                        .strip_suffix(".js")
-                        .unwrap_or(src)
-                        .strip_suffix(".ts")
-                        .unwrap_or(src);
-                    let our_normalized = s
-                        .strip_suffix(".js")
-                        .unwrap_or(&s)
-                        .strip_suffix(".ts")
-                        .unwrap_or(&s);
-
-                    return src_normalized == our_normalized;
+            if let Some(parent) = current_file.parent()
+                && let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent)
+            {
+                let mut s = rel_path.to_string_lossy().to_string();
+                if !s.starts_with('.') && !s.starts_with('/') {
+                    s = format!("./{}", s);
                 }
+
+                let src_normalized = src
+                    .strip_suffix(".js")
+                    .unwrap_or(src)
+                    .strip_suffix(".ts")
+                    .unwrap_or(src);
+                let our_normalized = s
+                    .strip_suffix(".js")
+                    .unwrap_or(&s)
+                    .strip_suffix(".ts")
+                    .unwrap_or(&s);
+
+                return src_normalized == our_normalized;
             }
         }
         false
@@ -213,10 +213,10 @@ impl VisitMut for TransformVisitor {
                 let src = import.src.value.as_str().unwrap_or("");
                 if self.is_our_graphql_path(src) {
                     for specifier in &import.specifiers {
-                        if let ImportSpecifier::Named(named) = specifier {
-                            if named.local.sym == "graphql" || named.local.sym == "gql" {
-                                self.graphql_ids.insert(named.local.to_id());
-                            }
+                        if let ImportSpecifier::Named(named) = specifier
+                            && (named.local.sym == "graphql" || named.local.sym == "gql")
+                        {
+                            self.graphql_ids.insert(named.local.to_id());
                         }
                     }
                 }

@@ -317,11 +317,8 @@ pub fn make_temp_project_with_schema(
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single(include_pattern.to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         lsp_automatic_codegen: Some(false),

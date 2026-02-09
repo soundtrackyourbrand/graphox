@@ -33,11 +33,7 @@ fn test_shallow_duplicate_fields_check() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(Default::default()),
         ..Default::default()
@@ -93,11 +89,7 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(Default::default()),
         ..Default::default()

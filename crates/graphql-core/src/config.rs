@@ -72,7 +72,7 @@ impl RequiredFieldRule {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
@@ -88,6 +88,9 @@ pub struct Config {
     pub codegen_watch_debounce_ms: Option<u64>,
     pub enable_schema_cache: Option<bool>,
     pub rules: Option<RulesConfig>,
+    pub document_suffix: Option<String>,
+    pub variables_suffix: Option<String>,
+    pub fragment_suffix: Option<String>,
     pub base_dir: PathBuf,
 }
 
@@ -116,6 +119,12 @@ impl Default for TimeoutConfig {
 pub enum SchemaSource {
     Single(String),
     Multiple(Vec<String>),
+}
+
+impl Default for SchemaSource {
+    fn default() -> Self {
+        Self::Single("schema.graphql".to_string())
+    }
 }
 
 impl SchemaSource {
@@ -154,6 +163,12 @@ pub enum GlobPattern {
     Multiple(Vec<String>),
 }
 
+impl Default for GlobPattern {
+    fn default() -> Self {
+        Self::Single("**/*.graphql".to_string())
+    }
+}
+
 impl GlobPattern {
     pub fn as_key(&self) -> String {
         match self {
@@ -184,7 +199,7 @@ impl GlobPattern {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ProjectConfig {
     pub schema: SchemaSource,
     pub include: GlobPattern,
@@ -193,6 +208,9 @@ pub struct ProjectConfig {
     pub import: Option<String>,
     pub generate_permissions: Option<bool>,
     pub codegen: Option<bool>,
+    pub document_suffix: Option<String>,
+    pub variables_suffix: Option<String>,
+    pub fragment_suffix: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -200,12 +218,6 @@ pub struct SchemaTypeConfig {
     pub schema: SchemaSource,
     pub output: String,
     pub import: Option<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self::new_empty()
-    }
 }
 
 impl Config {
@@ -225,6 +237,9 @@ impl Config {
             codegen_watch_debounce_ms: None,
             enable_schema_cache: None,
             rules: None,
+            document_suffix: None,
+            variables_suffix: None,
+            fragment_suffix: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -300,6 +315,9 @@ impl Config {
                 let import = p_node["import"].as_str().map(String::from);
                 let generate_permissions = p_node["generate_permissions"].as_bool();
                 let codegen = p_node["codegen"].as_bool();
+                let document_suffix = p_node["document_suffix"].as_str().map(String::from);
+                let variables_suffix = p_node["variables_suffix"].as_str().map(String::from);
+                let fragment_suffix = p_node["fragment_suffix"].as_str().map(String::from);
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -309,6 +327,9 @@ impl Config {
                     import,
                     generate_permissions,
                     codegen,
+                    document_suffix,
+                    variables_suffix,
+                    fragment_suffix,
                 });
             }
         }
@@ -396,6 +417,10 @@ impl Config {
             config.rules = Some(rules);
         }
 
+        config.document_suffix = node["document_suffix"].as_str().map(String::from);
+        config.variables_suffix = node["variables_suffix"].as_str().map(String::from);
+        config.fragment_suffix = node["fragment_suffix"].as_str().map(String::from);
+
         Some(config)
     }
 
@@ -467,6 +492,18 @@ impl Config {
 
     pub fn get_timeouts(&self) -> TimeoutConfig {
         self.timeouts.clone().unwrap_or_default()
+    }
+
+    pub fn document_suffix(&self) -> &str {
+        self.document_suffix.as_deref().unwrap_or("Document")
+    }
+
+    pub fn variables_suffix(&self) -> &str {
+        self.variables_suffix.as_deref().unwrap_or("Variables")
+    }
+
+    pub fn fragment_suffix(&self) -> &str {
+        self.fragment_suffix.as_deref().unwrap_or("")
     }
 }
 

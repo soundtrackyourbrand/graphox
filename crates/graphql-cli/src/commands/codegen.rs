@@ -22,6 +22,9 @@ pub struct CodegenParams<'a> {
     pub generate_ast_for_fragments: bool,
     pub workspace_documents: &'a HashMap<PathBuf, DocumentState>,
     pub generate_permissions: bool,
+    pub document_suffix: &'a str,
+    pub variables_suffix: &'a str,
+    pub fragment_suffix: &'a str,
 }
 
 pub async fn run_codegen(
@@ -259,6 +262,22 @@ async fn execute_codegen(
             }
         }
 
+        let document_suffix = project
+            .document_suffix
+            .as_deref()
+            .or(cfg.document_suffix.as_deref())
+            .unwrap_or("Document");
+        let variables_suffix = project
+            .variables_suffix
+            .as_deref()
+            .or(cfg.variables_suffix.as_deref())
+            .unwrap_or("Variables");
+        let fragment_suffix = project
+            .fragment_suffix
+            .as_deref()
+            .or(cfg.fragment_suffix.as_deref())
+            .unwrap_or("");
+
         match execute_project_codegen_entry(
             CodegenParams {
                 base_dir: &cfg.base_dir,
@@ -272,6 +291,9 @@ async fn execute_codegen(
                 generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                 workspace_documents: &workspace_metadata.documents,
                 generate_permissions: project.generate_permissions.unwrap_or(false),
+                document_suffix,
+                variables_suffix,
+                fragment_suffix,
             },
             verbose,
             clean,
@@ -334,8 +356,12 @@ async fn execute_codegen(
                     entrypoint_path.display().to_string().bright_black()
                 );
             }
-            let content =
-                codegen::generate_entrypoint_content(&out_dir_path, &all_generated_operations);
+            let content = codegen::generate_entrypoint_content(
+                &out_dir_path,
+                &all_generated_operations,
+                cfg.document_suffix(),
+                cfg.variables_suffix(),
+            );
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
                 success = false;
@@ -467,6 +493,9 @@ async fn generate_project_files(
                 params.generate_ast_for_fragments,
                 &params.project_context.fragment_dependencies,
                 &shared_type_cache,
+                params.document_suffix,
+                params.variables_suffix,
+                params.fragment_suffix,
             );
 
             execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)

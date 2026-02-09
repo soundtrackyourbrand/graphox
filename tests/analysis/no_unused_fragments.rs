@@ -32,11 +32,7 @@ fn test_unused_fragment_reported_when_enabled() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             no_unused_fragments: Some(true),
@@ -93,11 +89,7 @@ fn test_unused_fragment_not_reported_when_disabled() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             no_unused_fragments: Some(false),
@@ -149,11 +141,7 @@ fn test_unused_fragment_not_reported_when_not_configured() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig::default()),
         ..Default::default()
@@ -211,11 +199,7 @@ fn test_used_fragment_not_reported() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             no_unused_fragments: Some(true),

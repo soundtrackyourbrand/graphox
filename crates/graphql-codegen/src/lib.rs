@@ -28,6 +28,9 @@ pub struct CodegenContext<'a> {
     pub fragment_dependencies: &'a HashMap<String, Vec<String>>,
     /// Shared cache for type conversions across all files in a project (thread-safe)
     type_cache: &'a TypeCache,
+    pub document_suffix: &'a str,
+    pub variables_suffix: &'a str,
+    pub fragment_suffix: &'a str,
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
@@ -96,6 +99,9 @@ impl<'a> CodegenContext<'a> {
         generate_ast_for_fragments: bool,
         fragment_dependencies: &'a HashMap<String, Vec<String>>,
         type_cache: &'a TypeCache,
+        document_suffix: &'a str,
+        variables_suffix: &'a str,
+        fragment_suffix: &'a str,
     ) -> Self {
         Self {
             schema,
@@ -109,6 +115,9 @@ impl<'a> CodegenContext<'a> {
             generate_ast_for_fragments,
             fragment_dependencies,
             type_cache,
+            document_suffix,
+            variables_suffix,
+            fragment_suffix,
         }
     }
 
@@ -225,7 +234,7 @@ pub fn generate_typescript_with_profile(
             bodies.push_str("\n\n");
 
             let vars_type = if !op.variables.is_empty() {
-                let v_name = format!("{}{}Variables", name, suffix);
+                let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix);
                 bodies.push_str("export interface ");
                 bodies.push_str(&v_name);
                 bodies.push_str(" {\n");
@@ -286,7 +295,8 @@ pub fn generate_typescript_with_profile(
                         let mut spread = String::with_capacity(dep.len() + 23); // "...Document.definitions"
                         spread.push_str("...");
                         spread.push_str(&dep);
-                        spread.push_str("Document.definitions");
+                        spread.push_str(ctx.document_suffix);
+                        spread.push_str(".definitions");
                         definitions_parts.push(spread);
                     }
                 }
@@ -308,7 +318,8 @@ pub fn generate_typescript_with_profile(
             let doc_name = format!("{}{}", name, suffix);
             bodies.push_str("export const ");
             bodies.push_str(&doc_name);
-            bodies.push_str("Document = ");
+            bodies.push_str(ctx.document_suffix);
+            bodies.push_str(" = ");
             bodies.push_str(&ast_content);
             bodies.push_str(" as unknown as DocumentNode<");
             bodies.push_str(name);
@@ -347,6 +358,7 @@ pub fn generate_typescript_with_profile(
 
             bodies.push_str("export interface ");
             bodies.push_str(&frag.name);
+            bodies.push_str(ctx.fragment_suffix);
             bodies.push(' ');
             bodies.push_str(&ts_type);
             bodies.push_str("\n\n");
@@ -394,7 +406,8 @@ pub fn generate_typescript_with_profile(
                             let mut spread = String::with_capacity(dep.len() + 23);
                             spread.push_str("...");
                             spread.push_str(&dep);
-                            spread.push_str("Document.definitions");
+                            spread.push_str(ctx.document_suffix);
+                            spread.push_str(".definitions");
                             definitions_parts.push(spread);
                         }
                     }
@@ -410,7 +423,8 @@ pub fn generate_typescript_with_profile(
 
                     bodies.push_str("export const ");
                     bodies.push_str(&frag.name);
-                    bodies.push_str("Document = { kind: 'Document', definitions: ");
+                    bodies.push_str(ctx.document_suffix);
+                    bodies.push_str(" = { kind: 'Document', definitions: ");
                     bodies.push_str(&definitions);
                     bodies.push_str(" } as unknown as DocumentNode<any, any>;\n\n");
                 }
@@ -505,8 +519,13 @@ pub fn generate_typescript_with_profile(
             final_path_str
         };
 
+        let suffixed_names: Vec<_> = names
+            .iter()
+            .map(|n| format!("{}{}", n, ctx.fragment_suffix))
+            .collect();
+
         import_section.push_str("import type { ");
-        import_section.push_str(&names.join(", "));
+        import_section.push_str(&suffixed_names.join(", "));
         import_section.push_str(" } from \"");
         import_section.push_str(&final_import_path);
         import_section.push_str("\";\n");
@@ -527,9 +546,10 @@ pub fn generate_typescript_with_profile(
                         });
 
                 if !is_type_only {
-                    let mut doc_name = String::with_capacity(name.len() + 8);
+                    let mut doc_name =
+                        String::with_capacity(name.len() + ctx.document_suffix.len());
                     doc_name.push_str(name);
-                    doc_name.push_str("Document");
+                    doc_name.push_str(ctx.document_suffix);
                     doc_names.push(doc_name);
                 }
             }
@@ -566,7 +586,12 @@ pub fn generate_typescript_with_profile(
     Ok((output, generated_operations, profile))
 }
 
-pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGenerated]) -> String {
+pub fn generate_entrypoint_content(
+    output_dir: &Path,
+    operations: &[OperationGenerated],
+    document_suffix: &str,
+    variables_suffix: &str,
+) -> String {
     // Pre-allocate with estimated capacity based on number of operations
     let estimated_size = operations.len() * 200 + 500; // ~200 chars per operation + overhead
     let mut output = String::with_capacity(estimated_size);
@@ -592,20 +617,25 @@ pub fn generate_entrypoint_content(output_dir: &Path, operations: &[OperationGen
         };
 
         import_lines.push(format!(
-            "import {{ {}, {}Variables, {}Document }} from \"{}\";",
-            op.operation_type_name, op.operation_type_name, op.operation_type_name, path_no_ext
+            "import {{ {}, {}{}, {}{} }} from \"{}\";",
+            op.operation_type_name,
+            op.operation_type_name,
+            variables_suffix,
+            op.operation_type_name,
+            document_suffix,
+            path_no_ext
         ));
 
         // Write overloads using format! for proper string escaping
         overloads.push_str(&format!(
-            "export function graphql(source: {:?}): typeof {}Document;\n",
-            op.source_text, op.operation_type_name
+            "export function graphql(source: {:?}): typeof {}{};\n",
+            op.source_text, op.operation_type_name, document_suffix
         ));
 
         // Write map entries using format! for proper string escaping
         map_entries.push_str(&format!(
-            "  {:?}: {}Document,\n",
-            op.source_text, op.operation_type_name
+            "  {:?}: {}{},\n",
+            op.source_text, op.operation_type_name, document_suffix
         ));
     }
 
@@ -713,6 +743,9 @@ pub fn generate_permissions_content(
         false,
         &empty_deps,
         &dummy_cache,
+        "Document",
+        "Variables",
+        "",
     );
     let mut used_schema_types = HashSet::default();
 
@@ -846,7 +879,7 @@ fn generate_object_or_intersection(
     if categorized.fragment_spreads.is_empty() {
         format_multiline_object(&local_fields_list, indent)
     } else {
-        format_intersection(&local_fields_list, &categorized.fragment_spreads)
+        format_intersection(&local_fields_list, &categorized.fragment_spreads, ctx)
     }
 }
 
@@ -935,11 +968,12 @@ fn format_multiline_object(fields: &[String], indent: usize) -> String {
 fn format_intersection(
     fields: &[String],
     fragment_spreads: &[&Node<executable::FragmentSpread>],
+    ctx: &CodegenContext,
 ) -> String {
     let base_obj = format!("{{ {} }}", fields.join(", "));
     let mut spreads: Vec<_> = fragment_spreads
         .iter()
-        .map(|s| s.fragment_name.as_str())
+        .map(|s| format!("{}{}", s.fragment_name.as_str(), ctx.fragment_suffix))
         .collect();
     spreads.sort();
 
@@ -1209,6 +1243,9 @@ pub fn generate_schema_types(
         false,
         &empty_deps,
         &dummy_cache,
+        "Document",
+        "Variables",
+        "",
     );
     let mut used_schema_types = HashSet::default();
 

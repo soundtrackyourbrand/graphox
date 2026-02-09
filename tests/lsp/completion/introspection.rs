@@ -24,11 +24,8 @@ async fn test_completion_introspection_fields() {
         projects: vec![graphql_rust::config::ProjectConfig {
             schema: graphql_rust::config::SchemaSource::Single("schema.graphql".to_string()),
             include: graphql_rust::config::GlobPattern::Single("test.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: Some(false),
+            ..Default::default()
         }],
         enable_schema_cache: Some(true),
         base_dir: dir.path().to_path_buf(),

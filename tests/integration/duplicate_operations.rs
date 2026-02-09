@@ -44,11 +44,7 @@ async fn test_check_command_duplicate_operations() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             unique_operation_name: Some(true),
@@ -100,11 +96,7 @@ async fn test_check_command_unique_operations() {
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         }],
         rules: Some(RulesConfig {
             unique_operation_name: Some(true),

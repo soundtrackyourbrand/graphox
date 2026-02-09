@@ -1309,12 +1309,10 @@ impl DocumentState {
                     // Check if we are inside a selection set
                     if let Some(selection_set) =
                         self.find_ancestor_by_kind(current, "selection_set")
-                    {
-                        if let Some(parent_type) =
+                        && let Some(parent_type) =
                             self.find_parent_type_for_node(selection_set, block.offset, schema)
-                        {
-                            return CompletionContext::SelectionSet(parent_type);
-                        }
+                    {
+                        return CompletionContext::SelectionSet(parent_type);
                     }
                 }
             }

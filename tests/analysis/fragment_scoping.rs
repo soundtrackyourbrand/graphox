@@ -205,20 +205,12 @@ async fn test_public_fragment_in_completion_other_package() {
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
-                codegen: Some(false),
+                ..Default::default()
             },
             ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
-                codegen: Some(false),
+                ..Default::default()
             },
         ],
         enable_schema_cache: Some(true),

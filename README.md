@@ -208,6 +208,9 @@ projects:
     import: "@workspace/project-1"              # How other project should import fragments from this project
     generate_permissions: true                  # Generate permission metadata
     codegen: true                               # Enable codegen for this project (default: true)
+    document_suffix: "Document"                 # Suffix for generated Document constants (default: "Document")
+    variables_suffix: "Variables"               # Suffix for generated Variables interfaces (default: "Variables")
+    fragment_suffix: ""                         # Suffix for generated Fragment interfaces (default: "")
 
   - schema:                                     # Multiple schema files
       - "schema/base.graphql"
@@ -234,6 +237,9 @@ tracing:
 # Codegen settings
 codegen_watch_debounce_ms: 200 # Debounce file changes in watch mode (default: 200ms)
 enable_schema_cache: true      # Enable two-tier schema cache (default: true)
+document_suffix: "Document"    # Global default suffix for Document constants (default: "Document")
+variables_suffix: "Variables"  # Global default suffix for Variables interfaces (default: "Variables")
+fragment_suffix: ""            # Global default suffix for Fragment interfaces (default: "")
 ```
 
 ### Configuration Notes

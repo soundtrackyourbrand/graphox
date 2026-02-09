@@ -101,6 +101,9 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         config.generate_ast_for_fragments.unwrap_or(false),
                         &project_context.fragment_dependencies,
                         &shared_type_cache,
+                        "Document",
+                        "Variables",
+                        "",
                     );
                     let g_start = Instant::now();
                     if let Ok((_ts_code, _ops, profile)) =

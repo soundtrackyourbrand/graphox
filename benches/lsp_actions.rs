@@ -108,30 +108,15 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
         projects.push(ProjectConfig {
             schema: SchemaSource::Single(format!("project_{}/schema.graphql", i)),
             include: GlobPattern::Single(format!("project_{}/**/*.graphql", i)),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
-            codegen: None,
+            ..Default::default()
         });
     }
 
     Config {
         projects,
         base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        watch_all_files: None,
-        output_dir: None,
-        schema_types: None,
-        scalars: None,
-        ignore_deprecations: None,
-        generate_ast_for_fragments: None,
-        tracing: None,
-        timeouts: None,
         enable_schema_cache: Some(true),
-        rules: None,
+        ..Default::default()
     }
 }
 

@@ -137,10 +137,8 @@ impl ProjectConfigBuilder {
             schema: self.schema,
             include: self.include,
             exclude: self.exclude,
-            output_dir: None,
-            import: None,
-            generate_permissions: None,
             codegen: self.codegen,
+            ..Default::default()
         }
     }
 }

@@ -137,6 +137,21 @@ pub async fn run_codegen(
                     config.generate_ast_for_fragments.unwrap_or(false),
                     &project_context.fragment_dependencies,
                     &type_cache, // Use persistent cache from Backend
+                    project
+                        .document_suffix
+                        .as_deref()
+                        .or(config.document_suffix.as_deref())
+                        .unwrap_or("Document"),
+                    project
+                        .variables_suffix
+                        .as_deref()
+                        .or(config.variables_suffix.as_deref())
+                        .unwrap_or("Variables"),
+                    project
+                        .fragment_suffix
+                        .as_deref()
+                        .or(config.fragment_suffix.as_deref())
+                        .unwrap_or(""),
                 );
 
                 if let Ok((ts_code, mut ops)) = graphql_codegen::generate_typescript(doc, &ctx) {
@@ -219,6 +234,8 @@ pub async fn run_codegen(
             let content = graphql_codegen::generate_entrypoint_content(
                 &out_dir_path,
                 &all_generated_operations,
+                config.document_suffix(),
+                config.variables_suffix(),
             );
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 client

@@ -198,10 +198,10 @@ impl Backend {
 
     pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
         // Try to return cached metadata if available
-        if let Ok(cache) = self.fragment_metadata_cache.read() {
-            if let Some(metadata) = &*cache {
-                return metadata.clone();
-            }
+        if let Ok(cache) = self.fragment_metadata_cache.read()
+            && let Some(metadata) = &*cache
+        {
+            return metadata.clone();
         }
 
         // Cache miss: collect metadata and update cache
@@ -1728,15 +1728,15 @@ impl LanguageServer for Backend {
                         let mut target_range = diagnostic.range;
 
                         if let Some(data) = &diagnostic.data {
-                            if let Some(def_uri) = data.get("def_uri").and_then(|v| v.as_str()) {
-                                if let Ok(parsed) = Url::parse(def_uri) {
-                                    target_uri = parsed;
-                                }
+                            if let Some(def_uri) = data.get("def_uri").and_then(|v| v.as_str())
+                                && let Ok(parsed) = Url::parse(def_uri)
+                            {
+                                target_uri = parsed;
                             }
-                            if let Some(def_range) = data.get("def_range") {
-                                if let Ok(r) = serde_json::from_value::<Range>(def_range.clone()) {
-                                    target_range = r;
-                                }
+                            if let Some(def_range) = data.get("def_range")
+                                && let Ok(r) = serde_json::from_value::<Range>(def_range.clone())
+                            {
+                                target_range = r;
                             }
                         }
 
@@ -2244,11 +2244,7 @@ mod tests {
             projects: vec![ProjectConfig {
                 schema: SchemaSource::Single("schema.graphql".to_string()),
                 include: GqlGlobPattern::Single("**/*.graphql".to_string()),
-                exclude: None,
-                output_dir: None,
-                import: None,
-                generate_permissions: None,
-                codegen: None,
+                ..Default::default()
             }],
             ..Default::default()
         };

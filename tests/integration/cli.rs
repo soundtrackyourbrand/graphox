@@ -1108,6 +1108,12 @@ fn test_cli_swc_plugin_baselines() {
     );
 }
 
+#[test]
+#[ntest::timeout(250)]
+fn test_cli_suffixes_baselines() {
+    run_baseline_test("tests/fixtures/suffixes", "tests/baselines/suffixes", None);
+}
+
 fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path: Option<&str>) {
     let bin_path = env!("CARGO_BIN_EXE_graphql-rust");
     let fixture_dir = Path::new(fixture_dir_str);
