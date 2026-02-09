@@ -90,6 +90,13 @@ pub trait DocumentHover {
         cursor_offset: usize,
         schema: &Schema,
     ) -> Option<String>;
+    fn find_single_directive_info(
+        &self,
+        directive_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<String>;
     fn find_info_in_value(
         &self,
         value_node: Node,
@@ -109,6 +116,8 @@ pub trait DocumentHover {
     fn get_type_info_from_schema(&self, name: &str, schema: &Schema) -> Option<String>;
     fn find_description(&self, target_name: &str) -> Option<String>;
     fn get_alias_name(&self, alias_node: Node, offset: usize) -> String;
+    fn find_type_extension_info(&self, name_node: Node, offset: usize) -> Option<String>;
+    fn extract_operation_variables(&self, op_node: Node, offset: usize) -> Vec<(String, String)>;
     fn extract_field_info_for_alias(
         &self,
         field_node: Node,
@@ -139,7 +148,14 @@ impl DocumentHover for DocumentState {
                     node = parent;
                 }
 
-                if node.kind() == "name" || node.kind() == "variable" {
+                if node.kind() == "name"
+                    || node.kind() == "variable"
+                    || node.kind() == "string_value"
+                    || node.kind() == "int_value"
+                    || node.kind() == "float_value"
+                    || node.kind() == "boolean_value"
+                    || node.kind() == "null_value"
+                {
                     let symbol_name = self
                         .rope
                         .slice(
@@ -157,6 +173,16 @@ impl DocumentHover for DocumentState {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,
                                 value: var_info,
+                            }),
+                            range: Some(self.translate_to_file_range(node, offset)),
+                        });
+                    }
+
+                    if let Some(extension_info) = self.find_type_extension_info(node, offset) {
+                        return Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: extension_info,
                             }),
                             range: Some(self.translate_to_file_range(node, offset)),
                         });
@@ -193,6 +219,39 @@ impl DocumentHover for DocumentState {
                             range: Some(self.translate_to_file_range(node, offset)),
                         });
                     }
+                }
+
+                // Check for variable default value
+                let mut curr = node;
+                while let Some(parent) = curr.parent() {
+                    if parent.kind() == "variable_definition" {
+                        let mut vd_cursor = parent.walk();
+                        let mut var_type = None;
+                        for vd_child in parent.children(&mut vd_cursor) {
+                            if vd_child.kind() == "type" {
+                                var_type = Some(self.get_node_text(vd_child, offset));
+                            } else if vd_child.kind() == "default_value" {
+                                let range = (vd_child.start_byte() + offset)
+                                    ..(vd_child.end_byte() + offset);
+                                if byte_offset >= range.start && byte_offset <= range.end
+                                    && let Some(ty_text) = var_type {
+                                        return Some(Hover {
+                                            contents: HoverContents::Markup(MarkupContent {
+                                                kind: MarkupKind::Markdown,
+                                                value: format!(
+                                                    "### default value\n---\nType: `{}`\n\nMatches variable type",
+                                                    ty_text
+                                                ),
+                                            }),
+                                            range: Some(
+                                                self.translate_to_file_range(vd_child, offset),
+                                            ),
+                                        });
+                                    }
+                            }
+                        }
+                    }
+                    curr = parent;
                 }
             }
         }
@@ -330,6 +389,21 @@ impl DocumentHover for DocumentState {
 
         let operation_type_string = self.get_operation_type(node, offset);
 
+        if let Some(name_node) = self.find_child_by_kind(node, "name") {
+            let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+            if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                let op_name = self.get_node_text(name_node, offset);
+                let variables = self.extract_operation_variables(node, offset);
+                let description = self.find_description(&op_name);
+                return Some(describe_operation_markdown(
+                    &operation_type_string,
+                    Some(&op_name),
+                    &variables,
+                    description.as_deref(),
+                ));
+            }
+        }
+
         let op_type = match operation_type_string.as_str() {
             "query" => Some(OperationType::Query),
             "mutation" => Some(OperationType::Mutation),
@@ -457,6 +531,12 @@ impl DocumentHover for DocumentState {
             return None;
         }
 
+        if let Some(info) =
+            self.find_directive_info_on_node(field_node, offset, cursor_offset, schema)
+        {
+            return Some(info);
+        }
+
         let components = self.extract_field_components(field_node);
 
         if let Some(alias_node) = components.alias {
@@ -540,10 +620,8 @@ impl DocumentHover for DocumentState {
                     return Some(info);
                 }
 
-                if let Some(dirs_node) = components.directives
-                    && self.is_cursor_in_node_range(dirs_node, offset, cursor_offset)
-                    && let Some(info) =
-                        self.find_directive_info(dirs_node, offset, cursor_offset, schema)
+                if let Some(info) =
+                    self.find_directive_info_on_node(field_node, offset, cursor_offset, schema)
                 {
                     return Some(info);
                 }
@@ -760,11 +838,25 @@ impl DocumentHover for DocumentState {
     ) -> Option<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "directives" {
-                let range = (child.start_byte() + offset)..(child.end_byte() + offset);
-                if cursor_offset >= range.start && cursor_offset <= range.end {
-                    return self.find_directive_info(child, offset, cursor_offset, schema);
+            match child.kind() {
+                "directives" => {
+                    let range = (child.start_byte() + offset)..(child.end_byte() + offset);
+                    if cursor_offset >= range.start && cursor_offset <= range.end {
+                        return self.find_directive_info(child, offset, cursor_offset, schema);
+                    }
                 }
+                "directive" => {
+                    let range = (child.start_byte() + offset)..(child.end_byte() + offset);
+                    if cursor_offset >= range.start && cursor_offset <= range.end {
+                        return self.find_single_directive_info(
+                            child,
+                            offset,
+                            cursor_offset,
+                            schema,
+                        );
+                    }
+                }
+                _ => {}
             }
         }
         None
@@ -779,41 +871,52 @@ impl DocumentHover for DocumentState {
     ) -> Option<String> {
         let mut cursor = directives_node.walk();
         for directive_node in directives_node.children(&mut cursor) {
-            if directive_node.kind() == "directive" {
-                let dir_range =
-                    (directive_node.start_byte() + offset)..(directive_node.end_byte() + offset);
-                if cursor_offset >= dir_range.start && cursor_offset <= dir_range.end {
-                    let name_node = self.find_child_by_kind(directive_node, "name");
-                    let args_node = self.find_child_by_kind(directive_node, "arguments");
+            if directive_node.kind() == "directive"
+                && let Some(info) =
+                    self.find_single_directive_info(directive_node, offset, cursor_offset, schema)
+                {
+                    return Some(info);
+                }
+        }
+        None
+    }
 
-                    if let Some(name_node) = name_node {
-                        let name_range =
-                            (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
-                        let dir_name = self.get_node_text(name_node, offset);
-                        if let Some(dir_def) = schema.directive_definitions.get(dir_name.as_str()) {
-                            if cursor_offset >= name_range.start && cursor_offset <= name_range.end
-                            {
-                                return Some(describe_directive_markdown(
-                                    &dir_name,
-                                    dir_def.description.as_deref(),
-                                ));
-                            }
+    fn find_single_directive_info(
+        &self,
+        directive_node: Node,
+        offset: usize,
+        cursor_offset: usize,
+        schema: &Schema,
+    ) -> Option<String> {
+        let dir_range =
+            (directive_node.start_byte() + offset)..(directive_node.end_byte() + offset);
+        if cursor_offset >= dir_range.start && cursor_offset <= dir_range.end {
+            let name_node = self.find_child_by_kind(directive_node, "name");
+            let args_node = self.find_child_by_kind(directive_node, "arguments");
 
-                            if let Some(args_node) = args_node {
-                                let args_range = (args_node.start_byte() + offset)
-                                    ..(args_node.end_byte() + offset);
-                                if cursor_offset >= args_range.start
-                                    && cursor_offset <= args_range.end
-                                {
-                                    return self.find_argument_info(
-                                        args_node,
-                                        offset,
-                                        cursor_offset,
-                                        &dir_def.arguments,
-                                        schema,
-                                    );
-                                }
-                            }
+            if let Some(name_node) = name_node {
+                let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                let dir_name = self.get_node_text(name_node, offset);
+                if let Some(dir_def) = schema.directive_definitions.get(dir_name.as_str()) {
+                    if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                        return Some(describe_directive_markdown(
+                            &dir_name,
+                            dir_def.description.as_deref(),
+                            &dir_def.arguments,
+                        ));
+                    }
+
+                    if let Some(args_node) = args_node {
+                        let args_range =
+                            (args_node.start_byte() + offset)..(args_node.end_byte() + offset);
+                        if cursor_offset >= args_range.start && cursor_offset <= args_range.end {
+                            return self.find_argument_info(
+                                args_node,
+                                offset,
+                                cursor_offset,
+                                &dir_def.arguments,
+                                schema,
+                            );
                         }
                     }
                 }
@@ -830,9 +933,32 @@ impl DocumentHover for DocumentState {
         ty: &apollo_compiler::ast::Type,
         schema: &Schema,
     ) -> Option<String> {
+        if value_node.kind() == "enum_value" {
+            let type_name = ty.inner_named_type();
+            if let Some(schema::ExtendedType::Enum(enm)) = schema.types.get(type_name.as_str()) {
+                let value_name = self.get_node_text(value_node, offset);
+                if let Some(val_def) = enm.values.get(value_name.as_str()) {
+                    let deprecation_reason = val_def.directives.get("deprecated").and_then(|d| {
+                        d.argument_by_name("reason", schema)
+                            .ok()
+                            .and_then(|arg| arg.as_str())
+                    });
+                    return Some(describe_enum_value_markdown(
+                        type_name.as_str(),
+                        value_name.as_str(),
+                        val_def.description.as_deref(),
+                        deprecation_reason,
+                    ));
+                }
+            }
+        }
+
         let mut cursor = value_node.walk();
         for child in value_node.children(&mut cursor) {
             match child.kind() {
+                "string_value" | "int_value" | "float_value" | "boolean_value" | "null_value" => {
+                    return Some(describe_literal_markdown(child.kind(), &ty.to_string()));
+                }
                 "object_value" => {
                     return self.find_info_in_object_value(
                         child,
@@ -844,6 +970,28 @@ impl DocumentHover for DocumentState {
                 }
                 "list_value" => {
                     return self.find_info_in_value(child, offset, cursor_offset, ty, schema);
+                }
+                "enum_value" => {
+                    let type_name = ty.inner_named_type();
+                    if let Some(schema::ExtendedType::Enum(enm)) =
+                        schema.types.get(type_name.as_str())
+                    {
+                        let value_name = self.get_node_text(child, offset);
+                        if let Some(val_def) = enm.values.get(value_name.as_str()) {
+                            let deprecation_reason =
+                                val_def.directives.get("deprecated").and_then(|d| {
+                                    d.argument_by_name("reason", schema)
+                                        .ok()
+                                        .and_then(|arg| arg.as_str())
+                                });
+                            return Some(describe_enum_value_markdown(
+                                type_name.as_str(),
+                                value_name.as_str(),
+                                val_def.description.as_deref(),
+                                deprecation_reason,
+                            ));
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -1001,6 +1149,13 @@ impl DocumentHover for DocumentState {
                         "name" => {
                             name = Some(self.get_node_text(child, offset));
                         }
+                        "enum_value" => {
+                            if let Some(n) = child.child_by_field_name("name") {
+                                name = Some(self.get_node_text(n, offset));
+                            } else if let Some(n) = child.child(0) {
+                                name = Some(self.get_node_text(n, offset));
+                            }
+                        }
                         "fragment_name" => {
                             if let Some(n) = child.child_by_field_name("name") {
                                 name = Some(self.get_node_text(n, offset));
@@ -1056,6 +1211,105 @@ impl DocumentHover for DocumentState {
             }
         }
         self.get_node_text(alias_node, offset)
+    }
+
+    fn find_type_extension_info(&self, name_node: Node, offset: usize) -> Option<String> {
+        let mut curr = name_node;
+        while let Some(parent) = curr.parent() {
+            match parent.kind() {
+                "object_type_extension"
+                | "interface_type_extension"
+                | "enum_type_extension"
+                | "scalar_type_extension"
+                | "union_type_extension"
+                | "input_object_type_extension" => {
+                    let type_name = self.get_node_text(name_node, offset);
+                    let mut adds_fields = Vec::new();
+                    let mut implements_interfaces = Vec::new();
+
+                    let mut cursor = parent.walk();
+                    for child in parent.children(&mut cursor) {
+                        match child.kind() {
+                            "implements_interfaces" => {
+                                let mut i_cursor = child.walk();
+                                for i_child in child.children(&mut i_cursor) {
+                                    if i_child.kind() == "named_type" {
+                                        implements_interfaces
+                                            .push(self.get_node_text(i_child, offset));
+                                    }
+                                }
+                            }
+                            "field_definitions" | "fields_definition" => {
+                                let mut fd_cursor = child.walk();
+                                for fd in child.children(&mut fd_cursor) {
+                                    if fd.kind() == "field_definition" {
+                                        let f_name = self
+                                            .find_child_by_kind(fd, "name")
+                                            .map(|n| self.get_node_text(n, offset))
+                                            .unwrap_or_default();
+                                        let f_type = self
+                                            .find_child_by_kind(fd, "type")
+                                            .map(|n| self.get_node_text(n, offset))
+                                            .unwrap_or_default();
+                                        if !f_name.is_empty() {
+                                            adds_fields.push(format!("{}: {}", f_name, f_type));
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let mut info = format!("### extends {}\n---\n", type_name);
+                    if !adds_fields.is_empty() {
+                        info.push_str("Adds: ");
+                        let fields: Vec<String> =
+                            adds_fields.iter().map(|f| format!("`{}`", f)).collect();
+                        info.push_str(&fields.join(", "));
+                        info.push('\n');
+                    }
+                    if !implements_interfaces.is_empty() {
+                        info.push_str("Implements: ");
+                        let ifaces: Vec<String> = implements_interfaces
+                            .iter()
+                            .map(|i| format!("`{}`", i))
+                            .collect();
+                        info.push_str(&ifaces.join(", "));
+                        info.push('\n');
+                    }
+                    return Some(info);
+                }
+                _ => {}
+            }
+            curr = parent;
+        }
+        None
+    }
+
+    fn extract_operation_variables(&self, op_node: Node, offset: usize) -> Vec<(String, String)> {
+        let mut variables = Vec::new();
+        if let Some(defs) = self.find_child_by_kind(op_node, "variable_definitions") {
+            let mut cursor = defs.walk();
+            for vd in defs.children(&mut cursor) {
+                if vd.kind() == "variable_definition" {
+                    let mut v_name = String::new();
+                    let mut v_type = String::new();
+                    let mut inner = vd.walk();
+                    for child in vd.children(&mut inner) {
+                        if child.kind() == "variable" {
+                            v_name = self.get_node_text(child, offset);
+                        } else if child.kind() == "type" {
+                            v_type = self.get_node_text(child, offset);
+                        }
+                    }
+                    if !v_name.is_empty() {
+                        variables.push((v_name, v_type));
+                    }
+                }
+            }
+        }
+        variables
     }
 
     fn extract_field_info_for_alias(
@@ -1152,8 +1406,21 @@ fn describe_argument_markdown(arg_name: &str, arg_type: &str, description: Optio
     info
 }
 
-fn describe_directive_markdown(dir_name: &str, description: Option<&str>) -> String {
+fn describe_directive_markdown(
+    dir_name: &str,
+    description: Option<&str>,
+    arguments: &[apollo_compiler::Node<schema::InputValueDefinition>],
+) -> String {
     let mut info = format!("### directive @{}\n---\n", dir_name);
+    if !arguments.is_empty() {
+        info.push_str("Args: ");
+        let args: Vec<String> = arguments
+            .iter()
+            .map(|a| format!("{}: `{}`", a.name, a.ty))
+            .collect();
+        info.push_str(&args.join(", "));
+        info.push_str("\n\n");
+    }
     if let Some(desc) = description
         && !desc.trim().is_empty()
     {
@@ -1162,6 +1429,67 @@ fn describe_directive_markdown(dir_name: &str, description: Option<&str>) -> Str
     info
 }
 
+fn describe_operation_markdown(
+    op_type: &str,
+    op_name: Option<&str>,
+    variables: &[(String, String)],
+    description: Option<&str>,
+) -> String {
+    let mut info = format!("### {} {}\n", op_type, op_name.unwrap_or(""));
+    info.push_str("---\n");
+    if !variables.is_empty() {
+        info.push_str("Variables: ");
+        let vars: Vec<String> = variables
+            .iter()
+            .map(|(name, ty)| format!("{}: `{}`", name, ty))
+            .collect();
+        info.push_str(&vars.join(", "));
+        info.push_str("\n\n");
+    }
+    if let Some(desc) = description {
+        info.push_str(desc);
+    }
+    info
+}
+
 fn describe_variable_markdown(var_name: &str, var_type: &str) -> String {
     format!("### variable {}\n---\nType: `{}`", var_name, var_type)
+}
+
+fn describe_literal_markdown(kind: &str, expected_type: &str) -> String {
+    let display_kind = match kind {
+        "string_value" => "string value",
+        "int_value" => "int value",
+        "float_value" => "float value",
+        "boolean_value" => "boolean value",
+        "null_value" => "null value",
+        _ => "value",
+    };
+    format!(
+        "### {}\n---\nExpected type: `{}`",
+        display_kind, expected_type
+    )
+}
+
+fn describe_enum_value_markdown(
+    enum_name: &str,
+    value_name: &str,
+    description: Option<&str>,
+    deprecation_reason: Option<&str>,
+) -> String {
+    let mut info = format!(
+        "### enum value {}\n---\nType: `{}`\n",
+        value_name, enum_name
+    );
+    if let Some(desc) = description
+        && !desc.trim().is_empty()
+    {
+        info.push('\n');
+        info.push_str(desc);
+        info.push('\n');
+    }
+    if let Some(reason) = deprecation_reason {
+        info.push_str(&format!("\n**Deprecated:** {}\n", reason));
+    }
+    info
 }

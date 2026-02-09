@@ -437,3 +437,323 @@ async fn test_hover_builtin_schema_fields() {
         panic!("Expected Markup contents");
     }
 }
+
+#[tokio::test]
+async fn test_hover_enum_value() {
+    let schema = r#"
+        enum Status {
+            "Order is being processed"
+            PROCESSING
+            "Order has been shipped"
+            SHIPPED
+        }
+        type Query { orders(status: Status): [ID] }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let text = r#"
+        query {
+            orders(status: PROCESSING)
+        }
+    "#;
+    let uri = write_project_file(&dir, "hover_enum.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 28)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for enum value"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("enum value PROCESSING"),
+            "Should show enum value info, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Type: `Status`"),
+            "Should show enum type, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Order is being processed"),
+            "Should show enum value description, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_directive_enhanced() {
+    let schema = r#"
+        directive @custom(arg: String, required: Int!) on FIELD
+        type Query { id: ID }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let text = r#"
+        query {
+            id @custom(arg: "test", required: 1)
+        }
+    "#;
+    let uri = write_project_file(&dir, "hover_directive.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 16)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for directive"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("directive @custom"),
+            "Should show directive name, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Args: arg: `String`, required: `Int!`"),
+            "Should show directive arguments, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_inline_fragment_type() {
+    let schema = "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! username: String! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let text = r#"
+        query {
+            node {
+                ... on User {
+                    username
+                }
+            }
+        }
+    "#;
+    let uri = write_project_file(&dir, "hover_inline.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(3, 24)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for type User"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("type User"),
+            "Should show type info for User, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_enum_value_definition() {
+    let schema = r#"
+        enum Status {
+            "Order is being processed"
+            PROCESSING
+            "Order has been shipped"
+            SHIPPED
+        }
+        type Query { id: ID }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let schema_path = dir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = std::fs::read_to_string(&schema_path).unwrap();
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    let result = lsp_request_hover(&mut service, schema_uri.clone(), pos(3, 14)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for PROCESSING"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("PROCESSING"),
+            "Should show value name, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Order is being processed"),
+            "Should show description, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_operation_name() {
+    let schema = "type Query { user(id: ID!): User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let text = r#"
+        query GetUser($id: ID!) {
+            user(id: $id) {
+                id
+            }
+        }
+    "#;
+    let uri = write_project_file(&dir, "hover_op.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(1, 17)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for GetUser"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("query GetUser"),
+            "Should show operation name, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Variables: $id: `ID!`"),
+            "Should show variables, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_variable_default() {
+    let schema = "type Query { user(name: String): User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let text = r#"
+        query GetUser($name: String = "Emma") {
+            user(name: $name) {
+                id
+            }
+        }
+    "#;
+    let uri = write_project_file(&dir, "hover_default.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    // Hover over "Emma"
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(1, 40)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for default value"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("default value"),
+            "Should show it's a default value, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Type: `String`"),
+            "Should show expected type, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_scalar_literal() {
+    let schema = "type Query { user(id: ID!): User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let text = r#"
+        query {
+            user(id: "123") {
+                id
+            }
+        }
+    "#;
+    let uri = write_project_file(&dir, "hover_literal.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    // Hover over "123"
+    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 22)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for literal value"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("string value"),
+            "Should show it's a string value, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Expected type: `ID!`"),
+            "Should show expected type, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}
+
+#[tokio::test]
+async fn test_hover_type_extension() {
+    let schema = r#"
+        type User { id: ID! }
+        extend type User {
+            email: String!
+        }
+        type Query { id: ID }
+    "#;
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let schema_path = dir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = std::fs::read_to_string(&schema_path).unwrap();
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    // Hover over 'User' in 'extend type User'
+    let result = lsp_request_hover(&mut service, schema_uri.clone(), pos(2, 22)).await;
+
+    assert!(
+        result.is_some(),
+        "Hover should return something for type extension"
+    );
+    if let HoverContents::Markup(m) = result.unwrap().contents {
+        assert!(
+            m.value.contains("extends User"),
+            "Should show it's an extension, got: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Adds: `email: String!`"),
+            "Should show added fields, got: {}",
+            m.value
+        );
+    } else {
+        panic!("Expected Markup contents");
+    }
+}

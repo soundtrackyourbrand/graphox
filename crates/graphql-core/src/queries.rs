@@ -103,6 +103,9 @@ pub const GQL_DESCRIPTION_QUERY: &str = r#"
     (object_type_definition) @container
     (enum_type_definition) @container
     (fragment_definition) @container
+    (enum_value_definition) @container
+    (field_definition) @container
+    (input_value_definition) @container
     (comment) @comment
 "#;
 
