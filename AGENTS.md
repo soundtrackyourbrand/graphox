@@ -13,9 +13,10 @@ All modifying git actions MUST be handled by the user. Never commit and never ev
 - **Run all tests:** `cargo test`
 - **Run a specific test file:** `cargo test --test <filename>` (e.g., `cargo test --test validation`)
 - **Run a single test:** `cargo test <test_name_substring>` (e.g., `cargo test test_validation_valid_query`)
-- **Benchmarks:** `make benchmark` or `cargo run -- benchmark <path>`
+- **Benchmarks:** `make benchmark`
 - **Update test baselines:** `make update-baselines` (runs `./scripts/update_baselines.py`)
 - **Clean:** `make clean`
+- **Full check:** `make check` (runs fmt, clippy, tests, and bench compilation) -- run this when done with a feature or bug fix
 
 ## Project Overview
 

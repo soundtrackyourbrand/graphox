@@ -1,5 +1,5 @@
 .PHONY: build test benchmark update-baselines clean help release-patch release-minor release-major
-.PHONY: cargo-build cargo-test swc-build swc-test babel-build babel-test
+.PHONY: cargo-build cargo-test swc-build swc-test babel-build babel-test check fmt clippy bench-compile
 
 # Default target
 all: build
@@ -58,6 +58,21 @@ release-minor:
 ## release-major: Bump major version, commit, tag, and push
 release-major:
 	@./scripts/release.sh major
+
+## check: Run all linting, formatting, tests, and bench compilation
+check: fmt clippy test bench-compile
+
+## fmt: Format code
+fmt:
+	cargo fmt
+
+## clippy: Run clippy with all targets and features
+clippy:
+	cargo clippy --all-targets --all-features -- --D warnings
+
+## bench-compile: Compile benchmarks (without running)
+bench-compile:
+	cargo build --features bench --benches
 
 ## help: Show this help message
 help:
