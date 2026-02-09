@@ -209,8 +209,14 @@ async fn execute_project_check(
         // If there are duplicate fragment names in the project, we should probably
         // prefer the one in the same package.
         available_fragments.sort_by(|a, b| {
-            let a_same_pkg = a.package_root == doc.package_root;
-            let b_same_pkg = b.package_root == doc.package_root;
+            let a_same_pkg = graphql_core::utils::paths_match(
+                a.package_root.as_deref(),
+                doc.package_root.as_deref(),
+            );
+            let b_same_pkg = graphql_core::utils::paths_match(
+                b.package_root.as_deref(),
+                doc.package_root.as_deref(),
+            );
             b_same_pkg.cmp(&a_same_pkg)
         });
 

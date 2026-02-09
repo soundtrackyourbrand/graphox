@@ -99,12 +99,9 @@ pub(super) fn validate_fragment(
         // 3. Collision and shadowing checks
         if let Some(current_frag) = current_frag_def {
             let current_is_public = current_frag.is_public;
-            let current_package_root = this.package_root.as_ref();
 
             for other in ctx.all_fragments {
                 if other.name == name && other.uri != this.uri {
-                    let other_package_root = &other.package_root;
-
                     if current_is_public && other.is_public {
                         ctx.diagnostics.push(Diagnostic {
                             range: this.translate_to_file_range(name_node, offset),
@@ -115,7 +112,10 @@ pub(super) fn validate_fragment(
                         break;
                     } else if !current_is_public
                         && !other.is_public
-                        && current_package_root == other_package_root.as_ref()
+                        && graphql_core::utils::paths_match(
+                            this.package_root.as_deref(),
+                            other.package_root.as_deref(),
+                        )
                     {
                         ctx.diagnostics.push(Diagnostic {
                             range: this.translate_to_file_range(name_node, offset),

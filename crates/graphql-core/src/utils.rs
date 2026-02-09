@@ -240,6 +240,34 @@ pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Helper to compare two paths for equality, handling platform-specific quirks
+/// like Windows UNC prefixes and case-insensitivity.
+pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
+    match (a, b) {
+        (Some(pa), Some(pb)) => {
+            if pa == pb {
+                return true;
+            }
+
+            #[cfg(windows)]
+            {
+                let sa = pa.to_string_lossy();
+                let sb = pb.to_string_lossy();
+                let ca = sa.strip_prefix(r"\\?\").unwrap_or(&sa);
+                let cb = sb.strip_prefix(r"\\?\").unwrap_or(&sb);
+                return ca.eq_ignore_ascii_case(cb);
+            }
+
+            #[cfg(not(windows))]
+            {
+                return false;
+            }
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 pub fn get_output_path(path: &Path, base_dir: &Path, output_dir: Option<&str>) -> PathBuf {
     if let Some(dir) = output_dir {
         let mut p = base_dir.join(dir);

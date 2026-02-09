@@ -252,7 +252,12 @@ impl Backend {
 
             // Find this fragment (respecting scoping)
             if let Some(frag) = all_fragments.iter().find(|f| {
-                f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
+                f.name == name
+                    && (f.is_public
+                        || graphql_core::utils::paths_match(
+                            f.package_root.as_deref(),
+                            package_root.map(|p| p.as_path()),
+                        ))
             }) {
                 fragment_uris.insert(frag.uri.clone());
 
@@ -291,7 +296,12 @@ impl Backend {
                 }
 
                 if let Some(frag) = all_fragments.iter().find(|f| {
-                    f.name == name && (f.is_public || f.package_root.as_ref() == package_root)
+                    f.name == name
+                        && (f.is_public
+                            || graphql_core::utils::paths_match(
+                                f.package_root.as_deref(),
+                                package_root.map(|p| p.as_path()),
+                            ))
                 }) && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone())
                 {
                     let local_vars = if let Some(cached) = variable_types_cache.get(&name) {
@@ -756,7 +766,10 @@ impl Backend {
         current_doc: &Arc<DocumentState>,
         fragment_name: &str,
     ) -> bool {
-        let is_same_package = fragment_doc.package_root == current_doc.package_root;
+        let is_same_package = graphql_core::utils::paths_match(
+            fragment_doc.package_root.as_deref(),
+            current_doc.package_root.as_deref(),
+        );
         let is_public_fragment = fragment_doc
             .fragments()
             .iter()
@@ -863,7 +876,10 @@ impl LanguageServer for Backend {
                         self.documents.iter().map(|e| e.value().clone()).collect();
 
                     for other_doc in doc_arcs {
-                        let is_same_package = other_doc.package_root == doc.package_root;
+                        let is_same_package = graphql_core::utils::paths_match(
+                            other_doc.package_root.as_deref(),
+                            doc.package_root.as_deref(),
+                        );
                         let is_public_fragment = other_doc
                             .fragments()
                             .iter()

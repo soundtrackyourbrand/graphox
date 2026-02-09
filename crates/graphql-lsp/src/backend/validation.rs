@@ -266,7 +266,10 @@ pub fn get_fragments_for_doc_with_metadata(
     let mut filtered: Vec<_> = all_fragments
         .iter()
         .filter(|f| {
-            let is_same_package = f.package_root.as_ref() == target_package_root;
+            let is_same_package = graphql_core::utils::paths_match(
+                f.package_root.as_deref(),
+                target_package_root.map(|p| p.as_path()),
+            );
             is_same_package || f.is_public
         })
         .cloned()
@@ -274,8 +277,14 @@ pub fn get_fragments_for_doc_with_metadata(
 
     // Prioritize fragments from same package
     filtered.sort_by(|a, b| {
-        let a_same_pkg = a.package_root.as_ref() == target_package_root;
-        let b_same_pkg = b.package_root.as_ref() == target_package_root;
+        let a_same_pkg = graphql_core::utils::paths_match(
+            a.package_root.as_deref(),
+            target_package_root.map(|p| p.as_path()),
+        );
+        let b_same_pkg = graphql_core::utils::paths_match(
+            b.package_root.as_deref(),
+            target_package_root.map(|p| p.as_path()),
+        );
 
         if a_same_pkg != b_same_pkg {
             return b_same_pkg.cmp(&a_same_pkg);
