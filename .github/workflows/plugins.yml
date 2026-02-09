@@ -24,7 +24,6 @@ jobs:
           version: 8
       - run: cd plugins/babel && pnpm install
       - run: cd plugins/babel && pnpm test
-      - run: cd plugins/babel && pnpm build
 
   swc:
     name: SWC Plugin
