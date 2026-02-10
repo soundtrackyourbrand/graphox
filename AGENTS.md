@@ -4,7 +4,6 @@ You are an agentic coding assistant working on `Graphox`, a comprehensive Rust t
 
 All modifying git actions MUST be handled by the user. Never commit and never even suggest committing.
 
-
 ## Build, Lint, and Test Commands
 
 - **Build:** `cargo build`
@@ -16,7 +15,7 @@ All modifying git actions MUST be handled by the user. Never commit and never ev
 - **Benchmarks:** `make benchmark`
 - **Update test baselines:** `make update-baselines` (runs `./scripts/update_baselines.py`)
 - **Clean:** `make clean`
-- **Full check:** `make check` (runs fmt, clippy, tests, and bench compilation) -- run this when done with a feature or bug fix
+- **Full check:** `make check` (runs fmt, clippy, tests, and bench compilation) IMPORTANT: run this when done with a feature or bug fix
 
 ## Project Overview
 
@@ -51,6 +50,7 @@ Comments should be used to explain why something is done, not what is being done
 ## Code Structure
 
 This project is organized as a Rust workspace to separate concerns and improve maintainability.
+IMPORTANT: use ripgrep (rg) when searching in the workspace root, do not use grep
 
 ### Core Workspace Packages
 
