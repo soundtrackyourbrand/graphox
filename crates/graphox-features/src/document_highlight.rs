@@ -1,6 +1,6 @@
 use crate::references::DocumentReferences;
-use crate::shared::type_resolver::resolve_symbol_at_node;
 use crate::shared::type_resolver::SemanticSymbol;
+use crate::shared::type_resolver::resolve_symbol_at_node;
 use apollo_compiler::Schema;
 use graphox_core::document::DocumentState;
 use lsp_types::*;
@@ -127,13 +127,26 @@ impl DocumentHighlightFeature for DocumentState {
 
             if cursor_offset >= offset && cursor_offset < offset + tree_len {
                 let local_byte = cursor_offset - offset;
-                if let Some(node) = root.descendant_for_byte_range(local_byte, local_byte) {
-                    if let Some(symbol) =
+                if let Some(node) = root.descendant_for_byte_range(local_byte, local_byte)
+                    && let Some(symbol) =
                         resolve_symbol_at_node(self, node, offset, cursor_offset, schema)
-                    {
-                        match symbol {
-                            SemanticSymbol::Fragment { name, .. } => {
-                                let locations = self.find_references_in_tree(&name, true);
+                {
+                    match symbol {
+                        SemanticSymbol::Fragment { name, .. } => {
+                            let locations = self.find_references_in_tree(&name, true);
+                            return Some(
+                                locations
+                                    .into_iter()
+                                    .map(|loc| DocumentHighlight {
+                                        range: loc.range,
+                                        kind: Some(DocumentHighlightKind::READ),
+                                    })
+                                    .collect(),
+                            );
+                        }
+                        SemanticSymbol::Operation { name, .. } => {
+                            if let Some(op_name) = name {
+                                let locations = self.find_references_in_tree(&op_name, true);
                                 return Some(
                                     locations
                                         .into_iter()
@@ -144,23 +157,9 @@ impl DocumentHighlightFeature for DocumentState {
                                         .collect(),
                                 );
                             }
-                            SemanticSymbol::Operation { name, .. } => {
-                                if let Some(op_name) = name {
-                                    let locations = self.find_references_in_tree(&op_name, true);
-                                    return Some(
-                                        locations
-                                            .into_iter()
-                                            .map(|loc| DocumentHighlight {
-                                                range: loc.range,
-                                                kind: Some(DocumentHighlightKind::READ),
-                                            })
-                                            .collect(),
-                                    );
-                                }
-                                return None;
-                            }
-                            _ => return None,
+                            return None;
                         }
+                        _ => return None,
                     }
                 }
             }

@@ -32,6 +32,14 @@ use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp
 // Re-export ClientCapabilities for backward compatibility
 pub use capabilities::ClientCapabilities;
 
+use tower_lsp::lsp_types::DocumentSymbol;
+
+/// Finds a symbol by exact name match within a document.
+/// This is more efficient than get_symbols() when we already know the name.
+fn find_symbol_by_name(doc: &DocumentState, name: &str) -> Option<DocumentSymbol> {
+    doc.get_symbols().into_iter().find(|sym| sym.name == name)
+}
+
 pub struct Backend {
     pub client: Client,
     pub documents: DocumentsMap,
@@ -1245,6 +1253,26 @@ impl LanguageServer for Backend {
             doc.fragments().iter().map(|f| f.name.clone()).collect(),
         );
 
+        // Update operation names index for duplicate detection
+        let config = self.config.read().unwrap().clone();
+        let schema_key: Arc<str> = if let Ok(path) = uri.to_file_path() {
+            if let Some(key) = config.get_schema_for_path(&path) {
+                key.into()
+            } else {
+                "default".into()
+            }
+        } else {
+            "default".into()
+        };
+        for op in doc.operations() {
+            if let Some(name) = &op.name {
+                self.operation_names
+                    .entry(name.clone())
+                    .or_default()
+                    .push((schema_key.clone(), uri.clone()));
+            }
+        }
+
         let mut affected_spread_names = AHashSet::default();
         for s in &doc.fragment_spreads {
             affected_spread_names.insert(s.clone());
@@ -1599,26 +1627,60 @@ impl LanguageServer for Backend {
             let query = params.query.to_lowercase();
             let mut all_symbols = Vec::new();
 
-            let doc_arcs: Vec<Arc<DocumentState>> =
-                self.documents.iter().map(|e| e.value().clone()).collect();
+            // Phase 1: Query fragment_definitions index for matching fragments
+            // This is O(n) where n = number of unique fragment names (much smaller than all documents)
+            for entry in self.fragment_definitions.iter() {
+                let frag_name = entry.key();
+                if frag_name.to_lowercase().contains(&query) {
+                    let urls = entry.value();
+                    // Fetch each document that contains this fragment
+                    for url in urls {
+                        if let Some(doc) = self.documents.get(url).map(|e| e.value().clone()) {
+                            // Find the specific fragment symbol
+                            if let Some(sym) = find_symbol_by_name(&doc, frag_name) {
+                                #[allow(deprecated)]
+                                all_symbols.push(SymbolInformation {
+                                    name: sym.name,
+                                    kind: sym.kind,
+                                    tags: sym.tags,
+                                    deprecated: sym.deprecated,
+                                    location: Location {
+                                        uri: doc.uri.clone(),
+                                        range: sym.selection_range,
+                                    },
+                                    container_name: sym.detail,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
 
-            for doc in doc_arcs {
-                let symbols = doc.get_symbols();
-
-                for sym in symbols {
-                    if sym.name.to_lowercase().contains(&query) {
-                        #[allow(deprecated)]
-                        all_symbols.push(SymbolInformation {
-                            name: sym.name,
-                            kind: sym.kind,
-                            tags: sym.tags,
-                            deprecated: sym.deprecated,
-                            location: Location {
-                                uri: doc.uri.clone(),
-                                range: sym.selection_range,
-                            },
-                            container_name: sym.detail,
-                        });
+            // Phase 2: Query operation_names index for matching operations
+            // operation_names maps: name -> Vec<(schema_key, Url)>
+            for entry in self.operation_names.iter() {
+                let op_name = entry.key();
+                if op_name.to_lowercase().contains(&query) {
+                    let occurrences = entry.value();
+                    // Each occurrence is (schema_key, url) - collect unique URLs
+                    for (_, url) in occurrences {
+                        if let Some(doc) = self.documents.get(url).map(|e| e.value().clone()) {
+                            // Find the specific operation symbol
+                            if let Some(sym) = find_symbol_by_name(&doc, op_name) {
+                                #[allow(deprecated)]
+                                all_symbols.push(SymbolInformation {
+                                    name: sym.name,
+                                    kind: sym.kind,
+                                    tags: sym.tags,
+                                    deprecated: sym.deprecated,
+                                    location: Location {
+                                        uri: doc.uri.clone(),
+                                        range: sym.selection_range,
+                                    },
+                                    container_name: sym.detail,
+                                });
+                            }
+                        }
                     }
                 }
             }

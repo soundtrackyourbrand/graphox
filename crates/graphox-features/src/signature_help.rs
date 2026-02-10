@@ -1,5 +1,5 @@
-use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::Schema;
+use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
 use lsp_types::*;
 use tree_sitter::Node;
