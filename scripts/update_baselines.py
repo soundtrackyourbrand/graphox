@@ -3,11 +3,10 @@ import subprocess
 import os
 import shutil
 import sys
+import re
 
-# Get the absolute path to the project root
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_PATH = os.path.join(ROOT, "target/debug/graphox")
-SIMPLE_SCHEMA = os.path.join(ROOT, "tests/fixtures/simple_schema.graphql")
 
 def update_baselines(fixture_rel, baseline_rel):
     fixture_dir = os.path.join(ROOT, fixture_rel)
@@ -19,7 +18,7 @@ def update_baselines(fixture_rel, baseline_rel):
 
     if not os.path.exists(baseline_dir):
         os.makedirs(baseline_dir)
-        
+    
     temp_out = os.path.join(ROOT, "temp_gen_out")
     if os.path.exists(temp_out):
         shutil.rmtree(temp_out)
@@ -27,22 +26,37 @@ def update_baselines(fixture_rel, baseline_rel):
     
     print(f"Updating baselines for {fixture_rel} -> {baseline_rel}")
     
-    # Run codegen
-    args = [BIN_PATH, "codegen", ".", "--output", temp_out]
+    # Temporarily modify graphox.yaml to change output_dir
+    config_path = os.path.join(fixture_dir, "graphox.yaml")
+    original_config = None
+    
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            original_config = f.read()
+        # Replace output_dir value
+        modified_config = re.sub(r'(output_dir:\s*)".*"', r'\1"' + temp_out + '"', original_config)
+        with open(config_path, 'w') as f:
+            f.write(modified_config)
     
     try:
-        subprocess.run(args, cwd=fixture_dir, check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        print(f"  FAILED to run codegen for {fixture_rel}")
-        print(e.stderr.decode())
-        return
+        # Run codegen from fixture directory
+        args = [BIN_PATH, "codegen", "."]
+        result = subprocess.run(args, cwd=fixture_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  FAILED to run codegen for {fixture_rel}")
+            print(result.stderr)
+            return
+    finally:
+        # Restore original config
+        if original_config:
+            with open(config_path, 'w') as f:
+                f.write(original_config)
     
     # Copy and rename files
     updated_count = 0
     for root, dirs, files in os.walk(temp_out):
         for f in files:
             if f.endswith(".codegen.ts") or f == "graphql.ts":
-                # Calculate relative path from temp_out to preserve structure
                 rel_dir = os.path.relpath(root, temp_out)
                 target_dir = os.path.normpath(os.path.join(baseline_dir, rel_dir))
                 if not os.path.exists(target_dir):

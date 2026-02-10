@@ -2,7 +2,10 @@ type Query {
   users: [User]
   posts: [Post]
   node(id: ID!): Node
+  currentAccount: Account
 }
+
+union Account = User | Admin
 
 interface Node {
   id: ID!
@@ -35,6 +38,12 @@ enum Role {
   ADMIN
   USER
   GUEST
+}
+
+type Admin {
+  id: ID!
+  role: String!
+  permissions: [String]
 }
 
 input CreateUserInput {

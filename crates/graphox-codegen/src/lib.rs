@@ -262,7 +262,7 @@ pub fn generate_typescript_with_profile(
                 .ok_or_else(|| format!("Root type for {:?} not found", op.operation_type))?;
 
             let sel_start = Instant::now();
-            let ts_type = generate_selection_set(
+            let result = generate_selection_set(
                 &op.selection_set,
                 root_type,
                 ctx,
@@ -272,13 +272,21 @@ pub fn generate_typescript_with_profile(
             );
             profile.selection_set_time += sel_start.elapsed();
 
-            // Avoid format! macro overhead
-            bodies.push_str("export interface ");
-            bodies.push_str(name);
-            bodies.push_str(suffix);
-            bodies.push(' ');
-            bodies.push_str(&ts_type);
-            bodies.push_str("\n\n");
+            if result.needs_type_declaration {
+                bodies.push_str("export type ");
+                bodies.push_str(name);
+                bodies.push_str(suffix);
+                bodies.push_str(" = ");
+                bodies.push_str(&result.type_str);
+                bodies.push_str(";\n\n");
+            } else {
+                bodies.push_str("export interface ");
+                bodies.push_str(name);
+                bodies.push_str(suffix);
+                bodies.push(' ');
+                bodies.push_str(&result.type_str);
+                bodies.push_str("\n\n");
+            }
 
             let vars_type = if !op.variables.is_empty() {
                 let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix);
@@ -393,7 +401,7 @@ pub fn generate_typescript_with_profile(
                 .ok_or_else(|| format!("Type {} not found in schema", type_name))?;
 
             let sel_start = Instant::now();
-            let ts_type = generate_selection_set(
+            let result = generate_selection_set(
                 &frag.selection_set,
                 type_def,
                 ctx,
@@ -403,24 +411,35 @@ pub fn generate_typescript_with_profile(
             );
             profile.selection_set_time += sel_start.elapsed();
 
-            bodies.push_str("export interface ");
-            bodies.push_str(&frag.name);
-            bodies.push_str(ctx.fragment_suffix);
-            bodies.push(' ');
-            bodies.push_str(&ts_type);
+            if result.needs_type_declaration {
+                bodies.push_str("export type ");
+                bodies.push_str(&frag.name);
+                bodies.push_str(ctx.fragment_suffix);
+                bodies.push_str(" = ");
+                bodies.push_str(&result.type_str);
+                bodies.push_str(";\n");
+            } else {
+                bodies.push_str("export interface ");
+                bodies.push_str(&frag.name);
+                bodies.push_str(ctx.fragment_suffix);
+                bodies.push(' ');
+                bodies.push_str(&result.type_str);
+                if ctx.fragment_masking.is_enabled() {
+                    bodies.push_str("\n\n");
+                } else {
+                    bodies.push_str("\n");
+                }
+            }
 
             if ctx.fragment_masking.is_enabled() {
-                bodies.push_str("\n\n");
                 bodies.push_str("export declare const ");
                 bodies.push_str(&frag.name);
                 bodies.push_str(ctx.fragment_suffix);
                 bodies.push_str(": {\n");
                 bodies.push_str("  __fragment: ");
-                bodies.push_str(&ts_type);
-                bodies.push_str(";\n");
-                bodies.push_str("};\n");
+                bodies.push_str(&result.type_str);
+                bodies.push_str(";\n};\n\n");
             }
-            bodies.push_str("\n\n");
 
             if ctx.generate_ast_for_fragments {
                 let ast_start = Instant::now();
@@ -485,10 +504,12 @@ pub fn generate_typescript_with_profile(
                     bodies.push_str(ctx.document_suffix);
                     bodies.push_str(" = { kind: 'Document', definitions: ");
                     bodies.push_str(&definitions);
-                    bodies.push_str(" } as unknown as DocumentNode<any, any>;\n\n");
+                    bodies.push_str(" } as unknown as DocumentNode<any, any>;\n");
                 }
                 profile.ast_serialization_time += ast_start.elapsed();
             }
+
+            bodies.push_str("\n");
         }
     }
 
@@ -854,6 +875,12 @@ pub fn emit_permission_data_content(
     output
 }
 
+#[derive(Debug, Clone)]
+pub struct SelectionSetType {
+    pub type_str: String,
+    pub needs_type_declaration: bool,
+}
+
 fn generate_selection_set(
     selection_set: &SelectionSet,
     parent_type: &ExtendedType,
@@ -861,7 +888,7 @@ fn generate_selection_set(
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
     used_schema_types: &mut HashSet<String>,
-) -> String {
+) -> SelectionSetType {
     let categorized = categorize_selections(selection_set, used_fragments);
 
     if categorized.inline_fragments.is_empty() {
@@ -938,7 +965,7 @@ fn generate_object_or_intersection(
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
     used_schema_types: &mut HashSet<String>,
-) -> String {
+) -> SelectionSetType {
     let local_fields_list = generate_field_list(
         &categorized.fields,
         parent_type,
@@ -950,9 +977,17 @@ fn generate_object_or_intersection(
     );
 
     if categorized.fragment_spreads.is_empty() {
-        format_multiline_object(&local_fields_list, indent)
+        let type_str = format_multiline_object(&local_fields_list, indent);
+        SelectionSetType {
+            type_str,
+            needs_type_declaration: false,
+        }
     } else {
-        format_intersection(&local_fields_list, &categorized.fragment_spreads, ctx)
+        let type_str = format_intersection(&local_fields_list, &categorized.fragment_spreads, ctx);
+        SelectionSetType {
+            type_str,
+            needs_type_declaration: true,
+        }
     }
 }
 
@@ -990,14 +1025,15 @@ fn generate_field_list(
                     .types
                     .get(inner_type_name.as_str())
                     .expect("Field type must exist");
-                generate_selection_set(
+                let result = generate_selection_set(
                     &field.selection_set,
                     inner_type,
                     ctx,
                     indent + 1,
                     used_fragments,
                     used_schema_types,
-                )
+                );
+                result.type_str
             };
 
             let wrapped_type = if field.selection_set.selections.is_empty() {
@@ -1087,7 +1123,7 @@ fn generate_union_type(
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
     used_schema_types: &mut HashSet<String>,
-) -> String {
+) -> SelectionSetType {
     let pad = "  ".repeat(indent);
     let mut branches = Vec::with_capacity(inline_fragments.len() + fragment_spreads.len() + 1);
 
@@ -1113,7 +1149,11 @@ fn generate_union_type(
         used_fragments.insert(spread.fragment_name.to_string(), String::new());
     }
 
-    format_union_branches(&branches, &pad)
+    let type_str = format_union_branches(&branches, &pad);
+    SelectionSetType {
+        type_str,
+        needs_type_declaration: true,
+    }
 }
 
 /// Generate a single inline fragment branch
@@ -1164,7 +1204,7 @@ fn generate_inline_fragment_branch(
                         .types
                         .get(inner_type_name.as_str())
                         .expect("Field type must exist");
-                    let base_type = generate_selection_set(
+                    let result = generate_selection_set(
                         &field.selection_set,
                         inner_type,
                         ctx,
@@ -1172,7 +1212,7 @@ fn generate_inline_fragment_branch(
                         used_fragments,
                         used_schema_types,
                     );
-                    wrap_in_list_and_nullability(&base_type, &fd.ty)
+                    wrap_in_list_and_nullability(&result.type_str, &fd.ty)
                 };
                 branch_fields.push('\n');
                 branch_fields.push_str(&pad);

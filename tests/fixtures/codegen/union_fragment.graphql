@@ -1,0 +1,9 @@
+fragment AccountInfo on Account {
+  __typename
+  ... on User {
+    username
+  }
+  ... on Admin {
+    role
+  }
+}

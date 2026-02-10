@@ -39,7 +39,7 @@ benchmark:
 	cargo bench --features bench
 
 ## update-baselines: Update all test baseline files from current codegen output
-update-baselines: build
+update-baselines: cargo-build
 	./scripts/update_baselines.py
 
 ## clean: Clean build artifacts
