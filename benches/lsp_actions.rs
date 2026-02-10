@@ -396,6 +396,21 @@ fn bench_lsp_actions(c: &mut Criterion) {
         })
     });
 
+    group.bench_function("Document Highlight", |b| {
+        b.to_async(&rt).iter(|| {
+            backend.document_highlight(DocumentHighlightParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: target_uri.clone(),
+                    },
+                    position: Position::new(1, 10),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+        });
+    });
+
     group.finish();
 }
 

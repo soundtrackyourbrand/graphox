@@ -112,6 +112,22 @@ harness = false
 name = "large_schema_definition"
 harness = false
 
+[[bench]]
+name = "workspace_scan"
+harness = false
+
+[[bench]]
+name = "cross_project_resolution"
+harness = false
+
+[[bench]]
+name = "document_editing"
+harness = false
+
+[[bench]]
+name = "call_hierarchy"
+harness = false
+
 [profile.dev]
 opt-level = 0
 debug = 0 # Set to 1 or 2 for debugging, 0 for fastest builds
