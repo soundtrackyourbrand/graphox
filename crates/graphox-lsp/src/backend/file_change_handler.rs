@@ -27,6 +27,7 @@ pub struct FileChangeParams<'a> {
     pub fragment_definitions: &'a FragmentDefinitionsMap,
     pub operation_names: &'a OperationNamesMap,
     pub gitignore: &'a ignore::gitignore::Gitignore,
+    pub position_encoding: PositionEncodingKind,
 }
 
 /// Result of processing a file change
@@ -114,7 +115,12 @@ pub async fn process_file_created_or_changed(
         return None;
     }
 
-    let new_doc = DocumentState::new(uri.clone(), &content, parser);
+    let new_doc = DocumentState::new(
+        uri.clone(),
+        &content,
+        parser,
+        params.position_encoding.clone(),
+    );
 
     let old_fragments: Option<Vec<Arc<str>>> = params
         .fragment_defs

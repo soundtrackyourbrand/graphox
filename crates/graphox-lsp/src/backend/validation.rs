@@ -40,6 +40,7 @@ pub struct ValidationParams<'a> {
     pub fragment_definitions: &'a FragmentDefinitionsMap,
     pub operation_names: &'a OperationNamesMap,
     pub supports_progress: bool,
+    pub position_encoding: PositionEncodingKind,
 }
 
 /// Validates a list of document URIs and publishes diagnostics

@@ -119,10 +119,16 @@ pub struct DocumentState {
     pub package_root: Option<PathBuf>,
     pub masked_source: Arc<str>,
     pub version: i32,
+    pub position_encoding: PositionEncodingKind,
 }
 
 impl DocumentState {
-    pub fn new(uri: Url, text: &str, mut parser: tree_sitter::Parser) -> Self {
+    pub fn new(
+        uri: Url,
+        text: &str,
+        mut parser: tree_sitter::Parser,
+        position_encoding: PositionEncodingKind,
+    ) -> Self {
         let language = DocumentLanguage::from_uri(&uri);
         let rope = Rope::from_str(text);
         let tree = Arc::new(parser.parse(text, None).unwrap());
@@ -150,6 +156,7 @@ impl DocumentState {
             package_root,
             masked_source,
             version: 0,
+            position_encoding,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();
         doc.fragments = doc.extract_fragment_names();
@@ -309,16 +316,23 @@ impl DocumentState {
         let line = self.rope.byte_to_line(byte_offset);
         let line_start_byte = self.rope.line_to_byte(line);
 
-        let char_at_offset = self.rope.byte_to_char(byte_offset);
-        let char_at_line_start = self.rope.byte_to_char(line_start_byte);
+        let character = if self.position_encoding == PositionEncodingKind::UTF8 {
+            byte_offset - line_start_byte
+        } else if self.position_encoding == PositionEncodingKind::UTF16 {
+            let char_at_offset = self.rope.byte_to_char(byte_offset);
+            let char_at_line_start = self.rope.byte_to_char(line_start_byte);
 
-        let utf16_cu_at_offset = self.rope.char_to_utf16_cu(char_at_offset);
-        let utf16_cu_at_line_start = self.rope.char_to_utf16_cu(char_at_line_start);
+            let utf16_cu_at_offset = self.rope.char_to_utf16_cu(char_at_offset);
+            let utf16_cu_at_line_start = self.rope.char_to_utf16_cu(char_at_line_start);
 
-        Position::new(
-            line as u32,
-            (utf16_cu_at_offset - utf16_cu_at_line_start) as u32,
-        )
+            utf16_cu_at_offset - utf16_cu_at_line_start
+        } else {
+            let char_at_offset = self.rope.byte_to_char(byte_offset);
+            let char_at_line_start = self.rope.byte_to_char(line_start_byte);
+            char_at_offset - char_at_line_start
+        };
+
+        Position::new(line as u32, character as u32)
     }
 
     pub fn position_to_byte(&self, position: Position) -> usize {
@@ -326,18 +340,52 @@ impl DocumentState {
         if line_idx >= self.rope.len_lines() {
             return self.rope.len_bytes();
         }
-        let line_start_char = self.rope.line_to_char(line_idx);
-        let line_start_utf16_cu = self.rope.char_to_utf16_cu(line_start_char);
 
-        let target_utf16_cu = line_start_utf16_cu + position.character as usize;
-        let len_utf16_cu = self.rope.len_utf16_cu();
+        if self.position_encoding == PositionEncodingKind::UTF8 {
+            let line_start_byte = self.rope.line_to_byte(line_idx);
+            let target_byte = line_start_byte + position.character as usize;
+            let next_line_start_byte = if line_idx + 1 < self.rope.len_lines() {
+                self.rope.line_to_byte(line_idx + 1)
+            } else {
+                self.rope.len_bytes()
+            };
 
-        let target_char = if target_utf16_cu >= len_utf16_cu {
-            self.rope.len_chars()
+            if target_byte >= next_line_start_byte {
+                next_line_start_byte.saturating_sub(1)
+            } else {
+                target_byte
+            }
+        } else if self.position_encoding == PositionEncodingKind::UTF16 {
+            let line_start_char = self.rope.line_to_char(line_idx);
+            let line_start_utf16_cu = self.rope.char_to_utf16_cu(line_start_char);
+
+            let target_utf16_cu = line_start_utf16_cu + position.character as usize;
+            let len_utf16_cu = self.rope.len_utf16_cu();
+
+            let target_char = if target_utf16_cu >= len_utf16_cu {
+                self.rope.len_chars()
+            } else {
+                self.rope.utf16_cu_to_char(target_utf16_cu)
+            };
+            self.rope.char_to_byte(target_char)
         } else {
-            self.rope.utf16_cu_to_char(target_utf16_cu)
-        };
-        self.rope.char_to_byte(target_char)
+            let line_start_char = self.rope.line_to_char(line_idx);
+            let target_char = line_start_char + position.character as usize;
+
+            let next_line_start_char = if line_idx + 1 < self.rope.len_lines() {
+                self.rope.line_to_char(line_idx + 1)
+            } else {
+                self.rope.len_chars()
+            };
+
+            let clamped_target_char = if target_char >= next_line_start_char {
+                next_line_start_char.saturating_sub(1)
+            } else {
+                target_char
+            };
+
+            self.rope.char_to_byte(clamped_target_char)
+        }
     }
 
     pub fn has_graphql_candidates(&self) -> bool {
@@ -1434,4 +1482,83 @@ pub enum CompletionContext {
     VariableDefaultValue,
     ArgumentDefaultValue,
     Other,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tree_sitter::Parser;
+
+    fn create_doc(src: &str, encoding: PositionEncodingKind) -> DocumentState {
+        let uri = Url::parse("file:///tmp/test.tsx").unwrap();
+        let mut parser = Parser::new();
+        let lang: tree_sitter::Language = tree_sitter_typescript::LANGUAGE_TSX.into();
+        parser.set_language(&lang).unwrap();
+        DocumentState::new(uri, src, parser, encoding)
+    }
+
+    #[test]
+    fn test_position_encoding_utf8() {
+        // "😀" is 4 bytes in UTF-8
+        let src = "😀\nnext";
+        let doc = create_doc(src, PositionEncodingKind::UTF8);
+
+        // Position of 'n' in "next"
+        let pos = doc.byte_to_position(5);
+        assert_eq!(pos.line, 1);
+        assert_eq!(pos.character, 0);
+
+        let byte = doc.position_to_byte(Position::new(1, 0));
+        assert_eq!(byte, 5);
+
+        // Position of the emoji itself
+        let pos_emoji = doc.byte_to_position(0);
+        assert_eq!(pos_emoji.line, 0);
+        assert_eq!(pos_emoji.character, 0);
+
+        // Position after the emoji
+        let pos_after_emoji = doc.byte_to_position(4);
+        assert_eq!(pos_after_emoji.line, 0);
+        assert_eq!(pos_after_emoji.character, 4);
+    }
+
+    #[test]
+    fn test_position_encoding_utf16() {
+        // "😀" is 2 code units in UTF-16 (surrogate pair)
+        let src = "😀\nnext";
+        let doc = create_doc(src, PositionEncodingKind::UTF16);
+
+        // Position of 'n' in "next"
+        let pos = doc.byte_to_position(5);
+        assert_eq!(pos.line, 1);
+        assert_eq!(pos.character, 0);
+
+        let byte = doc.position_to_byte(Position::new(1, 0));
+        assert_eq!(byte, 5);
+
+        // Position after the emoji
+        let pos_after_emoji = doc.byte_to_position(4);
+        assert_eq!(pos_after_emoji.line, 0);
+        assert_eq!(pos_after_emoji.character, 2);
+    }
+
+    #[test]
+    fn test_position_encoding_utf32() {
+        // "😀" is 1 code unit in UTF-32
+        let src = "😀\nnext";
+        let doc = create_doc(src, PositionEncodingKind::UTF32);
+
+        // Position of 'n' in "next"
+        let pos = doc.byte_to_position(5);
+        assert_eq!(pos.line, 1);
+        assert_eq!(pos.character, 0);
+
+        let byte = doc.position_to_byte(Position::new(1, 0));
+        assert_eq!(byte, 5);
+
+        // Position after the emoji
+        let pos_after_emoji = doc.byte_to_position(4);
+        assert_eq!(pos_after_emoji.line, 0);
+        assert_eq!(pos_after_emoji.character, 1);
+    }
 }

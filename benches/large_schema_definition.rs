@@ -97,7 +97,8 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
                 parser
                     .set_language(&tree_sitter_graphql::LANGUAGE.into())
                     .unwrap();
-                let doc = DocumentState::new(uri.clone(), &content, parser);
+                let doc =
+                    DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }

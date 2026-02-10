@@ -25,7 +25,10 @@ pub async fn run_codegen(
 
     progress.report("Scanning workspace...", Some(5)).await;
 
-    let workspace_metadata = graphox_core::engine::Engine::scan_workspace(&config);
+    let workspace_metadata = graphox_core::engine::Engine::scan_workspace(
+        &config,
+        tower_lsp::lsp_types::PositionEncodingKind::UTF8,
+    );
 
     let global_metadata = &workspace_metadata.fragments;
     let global_output_dir = config.output_dir.as_deref();

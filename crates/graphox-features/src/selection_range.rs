@@ -112,7 +112,7 @@ mod tests {
         parser
             .set_language(&tree_sitter_graphql::LANGUAGE.into())
             .unwrap();
-        DocumentState::new(uri, text, parser)
+        DocumentState::new(uri, text, parser, PositionEncodingKind::UTF8)
     }
 
     #[test]

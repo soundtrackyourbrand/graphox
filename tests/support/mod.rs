@@ -809,7 +809,12 @@ pub fn create_doc(uri_str: &str, text: &str) -> DocumentState {
         .set_language(&language.get_parser_language())
         .unwrap();
 
-    DocumentState::new(uri, text, parser)
+    DocumentState::new(
+        uri,
+        text,
+        parser,
+        tower_lsp::lsp_types::PositionEncodingKind::UTF16,
+    )
 }
 
 /// Start an LSP service paired with a Backend created from `config`.

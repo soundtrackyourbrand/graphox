@@ -9,6 +9,7 @@ pub struct ClientCapabilities {
     pub supports_progress: bool,
     pub supports_semantic_tokens: bool,
     pub supports_inlay_hints: bool,
+    pub position_encodings: Option<Vec<PositionEncodingKind>>,
 }
 
 impl ClientCapabilities {
@@ -43,18 +44,40 @@ impl ClientCapabilities {
             caps.supports_inlay_hints = text_document.inlay_hint.is_some();
         }
 
+        // Extract position encodings from general capabilities (LSP 3.17+)
+        if let Some(general) = &client_caps.general {
+            caps.position_encodings = general.position_encodings.clone();
+        }
+
         caps
+    }
+
+    /// Negotiates the position encoding based on client preferences
+    pub fn negotiated_encoding(&self) -> PositionEncodingKind {
+        if let Some(client_encodings) = &self.position_encodings {
+            // Optimally UTF-8 is preferred
+            if client_encodings.contains(&PositionEncodingKind::UTF8) {
+                return PositionEncodingKind::UTF8;
+            } else if client_encodings.contains(&PositionEncodingKind::UTF16) {
+                return PositionEncodingKind::UTF16;
+            } else if client_encodings.contains(&PositionEncodingKind::UTF32) {
+                return PositionEncodingKind::UTF32;
+            }
+        }
+        // Default to UTF-16 as per LSP spec
+        PositionEncodingKind::UTF16
     }
 
     /// Format capabilities as a log-friendly string
     pub fn to_log_string(&self) -> String {
         format!(
-            "pull_diagnostics={}, workspace_folders={}, progress={}, semantic_tokens={}, inlay_hints={}",
+            "pull_diagnostics={}, workspace_folders={}, progress={}, semantic_tokens={}, inlay_hints={}, position_encoding={:?}",
             self.supports_pull_diagnostics,
             self.supports_workspace_folders,
             self.supports_progress,
             self.supports_semantic_tokens,
             self.supports_inlay_hints,
+            self.negotiated_encoding(),
         )
     }
 }
@@ -63,7 +86,10 @@ impl ClientCapabilities {
 pub fn build_server_capabilities(client_caps: &ClientCapabilities) -> ServerCapabilities {
     use graphox_core::utils::SEMANTIC_TOKEN_LEGEND;
 
+    let position_encoding = client_caps.negotiated_encoding();
+
     ServerCapabilities {
+        position_encoding: Some(position_encoding),
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
             TextDocumentSyncKind::INCREMENTAL,
         )),

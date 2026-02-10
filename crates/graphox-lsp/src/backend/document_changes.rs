@@ -26,6 +26,7 @@ pub struct DocumentChangeParams<'a> {
     pub package_roots: &'a PackageRootsMap,
     pub fragment_dependents: &'a FragmentDependentsMap,
     pub fragment_definitions: &'a FragmentDefinitionsMap,
+    pub position_encoding: PositionEncodingKind,
 }
 
 /// Processes document content changes and updates indices

@@ -428,11 +428,12 @@ impl Backend {
         self.diagnostic_cache.clear();
 
         // Trigger workspace scan to re-index everything
-        let supports_progress = self
-            .client_capabilities
-            .read()
-            .map(|caps| caps.supports_progress)
-            .unwrap_or(false);
+        let (supports_progress, position_encoding) =
+            if let Ok(caps) = self.client_capabilities.read() {
+                (caps.supports_progress, caps.negotiated_encoding())
+            } else {
+                (false, PositionEncodingKind::UTF16)
+            };
 
         // Reset workspace_loaded flag
         self.workspace_loaded
@@ -454,6 +455,7 @@ impl Backend {
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
+            position_encoding,
         });
 
         self.client
@@ -536,11 +538,12 @@ impl Backend {
         }
 
         // Trigger workspace scan to re-index everything
-        let supports_progress = self
-            .client_capabilities
-            .read()
-            .map(|caps| caps.supports_progress)
-            .unwrap_or(false);
+        let (supports_progress, position_encoding) =
+            if let Ok(caps) = self.client_capabilities.read() {
+                (caps.supports_progress, caps.negotiated_encoding())
+            } else {
+                (false, PositionEncodingKind::UTF16)
+            };
 
         // Reset workspace_loaded flag
         self.workspace_loaded
@@ -563,6 +566,7 @@ impl Backend {
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
+            position_encoding,
         });
 
         self.client
@@ -598,11 +602,16 @@ impl Backend {
     }
 
     pub async fn validate_uris(&self, uris: Vec<Url>) {
-        let (use_push, supports_progress) = if let Ok(caps) = self.client_capabilities.read() {
-            (!caps.supports_pull_diagnostics, caps.supports_progress)
-        } else {
-            (true, false) // Default to push if can't read capabilities
-        };
+        let (use_push, supports_progress, position_encoding) =
+            if let Ok(caps) = self.client_capabilities.read() {
+                (
+                    !caps.supports_pull_diagnostics,
+                    caps.supports_progress,
+                    caps.negotiated_encoding(),
+                )
+            } else {
+                (true, false, PositionEncodingKind::UTF16) // Default if can't read capabilities
+            };
 
         let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
@@ -620,17 +629,23 @@ impl Backend {
             fragment_definitions: &self.fragment_definitions,
             operation_names: &self.operation_names,
             supports_progress,
+            position_encoding,
         };
         super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
             .await;
     }
 
     pub async fn validate_all_documents(&self) {
-        let (use_push, supports_progress) = if let Ok(caps) = self.client_capabilities.read() {
-            (!caps.supports_pull_diagnostics, caps.supports_progress)
-        } else {
-            (true, false) // Default to push if can't read capabilities
-        };
+        let (use_push, supports_progress, position_encoding) =
+            if let Ok(caps) = self.client_capabilities.read() {
+                (
+                    !caps.supports_pull_diagnostics,
+                    caps.supports_progress,
+                    caps.negotiated_encoding(),
+                )
+            } else {
+                (true, false, PositionEncodingKind::UTF16) // Default if can't read capabilities
+            };
 
         let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
@@ -648,6 +663,7 @@ impl Backend {
             fragment_definitions: &self.fragment_definitions,
             operation_names: &self.operation_names,
             supports_progress,
+            position_encoding,
         };
         super::validation::validate_all_documents(params, use_push, Some(&self.diagnostic_cache))
             .await;
@@ -813,11 +829,12 @@ impl LanguageServer for Backend {
         }
 
         // Spawn workspace scan in background to avoid hanging the LSP
-        let supports_progress = self
-            .client_capabilities
-            .read()
-            .map(|caps| caps.supports_progress)
-            .unwrap_or(false);
+        let (supports_progress, position_encoding) =
+            if let Ok(caps) = self.client_capabilities.read() {
+                (caps.supports_progress, caps.negotiated_encoding())
+            } else {
+                (false, PositionEncodingKind::UTF16)
+            };
 
         let config = self.config.read().unwrap().clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
@@ -836,6 +853,7 @@ impl LanguageServer for Backend {
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
+            position_encoding,
         });
 
         // Register file watchers
@@ -1231,7 +1249,18 @@ impl LanguageServer for Backend {
             .set_language(&language.get_parser_language())
             .unwrap();
 
-        let doc = DocumentState::new(uri.clone(), &params.text_document.text, parser);
+        let position_encoding = if let Ok(caps) = self.client_capabilities.read() {
+            caps.negotiated_encoding()
+        } else {
+            PositionEncodingKind::UTF16
+        };
+
+        let doc = DocumentState::new(
+            uri.clone(),
+            &params.text_document.text,
+            parser,
+            position_encoding,
+        );
 
         let mut affected_fragment_names = AHashSet::default();
         for f in doc.fragments() {
@@ -1298,6 +1327,12 @@ impl LanguageServer for Backend {
         let uri = self.normalize_uri(params.text_document.uri.clone());
         let version = params.text_document.version;
 
+        let position_encoding = if let Ok(caps) = self.client_capabilities.read() {
+            caps.negotiated_encoding()
+        } else {
+            PositionEncodingKind::UTF16
+        };
+
         // Process document changes and update indices
         let change_params = super::document_changes::DocumentChangeParams {
             documents: &self.documents,
@@ -1306,6 +1341,7 @@ impl LanguageServer for Backend {
             package_roots: &self.package_roots,
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
+            position_encoding,
         };
 
         if let Some(result) = super::document_changes::process_document_change(
@@ -1864,6 +1900,12 @@ impl LanguageServer for Backend {
 
         // Apply timeout
         let _res = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async move {
+            let position_encoding = if let Ok(caps) = self.client_capabilities.read() {
+                caps.negotiated_encoding()
+            } else {
+                PositionEncodingKind::UTF16
+            };
+
             let config = self.config.read().unwrap().clone();
             for change in params.changes {
                 let change_params = super::file_change_handler::FileChangeParams {
@@ -1877,6 +1919,7 @@ impl LanguageServer for Backend {
                     fragment_definitions: &self.fragment_definitions,
                     operation_names: &self.operation_names,
                     gitignore: &self.gitignore,
+                    position_encoding: position_encoding.clone(),
                 };
 
                 let result = if change.typ == FileChangeType::CREATED

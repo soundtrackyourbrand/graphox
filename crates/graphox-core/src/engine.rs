@@ -131,12 +131,16 @@ impl Engine {
         }
     }
 
-    pub fn scan_workspace(config: &Config) -> WorkspaceMetadata {
+    pub fn scan_workspace(
+        config: &Config,
+        position_encoding: lsp_types::PositionEncodingKind,
+    ) -> WorkspaceMetadata {
         Self::scan_workspace_cancellable(
             config,
             |_, _| {},
             |_, _| {},
             Arc::new(AtomicBool::new(false)),
+            position_encoding,
         )
     }
 
@@ -145,6 +149,7 @@ impl Engine {
         mut on_doc: F,
         mut on_progress: P,
         cancelled: Arc<AtomicBool>,
+        position_encoding: lsp_types::PositionEncodingKind,
     ) -> WorkspaceMetadata
     where
         F: FnMut(PathBuf, DocumentState) + Send,
@@ -213,7 +218,7 @@ impl Engine {
 
                 let mut parser = tree_sitter::Parser::new();
                 parser.set_language(&language.get_parser_language()).ok()?;
-                let doc = DocumentState::new(uri, &content, parser);
+                let doc = DocumentState::new(uri, &content, parser, position_encoding.clone());
 
                 Some((p.clone(), doc))
             })
@@ -473,7 +478,10 @@ impl Engine {
         }
     }
 
-    pub fn parse_doc(path: &Path) -> Option<DocumentState> {
+    pub fn parse_doc(
+        path: &Path,
+        position_encoding: lsp_types::PositionEncodingKind,
+    ) -> Option<DocumentState> {
         let content = std::fs::read_to_string(path).ok()?;
         let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let uri = Url::from_file_path(&abs_path).ok()?;
@@ -490,7 +498,7 @@ impl Engine {
 
         let mut parser = tree_sitter::Parser::new();
         parser.set_language(&language.get_parser_language()).ok()?;
-        let doc = DocumentState::new(uri, &content, parser);
+        let doc = DocumentState::new(uri, &content, parser, position_encoding);
 
         Some(doc)
     }

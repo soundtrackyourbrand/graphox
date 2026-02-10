@@ -16,7 +16,8 @@ pub async fn run_check(config: Config, verbose: bool) {
     let cfg = config.clone();
 
     println!("{}", "Scanning workspace...".bright_black());
-    let workspace_metadata = Engine::scan_workspace(&cfg);
+    let workspace_metadata =
+        Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8);
 
     let mut global_used_fragments = ahash::AHashSet::default();
     for doc in workspace_metadata.documents.values() {

@@ -38,6 +38,7 @@ pub struct WorkspaceScanParams {
     pub workspace_scan_cancelled: Arc<AtomicBool>,
     pub supports_progress: bool,
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
+    pub position_encoding: PositionEncodingKind,
 }
 
 /// Spawns a background workspace scan task
@@ -218,6 +219,7 @@ fn scan_and_index_workspace(
             // Progress reporting is now handled by ProgressReporter in spawn_workspace_scan
         },
         cancelled.clone(),
+        params.position_encoding.clone(),
     )
 }
 

@@ -164,7 +164,8 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
     // Pre-populate documents to simulate an initialized LSP with a large workspace
     rt.block_on(async {
-        let workspace_metadata = engine::Engine::scan_workspace(&config);
+        let workspace_metadata =
+            engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8);
         for project_meta in workspace_metadata.projects {
             for file_path in project_meta.files {
                 let abs_path = fs::canonicalize(&file_path).unwrap();
@@ -174,7 +175,8 @@ fn bench_lsp_actions(c: &mut Criterion) {
                 parser
                     .set_language(&tree_sitter_graphql::LANGUAGE.into())
                     .unwrap();
-                let doc = DocumentState::new(uri.clone(), &content, parser);
+                let doc =
+                    DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }
