@@ -138,21 +138,28 @@ impl FragmentMasking {
         }
         if let Some(b) = node.as_bool() {
             if b {
-                Some(FragmentMasking::Enabled { unmask_function_name: None })
+                Some(FragmentMasking::Enabled {
+                    unmask_function_name: None,
+                })
             } else {
                 Some(FragmentMasking::Disabled)
             }
         } else if let Some(s) = node.as_str() {
             match s.to_lowercase().as_str() {
-                "enabled" | "true" => Some(FragmentMasking::Enabled { unmask_function_name: None }),
+                "enabled" | "true" => Some(FragmentMasking::Enabled {
+                    unmask_function_name: None,
+                }),
                 "disabled" | "false" => Some(FragmentMasking::Disabled),
                 _ => Some(FragmentMasking::Disabled),
             }
         } else if let Some(map) = node.as_hash() {
-            let unmask_function_name = map.get(&Yaml::String("unmaskFunctionName".to_string()))
+            let unmask_function_name = map
+                .get(&Yaml::String("unmaskFunctionName".to_string()))
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            Some(FragmentMasking::Enabled { unmask_function_name })
+            Some(FragmentMasking::Enabled {
+                unmask_function_name,
+            })
         } else {
             Some(FragmentMasking::Disabled)
         }
@@ -347,11 +354,20 @@ impl Config {
             return Ok(None);
         };
 
-        let content = fs::read_to_string(&config_path).map_err(|e| (config_path.clone(), e.to_string()))?;
-        let docs = yaml_rust2::YamlLoader::load_from_str(&content).map_err(|e| (config_path.clone(), format!("{:?}", e)))?;
-        let doc = docs.first().ok_or_else(|| (config_path.clone(), "Empty YAML document".to_string()))?;
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| (config_path.clone(), e.to_string()))?;
+        let docs = yaml_rust2::YamlLoader::load_from_str(&content)
+            .map_err(|e| (config_path.clone(), format!("{:?}", e)))?;
+        let doc = docs
+            .first()
+            .ok_or_else(|| (config_path.clone(), "Empty YAML document".to_string()))?;
 
-        let mut config = Config::from_yaml(doc).ok_or_else(|| (config_path.clone(), "Invalid configuration format".to_string()))?;
+        let mut config = Config::from_yaml(doc).ok_or_else(|| {
+            (
+                config_path.clone(),
+                "Invalid configuration format".to_string(),
+            )
+        })?;
         config.base_dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         Ok(Some(config))
     }
@@ -570,7 +586,8 @@ impl Config {
 
     pub fn fragment_masking(&self) -> FragmentMaskingConfig {
         FragmentMaskingConfig {
-            mode: self.fragment_masking
+            mode: self
+                .fragment_masking
                 .as_ref()
                 .map(|c| c.mode.clone())
                 .unwrap_or_default(),
@@ -810,7 +827,10 @@ projects:
         .unwrap();
 
         let config = Config::load_from_dir(dir.path()).unwrap();
-        assert!(matches!(config.fragment_masking_mode(), FragmentMasking::Disabled));
+        assert!(matches!(
+            config.fragment_masking_mode(),
+            FragmentMasking::Disabled
+        ));
     }
 
     #[test]
@@ -831,7 +851,10 @@ projects:
         .unwrap();
 
         let config = Config::load_from_dir(dir.path()).unwrap();
-        assert!(matches!(config.fragment_masking_mode(), FragmentMasking::Enabled { .. }));
+        assert!(matches!(
+            config.fragment_masking_mode(),
+            FragmentMasking::Enabled { .. }
+        ));
     }
 
     #[test]
@@ -854,7 +877,9 @@ projects:
 
         let config = Config::load_from_dir(dir.path()).unwrap();
         match config.fragment_masking_mode() {
-            FragmentMasking::Enabled { unmask_function_name } => {
+            FragmentMasking::Enabled {
+                unmask_function_name,
+            } => {
                 assert_eq!(unmask_function_name.as_deref(), Some("getData"));
             }
             _ => panic!("Expected FragmentMasking::Enabled"),
@@ -882,7 +907,10 @@ projects:
         .unwrap();
 
         let config = Config::load_from_dir(dir.path()).unwrap();
-        assert!(matches!(config.fragment_masking_mode(), FragmentMasking::Enabled { .. }));
+        assert!(matches!(
+            config.fragment_masking_mode(),
+            FragmentMasking::Enabled { .. }
+        ));
         assert!(matches!(config.projects[1].fragment_masking_mode(), None));
     }
 }

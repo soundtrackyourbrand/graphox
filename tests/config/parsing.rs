@@ -12,7 +12,7 @@ fn test_config_invalid_yaml() {
     fs::write(&config_path, "invalid: yaml: content: [").unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(result.is_none(), "Should fail to load invalid YAML config");
+    assert!(result.is_err(), "Should fail to load invalid YAML config");
 }
 
 #[test]
@@ -27,14 +27,14 @@ fn test_config_missing_schema() {
     fs::write(&config_path, config_content).unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(result.is_none(), "Should fail when schema file is missing");
+    assert!(result.is_err(), "Should fail when schema file is missing");
 }
 
 #[test]
 fn test_config_empty_base_dir() {
     let result = Config::load_from_dir(Path::new("/nonexistent/path"));
     assert!(
-        result.is_none(),
+        result.unwrap().is_none(),
         "Should fail with nonexistent base directory"
     );
 }
@@ -55,7 +55,7 @@ fn test_config_valid_empty_config() {
     fs::write(&schema_path, "type Query { user: String }").unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(result.is_some(), "Should load valid config");
+    assert!(result.unwrap().is_some(), "Should load valid config");
 }
 
 #[test]
@@ -81,11 +81,7 @@ fn test_config_multiple_projects() {
     fs::write(&config_path, config_content).unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(
-        result.is_some(),
-        "Should load config with multiple projects"
-    );
-    let config = result.unwrap();
+    let config = result.unwrap().unwrap();
     assert_eq!(config.projects.len(), 2, "Should have two projects");
 }
 
@@ -105,9 +101,7 @@ fn test_config_default_values() {
     fs::write(&config_path, config_content).unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(result.is_some(), "Should load config with defaults");
-
-    let config = result.unwrap();
+    let config = result.unwrap().unwrap();
     assert!(config.enable_schema_cache.is_none() || config.enable_schema_cache == Some(true));
     assert!(config.lsp_automatic_codegen.is_none() || config.lsp_automatic_codegen == Some(false));
 }
@@ -134,7 +128,10 @@ fn test_config_schema_as_list() {
     fs::write(&config_path, config_content).unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(result.is_some(), "Should load config with schema list");
+    assert!(
+        result.unwrap().is_some(),
+        "Should load config with schema list"
+    );
 }
 
 #[test]
@@ -156,7 +153,10 @@ fn test_config_with_exclude_pattern() {
     fs::write(&config_path, config_content).unwrap();
 
     let result = Config::load_from_dir(temp_dir.path());
-    assert!(result.is_some(), "Should load config with exclude patterns");
+    assert!(
+        result.unwrap().is_some(),
+        "Should load config with exclude patterns"
+    );
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn test_config_relative_schema_path() {
 
     let result = Config::load_from_dir(temp_dir.path());
     assert!(
-        result.is_some(),
+        result.unwrap().is_some(),
         "Should load config with relative schema path"
     );
 }
