@@ -134,6 +134,7 @@ impl Engine {
     pub fn scan_workspace(
         config: &Config,
         position_encoding: lsp_types::PositionEncodingKind,
+        previous_metadata: Option<&WorkspaceMetadata>,
     ) -> WorkspaceMetadata {
         Self::scan_workspace_cancellable(
             config,
@@ -141,6 +142,7 @@ impl Engine {
             |_, _| {},
             Arc::new(AtomicBool::new(false)),
             position_encoding,
+            previous_metadata,
         )
     }
 
@@ -150,6 +152,7 @@ impl Engine {
         mut on_progress: P,
         cancelled: Arc<AtomicBool>,
         position_encoding: lsp_types::PositionEncodingKind,
+        previous_metadata: Option<&WorkspaceMetadata>,
     ) -> WorkspaceMetadata
     where
         F: FnMut(PathBuf, DocumentState) + Send,
@@ -202,6 +205,17 @@ impl Engine {
                 if cancelled.load(Ordering::Relaxed) {
                     return None;
                 }
+
+                // Incremental optimization: check if file has changed
+                if let Some(prev) = previous_metadata {
+                    if let Some(prev_doc) = prev.documents.get(p) {
+                        let current_mtime = std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
+                        if current_mtime == prev_doc.mtime && current_mtime.is_some() {
+                            return Some((p.clone(), prev_doc.clone()));
+                        }
+                    }
+                }
+
                 let content = std::fs::read_to_string(p).ok()?;
                 let abs_path = std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
                 let uri = Url::from_file_path(&abs_path).ok()?;

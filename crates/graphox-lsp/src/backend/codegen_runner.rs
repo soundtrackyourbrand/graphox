@@ -28,6 +28,7 @@ pub async fn run_codegen(
     let workspace_metadata = graphox_core::engine::Engine::scan_workspace(
         &config,
         tower_lsp::lsp_types::PositionEncodingKind::UTF8,
+        None,
     );
 
     let global_metadata = &workspace_metadata.fragments;

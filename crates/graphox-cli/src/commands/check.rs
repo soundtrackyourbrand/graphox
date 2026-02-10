@@ -20,7 +20,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
         println!("{}", "Scanning workspace...".bright_black());
     }
     let workspace_metadata =
-        Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8);
+        Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
 
     let mut global_used_fragments = ahash::AHashSet::default();
     for doc in workspace_metadata.documents.values() {

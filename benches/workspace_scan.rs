@@ -94,7 +94,7 @@ fn bench_workspace_scan(c: &mut Criterion) {
         b.iter(|| {
             let config = generate_workspace_with_schemas(&base_dir, 10, 50, 50, 20);
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8)
+                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None)
             })
         })
     });
@@ -103,7 +103,7 @@ fn bench_workspace_scan(c: &mut Criterion) {
         b.iter(|| {
             let config = generate_workspace_with_schemas(&base_dir, 20, 50, 50, 20);
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8)
+                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None)
             })
         })
     });
@@ -112,7 +112,7 @@ fn bench_workspace_scan(c: &mut Criterion) {
         b.iter(|| {
             let config = generate_workspace_with_schemas(&base_dir, 20, 100, 100, 30);
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8)
+                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None)
             })
         })
     });
@@ -121,7 +121,7 @@ fn bench_workspace_scan(c: &mut Criterion) {
         b.iter(|| {
             let config = generate_workspace_with_schemas(&base_dir, 50, 100, 50, 20);
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8)
+                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None)
             })
         })
     });
@@ -139,20 +139,31 @@ fn bench_workspace_scan_incremental(c: &mut Criterion) {
     group.warm_up_time(Duration::from_millis(100));
     group.measurement_time(Duration::from_millis(1000));
 
+    let config = generate_workspace_with_schemas(&base_dir, 10, 50, 50, 20);
+    let initial_metadata = rt.block_on(async {
+        engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None)
+    });
+
     group.bench_function("Rescan (500 files, no changes)", |b| {
         b.iter(|| {
-            let config = generate_workspace_with_schemas(&base_dir, 10, 50, 50, 20);
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8)
+                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, Some(&initial_metadata))
             })
         })
     });
 
     group.bench_function("Rescan (500 files, 10 files changed)", |b| {
         b.iter(|| {
-            let config = generate_workspace_with_schemas(&base_dir, 10, 50, 50, 20);
+            // Modify 10 files
+            for j in 0..10 {
+                let file_path = base_dir.join(format!("project_0/file_{}.graphql", j));
+                let content = fs::read_to_string(&file_path).unwrap();
+                let new_content = format!("{} ", content); // Add a space to change it
+                fs::write(&file_path, new_content).unwrap();
+            }
+
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8)
+                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, Some(&initial_metadata))
             })
         })
     });

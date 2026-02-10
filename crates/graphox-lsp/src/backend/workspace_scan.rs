@@ -220,6 +220,7 @@ fn scan_and_index_workspace(
         },
         cancelled.clone(),
         params.position_encoding.clone(),
+        None,
     )
 }
 

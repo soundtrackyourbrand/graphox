@@ -119,6 +119,7 @@ pub struct DocumentState {
     pub package_root: Option<PathBuf>,
     pub masked_source: Arc<str>,
     pub version: i32,
+    pub mtime: Option<std::time::SystemTime>,
     pub position_encoding: PositionEncodingKind,
 }
 
@@ -132,10 +133,10 @@ impl DocumentState {
         let language = DocumentLanguage::from_uri(&uri);
         let rope = Rope::from_str(text);
         let tree = Arc::new(parser.parse(text, None).unwrap());
-        let package_root = if let Ok(path) = uri.to_file_path() {
-            find_package_root(&path)
+        let (package_root, mtime) = if let Ok(path) = uri.to_file_path() {
+            (find_package_root(&path), std::fs::metadata(&path).ok().and_then(|m| m.modified().ok()))
         } else {
-            None
+            (None, None)
         };
 
         let masked_source = if language.is_host_language() {
@@ -156,6 +157,7 @@ impl DocumentState {
             package_root,
             masked_source,
             version: 0,
+            mtime,
             position_encoding,
         };
         doc.graphql_trees = doc.reparse_graphql_trees();

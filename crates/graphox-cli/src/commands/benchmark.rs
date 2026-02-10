@@ -14,7 +14,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let total_start = Instant::now();
 
     let workspace_metadata =
-        Engine::scan_workspace(&config, tower_lsp::lsp_types::PositionEncodingKind::UTF8);
+        Engine::scan_workspace(&config, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
     let global_metadata = &workspace_metadata.fragments;
     let scan_timings = &workspace_metadata.timings;
 
