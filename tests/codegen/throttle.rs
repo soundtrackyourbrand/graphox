@@ -29,10 +29,10 @@ async fn test_codegen_throttle() {
 
     let config = Config {
         base_dir: base_dir.to_path_buf(),
-        output_dir: Some("generated".to_string()),
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
+            output_dir: Some("generated".to_string()),
             ..Default::default()
         }],
         lsp_automatic_codegen: Some(true),

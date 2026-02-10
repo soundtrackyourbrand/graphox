@@ -33,7 +33,6 @@ pub async fn run_codegen(
     );
 
     let global_metadata = &workspace_metadata.fragments;
-    let global_output_dir = config.output_dir.as_deref();
 
     // Report progress
     let total_projects = config
@@ -53,7 +52,7 @@ pub async fn run_codegen(
 
         current_project += 1;
         let project_files = &project_meta.files;
-        let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+        let project_output_dir = project.output_dir.as_deref();
 
         progress
             .report(
@@ -121,7 +120,6 @@ pub async fn run_codegen(
 
         let total_files = project_files.len();
         let mut current_file = 0;
-        let global_output_path = config.output_dir.as_ref().map(PathBuf::from);
 
         for path in project_files {
             current_file += 1;
@@ -165,14 +163,11 @@ pub async fn run_codegen(
                             .or(config.fragment_masking.clone()),
                     ),
                     {
-                        if let Some(global_out) = &global_output_path {
+                        if let Some(out_dir) = project_output_dir {
                             let out_path = graphox_core::utils::get_output_path(
                                 path,
                                 &config.base_dir,
-                                project
-                                    .output_dir
-                                    .as_deref()
-                                    .or(config.output_dir.as_deref()),
+                                project_output_dir,
                                 Some(
                                     graphox_core::utils::get_glob_root(&project.include.as_key())
                                         .to_str()
@@ -190,7 +185,7 @@ pub async fn run_codegen(
                                     .to_path_buf()
                             };
 
-                            let abs_masking_dir = config.base_dir.join(global_out);
+                            let abs_masking_dir = config.base_dir.join(out_dir);
                             let rel_to_masking =
                                 pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
                                     .unwrap_or_else(|| PathBuf::from("."));
@@ -286,17 +281,20 @@ pub async fn run_codegen(
         .report("Writing entrypoint file...", Some(80))
         .await;
 
-    if let Some(out_dir) = global_output_dir {
+    if let Some(out_dir) = config.projects.first().and_then(|p| p.output_dir.as_ref()) {
         let out_dir_path = config.base_dir.join(out_dir);
         let entrypoint_path = out_dir_path.join("graphql.ts");
+        let fragment_masking =
+            graphox_codegen::FragmentMasking::from_config(&config.fragment_masking);
         if !all_generated_operations.is_empty() {
             let content = graphox_codegen::generate_entrypoint_content(
                 &out_dir_path,
                 &all_generated_operations,
                 config.document_suffix(),
                 config.variables_suffix(),
-                &graphox_codegen::FragmentMasking::from_config(&config.fragment_masking),
+                &fragment_masking,
             );
+            std::fs::create_dir_all(&out_dir_path).ok();
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 client
                     .log_message(
@@ -304,6 +302,64 @@ pub async fn run_codegen(
                         format!(
                             "Failed to write entrypoint file {}: {}",
                             entrypoint_path.display(),
+                            e
+                        ),
+                    )
+                    .await;
+            }
+
+            if fragment_masking.is_enabled() {
+                let masking_path = out_dir_path.join("fragment-masking.ts");
+                let masking_content = graphox_codegen::generate_fragment_masking_file(
+                    fragment_masking.unmask_function_name(),
+                );
+                if let Err(e) = std::fs::write(&masking_path, masking_content) {
+                    client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!(
+                                "Failed to write fragment-masking file {}: {}",
+                                masking_path.display(),
+                                e
+                            ),
+                        )
+                        .await;
+                }
+            }
+
+            let manifest_path = out_dir_path.join("manifest.json");
+            let manifest_entries: Vec<_> = all_generated_operations
+                .iter()
+                .map(|op| {
+                    let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
+                        .unwrap_or_else(|| op.codegen_path.clone());
+                    let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
+                    if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                        path_str = format!("./{}", path_str);
+                    }
+                    let path_no_ext = if path_str.ends_with(".ts") {
+                        &path_str[..path_str.len() - 3]
+                    } else {
+                        &path_str
+                    };
+
+                    serde_json::json!({
+                        "source": op.source_text,
+                        "path": path_no_ext,
+                        "name": format!("{}Document", op.operation_type_name)
+                    })
+                })
+                .collect();
+
+            if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries)
+                && let Err(e) = std::fs::write(&manifest_path, manifest_json)
+            {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Failed to write manifest file {}: {}",
+                            manifest_path.display(),
                             e
                         ),
                     )

@@ -10,3 +10,4 @@ projects:
       - "base.graphql"
       - "ext.graphql"
     include: "query.graphql"
+    output_dir: "__generated__"

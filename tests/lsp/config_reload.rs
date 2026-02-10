@@ -40,7 +40,7 @@ projects:
     let query_text = "query GetUser { user { id name } }";
     fs::write(&query_path, query_text).unwrap();
 
-    let config = Config::load_from_dir(&base_dir).unwrap();
+    let config = Config::load_from_dir(&base_dir).unwrap().unwrap();
     let (mut service, _handle) = create_service(config);
 
     lsp_initialize_sequence(&mut service).await;
@@ -115,7 +115,7 @@ projects:
     let query_text = "query GetUser { user { id } }";
     fs::write(&query_path, query_text).unwrap();
 
-    let config = Config::load_from_dir(&base_dir).unwrap();
+    let config = Config::load_from_dir(&base_dir).unwrap().unwrap();
     let (mut service, _handle) = create_service(config);
 
     lsp_initialize_sequence(&mut service).await;
@@ -174,7 +174,7 @@ projects:
     )
     .unwrap();
 
-    let config = Config::load_from_dir(&base_dir).unwrap();
+    let config = Config::load_from_dir(&base_dir).unwrap().unwrap();
     let (mut service, _handle) = create_service(config);
 
     lsp_initialize_sequence(&mut service).await;

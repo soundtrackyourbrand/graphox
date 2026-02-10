@@ -6,3 +6,4 @@ schema_types:
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
+    output_dir: "__generated__"

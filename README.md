@@ -51,10 +51,10 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 2. **Create configuration**
    ```yaml
    # graphox.yaml
-   output_dir: "__generated__"
    projects:
      - schema: "schema.graphql"
        include: "src/**/*.{ts,tsx}"
+       output_dir: "__generated__"
    ```
 
 3. **Set up your editor** - See [Editor Setup](#editor-setup)
@@ -185,12 +185,11 @@ Create a `graphox.yaml` file in your project root.
 ### Basic Example
 
 ```yaml
-output_dir: "__generated__"
-
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
     exclude: "**/*.test.ts"
+    output_dir: "__generated__"
 ```
 
 ### Full Configuration

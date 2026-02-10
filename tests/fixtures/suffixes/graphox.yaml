@@ -5,3 +5,4 @@ projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
     import: "@workspace/suffixes"
+    output_dir: "__generated__"

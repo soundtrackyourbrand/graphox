@@ -2,3 +2,4 @@ generate_ast_for_fragments: true
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
+    output_dir: "__generated__"

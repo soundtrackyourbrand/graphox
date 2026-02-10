@@ -31,9 +31,6 @@ enum Commands {
         /// Directory to scan
         #[arg(default_value = ".")]
         path: String,
-        /// Output directory (default: next to input files)
-        #[arg(short, long)]
-        output: Option<String>,
         /// Watch for changes and re-run codegen
         #[arg(short, long)]
         watch: bool,
@@ -78,12 +75,11 @@ async fn main() {
         }
         Some(Commands::Codegen {
             path: _,
-            output,
             watch,
             verbose,
             clean,
         }) => {
-            run_codegen(config, output.as_deref(), watch, verbose, clean).await;
+            run_codegen(config, watch, verbose, clean).await;
         }
         Some(Commands::Benchmark { path: _, verbose }) => {
             run_benchmark(config, verbose).await;

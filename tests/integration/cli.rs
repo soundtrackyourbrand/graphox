@@ -627,10 +627,10 @@ fn test_cli_graphql_entrypoint() {
     std::fs::write(
         &config_file,
         r#"
-output_dir: "gen"
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
+    output_dir: "gen"
 "#,
     )
     .unwrap();
@@ -750,10 +750,10 @@ fn test_cli_config_output_dir() {
     std::fs::write(
         &config_file,
         r#"
-output_dir: "gen"
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
+    output_dir: "gen"
 "#,
     )
     .unwrap();
@@ -1085,7 +1085,7 @@ fn test_cli_entrypoint_baselines() {
     run_baseline_test(
         "tests/fixtures/entrypoint",
         "tests/baselines/entrypoint",
-        None,
+        Some("gen"),
     );
 }
 
@@ -1111,7 +1111,7 @@ fn test_cli_swc_plugin_baselines() {
     run_baseline_test(
         "tests/fixtures/swc_plugin",
         "tests/baselines/swc_plugin",
-        None,
+        Some("gen"),
     );
 }
 
@@ -1121,7 +1121,11 @@ fn test_cli_suffixes_baselines() {
     run_baseline_test("tests/fixtures/suffixes", "tests/baselines/suffixes", None);
 }
 
-fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path: Option<&str>) {
+fn run_baseline_test(
+    fixture_dir_str: &str,
+    baseline_dir_str: &str,
+    output_dir_param: Option<&str>,
+) {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let fixture_dir = Path::new(fixture_dir_str);
     let baseline_dir = Path::new(baseline_dir_str);
@@ -1134,14 +1138,27 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
     }
     std::fs::create_dir_all(&temp_dir).ok();
 
-    let mut cmd = Command::new(bin_path);
+    fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+            } else {
+                std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
 
-    let output = cmd
+    copy_dir_all(fixture_dir, &temp_dir).expect("Failed to copy fixture to temp");
+
+    let output_dir = output_dir_param.unwrap_or("__generated__");
+
+    let output = Command::new(bin_path)
         .arg("codegen")
-        .arg(".")
-        .arg("--output")
-        .arg(temp_dir.to_str().unwrap())
-        .current_dir(fixture_dir)
+        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -1152,26 +1169,24 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let mut stack = vec![fixture_dir.to_path_buf()];
+    let mut stack = vec![temp_dir.clone()];
     while let Some(current) = stack.pop() {
         for entry in std::fs::read_dir(current).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
             if path.is_dir() {
-                if path.file_name().unwrap() == "gen" {
+                if path.file_name().unwrap() == "gen"
+                    || path.file_name().unwrap() == "__generated__"
+                {
                     continue;
                 }
                 stack.push(path);
                 continue;
             }
             if path.extension().and_then(|s| s.to_str()) == Some("graphql") {
-                let rel_to_fixture = path.strip_prefix(fixture_dir).unwrap();
+                let rel_to_fixture = path.strip_prefix(&temp_dir).unwrap();
                 let file_stem = rel_to_fixture.file_stem().unwrap().to_str().unwrap();
                 let parent = rel_to_fixture.parent().unwrap();
-
-                let mut codegen_path = temp_dir.clone();
-                codegen_path.push(rel_to_fixture);
-                codegen_path.set_extension("codegen.ts");
 
                 let expected_path = baseline_dir
                     .join(parent)
@@ -1181,10 +1196,17 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
                     continue;
                 }
 
+                let codegen_path = temp_dir
+                    .join(output_dir)
+                    .join(parent)
+                    .join(format!("{}.codegen.ts", file_stem));
+
                 assert!(
                     codegen_path.exists(),
-                    "Codegen file {:?} was not created",
-                    codegen_path
+                    "Codegen file {:?} was not created in {}/{}",
+                    codegen_path,
+                    fixture_dir_str,
+                    output_dir
                 );
 
                 let actual = std::fs::read_to_string(&codegen_path).unwrap();
@@ -1204,8 +1226,8 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
         }
     }
 
-    // Check for special files
-    for special in &["graphql", "permissions", "manifest"] {
+    // Check for special files (all are now in output_dir)
+    for special in &["graphql", "permissions", "manifest", "fragment-masking"] {
         let expected_json = baseline_dir.join(format!("{}.expected.json", special));
         let expected_ts = baseline_dir.join(format!("{}.expected.ts", special));
 
@@ -1217,12 +1239,13 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
             continue;
         };
 
-        let actual_path = temp_dir.join(&actual_name);
+        let actual_path = temp_dir.join(output_dir).join(&actual_name);
         assert!(
             actual_path.exists(),
-            "{} was not created in {}",
+            "{} was not created in {}/{}",
             actual_name,
-            fixture_dir_str
+            fixture_dir_str,
+            output_dir
         );
 
         let actual = std::fs::read_to_string(&actual_path).unwrap();
@@ -1255,9 +1278,18 @@ fn run_baseline_test(fixture_dir_str: &str, baseline_dir_str: &str, _schema_path
 }
 
 #[test]
-fn test_cli_type_only_ast_generation() {
+fn test_cli_fragment_masking_baselines() {
+    run_baseline_test(
+        "tests/fixtures/fragment_masking",
+        "tests/baselines/fragment_masking",
+        None,
+    );
+}
+
+#[test]
+fn test_cli_codegen_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_type_only_ast_test");
+    let temp_dir = std::env::temp_dir().join("graphox_codegen_entrypoint");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1265,9 +1297,24 @@ fn test_cli_type_only_ast_generation() {
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
+    let schema_text = "type Query { me: User } type User { id: ID! name: String! }";
+    std::fs::write(&schema_file, schema_text).unwrap();
+
+    // Create query
+    let query_file = temp_dir.join("query.graphql");
+    let query_text = "query GetMe { me { id name } }";
+    std::fs::write(&query_file, query_text).unwrap();
+
+    // Create YAML config
+    let config_file = temp_dir.join("graphox.yaml");
     std::fs::write(
-        &schema_file,
-        "type User { id: ID! name: String } type Query { me: User }",
+        &config_file,
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+    output_dir: "gen"
+"#,
     )
     .unwrap();
 
@@ -1292,6 +1339,7 @@ generate_ast_for_fragments: true
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
+    output_dir: "gen"
 "#,
     )
     .unwrap();
@@ -1309,13 +1357,13 @@ projects:
     );
 
     // Verify fragment codegen - should NOT have TypeOnlyFieldsDocument
-    let frag_gen = temp_dir.join("fragment.codegen.ts");
+    let frag_gen = temp_dir.join("gen/fragment.codegen.ts");
     assert!(frag_gen.exists());
     let frag_content = std::fs::read_to_string(&frag_gen).unwrap();
     assert!(!frag_content.contains("export const TypeOnlyFieldsDocument"));
 
     // Verify query codegen - should NOT import or use TypeOnlyFieldsDocument
-    let query_gen = temp_dir.join("query.codegen.ts");
+    let query_gen = temp_dir.join("gen/query.codegen.ts");
     assert!(query_gen.exists());
     let query_content = std::fs::read_to_string(&query_gen).unwrap();
     assert!(!query_content.contains("TypeOnlyFieldsDocument"));
@@ -1364,11 +1412,11 @@ type User {
     std::fs::write(
         &config_file,
         r#"
-output_dir: "generated"
 projects:
   - schema: "schema.graphql"
     include: "enabled.graphql"
     codegen: true
+    output_dir: "generated"
   - schema: "schema.graphql"
     include: "disabled.graphql"
     codegen: false

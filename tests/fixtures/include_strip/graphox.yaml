@@ -2,3 +2,4 @@ schema_types: []
 projects:
   - include: src
     schema: schema.graphql
+    output_dir: "__generated__"

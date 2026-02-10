@@ -33,6 +33,7 @@ fn test_codegen_document_node() {
 projects:
   - schema: "schema.graphql"
     include: "query.ts"
+    output_dir: "."
 "#,
     )
     .unwrap();
@@ -112,6 +113,7 @@ fn test_codegen_aliases_and_enums() {
 projects:
   - schema: "schema.graphql"
     include: "query.ts"
+    output_dir: "."
 "#,
     )
     .unwrap();
@@ -187,6 +189,7 @@ fn test_codegen_document_node_no_vars() {
 projects:
   - schema: "schema.graphql"
     include: "query.ts"
+    output_dir: "."
 "#,
     )
     .unwrap();
@@ -205,6 +208,69 @@ projects:
 
     let gen_file = temp_dir.join("query.codegen.ts");
     assert!(gen_file.exists());
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
+#[ntest::timeout(500)]
+fn test_codegen_missing_parent_dir() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_missing_parent_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type Query { me: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
+
+    // Create a query file
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(&query_file, "query GetMe { me { id name } }").unwrap();
+
+    // Create YAML config with a nested output_dir that doesn't exist
+    let config_file = temp_dir.join("graphox.yaml");
+    std::fs::write(
+        &config_file,
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+    output_dir: "non_existent_parent/generated"
+"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let entrypoint_file = temp_dir.join("non_existent_parent/generated/graphql.ts");
+    assert!(
+        entrypoint_file.exists(),
+        "graphql.ts should exist in nested directory"
+    );
+
+    let gen_file = temp_dir.join("non_existent_parent/generated/query.codegen.ts");
+    assert!(
+        gen_file.exists(),
+        "query.codegen.ts should exist in nested directory"
+    );
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();

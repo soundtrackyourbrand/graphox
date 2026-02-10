@@ -74,7 +74,6 @@ impl RequiredFieldRule {
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    pub output_dir: Option<String>,
     pub projects: Vec<ProjectConfig>,
     pub schema_types: Option<Vec<SchemaTypeConfig>>,
     pub scalars: Option<AHashMap<String, String>>,
@@ -154,7 +153,7 @@ impl FragmentMasking {
             }
         } else if let Some(map) = node.as_hash() {
             let unmask_function_name = map
-                .get(&Yaml::String("unmaskFunctionName".to_string()))
+                .get(&Yaml::String("unmask_function_name".to_string()))
                 .and_then(|v| v.as_str())
                 .map(String::from);
             Some(FragmentMasking::Enabled {
@@ -256,7 +255,7 @@ pub struct ProjectConfig {
     pub exclude: Option<GlobPattern>,
     pub output_dir: Option<String>,
     pub import: Option<String>,
-    pub generate_permissions: Option<bool>,
+    pub emit_permission_data: Option<bool>,
     pub codegen: Option<bool>,
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
@@ -274,7 +273,6 @@ pub struct SchemaTypeConfig {
 impl Config {
     pub fn new_empty() -> Self {
         Self {
-            output_dir: None,
             projects: vec![],
             schema_types: None,
             scalars: None,
@@ -375,8 +373,6 @@ impl Config {
     fn from_yaml(node: &Yaml) -> Option<Self> {
         let mut config = Config::new_empty();
 
-        config.output_dir = node["output_dir"].as_str().map(String::from);
-
         if let Some(projects_node) = node["projects"].as_vec() {
             for p_node in projects_node {
                 let schema = SchemaSource::from_yaml(&p_node["schema"])?;
@@ -384,12 +380,13 @@ impl Config {
                 let exclude = GlobPattern::from_yaml(&p_node["exclude"]);
                 let output_dir = p_node["output_dir"].as_str().map(String::from);
                 let import = p_node["import"].as_str().map(String::from);
-                let generate_permissions = p_node["generate_permissions"].as_bool();
+                let emit_permission_data = p_node["emit_permission_data"].as_bool();
                 let codegen = p_node["codegen"].as_bool();
                 let document_suffix = p_node["document_suffix"].as_str().map(String::from);
                 let variables_suffix = p_node["variables_suffix"].as_str().map(String::from);
                 let fragment_suffix = p_node["fragment_suffix"].as_str().map(String::from);
-                let fragment_masking = FragmentMasking::from_yaml(&p_node["fragmentMasking"])
+                let fragment_masking_node = &p_node["fragment_masking"];
+                let fragment_masking = FragmentMasking::from_yaml(fragment_masking_node)
                     .map(|mode| FragmentMaskingConfig { mode });
 
                 config.projects.push(ProjectConfig {
@@ -398,7 +395,7 @@ impl Config {
                     exclude,
                     output_dir,
                     import,
-                    generate_permissions,
+                    emit_permission_data,
                     codegen,
                     document_suffix,
                     variables_suffix,
@@ -495,7 +492,8 @@ impl Config {
         config.variables_suffix = node["variables_suffix"].as_str().map(String::from);
         config.fragment_suffix = node["fragment_suffix"].as_str().map(String::from);
 
-        if let Some(mode) = FragmentMasking::from_yaml(&node["fragmentMasking"]) {
+        let fragment_masking_node = &node["fragment_masking"];
+        if let Some(mode) = FragmentMasking::from_yaml(fragment_masking_node) {
             config.fragment_masking = Some(FragmentMaskingConfig { mode });
         }
 
@@ -641,19 +639,17 @@ mod tests {
         writeln!(
             file,
             r#"
-output_dir: "gen"
 projects:
   - schema: "s1.graphql"
     include: "src/p1/**/*.ts"
   - schema: "s2.graphql"
     include: "src/p2/**/*.ts"
     output_dir: "gen2"
-"#
+ "#
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
-        assert_eq!(config.output_dir, Some("gen".to_string()));
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert_eq!(config.projects.len(), 2);
         assert_eq!(config.projects[0].schema.as_key(), "s1.graphql");
         assert_eq!(config.projects[1].output_dir, Some("gen2".to_string()));
@@ -675,7 +671,7 @@ projects:
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert_eq!(config.projects.len(), 1);
         assert_eq!(config.projects[0].schema.as_key(), "s.graphql");
     }
@@ -740,7 +736,7 @@ projects:
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert_eq!(config.projects.len(), 1);
         let project = &config.projects[0];
         assert_eq!(project.include.patterns().len(), 2);
@@ -760,7 +756,9 @@ projects:
         fs::File::create(&other_file).unwrap();
 
         // Canonicalize base dir for matching
-        let config = Config::load_from_dir(fs::canonicalize(dir.path()).unwrap()).unwrap();
+        let config = Config::load_from_dir(fs::canonicalize(dir.path()).unwrap())
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             config.get_schema_for_path(&ts_file),
@@ -796,7 +794,7 @@ projects:
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert_eq!(config.projects.len(), 3);
 
         // First project has codegen disabled
@@ -818,7 +816,7 @@ projects:
         writeln!(
             file,
             r#"
-fragmentMasking: disabled
+fragment_masking: disabled
 projects:
   - schema: "s.graphql"
     include: "src/**/*.ts"
@@ -826,7 +824,7 @@ projects:
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert!(matches!(
             config.fragment_masking_mode(),
             FragmentMasking::Disabled
@@ -842,7 +840,7 @@ projects:
         writeln!(
             file,
             r#"
-fragmentMasking: enabled
+fragment_masking: enabled
 projects:
   - schema: "s.graphql"
     include: "src/**/*.ts"
@@ -850,7 +848,7 @@ projects:
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert!(matches!(
             config.fragment_masking_mode(),
             FragmentMasking::Enabled { .. }
@@ -866,8 +864,8 @@ projects:
         writeln!(
             file,
             r#"
-fragmentMasking:
-  unmaskFunctionName: getData
+fragment_masking:
+  unmask_function_name: getData
 projects:
   - schema: "s.graphql"
     include: "src/**/*.ts"
@@ -875,7 +873,7 @@ projects:
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         match config.fragment_masking_mode() {
             FragmentMasking::Enabled {
                 unmask_function_name,
@@ -895,18 +893,18 @@ projects:
         writeln!(
             file,
             r#"
-fragmentMasking: enabled
+fragment_masking: enabled
 projects:
   - schema: "s1.graphql"
     include: "src/p1/**/*.ts"
   - schema: "s2.graphql"
     include: "src/p2/**/*.ts"
-    fragmentMasking: disabled
+    fragment_masking: disabled
 "#
         )
         .unwrap();
 
-        let config = Config::load_from_dir(dir.path()).unwrap();
+        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
         assert!(matches!(
             config.fragment_masking_mode(),
             FragmentMasking::Enabled { .. }

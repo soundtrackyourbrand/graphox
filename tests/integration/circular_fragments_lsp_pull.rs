@@ -30,7 +30,7 @@ async fn test_lsp_pull_circular_fragments() {
             exclude: None,
             output_dir: None,
             import: None,
-            generate_permissions: None,
+            emit_permission_data: None,
             codegen: Some(false),
         }],
         base_dir: base_dir.clone(),

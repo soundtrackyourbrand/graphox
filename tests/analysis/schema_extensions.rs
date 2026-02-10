@@ -19,7 +19,7 @@ projects:
     )
     .unwrap();
 
-    let config = Config::load_from_dir(dir.path()).unwrap();
+    let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
     assert_eq!(config.projects.len(), 1);
     let files = config.projects[0].schema.files();
     assert_eq!(files.len(), 2);
@@ -55,7 +55,9 @@ projects:
     )
     .unwrap();
 
-    let config = Config::load_from_dir(dir.path()).expect("Should load config");
+    let config = Config::load_from_dir(dir.path())
+        .expect("Should load config")
+        .expect("Config should exist");
     let (mut service, _) = crate::support::create_service(config);
     crate::support::lsp_initialize_sequence(&mut service).await;
 

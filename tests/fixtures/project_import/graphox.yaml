@@ -2,5 +2,7 @@ projects:
   - schema: "schema.graphql"
     include: "fragments.graphql"
     import: "@workspace/fragments"
+    output_dir: "__generated__"
   - schema: "schema.graphql"
     include: "query.graphql"
+    output_dir: "__generated__"

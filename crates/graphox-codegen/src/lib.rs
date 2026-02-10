@@ -732,7 +732,7 @@ pub fn generate_entrypoint_content(
     output
 }
 
-pub fn generate_permissions_content(
+pub fn emit_permission_data_content(
     schema: &apollo_compiler::validation::Valid<Schema>,
     scalars: &Option<HashMap<String, String>>,
     schema_import: &Option<String>,

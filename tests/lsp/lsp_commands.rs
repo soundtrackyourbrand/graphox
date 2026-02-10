@@ -118,10 +118,10 @@ async fn test_lsp_command_run_codegen() {
     let output_dir = "generated";
 
     let config = Config {
-        output_dir: Some(output_dir.to_string()),
         projects: vec![ProjectConfig {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("query.graphql".to_string()),
+            output_dir: Some(output_dir.to_string()),
             codegen: None, // This test needs codegen enabled
             ..Default::default()
         }],

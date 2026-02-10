@@ -1,5 +1,7 @@
 projects:
-  - schema: "../simple_schema.graphql"
+  - schema: "simple_schema.graphql"
     include: "pkg_a/**/*.graphql"
-  - schema: "../simple_schema.graphql"
+    output_dir: "__generated__"
+  - schema: "simple_schema.graphql"
     include: "pkg_b/**/*.graphql"
+    output_dir: "__generated__"

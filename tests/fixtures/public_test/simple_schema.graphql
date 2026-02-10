@@ -1,0 +1,52 @@
+type Query {
+  users: [User]
+  posts: [Post]
+  node(id: ID!): Node
+}
+
+interface Node {
+  id: ID!
+}
+
+type User implements Node {
+  id: ID!
+  username: String!
+  email: String
+  posts: [Post]
+  oldField: String @deprecated(reason: "Use username instead")
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+  content: String!
+  author: User!
+  comments: [Comment]
+}
+
+type Comment implements Node {
+  id: ID!
+  text: String!
+  author: User!
+  post: Post!
+}
+
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
+input CreateUserInput {
+  username: String!
+  email: String
+  role: Role
+}
+
+# Add some repetitions to make it large
+type Data1 { field: String }
+type Data2 { field: String }
+type Data3 { field: String }
+type Data4 { field: String }
+type Data5 { field: String }
+# ... (in a real benchmark generator we would generate thousands)

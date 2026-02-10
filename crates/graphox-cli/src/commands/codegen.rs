@@ -22,23 +22,16 @@ pub struct CodegenParams<'a> {
     pub global_metadata: &'a [FragmentMetadata],
     pub generate_ast_for_fragments: bool,
     pub workspace_documents: &'a HashMap<PathBuf, DocumentState>,
-    pub generate_permissions: bool,
+    pub emit_permission_data: bool,
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
     pub fragment_masking: codegen::FragmentMasking,
-    pub global_output_dir: &'a Option<PathBuf>,
 }
 
-pub async fn run_codegen(
-    mut config: Config,
-    output_dir: Option<&str>,
-    watch: bool,
-    verbose: bool,
-    clean: bool,
-) {
+pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
     if !watch {
-        if !execute_codegen(config, output_dir, verbose, clean).await {
+        if !execute_codegen(config, verbose, clean).await {
             std::process::exit(1);
         }
         return;
@@ -46,16 +39,13 @@ pub async fn run_codegen(
 
     'watch_loop: loop {
         println!("{}", "Watching for changes...".bright_black());
-        let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
+        let _ = execute_codegen(config.clone(), verbose, false).await;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
 
         let gitignore = utils::get_gitignore_matcher(&config.base_dir);
         let mut output_dirs = Vec::new();
-        if let Some(out) = &config.output_dir {
-            output_dirs.push(config.base_dir.join(out));
-        }
         for p in &config.projects {
             if let Some(out) = &p.output_dir {
                 output_dirs.push(config.base_dir.join(out));
@@ -75,7 +65,7 @@ pub async fn run_codegen(
                     });
 
                     if has_config_change {
-                        let _ = config_tx_clone.blocking_send(());
+                        let _ = config_tx_clone.try_send(());
                         return;
                     }
 
@@ -92,7 +82,7 @@ pub async fn run_codegen(
                         true
                     });
                     if has_relevant_change {
-                        let _ = tx.blocking_send(());
+                        let _ = tx.try_send(());
                     }
                 }
                 Err(e) => eprintln!("{}: {:?}", "Watch error".red(), e),
@@ -168,21 +158,16 @@ pub async fn run_codegen(
                         "{}",
                         "\nChange detected, re-running codegen...".bright_black()
                     );
-                    let _ = execute_codegen(config.clone(), output_dir, verbose, false).await;
+                    let _ = execute_codegen(config.clone(), verbose, false).await;
                 }
             }
         }
     }
 }
 
-async fn execute_codegen(
-    config: Config,
-    output_dir: Option<&str>,
-    verbose: bool,
-    clean: bool,
-) -> bool {
+async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     let mut success = true;
-    let mut all_generated_operations = Vec::new();
+    let mut project_operations: HashMap<usize, Vec<codegen::OperationGenerated>> = HashMap::new();
 
     let cfg = config;
 
@@ -199,10 +184,12 @@ async fn execute_codegen(
         Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
     let global_metadata = &workspace_metadata.fragments;
 
-    let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
-    let global_output_path = global_output_dir.map(PathBuf::from);
-
-    for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
+    for (project_index, (project, project_meta)) in cfg
+        .projects
+        .iter()
+        .zip(&workspace_metadata.projects)
+        .enumerate()
+    {
         if !project.codegen_enabled() {
             if verbose {
                 println!(
@@ -217,7 +204,7 @@ async fn execute_codegen(
         let project_files = &project_meta.files;
 
         println!("Processing project: {}", project.include.as_key().blue());
-        let project_output_dir = project.output_dir.as_deref().or(global_output_dir);
+        let project_output_dir = project.output_dir.as_deref();
 
         let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
 
@@ -246,25 +233,32 @@ async fn execute_codegen(
         let project_context =
             Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
 
-        if !clean
-            && project.generate_permissions.unwrap_or(false)
-            && let Some(out_dir) = project_output_dir
-        {
-            let out_dir_path = cfg.base_dir.join(out_dir);
-            std::fs::create_dir_all(&out_dir_path).ok();
-            let permissions_path = out_dir_path.join("permissions.ts");
-            if verbose {
-                println!(
-                    "{}: {}",
-                    "Generating permissions".bright_black(),
-                    permissions_path.display().to_string().bright_black()
+        if !clean && project.emit_permission_data.unwrap_or(false) {
+            if let Some(out_dir) = project_output_dir {
+                let out_dir_path = cfg.base_dir.join(out_dir);
+                std::fs::create_dir_all(&out_dir_path).ok();
+                let permissions_path = out_dir_path.join("permissions.ts");
+                if verbose {
+                    println!(
+                        "{}: {}",
+                        "Generating permissions".bright_black(),
+                        permissions_path.display().to_string().bright_black()
+                    );
+                }
+                let content = codegen::emit_permission_data_content(
+                    &valid_schema,
+                    &cfg.scalars,
+                    &schema_import,
                 );
-            }
-            let content =
-                codegen::generate_permissions_content(&valid_schema, &cfg.scalars, &schema_import);
-            if let Err(e) = std::fs::write(&permissions_path, content) {
-                eprintln!("{}: {}", "Failed to write permissions".red(), e);
-                success = false;
+                if let Err(e) = std::fs::write(&permissions_path, content) {
+                    eprintln!("{}: {}", "Failed to write permissions".red(), e);
+                    success = false;
+                }
+            } else {
+                eprintln!(
+                    "{}: emit_permission_data is enabled but no output_dir is specified for project.",
+                    "Warning".yellow()
+                );
             }
         }
 
@@ -297,7 +291,7 @@ async fn execute_codegen(
                 global_metadata,
                 generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
                 workspace_documents: &workspace_metadata.documents,
-                generate_permissions: project.generate_permissions.unwrap_or(false),
+                emit_permission_data: project.emit_permission_data.unwrap_or(false),
                 document_suffix,
                 variables_suffix,
                 fragment_suffix,
@@ -307,7 +301,6 @@ async fn execute_codegen(
                         .clone()
                         .or(cfg.fragment_masking.clone()),
                 ),
-                global_output_dir: &global_output_path,
             },
             verbose,
             clean,
@@ -315,7 +308,7 @@ async fn execute_codegen(
         .await
         {
             Ok(ops) => {
-                all_generated_operations.extend(ops);
+                project_operations.insert(project_index, ops);
             }
             Err(_) => success = false,
         }
@@ -359,11 +352,35 @@ async fn execute_codegen(
         }
     }
 
-    if !clean && let Some(out_dir) = global_output_dir {
-        let out_dir_path = cfg.base_dir.join(out_dir);
-        let entrypoint_path = out_dir_path.join("graphql.ts");
-        let fragment_masking = codegen::FragmentMasking::from_config(&cfg.fragment_masking);
-        if !all_generated_operations.is_empty() {
+    // Generate graphql.ts and manifest.json for each project
+    if !clean {
+        for (project_idx, project) in cfg.projects.iter().enumerate() {
+            let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
+            let Some(ops) = project_operations.get(&project_idx) else {
+                continue;
+            };
+
+            let out_dir_path = cfg.base_dir.join(out_dir);
+
+            // Check if path exists but is a file (blocks directory creation)
+            if out_dir_path.exists() && out_dir_path.is_file() {
+                eprintln!(
+                    "{}: output_dir '{}' exists as a file, not a directory",
+                    "Error".red(),
+                    out_dir_path.display()
+                );
+                success = false;
+                continue;
+            }
+
+            let entrypoint_path = out_dir_path.join("graphql.ts");
+            let fragment_masking = codegen::FragmentMasking::from_config(
+                &project
+                    .fragment_masking
+                    .clone()
+                    .or(cfg.fragment_masking.clone()),
+            );
+
             if verbose {
                 println!(
                     "{}: {}",
@@ -373,26 +390,30 @@ async fn execute_codegen(
             }
             let content = codegen::generate_entrypoint_content(
                 &out_dir_path,
-                &all_generated_operations,
+                ops,
                 cfg.document_suffix(),
                 cfg.variables_suffix(),
                 &fragment_masking,
             );
-            std::fs::create_dir_all(&out_dir_path).ok();
-            if let Err(e) = std::fs::write(&entrypoint_path, content) {
-                eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
-                success = false;
-            }
-
-            if fragment_masking.is_enabled() {
-                let masking_path = out_dir_path.join("fragment-masking.ts");
-                let masking_content = codegen::generate_fragment_masking_file(
-                    fragment_masking.unmask_function_name(),
+            if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
+                eprintln!(
+                    "{}: Failed to create directory '{}' - {}",
+                    "Error".red(),
+                    out_dir_path.display(),
+                    e
                 );
-                if let Err(e) = std::fs::write(&masking_path, masking_content) {
-                    eprintln!("{}: {}", "Failed to write fragment-masking".red(), e);
-                    success = false;
-                }
+                success = false;
+                continue;
+            }
+            if let Err(e) = std::fs::write(&entrypoint_path, content) {
+                eprintln!(
+                    "{}: {} (entrypoint: {}, dir exists: {})",
+                    "Failed to write entrypoint".red(),
+                    e,
+                    entrypoint_path.display(),
+                    out_dir_path.exists()
+                );
+                success = false;
             }
 
             let manifest_path = out_dir_path.join("manifest.json");
@@ -403,7 +424,7 @@ async fn execute_codegen(
                     manifest_path.display().to_string().bright_black()
                 );
             }
-            let manifest_entries: Vec<_> = all_generated_operations
+            let manifest_entries: Vec<_> = ops
                 .iter()
                 .map(|op| {
                     let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
@@ -427,9 +448,14 @@ async fn execute_codegen(
                 .collect();
 
             let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();
-            std::fs::create_dir_all(&out_dir_path).ok();
             if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
-                eprintln!("{}: {}", "Failed to write manifest".red(), e);
+                eprintln!(
+                    "{}: {} (manifest: {}, dir exists: {})",
+                    "Failed to write manifest".red(),
+                    e,
+                    manifest_path.display(),
+                    out_dir_path.exists()
+                );
                 success = false;
             }
         }
@@ -527,7 +553,7 @@ async fn generate_project_files(
                 params.fragment_suffix,
                 params.fragment_masking.clone(),
                 {
-                    if let Some(global_out) = params.global_output_dir {
+                    if let Some(out_dir) = params.output_dir {
                         let out_path = utils::get_output_path(
                             path,
                             params.base_dir,
@@ -540,7 +566,7 @@ async fn generate_project_files(
                             params.base_dir.join(out_path).parent().unwrap().to_path_buf()
                         };
 
-                        let abs_masking_dir = params.base_dir.join(global_out);
+                        let abs_masking_dir = params.base_dir.join(out_dir);
                         let rel_to_masking = pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
                             .unwrap_or_else(|| PathBuf::from("."));
 
@@ -612,6 +638,21 @@ async fn generate_project_files(
         match res {
             Ok(ops) => all_ops.extend(ops),
             Err(_) => success = false,
+        }
+    }
+
+    if success && let Some(out_dir) = params.output_dir {
+        let out_dir_path = params.base_dir.join(out_dir);
+        std::fs::create_dir_all(&out_dir_path).ok();
+        if params.fragment_masking.is_enabled() {
+            let masking_path = out_dir_path.join("fragment-masking.ts");
+            let masking_content = codegen::generate_fragment_masking_file(
+                params.fragment_masking.unmask_function_name(),
+            );
+            if let Err(e) = std::fs::write(&masking_path, masking_content) {
+                eprintln!("{}: {}", "Failed to write fragment-masking".red(), e);
+                success = false;
+            }
         }
     }
 
@@ -698,7 +739,7 @@ async fn clean_project_files(
             }
         }
 
-        if params.generate_permissions {
+        if params.emit_permission_data {
             let permissions_path = params.base_dir.join(out_dir).join("permissions.ts");
             if permissions_path.exists() {
                 if let Err(e) = std::fs::remove_file(&permissions_path) {

@@ -22,14 +22,11 @@ This document provides ready-to-use configuration examples for common use cases,
 ## Full Configuration Reference
 
 ```yaml
-# Global output directory for generated types
-output_dir: "__generated__"
-
 # Fragment masking (similar to graphql-codegen client-preset)
 # Disabled by default for backwards compatibility
-fragmentMasking: enabled  # or: disabled
-# fragmentMasking:
-#   unmaskFunctionName: "getFragmentData"  # Custom function name
+fragment_masking: enabled  # or: disabled
+# fragment_masking:
+#   unmask_function_name: "getFragmentData"  # Custom function name
 
 # Custom scalar type mappings
 scalars:
@@ -52,7 +49,7 @@ projects:
     exclude: "**/*.test.ts"                      # Optional exclusions
     output_dir: "src/client/__generated__"       # Override global output_dir
     import: "@workspace/project-1"                # How other projects import fragments
-    generate_permissions: true                   # Generate permission metadata
+    emit_permission_data: true                   # Generate permission metadata
     codegen: true                                # Enable codegen for this project
     document_suffix: "Document"                  # Suffix for Document constants
     variables_suffix: "Variables"                # Suffix for Variables interfaces
@@ -105,11 +102,10 @@ The simplest configuration for a single GraphQL schema and operations.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 ---
@@ -120,8 +116,6 @@ Configure multiple projects in a monorepo, each with its own schema and source p
 
 ```yaml
 # graphox.yaml (root of monorepo)
-output_dir: "__generated__"
-
 projects:
   # API project
   - schema: "packages/api/schema.graphql"
@@ -144,7 +138,6 @@ projects:
 
 **Key points:**
 - Projects are matched in order; the first matching project is used for each file
-- Each project can have its own `output_dir` override
 - The `import` field specifies how other projects import generated types
 
 ---
@@ -221,18 +214,17 @@ Fragment masking is **disabled by default** for backwards compatibility.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 # Global setting (disabled by default)
-fragmentMasking: enabled
+fragment_masking: enabled
 
 # Or with custom function name
-fragmentMasking:
-  unmaskFunctionName: "getFragmentData"
+fragment_masking:
+  unmask_function_name: "getFragmentData"
 
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 ### Per-Project Override
@@ -241,7 +233,7 @@ Override fragment masking per project:
 
 ```yaml
 # graphox.yaml
-fragmentMasking: enabled  # Global default
+fragment_masking: enabled  # Global default
 
 projects:
   # Uses global (enabled)
@@ -251,7 +243,7 @@ projects:
   # Overrides to disabled
   - schema: "schema.graphql"
     include: "src/admin/**/*"
-    fragmentMasking: disabled
+    fragment_masking: disabled
 ```
 
 ### Generated Output
@@ -324,7 +316,7 @@ const user: FragmentType<typeof UserFragment> =
 
 ### Migration from Disabled to Enabled
 
-1. Enable fragment masking in config: `fragmentMasking: enabled`
+1. Enable fragment masking in config: `fragment_masking: enabled`
 2. Update components to use `FragmentType<>` props
 3. Replace direct field access with `getFragmentData()` calls
 
@@ -336,8 +328,6 @@ Map GraphQL scalar types to TypeScript types.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 scalars:
   DateTime: "Date"
   JSON: "Record<string, any>"
@@ -348,6 +338,7 @@ scalars:
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 **GraphQL Schema:**
@@ -378,8 +369,6 @@ Generate standalone TypeScript types from the schema without operations.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 schema_types:
   - schema: "schema.graphql"
     output: "types/schema.ts"
@@ -389,6 +378,7 @@ projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
     codegen: false  # Disable codegen, only generate schema types
+    output_dir: "__generated__"
 ```
 
 **Generated: types/schema.ts**
@@ -414,8 +404,6 @@ Disable codegen for specific projects or enable it only where needed.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 projects:
   # Shared fragments - only parse, don't generate types
   - schema: "packages/shared/schema.graphql"
@@ -425,11 +413,13 @@ projects:
   # API server - full codegen
   - schema: "packages/api/schema.graphql"
     include: "packages/api/src/**/*.{ts,tsx}"
-    generate_permissions: true
+    emit_permission_data: true
+    output_dir: "__generated__"
 
   # Web client - full codegen
   - schema: "packages/api/schema.graphql"  # Reuse API schema
     include: "packages/web/src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 ---
@@ -440,8 +430,6 @@ Suppress warnings for deprecated fields or types.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 ignore_deprecations:
   - "EXPERIMENTAL"
   - "INTERNAL"
@@ -450,6 +438,7 @@ ignore_deprecations:
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 ---
@@ -460,8 +449,6 @@ Configure performance-related settings for large workspaces.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 # LSP settings
 lsp_automatic_codegen: true
 lsp_codegen_throttle_ms: 500  # Increase throttle for large workspaces
@@ -474,6 +461,7 @@ enable_schema_cache: true  # Enable two-tier schema cache
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 ---
@@ -484,8 +472,6 @@ Debug slow LSP requests by enabling tracing.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
-
 tracing:
   enabled: true
   threshold_ms: 50  # Only trace requests exceeding 50ms
@@ -493,6 +479,7 @@ tracing:
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 Logs appear in the LSP output panel of your editor.
@@ -505,7 +492,6 @@ Enable additional validation rules for stricter checks.
 
 ```yaml
 # graphox.yaml
-output_dir: "__generated__"
 
 rules:
   unique_operation_name: true
@@ -518,6 +504,7 @@ rules:
 projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
 ```
 
 See [Validation Rules](./rules.md) for full documentation.

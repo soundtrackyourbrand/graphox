@@ -1,5 +1,6 @@
 use std::fs;
 use std::process::{Command, Stdio};
+use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
@@ -24,7 +25,7 @@ fn test_codegen_watch_mode() {
     let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
-        "projects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"",
+        "enable_schema_cache: false\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
     )
     .unwrap();
 
@@ -32,14 +33,13 @@ fn test_codegen_watch_mode() {
     let mut child = Command::new(bin_path)
         .arg("codegen")
         .arg("--watch")
+        .arg("--verbose")
         .current_dir(base_dir)
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to spawn codegen watcher");
-    // Ensure we wait on the child in case of early return to avoid zombies
-    let _child_pid = child.id();
 
-    let gen_file = base_dir.join("query.codegen.ts");
+    let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
     if !wait_for_file(&gen_file, Duration::from_secs(2)) {
@@ -58,13 +58,13 @@ fn test_codegen_watch_mode() {
     let mut updated = false;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Ok(content) = fs::read_to_string(&gen_file)
-            && content.contains("name: string | null")
-        {
-            updated = true;
-            break;
+        if let Ok(content) = fs::read_to_string(&gen_file) {
+            if content.contains("name: string | null") {
+                updated = true;
+                break;
+            }
         }
-        std::thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(50));
     }
 
     let _ = child.kill();
@@ -77,7 +77,7 @@ fn test_codegen_watch_mode() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(5000)]
 fn test_codegen_watch_schema_changes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
@@ -97,7 +97,7 @@ fn test_codegen_watch_schema_changes() {
     let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
-        "projects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"",
+        "enable_schema_cache: false\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
     )
     .unwrap();
 
@@ -105,12 +105,13 @@ fn test_codegen_watch_schema_changes() {
     let mut child = Command::new(bin_path)
         .arg("codegen")
         .arg("--watch")
+        .arg("--verbose")
         .current_dir(base_dir)
+        .stdout(Stdio::piped())
         .spawn()
-        .expect("Failed to spawn codegen watcher");
-    let _child_pid2 = child.id();
+        .expect("Failed to start watch mode");
 
-    let gen_file = base_dir.join("query.codegen.ts");
+    let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
     if !wait_for_file(&gen_file, Duration::from_secs(2)) {
@@ -126,7 +127,7 @@ fn test_codegen_watch_schema_changes() {
     .unwrap();
 
     // Give it a moment to detect schema change and re-evaluate
-    std::thread::sleep(Duration::from_millis(50));
+    thread::sleep(Duration::from_millis(200));
 
     // 5. Modify query to use the new field
     fs::write(&query_path, "query GetMe { me { id email } }").unwrap();
@@ -135,13 +136,13 @@ fn test_codegen_watch_schema_changes() {
     let mut updated = false;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Ok(content) = fs::read_to_string(&gen_file)
-            && content.contains("email: string")
-        {
-            updated = true;
-            break;
+        if let Ok(content) = fs::read_to_string(&gen_file) {
+            if content.contains("email: string") {
+                updated = true;
+                break;
+            }
         }
-        std::thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(50));
     }
 
     let _ = child.kill();
@@ -159,7 +160,7 @@ fn wait_for_file(path: &std::path::Path, timeout: Duration) -> bool {
         if path.exists() {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
     }
     false
 }

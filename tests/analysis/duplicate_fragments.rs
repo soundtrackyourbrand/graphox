@@ -74,7 +74,6 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     .unwrap();
 
     let config = graphox::Config {
-        output_dir: None,
         projects: vec![graphox::config::ProjectConfig {
             schema: graphox::config::SchemaSource::Single("schema.graphql".to_string()),
             include: graphox::config::GlobPattern::Single("**/*.graphql".to_string()),

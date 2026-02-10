@@ -9,8 +9,9 @@ use tower_lsp::lsp_types::*;
 #[tokio::test]
 async fn test_lsp_fragment_scoping() {
     let config_dir = std::fs::canonicalize(Path::new("tests/fixtures/public_test")).unwrap();
-    let config =
-        graphox::Config::load_from_dir(&config_dir).expect("Failed to load config from fixtures");
+    let config = graphox::Config::load_from_dir(&config_dir)
+        .expect("Failed to load config from fixtures")
+        .expect("Config should exist");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Open Public/Private fragments in pkg_a

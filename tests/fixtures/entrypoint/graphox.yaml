@@ -1,4 +1,4 @@
-output_dir: "gen"
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
+    output_dir: "gen"

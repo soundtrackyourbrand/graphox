@@ -207,13 +207,12 @@ impl Engine {
                 }
 
                 // Incremental optimization: check if file has changed
-                if let Some(prev) = previous_metadata {
-                    if let Some(prev_doc) = prev.documents.get(p) {
-                        let current_mtime =
-                            std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
-                        if current_mtime == prev_doc.mtime && current_mtime.is_some() {
-                            return Some((p.clone(), prev_doc.clone()));
-                        }
+                if let Some(prev) = previous_metadata
+                    && let Some(prev_doc) = prev.documents.get(p)
+                {
+                    let current_mtime = std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
+                    if current_mtime == prev_doc.mtime && current_mtime.is_some() {
+                        return Some((p.clone(), prev_doc.clone()));
                     }
                 }
 

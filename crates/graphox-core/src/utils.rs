@@ -19,50 +19,56 @@ pub enum SemanticTokenKind {
 }
 
 pub fn is_relevant_file(path: &Path) -> bool {
-    if path
-        .components()
-        .any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git")
-    {
-        return false;
-    }
+    (|| {
+        if path
+            .components()
+            .any(|c| c.as_os_str() == "node_modules" || c.as_os_str() == ".git")
+        {
+            return false;
+        }
 
-    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    let is_ext_relevant = matches!(
-        ext,
-        "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
-    );
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        let is_ext_relevant = matches!(
+            ext,
+            "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
+        );
 
-    if !is_ext_relevant {
-        return false;
-    }
+        if !is_ext_relevant {
+            return false;
+        }
 
-    // Exclude generated files
-    if let Some(file_name) = path.file_name().and_then(|s| s.to_str())
-        && (file_name.ends_with(".codegen.ts")
-            || file_name == "manifest.json"
-            || file_name == "permissions.ts")
-    {
-        return false;
-    }
+        // Exclude generated files
+        if let Some(file_name) = path.file_name().and_then(|s| s.to_str())
+            && (file_name.ends_with(".codegen.ts")
+                || file_name == "manifest.json"
+                || file_name == "permissions.ts"
+                || file_name == "graphql.ts"
+                || file_name == "fragment-masking.ts")
+        {
+            return false;
+        }
 
-    true
+        true
+    })()
 }
 
 pub fn get_glob_root(pattern: &str) -> PathBuf {
+    if pattern.contains("**") {
+        return PathBuf::new();
+    }
     let path = Path::new(pattern);
     let mut root = PathBuf::new();
     let components: Vec<_> = path.components().collect();
-    for (i, component) in components.iter().enumerate() {
+    for component in components {
         let s = component.as_os_str().to_str().unwrap_or("");
         if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
             break;
         }
-
-        if i < components.len() - 1 {
-            root.push(component);
-        } else if pattern.ends_with('/') || pattern.ends_with('\\') {
-            root.push(component);
+        // If it looks like a file (has an extension), don't include it in the root
+        if Path::new(s).extension().is_some() {
+            break;
         }
+        root.push(component);
     }
     root
 }

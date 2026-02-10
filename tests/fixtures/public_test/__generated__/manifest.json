@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetPublicQueryDocument",
+    "path": "./pkg_b/query.codegen",
+    "source": "query GetPublic { users { ...PublicFrag } }\n"
+  }
+]
