@@ -4,6 +4,7 @@
 //! processing each project, generating types, and creating the entrypoint file.
 
 use graphox_core::Config;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
@@ -120,6 +121,7 @@ pub async fn run_codegen(
 
         let total_files = project_files.len();
         let mut current_file = 0;
+        let global_output_path = config.output_dir.as_ref().map(PathBuf::from);
 
         for path in project_files {
             current_file += 1;
@@ -156,6 +158,54 @@ pub async fn run_codegen(
                         .as_deref()
                         .or(config.fragment_suffix.as_deref())
                         .unwrap_or(""),
+                    graphox_codegen::FragmentMasking::from_config(
+                        &project
+                            .fragment_masking
+                            .clone()
+                            .or(config.fragment_masking.clone()),
+                    ),
+                    {
+                        if let Some(global_out) = &global_output_path {
+                            let out_path = graphox_core::utils::get_output_path(
+                                path,
+                                &config.base_dir,
+                                project
+                                    .output_dir
+                                    .as_deref()
+                                    .or(config.output_dir.as_deref()),
+                                Some(
+                                    graphox_core::utils::get_glob_root(&project.include.as_key())
+                                        .to_str()
+                                        .unwrap_or(""),
+                                ),
+                            );
+                            let abs_out_dir = if out_path.is_absolute() {
+                                out_path.parent().unwrap().to_path_buf()
+                            } else {
+                                config
+                                    .base_dir
+                                    .join(out_path)
+                                    .parent()
+                                    .unwrap()
+                                    .to_path_buf()
+                            };
+
+                            let abs_masking_dir = config.base_dir.join(global_out);
+                            let rel_to_masking =
+                                pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
+                                    .unwrap_or_else(|| PathBuf::from("."));
+
+                            let mut path_str = graphox_core::utils::to_posix_path(
+                                &rel_to_masking.join("fragment-masking"),
+                            );
+                            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                                path_str.insert_str(0, "./");
+                            }
+                            path_str
+                        } else {
+                            "./fragment-masking".to_string()
+                        }
+                    },
                 );
 
                 if let Ok((ts_code, mut ops)) = graphox_codegen::generate_typescript(doc, &ctx) {
@@ -245,6 +295,7 @@ pub async fn run_codegen(
                 &all_generated_operations,
                 config.document_suffix(),
                 config.variables_suffix(),
+                &graphox_codegen::FragmentMasking::from_config(&config.fragment_masking),
             );
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 client

@@ -44,11 +44,18 @@ projects:
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     // Check for GitHub annotation format
     // ::warning file=deprecated.graphql,line=4,col=9::Field 'oldField' is deprecated: Use username instead
-    if !stdout.contains("::warning file=") || !stdout.contains("deprecated.graphql,line=4,col=9::Field 'oldField' is deprecated: Use username instead") {
-        panic!("STDOUT did not contain expected GitHub annotation.\nSTDOUT:\n{}\nSTDERR:\n{}", stdout, stderr);
+    if !stdout.contains("::warning file=")
+        || !stdout.contains(
+            "deprecated.graphql,line=4,col=9::Field 'oldField' is deprecated: Use username instead",
+        )
+    {
+        panic!(
+            "STDOUT did not contain expected GitHub annotation.\nSTDOUT:\n{}\nSTDERR:\n{}",
+            stdout, stderr
+        );
     }
 
     std::fs::remove_dir_all(temp_dir).ok();
@@ -69,7 +76,7 @@ fn test_cli_check_github_reporter_duplicates() {
         temp_dir.join("schema.graphql"),
     )
     .unwrap();
-    
+
     // Create two files with same operation name
     std::fs::write(
         temp_dir.join("op1.graphql"),
@@ -105,10 +112,14 @@ rules:
 
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Check for duplicate operation annotations
-    assert!(stdout.contains("::error file=op1.graphql::Duplicate operation name 'GetUser' in project *.graphql"));
-    assert!(stdout.contains("::error file=op2.graphql::Duplicate operation name 'GetUser' in project *.graphql"));
+    assert!(stdout.contains(
+        "::error file=op1.graphql::Duplicate operation name 'GetUser' in project *.graphql"
+    ));
+    assert!(stdout.contains(
+        "::error file=op2.graphql::Duplicate operation name 'GetUser' in project *.graphql"
+    ));
 
     std::fs::remove_dir_all(temp_dir).ok();
 }
@@ -155,9 +166,11 @@ projects:
 
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Check for tsc format: path(line,col): severity: message
-    assert!(stdout.contains("deprecated.graphql(4,9): warning: Field 'oldField' is deprecated: Use username instead"));
+    assert!(stdout.contains(
+        "deprecated.graphql(4,9): warning: Field 'oldField' is deprecated: Use username instead"
+    ));
 
     std::fs::remove_dir_all(temp_dir).ok();
 }

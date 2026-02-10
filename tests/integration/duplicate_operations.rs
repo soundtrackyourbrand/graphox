@@ -57,8 +57,11 @@ async fn test_check_command_duplicate_operations() {
     };
 
     // Scan workspace to build operation index
-    let workspace_metadata =
-        Engine::scan_workspace(&config, tower_lsp::lsp_types::PositionEncodingKind::UTF16, None);
+    let workspace_metadata = Engine::scan_workspace(
+        &config,
+        tower_lsp::lsp_types::PositionEncodingKind::UTF16,
+        None,
+    );
 
     // Check that we found duplicate operations
     assert!(
@@ -109,8 +112,11 @@ async fn test_check_command_unique_operations() {
         ..Default::default()
     };
 
-    let workspace_metadata =
-        Engine::scan_workspace(&config, tower_lsp::lsp_types::PositionEncodingKind::UTF16, None);
+    let workspace_metadata = Engine::scan_workspace(
+        &config,
+        tower_lsp::lsp_types::PositionEncodingKind::UTF16,
+        None,
+    );
 
     // Check that we found both operations
     assert!(

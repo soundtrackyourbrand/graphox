@@ -9,12 +9,50 @@ use graphox_core::apollo_ast::{
     get_fragment_fragment_dependencies, serialize_fragment_definition,
     serialize_operation_definition,
 };
+use graphox_core::config::FragmentMaskingConfig;
 use graphox_core::document::DocumentState;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::sync::Arc;
+
+#[derive(Debug, Clone)]
+pub enum FragmentMasking {
+    Disabled,
+    Enabled { unmask_function_name: String },
+}
+
+impl FragmentMasking {
+    pub fn from_config(config: &Option<FragmentMaskingConfig>) -> Self {
+        match config {
+            None => FragmentMasking::Disabled,
+            Some(c) => match &c.mode {
+                graphox_core::config::FragmentMasking::Disabled => FragmentMasking::Disabled,
+                graphox_core::config::FragmentMasking::Enabled {
+                    unmask_function_name,
+                } => FragmentMasking::Enabled {
+                    unmask_function_name: unmask_function_name
+                        .clone()
+                        .unwrap_or_else(|| "getFragmentData".to_string()),
+                },
+            },
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        matches!(self, FragmentMasking::Enabled { .. })
+    }
+
+    pub fn unmask_function_name(&self) -> &str {
+        match self {
+            FragmentMasking::Disabled => "getFragmentData",
+            FragmentMasking::Enabled {
+                unmask_function_name,
+            } => unmask_function_name.as_str(),
+        }
+    }
+}
 
 pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
@@ -33,6 +71,8 @@ pub struct CodegenContext<'a> {
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
+    pub fragment_masking: FragmentMasking,
+    pub masking_import_path: String,
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
@@ -104,6 +144,8 @@ impl<'a> CodegenContext<'a> {
         document_suffix: &'a str,
         variables_suffix: &'a str,
         fragment_suffix: &'a str,
+        fragment_masking: FragmentMasking,
+        masking_import_path: String,
     ) -> Self {
         Self {
             schema,
@@ -120,6 +162,8 @@ impl<'a> CodegenContext<'a> {
             document_suffix,
             variables_suffix,
             fragment_suffix,
+            fragment_masking,
+            masking_import_path,
         }
     }
 
@@ -364,6 +408,18 @@ pub fn generate_typescript_with_profile(
             bodies.push_str(ctx.fragment_suffix);
             bodies.push(' ');
             bodies.push_str(&ts_type);
+
+            if ctx.fragment_masking.is_enabled() {
+                bodies.push_str("\n\n");
+                bodies.push_str("export declare const ");
+                bodies.push_str(&frag.name);
+                bodies.push_str(ctx.fragment_suffix);
+                bodies.push_str(": {\n");
+                bodies.push_str("  __fragment: ");
+                bodies.push_str(&ts_type);
+                bodies.push_str(";\n");
+                bodies.push_str("};\n");
+            }
             bodies.push_str("\n\n");
 
             if ctx.generate_ast_for_fragments {
@@ -571,6 +627,13 @@ pub fn generate_typescript_with_profile(
         output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
     }
 
+    if ctx.fragment_masking.is_enabled() {
+        output.push_str(&format!(
+            "import type {{ FragmentType }} from \"{}\";\n",
+            ctx.masking_import_path
+        ));
+    }
+
     if !import_section.is_empty() {
         output.push_str(&import_section);
     }
@@ -594,11 +657,16 @@ pub fn generate_entrypoint_content(
     operations: &[OperationGenerated],
     document_suffix: &str,
     variables_suffix: &str,
+    fragment_masking: &FragmentMasking,
 ) -> String {
     // Pre-allocate with estimated capacity based on number of operations
     let estimated_size = operations.len() * 200 + 500; // ~200 chars per operation + overhead
     let mut output = String::with_capacity(estimated_size);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+
+    if fragment_masking.is_enabled() {
+        output.push_str("import type { FragmentType } from \"./fragment-masking\";\n");
+    }
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
     let mut import_lines = Vec::with_capacity(operations.len());
@@ -749,6 +817,8 @@ pub fn generate_permissions_content(
         "Document",
         "Variables",
         "",
+        FragmentMasking::Disabled,
+        "./fragment-masking".to_string(),
     );
     let mut used_schema_types = HashSet::default();
 
@@ -967,7 +1037,7 @@ fn format_multiline_object(fields: &[String], indent: usize) -> String {
     output
 }
 
-/// Format as TypeScript intersection type (object & fragments)
+/// Format as TypeScript intersection type (object & fragments) or FragmentType wrapper
 fn format_intersection(
     fields: &[String],
     fragment_spreads: &[&Node<executable::FragmentSpread>],
@@ -976,11 +1046,36 @@ fn format_intersection(
     let base_obj = format!("{{ {} }}", fields.join(", "));
     let mut spreads: Vec<_> = fragment_spreads
         .iter()
-        .map(|s| format!("{}{}", s.fragment_name.as_str(), ctx.fragment_suffix))
+        .map(|s| {
+            format!(
+                "FragmentType<typeof {}{}>",
+                s.fragment_name.as_str(),
+                ctx.fragment_suffix
+            )
+        })
         .collect();
     spreads.sort();
 
-    format!("({} & {})", base_obj, spreads.join(" & "))
+    if ctx.fragment_masking.is_enabled() {
+        if spreads.is_empty() {
+            base_obj
+        } else if fields.len() == 1 && fields[0].starts_with("__typename:") {
+            if spreads.len() == 1 {
+                spreads[0].clone()
+            } else {
+                format!("({})", spreads.join(" & "))
+            }
+        } else {
+            format!("({} & {})", base_obj, spreads.join(" & "))
+        }
+    } else {
+        let mut plain_spreads: Vec<_> = fragment_spreads
+            .iter()
+            .map(|s| format!("{}{}", s.fragment_name.as_str(), ctx.fragment_suffix))
+            .collect();
+        plain_spreads.sort();
+        format!("({} & {})", base_obj, plain_spreads.join(" & "))
+    }
 }
 
 /// Generate TypeScript union type for inline fragments
@@ -1249,6 +1344,8 @@ pub fn generate_schema_types(
         "Document",
         "Variables",
         "",
+        FragmentMasking::Disabled,
+        "./fragment-masking".to_string(),
     );
     let mut used_schema_types = HashSet::default();
 
@@ -1473,4 +1570,26 @@ fn collect_direct_fragment_spreads(
             }
         }
     }
+}
+
+/// Generate fragment-masking.ts utility file content
+pub fn generate_fragment_masking_file(unmask_function_name: &str) -> String {
+    format!(
+        r#"/* tslint:disable */
+/* eslint-disable */
+// This file was automatically generated and should not be edited.
+
+export type FragmentType<TFragment> = TFragment extends {{ __fragment: infer T }}
+  ? T
+  : never;
+
+export function {}<TFragment, TData>(
+  _fragment: TFragment,
+  data: TData
+): FragmentType<TFragment> {{
+  return data as FragmentType<TFragment>;
+}}
+"#,
+        unmask_function_name
+    )
 }

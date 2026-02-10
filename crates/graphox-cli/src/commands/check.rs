@@ -85,10 +85,16 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
                 if paths.len() > 1 {
                     success = false;
                     let project_name = &cfg.projects[*project_idx].include.as_key();
-                    let display_paths: Vec<PathBuf> = paths.iter().map(|path| {
-                        path.strip_prefix(&cfg.base_dir).unwrap_or(path).to_path_buf()
-                    }).collect();
-                    let path_refs: Vec<&std::path::Path> = display_paths.iter().map(|p| p.as_path()).collect();
+                    let display_paths: Vec<PathBuf> = paths
+                        .iter()
+                        .map(|path| {
+                            path.strip_prefix(&cfg.base_dir)
+                                .unwrap_or(path)
+                                .to_path_buf()
+                        })
+                        .collect();
+                    let path_refs: Vec<&std::path::Path> =
+                        display_paths.iter().map(|p| p.as_path()).collect();
                     reporter.report_duplicate_operation(op_name, project_name, &path_refs);
                 }
             }
@@ -122,11 +128,7 @@ async fn execute_project_check(
                 texts.push(t);
             }
             Err(e) => {
-                reporter.report_error(&format!(
-                    "Failed to read schema {}: {}",
-                    source.as_key(),
-                    e
-                ));
+                reporter.report_error(&format!("Failed to read schema {}: {}", source.as_key(), e));
                 return false;
             }
         }

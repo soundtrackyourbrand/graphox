@@ -43,7 +43,9 @@ impl Reporter for DefaultReporter {
                 "File: {}\n  [{}:{}] {}: {}",
                 path.display().to_string().blue(),
                 (diagnostic.range.start.line + 1).to_string().bright_black(),
-                (diagnostic.range.start.character + 1).to_string().bright_black(),
+                (diagnostic.range.start.character + 1)
+                    .to_string()
+                    .bright_black(),
                 severity_label,
                 colored_msg
             );
@@ -83,7 +85,7 @@ pub struct GitHubReporter;
 
 impl Reporter for GitHubReporter {
     fn report_project_start(&self, _project_name: &str) {
-        // GitHub annotations don't really need a project start message, 
+        // GitHub annotations don't really need a project start message,
         // but we can log it to stderr or as an info message if we want.
     }
 

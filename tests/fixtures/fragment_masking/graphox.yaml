@@ -1,0 +1,7 @@
+output_dir: "__generated__"
+
+fragmentMasking: enabled
+
+projects:
+  - schema: "schema.graphql"
+    include: "*.graphql"

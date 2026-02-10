@@ -26,6 +26,8 @@ pub struct CodegenParams<'a> {
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
+    pub fragment_masking: codegen::FragmentMasking,
+    pub global_output_dir: &'a Option<PathBuf>,
 }
 
 pub async fn run_codegen(
@@ -153,7 +155,7 @@ pub async fn run_codegen(
                 _ = config_rx.recv() => {
                     println!("{}", "\nConfiguration file changed, reloading...".bright_yellow());
 
-                    if let Some(new_config) = Config::load_from_dir(&config.base_dir) {
+                    if let Ok(Some(new_config)) = Config::load_from_dir(&config.base_dir) {
                         println!("{}", "Configuration reloaded successfully".bright_green());
                         config = new_config;
                         continue 'watch_loop;
@@ -198,6 +200,8 @@ async fn execute_codegen(
     let global_metadata = &workspace_metadata.fragments;
 
     let global_output_dir = output_dir.or(cfg.output_dir.as_deref());
+    let global_output_path = global_output_dir.map(PathBuf::from);
+
     for (project, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
         if !project.codegen_enabled() {
             if verbose {
@@ -297,6 +301,13 @@ async fn execute_codegen(
                 document_suffix,
                 variables_suffix,
                 fragment_suffix,
+                fragment_masking: codegen::FragmentMasking::from_config(
+                    &project
+                        .fragment_masking
+                        .clone()
+                        .or(cfg.fragment_masking.clone()),
+                ),
+                global_output_dir: &global_output_path,
             },
             verbose,
             clean,
@@ -351,6 +362,7 @@ async fn execute_codegen(
     if !clean && let Some(out_dir) = global_output_dir {
         let out_dir_path = cfg.base_dir.join(out_dir);
         let entrypoint_path = out_dir_path.join("graphql.ts");
+        let fragment_masking = codegen::FragmentMasking::from_config(&cfg.fragment_masking);
         if !all_generated_operations.is_empty() {
             if verbose {
                 println!(
@@ -364,11 +376,23 @@ async fn execute_codegen(
                 &all_generated_operations,
                 cfg.document_suffix(),
                 cfg.variables_suffix(),
+                &fragment_masking,
             );
             std::fs::create_dir_all(&out_dir_path).ok();
             if let Err(e) = std::fs::write(&entrypoint_path, content) {
                 eprintln!("{}: {}", "Failed to write entrypoint".red(), e);
                 success = false;
+            }
+
+            if fragment_masking.is_enabled() {
+                let masking_path = out_dir_path.join("fragment-masking.ts");
+                let masking_content = codegen::generate_fragment_masking_file(
+                    fragment_masking.unmask_function_name(),
+                );
+                if let Err(e) = std::fs::write(&masking_path, masking_content) {
+                    eprintln!("{}: {}", "Failed to write fragment-masking".red(), e);
+                    success = false;
+                }
             }
 
             let manifest_path = out_dir_path.join("manifest.json");
@@ -501,6 +525,34 @@ async fn generate_project_files(
                 params.document_suffix,
                 params.variables_suffix,
                 params.fragment_suffix,
+                params.fragment_masking.clone(),
+                {
+                    if let Some(global_out) = params.global_output_dir {
+                        let out_path = utils::get_output_path(
+                            path,
+                            params.base_dir,
+                            params.output_dir,
+                            Some(utils::get_glob_root(&params.include.as_key()).to_str().unwrap_or("")),
+                        );
+                        let abs_out_dir = if out_path.is_absolute() {
+                            out_path.parent().unwrap().to_path_buf()
+                        } else {
+                            params.base_dir.join(out_path).parent().unwrap().to_path_buf()
+                        };
+
+                        let abs_masking_dir = params.base_dir.join(global_out);
+                        let rel_to_masking = pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
+                            .unwrap_or_else(|| PathBuf::from("."));
+
+                        let mut path_str = utils::to_posix_path(&rel_to_masking.join("fragment-masking"));
+                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                            path_str.insert_str(0, "./");
+                        }
+                        path_str
+                    } else {
+                        "./fragment-masking".to_string()
+                    }
+                },
             );
 
                 let glob_pattern = params.include.as_key();
@@ -576,7 +628,12 @@ async fn clean_project_files(
         .project_files
         .par_iter()
         .map(|path| {
-            let out_path = utils::get_output_path(path, params.base_dir, params.output_dir, Some(include_prefix.to_str().unwrap_or("")));
+            let out_path = utils::get_output_path(
+                path,
+                params.base_dir,
+                params.output_dir,
+                Some(include_prefix.to_str().unwrap_or("")),
+            );
             let mut ok = true;
             if out_path.exists() {
                 if let Err(e) = std::fs::remove_file(&out_path) {

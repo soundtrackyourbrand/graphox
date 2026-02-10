@@ -91,6 +91,7 @@ pub struct Config {
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
+    pub fragment_masking: Option<FragmentMaskingConfig>,
     pub base_dir: PathBuf,
 }
 
@@ -119,6 +120,48 @@ impl Default for TimeoutConfig {
 pub enum SchemaSource {
     Single(String),
     Multiple(Vec<String>),
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum FragmentMasking {
+    #[default]
+    Disabled,
+    Enabled {
+        unmask_function_name: Option<String>,
+    },
+}
+
+impl FragmentMasking {
+    pub fn from_yaml(node: &Yaml) -> Option<Self> {
+        if node.is_null() || node.is_badvalue() {
+            return None;
+        }
+        if let Some(b) = node.as_bool() {
+            if b {
+                Some(FragmentMasking::Enabled { unmask_function_name: None })
+            } else {
+                Some(FragmentMasking::Disabled)
+            }
+        } else if let Some(s) = node.as_str() {
+            match s.to_lowercase().as_str() {
+                "enabled" | "true" => Some(FragmentMasking::Enabled { unmask_function_name: None }),
+                "disabled" | "false" => Some(FragmentMasking::Disabled),
+                _ => Some(FragmentMasking::Disabled),
+            }
+        } else if let Some(map) = node.as_hash() {
+            let unmask_function_name = map.get(&Yaml::String("unmaskFunctionName".to_string()))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            Some(FragmentMasking::Enabled { unmask_function_name })
+        } else {
+            Some(FragmentMasking::Disabled)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FragmentMaskingConfig {
+    pub mode: FragmentMasking,
 }
 
 impl Default for SchemaSource {
@@ -211,6 +254,7 @@ pub struct ProjectConfig {
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
+    pub fragment_masking: Option<FragmentMaskingConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -240,6 +284,7 @@ impl Config {
             document_suffix: None,
             variables_suffix: None,
             fragment_suffix: None,
+            fragment_masking: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -263,42 +308,52 @@ impl Config {
             std::process::exit(1);
         });
         loop {
-            if let Some(config) = Self::load_from_dir(&curr) {
-                return config;
-            }
-            if let Some(parent) = curr.parent() {
-                curr = parent.to_path_buf();
-            } else {
-                break;
+            match Self::load_from_dir(&curr) {
+                Ok(Some(config)) => return config,
+                Ok(None) => {
+                    if let Some(parent) = curr.parent() {
+                        curr = parent.to_path_buf();
+                    } else {
+                        eprintln!(
+                            "{}: No graphox.yaml or graphox.yml found in current or parent directories. This tool requires a configuration file to run.",
+                            "Error".red()
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                Err((path, error)) => {
+                    eprintln!(
+                        "{}: Failed to parse {}: {}",
+                        "Error".red(),
+                        path.display().to_string().red(),
+                        error.red()
+                    );
+                    std::process::exit(1);
+                }
             }
         }
-        eprintln!(
-            "{}: No graphox.yaml or graphox.yml found in current or parent directories. This tool requires a configuration file to run.",
-            "Error".red()
-        );
-        std::process::exit(1);
     }
 
-    pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Option<Self> {
+    pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Result<Option<Self>, (PathBuf, String)> {
         let dir = dir.as_ref();
         let yaml_path = dir.join("graphox.yaml");
         let yml_path = dir.join("graphox.yml");
 
         let config_path = if yaml_path.exists() {
-            Some(yaml_path)
+            yaml_path
         } else if yml_path.exists() {
-            Some(yml_path)
+            yml_path
         } else {
-            None
-        }?;
+            return Ok(None);
+        };
 
-        let content = fs::read_to_string(&config_path).ok()?;
-        let docs = yaml_rust2::YamlLoader::load_from_str(&content).ok()?;
-        let doc = docs.first()?;
+        let content = fs::read_to_string(&config_path).map_err(|e| (config_path.clone(), e.to_string()))?;
+        let docs = yaml_rust2::YamlLoader::load_from_str(&content).map_err(|e| (config_path.clone(), format!("{:?}", e)))?;
+        let doc = docs.first().ok_or_else(|| (config_path.clone(), "Empty YAML document".to_string()))?;
 
-        let mut config = Config::from_yaml(doc)?;
+        let mut config = Config::from_yaml(doc).ok_or_else(|| (config_path.clone(), "Invalid configuration format".to_string()))?;
         config.base_dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-        Some(config)
+        Ok(Some(config))
     }
 
     fn from_yaml(node: &Yaml) -> Option<Self> {
@@ -318,6 +373,8 @@ impl Config {
                 let document_suffix = p_node["document_suffix"].as_str().map(String::from);
                 let variables_suffix = p_node["variables_suffix"].as_str().map(String::from);
                 let fragment_suffix = p_node["fragment_suffix"].as_str().map(String::from);
+                let fragment_masking = FragmentMasking::from_yaml(&p_node["fragmentMasking"])
+                    .map(|mode| FragmentMaskingConfig { mode });
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -330,6 +387,7 @@ impl Config {
                     document_suffix,
                     variables_suffix,
                     fragment_suffix,
+                    fragment_masking,
                 });
             }
         }
@@ -421,6 +479,10 @@ impl Config {
         config.variables_suffix = node["variables_suffix"].as_str().map(String::from);
         config.fragment_suffix = node["fragment_suffix"].as_str().map(String::from);
 
+        if let Some(mode) = FragmentMasking::from_yaml(&node["fragmentMasking"]) {
+            config.fragment_masking = Some(FragmentMaskingConfig { mode });
+        }
+
         Some(config)
     }
 
@@ -505,11 +567,45 @@ impl Config {
     pub fn fragment_suffix(&self) -> &str {
         self.fragment_suffix.as_deref().unwrap_or("")
     }
+
+    pub fn fragment_masking(&self) -> FragmentMaskingConfig {
+        FragmentMaskingConfig {
+            mode: self.fragment_masking
+                .as_ref()
+                .map(|c| c.mode.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn fragment_masking_mode(&self) -> FragmentMasking {
+        self.fragment_masking
+            .as_ref()
+            .map(|c| c.mode.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl FragmentMaskingConfig {
+    pub fn mode(&self) -> FragmentMasking {
+        self.mode.clone()
+    }
+}
+
+impl Default for FragmentMaskingConfig {
+    fn default() -> Self {
+        Self {
+            mode: FragmentMasking::Disabled,
+        }
+    }
 }
 
 impl ProjectConfig {
     pub fn codegen_enabled(&self) -> bool {
         self.codegen.unwrap_or(true)
+    }
+
+    pub fn fragment_masking_mode(&self) -> Option<FragmentMasking> {
+        self.fragment_masking.as_ref().map(|c| c.mode.clone())
     }
 }
 
@@ -694,5 +790,99 @@ projects:
 
         // Third project has codegen explicitly enabled
         assert!(config.projects[2].codegen_enabled());
+    }
+
+    #[test]
+    #[ntest::timeout(100)]
+    fn test_fragment_masking_disabled() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("graphox.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+fragmentMasking: disabled
+projects:
+  - schema: "s.graphql"
+    include: "src/**/*.ts"
+"#
+        )
+        .unwrap();
+
+        let config = Config::load_from_dir(dir.path()).unwrap();
+        assert!(matches!(config.fragment_masking_mode(), FragmentMasking::Disabled));
+    }
+
+    #[test]
+    #[ntest::timeout(100)]
+    fn test_fragment_masking_enabled() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("graphox.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+fragmentMasking: enabled
+projects:
+  - schema: "s.graphql"
+    include: "src/**/*.ts"
+"#
+        )
+        .unwrap();
+
+        let config = Config::load_from_dir(dir.path()).unwrap();
+        assert!(matches!(config.fragment_masking_mode(), FragmentMasking::Enabled { .. }));
+    }
+
+    #[test]
+    #[ntest::timeout(100)]
+    fn test_fragment_masking_enabled_with_custom_function() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("graphox.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+fragmentMasking:
+  unmaskFunctionName: getData
+projects:
+  - schema: "s.graphql"
+    include: "src/**/*.ts"
+"#
+        )
+        .unwrap();
+
+        let config = Config::load_from_dir(dir.path()).unwrap();
+        match config.fragment_masking_mode() {
+            FragmentMasking::Enabled { unmask_function_name } => {
+                assert_eq!(unmask_function_name.as_deref(), Some("getData"));
+            }
+            _ => panic!("Expected FragmentMasking::Enabled"),
+        }
+    }
+
+    #[test]
+    #[ntest::timeout(100)]
+    fn test_fragment_masking_project_override() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("graphox.yaml");
+        let mut file = fs::File::create(config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+fragmentMasking: enabled
+projects:
+  - schema: "s1.graphql"
+    include: "src/p1/**/*.ts"
+  - schema: "s2.graphql"
+    include: "src/p2/**/*.ts"
+    fragmentMasking: disabled
+"#
+        )
+        .unwrap();
+
+        let config = Config::load_from_dir(dir.path()).unwrap();
+        assert!(matches!(config.fragment_masking_mode(), FragmentMasking::Enabled { .. }));
+        assert!(matches!(config.projects[1].fragment_masking_mode(), None));
     }
 }

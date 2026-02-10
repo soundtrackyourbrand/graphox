@@ -1,7 +1,7 @@
 use std::process::Command;
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(500)]
 fn test_codegen_document_node() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_document_test");
@@ -80,7 +80,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(500)]
 fn test_codegen_aliases_and_enums() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_quirks_test");

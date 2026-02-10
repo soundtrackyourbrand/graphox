@@ -13,7 +13,11 @@ use tokio::runtime::Runtime;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{LanguageServer, LspService};
 
-fn generate_cross_project_workspace(base_dir: &Path, projects_count: usize, files_per_project: usize) -> Config {
+fn generate_cross_project_workspace(
+    base_dir: &Path,
+    projects_count: usize,
+    files_per_project: usize,
+) -> Config {
     let mut projects = Vec::new();
     let type_count = 30;
     let fields_per_type = 15;
@@ -100,15 +104,19 @@ fn bench_cross_project_resolution(c: &mut Criterion) {
     let backend = service.inner();
 
     rt.block_on(async {
-        let workspace_metadata = engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None);
+        let workspace_metadata =
+            engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None);
         for project_meta in workspace_metadata.projects {
             for file_path in project_meta.files {
                 let abs_path = fs::canonicalize(&file_path).unwrap();
                 let uri = Url::from_file_path(&abs_path).unwrap();
                 let content = fs::read_to_string(&file_path).unwrap();
                 let mut parser = tree_sitter::Parser::new();
-                parser.set_language(&tree_sitter_graphql::LANGUAGE.into()).unwrap();
-                let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+                parser
+                    .set_language(&tree_sitter_graphql::LANGUAGE.into())
+                    .unwrap();
+                let doc =
+                    DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }
@@ -116,25 +124,25 @@ fn bench_cross_project_resolution(c: &mut Criterion) {
 
     let target_uri = Url::from_file_path(base_dir.join("project_0/file_0.graphql")).unwrap();
 
-    let mut group = c.benchmark_group("Cross-Project Resolution (10 projects, 200 files, 100 base fragments)");
+    let mut group =
+        c.benchmark_group("Cross-Project Resolution (10 projects, 200 files, 100 base fragments)");
     group.sample_size(10);
     group.warm_up_time(Duration::from_millis(100));
 
     group.bench_function("Get All Fragments Info", |b| {
-        b.to_async(&rt).iter(|| {
-            async {
-                backend.get_all_fragments_info()
-            }
-        });
+        b.to_async(&rt)
+            .iter(|| async { backend.get_all_fragments_info() });
     });
 
     group.bench_function("Resolve Fragments for Doc", |b| {
-        b.to_async(&rt).iter(|| {
-            async {
-                let doc = backend.documents.get(&target_uri).map(|r| r.value().clone()).unwrap();
-                let all_fragments = backend.get_all_fragments_info();
-                backend.get_fragments_for_doc(&doc, &all_fragments)
-            }
+        b.to_async(&rt).iter(|| async {
+            let doc = backend
+                .documents
+                .get(&target_uri)
+                .map(|r| r.value().clone())
+                .unwrap();
+            let all_fragments = backend.get_all_fragments_info();
+            backend.get_fragments_for_doc(&doc, &all_fragments)
         });
     });
 

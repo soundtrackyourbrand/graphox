@@ -1,0 +1,4 @@
+fragment UserPosts on Post @public {
+  id
+  title
+}

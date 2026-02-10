@@ -13,7 +13,11 @@ use tokio::runtime::Runtime;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{LanguageServer, LspService};
 
-fn generate_call_hierarchy_workspace(base_dir: &Path, projects_count: usize, chain_depth: usize) -> Config {
+fn generate_call_hierarchy_workspace(
+    base_dir: &Path,
+    projects_count: usize,
+    chain_depth: usize,
+) -> Config {
     let mut projects = Vec::new();
 
     for i in 0..projects_count {
@@ -42,7 +46,12 @@ fn generate_call_hierarchy_workspace(base_dir: &Path, projects_count: usize, cha
 
                 for d in 0..=j {
                     if d == j {
-                        content.push_str(&format!("    ...Fragment_{}_{}_{}\n", i, next_in_chain, d % 3));
+                        content.push_str(&format!(
+                            "    ...Fragment_{}_{}_{}\n",
+                            i,
+                            next_in_chain,
+                            d % 3
+                        ));
                     } else {
                         content.push_str(&format!("    ...Fragment_{}_{}_{}\n", i, d, d % 3));
                     }
@@ -56,7 +65,12 @@ fn generate_call_hierarchy_workspace(base_dir: &Path, projects_count: usize, cha
                 let prev_in_chain = if f == 0 { chain_depth - 1 } else { f - 1 };
                 content.push_str(&format!(
                     "fragment Fragment_{}_{}_{} on User {{ ...Fragment_{}_{}_{} }}\n",
-                    i, j, f, i, prev_in_chain, (f + 2) % 3
+                    i,
+                    j,
+                    f,
+                    i,
+                    prev_in_chain,
+                    (f + 2) % 3
                 ));
             }
 
@@ -90,7 +104,8 @@ fn bench_call_hierarchy(c: &mut Criterion) {
     let backend = service.inner();
 
     rt.block_on(async {
-        let workspace_metadata = engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None);
+        let workspace_metadata =
+            engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None);
         for project_meta in workspace_metadata.projects {
             for file_path in project_meta.files {
                 let abs_path = fs::canonicalize(&file_path).unwrap();
@@ -100,7 +115,8 @@ fn bench_call_hierarchy(c: &mut Criterion) {
                 parser
                     .set_language(&tree_sitter_graphql::LANGUAGE.into())
                     .unwrap();
-                let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+                let doc =
+                    DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }

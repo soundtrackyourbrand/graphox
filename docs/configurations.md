@@ -8,6 +8,7 @@ This document provides ready-to-use configuration examples for common use cases,
 - [Single Project](#single-project)
 - [Monorepo with Multiple Projects](#monorepo-with-multiple-projects)
 - [Shared Fragments Across Projects](#shared-fragments-across-projects)
+- [Fragment Masking](#fragment-masking)
 - [Custom Scalars](#custom-scalars)
 - [Schema Types Only](#schema-types-only)
 - [Selective Codegen](#selective-codegen)
@@ -23,6 +24,12 @@ This document provides ready-to-use configuration examples for common use cases,
 ```yaml
 # Global output directory for generated types
 output_dir: "__generated__"
+
+# Fragment masking (similar to graphql-codegen client-preset)
+# Disabled by default for backwards compatibility
+fragmentMasking: enabled  # or: disabled
+# fragmentMasking:
+#   unmaskFunctionName: "getFragmentData"  # Custom function name
 
 # Custom scalar type mappings
 scalars:
@@ -50,6 +57,7 @@ projects:
     document_suffix: "Document"                  # Suffix for Document constants
     variables_suffix: "Variables"                # Suffix for Variables interfaces
     fragment_suffix: ""                          # Suffix for Fragment interfaces
+    fragment_masking: disabled                   # Enable/disable fragment masking (default: disabled)
 
   - schema:                                      # Multiple schema files
       - "schema/base.graphql"
@@ -200,6 +208,125 @@ export interface GetPostsQuery {
   posts: Array<{ __typename: "Post" } & PostFields>;
 }
 ```
+
+---
+
+## Fragment Masking
+
+Enable fragment masking to prevent fragment fields from "leaking" into parent operation types. This pattern, similar to graphql-codegen's client-preset, enforces explicit data dependencies and improves type safety.
+
+### Configuration
+
+Fragment masking is **disabled by default** for backwards compatibility.
+
+```yaml
+# graphox.yaml
+output_dir: "__generated__"
+
+# Global setting (disabled by default)
+fragmentMasking: enabled
+
+# Or with custom function name
+fragmentMasking:
+  unmaskFunctionName: "getFragmentData"
+
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.{ts,tsx}"
+```
+
+### Per-Project Override
+
+Override fragment masking per project:
+
+```yaml
+# graphox.yaml
+fragmentMasking: enabled  # Global default
+
+projects:
+  # Uses global (enabled)
+  - schema: "schema.graphql"
+    include: "src/app/**/*"
+
+  # Overrides to disabled
+  - schema: "schema.graphql"
+    include: "src/admin/**/*"
+    fragmentMasking: disabled
+```
+
+### Generated Output
+
+**Without Fragment Masking (default):**
+```typescript
+// Fragment
+export interface UserFragment {
+  __typename: "User";
+  id: string;
+  name: string;
+}
+
+// Query - fields "leak" into parent type
+interface GetUserQuery {
+  user: ({ __typename: "User" } & UserFragment) | null;
+}
+
+// Usage - direct access
+const user: GetUserQuery["user"] = data.user;
+console.log(user.name);  // Direct field access
+```
+
+**With Fragment Masking (enabled):**
+```typescript
+// Fragment - adds __fragment property
+export interface UserFragment {
+  __typename: "User";
+  id: string;
+  name: string;
+}
+
+export declare const UserFragment: {
+  __fragment: {
+    id: string;
+    name: string;
+  };
+};
+
+// fragment-masking.ts (generated)
+export type FragmentType<TFragment> = TFragment extends { __fragment: infer T }
+  ? T
+  : never;
+
+export function getFragmentData<TFragment, TData>(
+  _fragment: TFragment,
+  data: TData
+): FragmentType<TFragment> {
+  return data as FragmentType<TFragment>;
+}
+
+// Query - fragment spread becomes FragmentType
+interface GetUserQuery {
+  user: FragmentType<typeof UserFragment> | null;
+}
+
+// Usage - requires unmask function
+import { getFragmentData, FragmentType } from "./fragment-masking";
+import type { UserFragment } from "./UserFragment.codegen";
+
+const user: FragmentType<typeof UserFragment> = 
+  getFragmentData(UserFragment, data.user);
+```
+
+### Benefits
+
+- **Type Safety**: Components can only access fields they explicitly request
+- **Explicit Dependencies**: Component data requirements are colocated with the component
+- **No Field Leakage**: Parent queries can't accidentally access fragment fields
+
+### Migration from Disabled to Enabled
+
+1. Enable fragment masking in config: `fragmentMasking: enabled`
+2. Update components to use `FragmentType<>` props
+3. Replace direct field access with `getFragmentData()` calls
 
 ---
 

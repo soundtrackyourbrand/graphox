@@ -134,7 +134,12 @@ impl DocumentState {
         let rope = Rope::from_str(text);
         let tree = Arc::new(parser.parse(text, None).unwrap());
         let (package_root, mtime) = if let Ok(path) = uri.to_file_path() {
-            (find_package_root(&path), std::fs::metadata(&path).ok().and_then(|m| m.modified().ok()))
+            (
+                find_package_root(&path),
+                std::fs::metadata(&path)
+                    .ok()
+                    .and_then(|m| m.modified().ok()),
+            )
         } else {
             (None, None)
         };
@@ -702,13 +707,14 @@ impl DocumentState {
         // Second pass: Extract all references once and attribute them to fragments
         for block in self.get_graphql_trees() {
             let offset = block.offset;
-            let mut ref_matches = cursor.matches(ref_query, block.tree.root_node(), |node: Node| {
-                let start = node.start_byte();
-                let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
-            });
+            let mut ref_matches =
+                cursor.matches(ref_query, block.tree.root_node(), |node: Node| {
+                    let start = node.start_byte();
+                    let end = node.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
 
             let reference_idx = ref_query.capture_index_for_name("reference").unwrap();
             let name_idx = ref_query.capture_index_for_name("name").unwrap();

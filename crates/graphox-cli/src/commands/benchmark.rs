@@ -13,8 +13,11 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     println!("{}", "Starting Benchmark...".bold());
     let total_start = Instant::now();
 
-    let workspace_metadata =
-        Engine::scan_workspace(&config, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
+    let workspace_metadata = Engine::scan_workspace(
+        &config,
+        tower_lsp::lsp_types::PositionEncodingKind::UTF8,
+        None,
+    );
     let global_metadata = &workspace_metadata.fragments;
     let scan_timings = &workspace_metadata.timings;
 
@@ -106,6 +109,8 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         "Document",
                         "Variables",
                         "",
+                        codegen::FragmentMasking::Disabled,
+                        "./fragment-masking".to_string(),
                     );
                     let g_start = Instant::now();
                     if let Ok((_ts_code, _ops, profile)) =

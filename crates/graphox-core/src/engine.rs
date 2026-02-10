@@ -2,12 +2,12 @@ use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
-use apollo_compiler::{executable, Node, Schema};
+use apollo_compiler::{Node, Schema, executable};
 use lsp_types::Url;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]

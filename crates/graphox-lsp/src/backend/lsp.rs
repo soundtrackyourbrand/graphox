@@ -503,10 +503,23 @@ impl Backend {
 
         // Try to load new config
         let new_config = match Config::load_from_dir(&base_dir) {
-            Some(config) => config,
-            None => {
+            Ok(Some(config)) => config,
+            Ok(None) => {
                 self.client
                     .log_message(MessageType::ERROR, "Failed to reload configuration file")
+                    .await;
+                return;
+            }
+            Err((path, error)) => {
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Failed to parse configuration file {}: {}",
+                            path.display(),
+                            error
+                        ),
+                    )
                     .await;
                 return;
             }

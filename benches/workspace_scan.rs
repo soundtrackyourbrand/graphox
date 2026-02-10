@@ -147,7 +147,11 @@ fn bench_workspace_scan_incremental(c: &mut Criterion) {
     group.bench_function("Rescan (500 files, no changes)", |b| {
         b.iter(|| {
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, Some(&initial_metadata))
+                engine::Engine::scan_workspace(
+                    &config,
+                    PositionEncodingKind::UTF8,
+                    Some(&initial_metadata),
+                )
             })
         })
     });
@@ -163,7 +167,11 @@ fn bench_workspace_scan_incremental(c: &mut Criterion) {
             }
 
             rt.block_on(async {
-                engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, Some(&initial_metadata))
+                engine::Engine::scan_workspace(
+                    &config,
+                    PositionEncodingKind::UTF8,
+                    Some(&initial_metadata),
+                )
             })
         })
     });

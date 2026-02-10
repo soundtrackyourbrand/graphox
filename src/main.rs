@@ -64,7 +64,11 @@ async fn main() {
         Some(Commands::Lsp) | None => {
             run_lsp(config).await;
         }
-        Some(Commands::Check { path: _, verbose, reporter }) => {
+        Some(Commands::Check {
+            path: _,
+            verbose,
+            reporter,
+        }) => {
             let reporter: Box<dyn graphox_cli::reporters::Reporter> = match reporter.as_deref() {
                 Some("github") => Box::new(graphox_cli::reporters::GitHubReporter),
                 Some("tsc") => Box::new(graphox_cli::reporters::TscReporter),
