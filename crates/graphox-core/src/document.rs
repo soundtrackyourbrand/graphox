@@ -895,6 +895,10 @@ impl DocumentState {
                 new_end_position: Point::new(new_end_line, new_end_col_utf16),
             };
 
+            if Arc::strong_count(&self.tree) > 1 {
+                Arc::make_mut(&mut self.tree);
+            }
+
             if let Some(tree) = Arc::get_mut(&mut self.tree) {
                 tree.edit(&edit);
                 self.tree = Arc::new(
