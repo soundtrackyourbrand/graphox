@@ -3,9 +3,9 @@ use crate::support::assert_diagnostic_with_message;
 use crate::support::assert_diagnostics_count;
 use crate::support::create_doc;
 use ahash::AHashSet;
-use graphox::Config;
 use graphox::config::{GlobPattern, ProjectConfig, RulesConfig, SchemaSource};
 use graphox::features::diagnostics::DocumentDiagnostics;
+use graphox::Config;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -166,12 +166,7 @@ fn test_unused_fragment_not_reported_when_not_configured() {
         true,
     );
 
-    assert_diagnostics_count(&diags, 1);
-    let diag = assert_diagnostic_with_message(&diags, "Unused fragment: UnusedFragment");
-    assert_diag_range_equals(
-        diag,
-        &crate::support::range_for_token(&doc, frag_text, "UnusedFragment"),
-    );
+    assert_diagnostics_count(&diags, 0);
 }
 
 #[test]
