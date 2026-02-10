@@ -128,6 +128,10 @@ harness = false
 name = "call_hierarchy"
 harness = false
 
+[[bench]]
+name = "tree_clone"
+harness = false
+
 [profile.dev]
 opt-level = 0
 debug = 0 # Set to 1 or 2 for debugging, 0 for fastest builds
