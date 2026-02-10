@@ -22,7 +22,7 @@ enum Commands {
         /// Show ignored deprecations
         #[arg(short, long)]
         verbose: bool,
-        /// Output format (default, github)
+        /// Output format (default, github, tsc)
         #[arg(short, long)]
         reporter: Option<String>,
     },
@@ -67,6 +67,7 @@ async fn main() {
         Some(Commands::Check { path: _, verbose, reporter }) => {
             let reporter: Box<dyn graphox_cli::reporters::Reporter> = match reporter.as_deref() {
                 Some("github") => Box::new(graphox_cli::reporters::GitHubReporter),
+                Some("tsc") => Box::new(graphox_cli::reporters::TscReporter),
                 _ => Box::new(graphox_cli::reporters::DefaultReporter),
             };
             run_check(config, verbose, reporter).await;

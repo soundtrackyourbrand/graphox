@@ -127,3 +127,49 @@ impl Reporter for GitHubReporter {
         // GitHub Actions will see the non-zero exit code
     }
 }
+
+pub struct TscReporter;
+
+impl Reporter for TscReporter {
+    fn report_project_start(&self, _project_name: &str) {
+        // No project start message for tsc format
+    }
+
+    fn report_diagnostic(&self, path: &Path, diagnostic: &Diagnostic, _verbose: bool) {
+        let severity = match diagnostic.severity {
+            Some(DiagnosticSeverity::ERROR) => "error",
+            Some(DiagnosticSeverity::WARNING) => "warning",
+            Some(DiagnosticSeverity::INFORMATION) => "info",
+            _ => "suggestion",
+        };
+
+        let file = path.to_string_lossy();
+        let line = diagnostic.range.start.line + 1;
+        let col = diagnostic.range.start.character + 1;
+        let message = &diagnostic.message;
+
+        println!("{}({},{}): {}: {}", file, line, col, severity, message);
+    }
+
+    fn report_duplicate_operation(&self, op_name: &str, project_name: &str, paths: &[&Path]) {
+        for path in paths {
+            let file = path.to_string_lossy();
+            println!(
+                "{}: error: Duplicate operation name '{}' in project {}",
+                file, op_name, project_name
+            );
+        }
+    }
+
+    fn report_error(&self, message: &str) {
+        eprintln!("error: {}", message);
+    }
+
+    fn report_success(&self, _verbose: bool) {
+        // No special output for success
+    }
+
+    fn report_failure(&self) {
+        // Exit code handles failure
+    }
+}
