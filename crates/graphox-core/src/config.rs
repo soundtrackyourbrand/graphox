@@ -297,7 +297,7 @@ impl Config {
         let doc = docs.first()?;
 
         let mut config = Config::from_yaml(doc)?;
-        config.base_dir = dir.to_path_buf();
+        config.base_dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         Some(config)
     }
 

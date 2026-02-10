@@ -322,7 +322,7 @@ async fn test_goto_definition_inline_fragment_type() {
         assert_eq!(loc.uri, schema_uri);
         // Should navigate to the User type definition in schema
         assert!(
-            loc.range.start.line >= 0 && loc.range.start.line <= 2,
+            loc.range.start.line <= 2,
             "Expected definition in schema file, got range {:?}",
             loc.range
         );

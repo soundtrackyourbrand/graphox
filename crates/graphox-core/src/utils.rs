@@ -51,12 +51,18 @@ pub fn is_relevant_file(path: &Path) -> bool {
 pub fn get_glob_root(pattern: &str) -> PathBuf {
     let path = Path::new(pattern);
     let mut root = PathBuf::new();
-    for component in path.components() {
+    let components: Vec<_> = path.components().collect();
+    for (i, component) in components.iter().enumerate() {
         let s = component.as_os_str().to_str().unwrap_or("");
         if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
             break;
         }
-        root.push(component);
+
+        if i < components.len() - 1 {
+            root.push(component);
+        } else if pattern.ends_with('/') || pattern.ends_with('\\') {
+            root.push(component);
+        }
     }
     root
 }
@@ -268,14 +274,28 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
     }
 }
 
-pub fn get_output_path(path: &Path, base_dir: &Path, output_dir: Option<&str>) -> PathBuf {
+pub fn get_output_path(
+    path: &Path,
+    base_dir: &Path,
+    output_dir: Option<&str>,
+    include_prefix: Option<&str>,
+) -> PathBuf {
     if let Some(dir) = output_dir {
         let mut p = base_dir.join(dir);
+
         let rel = if path.is_absolute() {
-            path.strip_prefix(base_dir).unwrap_or(path)
+            // Strip the include prefix from the absolute path
+            let include_path = base_dir.join(include_prefix.unwrap_or(""));
+            path.strip_prefix(&include_path).unwrap_or(path)
         } else {
-            path
+            // For relative paths, strip the include prefix if provided
+            if let Some(prefix) = include_prefix {
+                path.strip_prefix(prefix).unwrap_or(path)
+            } else {
+                path
+            }
         };
+
         p.push(rel);
         p.set_extension("codegen.ts");
         p
@@ -559,4 +579,17 @@ pub fn push_duplicate_operation_diagnostic(
         code: Some(NumberOrString::String("duplicate_operation".to_string())),
         ..Default::default()
     });
+}
+
+pub fn to_posix_path(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if cfg!(windows) {
+        s.replace('\\', "/")
+    } else {
+        s.into_owned()
+    }
+}
+
+pub fn normalize_line_endings(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }

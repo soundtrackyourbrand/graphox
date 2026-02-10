@@ -2,12 +2,12 @@ use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
 use crate::utils::{get_project_files, is_relevant_file};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
-use apollo_compiler::{Node, Schema, executable};
+use apollo_compiler::{executable, Node, Schema};
 use lsp_types::Url;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -209,7 +209,8 @@ impl Engine {
                 // Incremental optimization: check if file has changed
                 if let Some(prev) = previous_metadata {
                     if let Some(prev_doc) = prev.documents.get(p) {
-                        let current_mtime = std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
+                        let current_mtime =
+                            std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
                         if current_mtime == prev_doc.mtime && current_mtime.is_some() {
                             return Some((p.clone(), prev_doc.clone()));
                         }

@@ -173,10 +173,11 @@ pub fn generate_typescript_with_profile(
 
     for block in doc.get_graphql_trees() {
         // Avoid intermediate string allocation by using byte_slice directly
-        let block_text = doc
-            .rope
-            .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
-            .to_string();
+        let block_text = graphox_core::utils::normalize_line_endings(
+            &doc.rope
+                .byte_slice(block.offset..(block.offset + block.tree.root_node().end_byte()))
+                .to_string(),
+        );
 
         let parse_start = Instant::now();
         let exec_doc =
@@ -504,7 +505,7 @@ pub fn generate_typescript_with_profile(
             // It's a file path, need to relativize
             let rel_path = pathdiff::diff_paths(path.as_ref(), current_file_parent)
                 .unwrap_or_else(|| Path::new(path.as_ref()).to_path_buf());
-            let mut path_str = rel_path.to_string_lossy().to_string();
+            let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
             if !path_str.starts_with('.') {
                 path_str.insert_str(0, "./");
             }
@@ -513,7 +514,7 @@ pub fn generate_typescript_with_profile(
             let stem = p.file_stem().unwrap().to_str().unwrap();
             let parent = p.parent().unwrap();
             let final_p = parent.join(stem);
-            let mut final_path_str = final_p.to_string_lossy().to_string();
+            let mut final_path_str = graphox_core::utils::to_posix_path(&final_p);
             if !final_path_str.starts_with('.') && !final_path_str.starts_with('/') {
                 final_path_str.insert_str(0, "./");
             }
@@ -607,7 +608,7 @@ pub fn generate_entrypoint_content(
     for op in operations {
         let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
             .unwrap_or_else(|| op.codegen_path.clone());
-        let mut path_str = rel_codegen_path.to_string_lossy().to_string();
+        let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
         if !path_str.starts_with('.') && !path_str.starts_with('/') {
             path_str = format!("./{}", path_str);
         }

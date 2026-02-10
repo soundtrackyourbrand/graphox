@@ -384,7 +384,7 @@ async fn execute_codegen(
                 .map(|op| {
                     let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
                         .unwrap_or_else(|| op.codegen_path.clone());
-                    let mut path_str = rel_path.to_string_lossy().to_string();
+                    let mut path_str = utils::to_posix_path(&rel_path);
                     if !path_str.starts_with('.') && !path_str.starts_with('/') {
                         path_str = format!("./{}", path_str);
                     }

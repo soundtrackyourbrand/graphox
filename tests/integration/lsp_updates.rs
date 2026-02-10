@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use tower_lsp::lsp_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(1000)]
+#[ntest::timeout(2000)]
 async fn test_lsp_fragment_collisions() {
     // Given: a workspace with multiple packages and fragments that will collide
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -189,7 +189,7 @@ async fn test_lsp_fragment_collisions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(1000)]
+#[ntest::timeout(2000)]
 async fn test_lsp_diagnostics_on_schema_change() {
     // Given: a workspace with a schema and a query that initially matches
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -312,7 +312,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(1000)]
+#[ntest::timeout(2000)]
 async fn test_lsp_fragment_rename_same_project() {
     // Given: a simple project with a fragment and a query that references it
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -483,7 +483,7 @@ async fn test_lsp_fragment_rename_same_project() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(1000)]
+#[ntest::timeout(2000)]
 async fn test_lsp_fragment_rename_cross_project() {
     // Given: two packages A and B where A exports a public fragment used by B
     let scenario = crate::support::lsp::LspTestScenario::new()

@@ -877,8 +877,8 @@ schema_types:
   - schema: "{}"
     output: "{}"
 "#,
-            std::fs::canonicalize(schema_fixture).unwrap().display(),
-            gen_output_path.display()
+            std::fs::canonicalize(schema_fixture).unwrap().display().to_string().replace('\\', "/"),
+            gen_output_path.display().to_string().replace('\\', "/")
         ),
     )
     .unwrap();
