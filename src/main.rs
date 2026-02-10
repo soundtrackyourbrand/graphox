@@ -22,6 +22,9 @@ enum Commands {
         /// Show ignored deprecations
         #[arg(short, long)]
         verbose: bool,
+        /// Output format (default, github)
+        #[arg(short, long)]
+        reporter: Option<String>,
     },
     /// Generate TypeScript types for operations and fragments
     Codegen {
@@ -61,8 +64,12 @@ async fn main() {
         Some(Commands::Lsp) | None => {
             run_lsp(config).await;
         }
-        Some(Commands::Check { path: _, verbose }) => {
-            run_check(config, verbose).await;
+        Some(Commands::Check { path: _, verbose, reporter }) => {
+            let reporter: Box<dyn graphox_cli::reporters::Reporter> = match reporter.as_deref() {
+                Some("github") => Box::new(graphox_cli::reporters::GitHubReporter),
+                _ => Box::new(graphox_cli::reporters::DefaultReporter),
+            };
+            run_check(config, verbose, reporter).await;
         }
         Some(Commands::Codegen {
             path: _,

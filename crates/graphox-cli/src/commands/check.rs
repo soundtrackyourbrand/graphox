@@ -1,3 +1,4 @@
+use crate::reporters::Reporter;
 use ahash::AHashMap as HashMap;
 use apollo_compiler::Schema;
 use colored::*;
@@ -11,11 +12,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
-pub async fn run_check(config: Config, verbose: bool) {
+pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter>) {
     let mut success = true;
     let cfg = config.clone();
 
-    println!("{}", "Scanning workspace...".bright_black());
+    if verbose {
+        println!("{}", "Scanning workspace...".bright_black());
+    }
     let workspace_metadata =
         Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8);
 
@@ -54,10 +57,7 @@ pub async fn run_check(config: Config, verbose: bool) {
     }
 
     for (project_config, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
-        println!(
-            "Checking project: {}",
-            project_config.include.as_key().blue()
-        );
+        reporter.report_project_start(&project_config.include.as_key());
 
         if !execute_project_check(
             &cfg.base_dir,
@@ -68,6 +68,7 @@ pub async fn run_check(config: Config, verbose: bool) {
             &global_public_fragments,
             &config,
             verbose,
+            reporter.as_ref(),
         )
         .await
         {
@@ -84,30 +85,21 @@ pub async fn run_check(config: Config, verbose: bool) {
                 if paths.len() > 1 {
                     success = false;
                     let project_name = &cfg.projects[*project_idx].include.as_key();
-                    println!(
-                        "\n{} Duplicate operation name '{}' in project {}:",
-                        "Error:".red(),
-                        op_name.yellow(),
-                        project_name.blue()
-                    );
-                    for path in paths {
-                        let display_path = if let Some(doc) = workspace_metadata.documents.get(path)
-                            && let Some(root) = &doc.package_root
-                        {
-                            path.strip_prefix(root).unwrap_or(path)
-                        } else {
-                            path.as_path()
-                        };
-                        println!("  - {}", display_path.display().to_string().blue());
-                    }
+                    let display_paths: Vec<PathBuf> = paths.iter().map(|path| {
+                        path.strip_prefix(&cfg.base_dir).unwrap_or(path).to_path_buf()
+                    }).collect();
+                    let path_refs: Vec<&std::path::Path> = display_paths.iter().map(|p| p.as_path()).collect();
+                    reporter.report_duplicate_operation(op_name, project_name, &path_refs);
                 }
             }
         }
     }
 
     if !success {
-        println!("{}", "\nCheck failed.".red());
+        reporter.report_failure();
         std::process::exit(1);
+    } else {
+        reporter.report_success(verbose);
     }
 }
 
@@ -121,6 +113,7 @@ async fn execute_project_check(
     global_public_fragments: &[FragmentCompletionInfo],
     config: &Config,
     verbose: bool,
+    reporter: &dyn Reporter,
 ) -> bool {
     let mut texts = Vec::new();
     for file in source.files() {
@@ -129,12 +122,11 @@ async fn execute_project_check(
                 texts.push(t);
             }
             Err(e) => {
-                eprintln!(
-                    "{} {}: {}",
-                    "Failed to read schema".red(),
-                    source.as_key().blue(),
-                    e.to_string().red()
-                );
+                reporter.report_error(&format!(
+                    "Failed to read schema {}: {}",
+                    source.as_key(),
+                    e
+                ));
                 return false;
             }
         }
@@ -143,24 +135,22 @@ async fn execute_project_check(
     let schema = match Schema::parse(&combined_text, source.as_key()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
-                "{} {}: {}",
-                "Failed to parse schema".red(),
-                source.as_key().blue(),
-                e.to_string().red()
-            );
+            reporter.report_error(&format!(
+                "Failed to parse schema {}: {}",
+                source.as_key(),
+                e
+            ));
             return false;
         }
     };
     let valid_schema = match schema.validate() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!(
-                "{} {}: {}",
-                "Schema validation failed".red(),
-                source.as_key().blue(),
-                e.to_string().red()
-            );
+            reporter.report_error(&format!(
+                "Schema validation failed {}: {}",
+                source.as_key(),
+                e
+            ));
             return false;
         }
     };
@@ -203,13 +193,6 @@ async fn execute_project_check(
             }
         }
 
-        // Filter fragments for this doc (same project or public)
-        // Note: we already have all project fragments in available_fragments.
-        // We still might want to prioritize the ones in the same package if there are name collisions,
-        // but for now let's just make them all available.
-
-        // If there are duplicate fragment names in the project, we should probably
-        // prefer the one in the same package.
         available_fragments.sort_by(|a, b| {
             let a_same_pkg = graphox_core::utils::paths_match(
                 a.package_root.as_deref(),
@@ -231,12 +214,7 @@ async fn execute_project_check(
             true,
         );
         if !diagnostics.is_empty() {
-            let mut file_header_printed = false;
-            let display_path = if let Some(root) = &doc.package_root {
-                path.strip_prefix(root).unwrap_or(path)
-            } else {
-                path
-            };
+            let display_path = path.strip_prefix(base_dir).unwrap_or(path);
 
             for d in diagnostics {
                 let is_issue = matches!(
@@ -248,45 +226,11 @@ async fn execute_project_check(
                     if is_issue {
                         found_any = true;
                     }
-
-                    if !file_header_printed {
-                        println!("\nFile: {}", display_path.display().to_string().blue());
-                        file_header_printed = true;
-                    }
-
-                    let (severity_label, colored_msg) = match d.severity {
-                        Some(DiagnosticSeverity::ERROR) => ("Error".red(), d.message.red()),
-                        Some(DiagnosticSeverity::WARNING) => {
-                            ("Warning".yellow(), d.message.yellow())
-                        }
-                        Some(DiagnosticSeverity::INFORMATION) => {
-                            ("Info".bright_black(), d.message.bright_black())
-                        }
-                        Some(DiagnosticSeverity::HINT) => {
-                            ("Hint".bright_black(), d.message.bright_black())
-                        }
-                        _ => ("Diagnostic".normal(), d.message.normal()),
-                    };
-                    println!(
-                        "  [{}:{}] {}: {}",
-                        (d.range.start.line + 1).to_string().bright_black(),
-                        (d.range.start.character + 1).to_string().bright_black(),
-                        severity_label,
-                        colored_msg
-                    );
+                    reporter.report_diagnostic(display_path, &d, verbose);
                 }
             }
         }
     }
 
-    if !found_any {
-        if verbose {
-            println!("\n{}", "Scan complete.".bright_black());
-        } else {
-            println!("{}", "No issues found.".green());
-        }
-        true
-    } else {
-        false
-    }
+    !found_any
 }
