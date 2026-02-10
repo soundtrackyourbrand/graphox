@@ -1,0 +1,4 @@
+schema_types: []
+projects:
+  - include: src
+    schema: schema.graphql

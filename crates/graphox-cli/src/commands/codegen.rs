@@ -2,7 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::config::{Config, SchemaSource};
+use graphox_core::config::{Config, GlobPattern, SchemaSource};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
 use graphox_core::schema_cache;
@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 pub struct CodegenParams<'a> {
     pub base_dir: &'a Path,
     pub source: &'a SchemaSource,
+    pub include: &'a GlobPattern,
     pub project_files: &'a [PathBuf],
     pub output_dir: Option<&'a str>,
     pub scalars: &'a Option<HashMap<String, String>>,
@@ -283,6 +284,7 @@ async fn execute_codegen(
             CodegenParams {
                 base_dir: &cfg.base_dir,
                 source: &project.schema,
+                include: &project.include,
                 project_files,
                 output_dir: project_output_dir,
                 scalars: &cfg.scalars,
@@ -501,7 +503,9 @@ async fn generate_project_files(
                 params.fragment_suffix,
             );
 
-            execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, verbose)
+                let glob_pattern = params.include.as_key();
+                let include_prefix = utils::get_glob_root(&glob_pattern);
+                execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, include_prefix.to_str().unwrap_or(""), verbose)
                 .map_err(|e| (path.to_path_buf(), e))
         })
         .collect::<Vec<_>>()
@@ -566,11 +570,13 @@ async fn clean_project_files(
     params: CodegenParams<'_>,
     verbose: bool,
 ) -> Result<Vec<codegen::OperationGenerated>, ()> {
+    let glob_pattern = params.include.as_key();
+    let include_prefix = utils::get_glob_root(&glob_pattern);
     let success = params
         .project_files
         .par_iter()
         .map(|path| {
-            let out_path = utils::get_output_path(path, params.base_dir, params.output_dir);
+            let out_path = utils::get_output_path(path, params.base_dir, params.output_dir, Some(include_prefix.to_str().unwrap_or("")));
             let mut ok = true;
             if out_path.exists() {
                 if let Err(e) = std::fs::remove_file(&out_path) {
@@ -669,6 +675,7 @@ fn execute_single_file_codegen(
     ctx: &codegen::CodegenContext<'_>,
     output_dir: Option<&str>,
     base_dir: &Path,
+    include_prefix: &str,
     verbose: bool,
 ) -> Result<Vec<codegen::OperationGenerated>, String> {
     let (ts_code, mut ops) = codegen::generate_typescript(doc, ctx)?;
@@ -676,6 +683,7 @@ fn execute_single_file_codegen(
         doc.uri.to_file_path().unwrap().as_path(),
         base_dir,
         output_dir,
+        Some(include_prefix),
     );
 
     let abs_out_path = if out_path_raw.is_absolute() {

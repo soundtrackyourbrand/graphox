@@ -159,10 +159,15 @@ pub async fn run_codegen(
                 );
 
                 if let Ok((ts_code, mut ops)) = graphox_codegen::generate_typescript(doc, &ctx) {
+                    let glob_pattern = project.include.patterns().first().cloned();
+                    let include_prefix = glob_pattern
+                        .as_ref()
+                        .map(|p| graphox_core::utils::get_glob_root(p));
                     let out_path = graphox_core::utils::get_output_path(
                         path,
                         &config.base_dir,
                         project_output_dir,
+                        include_prefix.as_ref().and_then(|p| p.to_str()),
                     );
                     let abs_out_path = if out_path.is_absolute() {
                         out_path

@@ -1,0 +1,12 @@
+[
+  {
+    "path": "./queries/user/get_user.codegen",
+    "name": "GetUserQueryDocument",
+    "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n"
+  },
+  {
+    "name": "GetUserQueryDocument",
+    "path": "./test.codegen",
+    "source": "\n  query GetUser($id: ID!) {\n    user(id: $id) {\n      ...UserFields\n    }\n  }\n"
+  }
+]

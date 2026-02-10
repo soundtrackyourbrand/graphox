@@ -1478,3 +1478,13 @@ projects:
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }
+
+#[test]
+#[ntest::timeout(250)]
+fn test_cli_include_strip_baselines() {
+    run_baseline_test(
+        "tests/fixtures/include_strip",
+        "tests/baselines/include_strip",
+        None,
+    );
+}
