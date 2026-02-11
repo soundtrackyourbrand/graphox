@@ -13,7 +13,7 @@ pub fn serialize_operation(
     let mut definitions = Vec::with_capacity(16);
 
     // 1. Add the operation itself
-    definitions.push(convert_operation(operation));
+    definitions.push(convert_operation(operation, fragments));
 
     // 2. Add all transitive fragments
     let mut used_fragments = HashSet::default();
@@ -26,7 +26,7 @@ pub fn serialize_operation(
 
     for frag_name in sorted_fragments {
         if let Some(frag) = fragments.get(&frag_name) {
-            definitions.push(convert_fragment(frag));
+            definitions.push(convert_fragment(frag, fragments));
         }
     }
 
@@ -36,12 +36,18 @@ pub fn serialize_operation(
     })
 }
 
-pub fn serialize_operation_definition(operation: &executable::Operation) -> Value {
-    convert_operation(operation)
+pub fn serialize_operation_definition(
+    operation: &executable::Operation,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> Value {
+    convert_operation(operation, all_fragments)
 }
 
-pub fn serialize_fragment_definition(fragment: &executable::Fragment) -> Value {
-    convert_fragment(fragment)
+pub fn serialize_fragment_definition(
+    fragment: &executable::Fragment,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> Value {
+    convert_fragment(fragment, all_fragments)
 }
 
 pub fn get_operation_fragment_dependencies(
@@ -87,7 +93,10 @@ fn collect_fragments(
     }
 }
 
-fn convert_operation(op: &executable::Operation) -> Value {
+fn convert_operation(
+    op: &executable::Operation,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> Value {
     json!({
         "kind": "OperationDefinition",
         "operation": match op.operation_type {
@@ -98,11 +107,14 @@ fn convert_operation(op: &executable::Operation) -> Value {
         "name": op.name.as_ref().map(|n| convert_name(n.as_str())),
         "variableDefinitions": op.variables.iter().map(|v| convert_variable_def(v)).collect::<Vec<_>>(),
         "directives": op.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-        "selectionSet": convert_selection_set(&op.selection_set),
+        "selectionSet": convert_selection_set(&op.selection_set, all_fragments),
     })
 }
 
-fn convert_fragment(frag: &executable::Fragment) -> Value {
+fn convert_fragment(
+    frag: &executable::Fragment,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> Value {
     json!({
         "kind": "FragmentDefinition",
         "name": convert_name(frag.name.as_str()),
@@ -111,18 +123,131 @@ fn convert_fragment(frag: &executable::Fragment) -> Value {
             "name": convert_name(frag.type_condition().as_str()),
         },
         "directives": frag.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-        "selectionSet": convert_selection_set(&frag.selection_set),
+        "selectionSet": convert_selection_set(&frag.selection_set, all_fragments),
     })
 }
 
-fn convert_selection_set(sel: &executable::SelectionSet) -> Value {
+fn convert_selection_set(
+    sel: &executable::SelectionSet,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> Value {
+    let mut selections = Vec::new();
+    let mut seen_fields = HashSet::new();
+
+    for selection in &sel.selections {
+        match selection {
+            Selection::Field(field) => {
+                let key = field_key(field);
+                if seen_fields.insert(key) {
+                    selections.push(convert_selection(selection, all_fragments));
+                }
+            }
+            Selection::InlineFragment(inline) => {
+                selections.push(convert_selection(selection, all_fragments));
+            }
+            Selection::FragmentSpread(spread) => {
+                let frag_name = spread.fragment_name.as_str();
+                if let Some(frag) = all_fragments.get(frag_name) {
+                    for frag_selection in &frag.selection_set.selections {
+                        match frag_selection {
+                            Selection::Field(field) => {
+                                let key = field_key(field);
+                                if seen_fields.insert(key) {
+                                    selections
+                                        .push(convert_selection(frag_selection, all_fragments));
+                                }
+                            }
+                            Selection::InlineFragment(inline) => {
+                                selections.push(convert_selection(frag_selection, all_fragments));
+                            }
+                            Selection::FragmentSpread(nested_spread) => {
+                                let nested_frag_name = nested_spread.fragment_name.as_str();
+                                if let Some(nested_frag) = all_fragments.get(nested_frag_name) {
+                                    for nested_selection in &nested_frag.selection_set.selections {
+                                        match nested_selection {
+                                            Selection::Field(nested_field) => {
+                                                let key = field_key(nested_field);
+                                                if seen_fields.insert(key) {
+                                                    selections.push(convert_selection(
+                                                        nested_selection,
+                                                        all_fragments,
+                                                    ));
+                                                }
+                                            }
+                                            Selection::InlineFragment(nested_inline) => {
+                                                selections.push(convert_selection(
+                                                    nested_selection,
+                                                    all_fragments,
+                                                ));
+                                            }
+                                            Selection::FragmentSpread(deep_nested) => {
+                                                expand_deep_nested_fragment(
+                                                    all_fragments,
+                                                    deep_nested,
+                                                    &mut selections,
+                                                    &mut seen_fields,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     json!({
         "kind": "SelectionSet",
-        "selections": sel.selections.iter().map(convert_selection).collect::<Vec<_>>(),
+        "selections": selections,
     })
 }
 
-fn convert_selection(sel: &Selection) -> Value {
+fn expand_deep_nested_fragment(
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    spread: &executable::FragmentSpread,
+    selections: &mut Vec<Value>,
+    seen_fields: &mut HashSet<String>,
+) {
+    let frag_name = spread.fragment_name.as_str();
+    if let Some(frag) = all_fragments.get(frag_name) {
+        for frag_selection in &frag.selection_set.selections {
+            match frag_selection {
+                Selection::Field(field) => {
+                    let key = field_key(field);
+                    if seen_fields.insert(key) {
+                        selections.push(convert_selection(frag_selection, all_fragments));
+                    }
+                }
+                Selection::InlineFragment(inline) => {
+                    selections.push(convert_selection(frag_selection, all_fragments));
+                }
+                Selection::FragmentSpread(nested_spread) => {
+                    expand_deep_nested_fragment(
+                        all_fragments,
+                        nested_spread,
+                        selections,
+                        seen_fields,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn field_key(field: &Node<executable::Field>) -> String {
+    match &field.alias {
+        Some(alias) => format!("{}:{}", alias.as_str(), field.name.as_str()),
+        None => field.name.as_str().to_string(),
+    }
+}
+
+fn convert_selection(
+    sel: &Selection,
+    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+) -> Value {
     match sel {
         Selection::Field(f) => json!({
             "kind": "Field",
@@ -130,7 +255,7 @@ fn convert_selection(sel: &Selection) -> Value {
             "name": convert_name(f.name.as_str()),
             "arguments": f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>(),
             "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-            "selectionSet": if f.selection_set.selections.is_empty() { Value::Null } else { convert_selection_set(&f.selection_set) },
+            "selectionSet": if f.selection_set.selections.is_empty() { Value::Null } else { convert_selection_set(&f.selection_set, all_fragments) },
         }),
         Selection::InlineFragment(f) => json!({
             "kind": "InlineFragment",
@@ -139,7 +264,7 @@ fn convert_selection(sel: &Selection) -> Value {
                 "name": convert_name(t.as_str()),
             })),
             "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-            "selectionSet": convert_selection_set(&f.selection_set),
+            "selectionSet": convert_selection_set(&f.selection_set, all_fragments),
         }),
         Selection::FragmentSpread(f) => json!({
             "kind": "FragmentSpread",

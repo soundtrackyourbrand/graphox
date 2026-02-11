@@ -1,0 +1,9 @@
+# Scenario 3: Nested fragments with overlapping fields
+# UserNestedA and UserNestedB both include UserFullName (which has 'name')
+# This should NOT produce duplicate 'name' field in the AST
+query GetUsersWithNestedFragments {
+  users {
+    ...UserNestedA
+    ...UserNestedB
+  }
+}

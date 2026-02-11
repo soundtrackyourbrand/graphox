@@ -1,0 +1,8 @@
+# Scenario 2: Inline field + fragment with same field
+# Inline 'name' + fragment with 'id' - should not duplicate
+query GetUserWithInlineAndFragment($id: ID!) {
+  user(id: $id) {
+    name
+    ...UserWithId
+  }
+}

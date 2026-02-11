@@ -317,7 +317,7 @@ pub fn generate_typescript_with_profile(
 
             let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
-                let op_def = serialize_operation_definition(op);
+                let op_def = serialize_operation_definition(op, ctx.all_fragments);
 
                 // Use cached dependencies when possible to avoid expensive tree traversal
                 let deps = get_operation_deps_cached(op, ctx, doc);
@@ -445,7 +445,7 @@ pub fn generate_typescript_with_profile(
                     .unwrap_or(false);
 
                 if !is_type_only {
-                    let frag_def = serialize_fragment_definition(frag);
+                    let frag_def = serialize_fragment_definition(frag, ctx.all_fragments);
 
                     // Use cached dependencies to avoid tree traversal
                     let deps = get_fragment_deps_cached(&frag.name, ctx);

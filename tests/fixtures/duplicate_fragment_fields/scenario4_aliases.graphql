@@ -1,0 +1,8 @@
+# Scenario 4: Aliases - different keys, should BOTH appear
+# 'userName' and 'name' are different field names, so both should appear
+query GetUserWithAliasedFragments($id: ID!) {
+  user(id: $id) {
+    ...UserAliasedName
+    ...UserRealName
+  }
+}

@@ -1,0 +1,43 @@
+# Scenario 1: Overlapping fragments - both have 'name' field
+fragment UserBasic on User @public {
+  id
+  name
+}
+
+fragment UserExtended on User @public {
+  name
+  email
+}
+
+# Scenario 2: Fragment for inline + fragment test
+fragment UserWithId on User @public {
+  id
+}
+
+# Scenario 3: Nested fragments with overlapping fields
+fragment UserFullName on User @public {
+  name
+}
+
+fragment UserContact on User @public {
+  email
+}
+
+fragment UserNestedA on User @public {
+  ...UserFullName
+  role
+}
+
+fragment UserNestedB on User @public {
+  ...UserFullName
+  ...UserContact
+}
+
+# Scenario 4: Aliases - different keys, should both appear
+fragment UserAliasedName on User @public {
+  userName: name
+}
+
+fragment UserRealName on User @public {
+  name
+}

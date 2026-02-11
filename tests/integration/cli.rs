@@ -1327,6 +1327,15 @@ fn test_cli_fragment_masking_baselines() {
 }
 
 #[test]
+fn test_cli_duplicate_fragment_fields_baselines() {
+    run_baseline_test(
+        "tests/fixtures/duplicate_fragment_fields",
+        "tests/baselines/duplicate_fragment_fields",
+        None,
+    );
+}
+
+#[test]
 fn test_cli_codegen_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_entrypoint");

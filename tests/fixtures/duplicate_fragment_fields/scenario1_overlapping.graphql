@@ -1,0 +1,8 @@
+# Scenario 1: Overlapping fragments - both have 'name' field
+# This should NOT produce duplicate 'name' field in the AST
+query GetUserWithOverlappingFragments($id: ID!) {
+  user(id: $id) {
+    ...UserBasic
+    ...UserExtended
+  }
+}
