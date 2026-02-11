@@ -66,15 +66,15 @@ projects:
     );
     assert!(
         content
-            .contains("} as unknown as DocumentNode<GetUserQuery, Exact<GetUserQueryVariables>>;"),
+            .contains("} as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;"),
         "Missing correct type cast for DocumentNode. Content:\n{}",
         content
     );
 
-    // Check for variables interface
+    // Check for variables type
     assert!(
-        content.contains("export interface GetUserQueryVariables {"),
-        "Missing Variables interface"
+        content.contains("export type GetUserQueryVariables = Exact<{"),
+        "Missing Variables type"
     );
 
     // Cleanup

@@ -295,9 +295,9 @@ pub fn generate_typescript_with_profile(
             }
 
             let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix);
-            bodies.push_str("export interface ");
+            bodies.push_str("export type ");
             bodies.push_str(&v_name);
-            bodies.push_str(" {\n");
+            bodies.push_str(" = Exact<{\n");
             if !op.variables.is_empty() {
                 for var in &op.variables {
                     let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx);
@@ -310,8 +310,8 @@ pub fn generate_typescript_with_profile(
                     bodies.push_str(";\n");
                 }
             }
-            bodies.push_str("}\n\n");
-            let vars_type = format!("Exact<{}>", v_name);
+            bodies.push_str("}>;\n\n");
+            let vars_type = v_name.clone();
 
             let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
