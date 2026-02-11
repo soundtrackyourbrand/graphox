@@ -844,39 +844,15 @@ pub fn emit_permission_data_content(
         }
     }
 
-    let empty_fragments = HashMap::default();
-    let empty_deps = HashMap::default();
-    let empty_path_map = HashMap::default();
-    let empty_import_map = HashMap::default();
-    let empty_type_only_map = HashMap::default();
     let dummy_cache = TypeCache::new();
-    let empty_type_imports = HashMap::default();
-    let dummy_ctx = CodegenContext::new(
-        schema,
-        &empty_path_map,
-        &empty_import_map,
-        &empty_type_only_map,
-        &empty_fragments,
-        Path::new(""),
-        scalars,
-        schema_import,
-        &empty_type_imports,
-        false,
-        &empty_deps,
-        &dummy_cache,
-        "Document",
-        "Variables",
-        "",
-        "Query",
-        "Mutation",
-        "Subscription",
-        FragmentMasking::Disabled,
-        "./fragment-masking".to_string(),
-    );
 
     output.push_str("export interface PermissionTypes {\n");
     for (typename, field) in &types_with_permissions {
-        let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
+        let inner_name = field.ty.inner_named_type();
+        let mut ts_type = inner_name.to_string();
+        if field.ty.is_list() {
+            ts_type = format!("Array<{}>", ts_type);
+        }
         output.push_str(&format!("  {}: {};\n", typename, ts_type));
     }
     output.push_str("}\n\n");

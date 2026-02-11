@@ -49,9 +49,6 @@ fn has_generated_header(content: &str) -> bool {
 }
 
 pub fn get_glob_root(pattern: &str) -> PathBuf {
-    if pattern.contains("**") {
-        return PathBuf::new();
-    }
     let path = Path::new(pattern);
     let mut root = PathBuf::new();
     let components: Vec<_> = path.components().collect();

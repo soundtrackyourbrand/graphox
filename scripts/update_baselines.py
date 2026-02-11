@@ -56,7 +56,7 @@ def update_baselines(fixture_rel, baseline_rel):
     updated_count = 0
     for root, dirs, files in os.walk(temp_out):
         for f in files:
-            if f.endswith(".codegen.ts") or f == "graphql.ts":
+            if f.endswith(".ts") or f.endswith(".json"):
                 rel_dir = os.path.relpath(root, temp_out)
                 target_dir = os.path.normpath(os.path.join(baseline_dir, rel_dir))
                 if not os.path.exists(target_dir):
@@ -65,8 +65,14 @@ def update_baselines(fixture_rel, baseline_rel):
                 if f.endswith(".codegen.ts"):
                     stem = f.replace(".codegen.ts", "")
                     baseline_name = stem + ".expected.ts"
+                elif f.endswith(".ts"):
+                    stem = f.replace(".ts", "")
+                    baseline_name = stem + ".expected.ts"
+                elif f.endswith(".json"):
+                    stem = f.replace(".json", "")
+                    baseline_name = stem + ".expected.json"
                 else:
-                    baseline_name = "graphql.expected.ts"
+                    baseline_name = f
 
                 shutil.copy(os.path.join(root, f), os.path.join(target_dir, baseline_name))
                 updated_count += 1
@@ -97,6 +103,7 @@ def main():
         ("tests/fixtures/fragment_masking", "tests/baselines/fragment_masking"),
         ("tests/fixtures/multi_schema_import_caching", "tests/baselines/multi_schema_import_caching"),
         ("tests/fixtures/permissions", "tests/baselines/permissions"),
+        ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
     ]
 
     for fixture, baseline in tasks:
