@@ -1,6 +1,6 @@
 use crate::support::{
     create_initialized_lsp_service, create_service, lsp_did_open, lsp_request_typed,
-    lsp_send_notification, make_temp_project_with_schema, pos, write_project_file,
+    lsp_send_notification, make_temp_project_with_schema, with_cursor, write_project_file,
 };
 use graphox::config::TimeoutConfig;
 use tower_lsp::lsp_types::*;
@@ -32,11 +32,11 @@ async fn test_lsp_request_timeout() {
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let query_text = "query Test { field0 }";
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    let (query_text, position) = with_cursor("query Test { field|0 }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
 
     // Open the document via helper
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Try a hover request - with a 10ms timeout, this might timeout
     // We're just checking that it doesn't panic or hang
@@ -45,7 +45,7 @@ async fn test_lsp_request_timeout() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 15),
+            position,
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };
@@ -116,11 +116,11 @@ async fn test_timeout_with_normal_config() {
 
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_text = "query Test { hello }";
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    let (query_text, position) = with_cursor("query Test { hel|lo }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
 
     // Open document
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Make a hover request - should succeed with default timeout
     let params = HoverParams {
@@ -128,7 +128,7 @@ async fn test_timeout_with_normal_config() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 15),
+            position,
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };

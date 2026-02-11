@@ -1,6 +1,6 @@
 use crate::support::{
     completion_items_array, lsp_did_open, lsp_request_completion, lsp_request_hover,
-    make_temp_project_with_schema, pos, with_cursor, write_project_file,
+    make_temp_project_with_schema, with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -11,14 +11,14 @@ async fn test_type_only_not_in_completion() {
     let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
 
     let frag_text = "fragment TypeOnlyFrag on User @type_only { id }";
-    let query_text = "query { user { ... } }";
+    let (query_text, position) = with_cursor("query { user { ...| } }");
     let frag_uri = write_project_file(&dir, "fragments.graphql", frag_text);
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
 
     lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
-    let completions = lsp_request_completion(&mut service, query_uri.clone(), pos(1, 17)).await;
+    let completions = lsp_request_completion(&mut service, query_uri.clone(), position).await;
     let items = completion_items_array(&completions);
 
     let has_type_only = items.iter().any(|i| i.label == "TypeOnlyFrag");
@@ -139,19 +139,19 @@ async fn test_type_only_definition() {
     let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
 
     let frag_text = "fragment TypeOnlyFrag on User @type_only { id }";
-    let query_text = "query { user { ...TypeOnlyFrag } }";
+    let (query_text, position) = with_cursor("query { user { ...TypeOnly|Frag } }");
     let frag_uri = write_project_file(&dir, "fragments.graphql", frag_text);
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
 
     lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(1, 16),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),

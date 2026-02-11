@@ -1,6 +1,7 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
-    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos_for_token,
+    with_cursor, write_project_file,
 };
 use apollo_compiler::Schema;
 use graphox::features::diagnostics::DocumentDiagnostics;
@@ -196,12 +197,12 @@ async fn test_fragment_hover_requirements() {
 
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_text = "query { me { ...UserFields } }";
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let (query_text, cursor_pos) = with_cursor("query { me { ...User|Fields } }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Hover over ...UserFields
-    let result = lsp_request_hover(&mut service, query_uri.clone(), pos(0, 18)).await;
+    let result = lsp_request_hover(&mut service, query_uri.clone(), cursor_pos).await;
 
     let hover = result.expect("Expected hover");
     let value = match hover.contents {
@@ -230,12 +231,12 @@ async fn test_fragment_completion_requirements() {
 
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
-    let query_text = "query { me { ... } }";
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let (query_text, cursor_pos) = with_cursor("query { me { ...| } }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Completion after ...
-    let result = lsp_request_completion(&mut service, query_uri.clone(), pos(0, 16)).await;
+    let result = lsp_request_completion(&mut service, query_uri.clone(), cursor_pos).await;
 
     let completion = crate::support::completion_items_array(&result);
 
@@ -299,13 +300,16 @@ async fn test_variable_references_including_fragments() {
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
     lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
 
+    let query_doc = create_doc(query_uri.as_str(), query_text);
+    let position = pos_for_token(&query_doc, query_text, "admin");
+
     // Request references for $admin in GetMe
     let params = ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(1, 21),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),

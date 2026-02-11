@@ -1,6 +1,6 @@
 use crate::support::{
     create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
-    pos, write_project_file,
+    with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -26,13 +26,14 @@ async fn test_goto_definition_fields_and_extensions() {
     let query_text = r#"
         query {
             me {
-                id
+                i|d
                 username
             }
         }
     "#;
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let (query_text, position1) = with_cursor(query_text);
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // 1. Go to definition for 'id' (regular field)
     let params = GotoDefinitionParams {
@@ -40,7 +41,7 @@ async fn test_goto_definition_fields_and_extensions() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(3, 17),
+            position: position1,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -52,12 +53,25 @@ async fn test_goto_definition_fields_and_extensions() {
     assert!(result.is_some(), "Should find definition for 'id'");
 
     // 2. Go to definition for 'username' (extended field)
+    let (query_text2, position2) = with_cursor(
+        r#"
+        query {
+            me {
+                id
+                user|name
+            }
+        }
+    "#,
+    );
+    let query_uri2 = write_project_file(&dir, "query2.graphql", &query_text2);
+    lsp_did_open(&mut service, query_uri2.clone(), "graphql", 1, &query_text2).await;
+
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
-                uri: query_uri.clone(),
+                uri: query_uri2.clone(),
             },
-            position: pos(4, 17),
+            position: position2,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),

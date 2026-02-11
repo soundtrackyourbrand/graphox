@@ -101,7 +101,11 @@ async fn test_lsp_multi_schema_goto_definition() {
     let (dir, mut config) = make_temp_project_with_schema(schema_text, "query.graphql");
 
     // Create ext.graphql with additional type
-    write_project_file(&dir, "ext.graphql", "type Address { city: String zip: String }");
+    write_project_file(
+        &dir,
+        "ext.graphql",
+        "type Address { city: String zip: String }",
+    );
     write_project_file(&dir, "user.graphql", "extend type User { email: String }");
 
     // Update Config with multiple schema files
@@ -146,16 +150,18 @@ async fn test_lsp_multi_schema_goto_definition() {
         Some(GotoDefinitionResponse::Array(locs)) => {
             println!("Locations for 'email': {:?}", locs);
             assert!(
-                locs.iter().any(|loc| loc.uri.to_string().contains("user.graphql")),
+                locs.iter()
+                    .any(|loc| loc.uri.to_string().contains("user.graphql")),
                 "Should have at least one location in user.graphql for 'email'"
             );
         }
         None => {
             // Goto definition for extended fields in multi-schema might return None
             // This is acceptable as long as the LSP service handles the setup correctly
-            println!("Goto definition returned None for 'email' - checking if schema is loaded properly");
+            println!(
+                "Goto definition returned None for 'email' - checking if schema is loaded properly"
+            );
         }
         _ => panic!("Unexpected result type for email definition"),
     }
 }
-

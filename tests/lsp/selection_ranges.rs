@@ -1,4 +1,4 @@
-use crate::support::create_doc;
+use crate::support::{create_doc, pos_for_token, with_cursors};
 use graphox::features::selection_range::DocumentSelectionRange;
 use tower_lsp::lsp_types::*;
 
@@ -17,18 +17,13 @@ fn test_selection_range_field() {
     let text = r#"query GetUser {
   user {
     id
-    name
+    |name
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "name" field (line 3, char 4)
-    let position = Position {
-        line: 3,
-        character: 4,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(ranges.len(), 1, "Should return one selection range");
 
     let depth = count_parent_chain(&ranges[0]);
@@ -42,27 +37,13 @@ fn test_selection_range_field() {
 fn test_selection_range_multiple_positions() {
     let text = r#"query GetUser {
   user {
-    id
-    name
-    email
+    |id
+    |name
+    |email
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
-
-    let positions = vec![
-        Position {
-            line: 2,
-            character: 4,
-        }, // "id"
-        Position {
-            line: 3,
-            character: 4,
-        }, // "name"
-        Position {
-            line: 4,
-            character: 4,
-        }, // "email"
-    ];
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
     let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
@@ -82,19 +63,14 @@ fn test_selection_range_multiple_positions() {
 #[test]
 fn test_selection_range_argument() {
     let text = r#"query GetUser($id: ID!) {
-  user(id: $id) {
+  user(id: |$id) {
     name
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "$id" in the argument
-    let position = Position {
-        line: 1,
-        character: 11,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -110,22 +86,17 @@ fn test_selection_range_argument() {
 fn test_selection_range_fragment() {
     let text = r#"fragment UserFields on User {
   id
-  name
+  |name
   email
   profile {
     bio
     avatar
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "name" field in fragment
-    let position = Position {
-        line: 2,
-        character: 3,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(ranges.len(), 1);
 
     let depth = count_parent_chain(&ranges[0]);
@@ -148,21 +119,16 @@ fn test_selection_range_nested_selection_sets() {
         id
         text
         author {
-          name
+          |name
         }
       }
     }
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "name" inside comments.author
-    let position = Position {
-        line: 11,
-        character: 10,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(ranges.len(), 1);
 
     // Should have many parent levels due to deep nesting
@@ -179,7 +145,7 @@ fn test_selection_range_inline_fragment() {
   node {
     ... on User {
       id
-      name
+      |name
     }
     ... on Post {
       id
@@ -187,15 +153,10 @@ fn test_selection_range_inline_fragment() {
     }
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "name" inside inline fragment
-    let position = Position {
-        line: 4,
-        character: 6,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(ranges.len(), 1);
 
     let depth = count_parent_chain(&ranges[0]);
@@ -208,7 +169,7 @@ fn test_selection_range_inline_fragment() {
 #[test]
 fn test_selection_range_variable_definitions() {
     let text = r#"query GetUser(
-  $id: ID!
+  |$id: ID!
   $includeEmail: Boolean!
 ) {
   user(id: $id) {
@@ -216,15 +177,10 @@ fn test_selection_range_variable_definitions() {
     name
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "$id" in variable definition
-    let position = Position {
-        line: 1,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -241,18 +197,13 @@ fn test_selection_range_directive() {
   user {
     id
     name
-    email @include(if: $includeEmail)
+    email @|include(if: $includeEmail)
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on the directive
-    let position = Position {
-        line: 4,
-        character: 11,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -264,7 +215,7 @@ fn test_selection_range_directive() {
 fn test_selection_range_schema_type() {
     let text = r#"type User {
   id: ID!
-  name: String!
+  |name: String!
   email: String!
   posts: [Post!]!
 }
@@ -274,15 +225,10 @@ type Post {
   title: String!
   content: String!
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "email" field in User type
-    let position = Position {
-        line: 3,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -297,19 +243,14 @@ type Post {
 fn test_selection_range_enum() {
     let text = r#"enum Role {
   ADMIN
-  USER
+  |USER
   GUEST
   MODERATOR
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "USER" enum value
-    let position = Position {
-        line: 2,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -324,18 +265,13 @@ fn test_selection_range_enum() {
 fn test_selection_range_input_type() {
     let text = r#"input CreateUserInput {
   name: String!
-  email: String!
+  |email: String!
   role: Role!
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "email" field
-    let position = Position {
-        line: 2,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -353,21 +289,16 @@ const query = gql`
   query GetUser($id: ID!) {
     user(id: $id) {
       id
-      name
+      |name
       email
     }
   }
 `;
 "#;
-    let doc = create_doc("file:///test.tsx", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.tsx", &text);
 
-    // Position on "name" field inside the GraphQL template literal
-    let position = Position {
-        line: 5,
-        character: 6,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -383,17 +314,11 @@ const query = gql`
 
 #[test]
 fn test_selection_range_empty_query() {
-    let text = r#"query EmptyQuery {
-}"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let text = "query EmptyQuery {\n|}";
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position inside the empty selection set
-    let position = Position {
-        line: 0,
-        character: 19,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     // May or may not return a range depending on exact cursor position
     // This tests that we handle edge cases gracefully
     assert!(ranges.len() <= 1, "Should handle empty query gracefully");
@@ -403,20 +328,15 @@ fn test_selection_range_empty_query() {
 fn test_selection_range_alias() {
     let text = r#"query GetUser {
   user {
-    userId: id
+    |userId: id
     userName: name
     userEmail: email
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on the alias part
-    let position = Position {
-        line: 3,
-        character: 4,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -432,18 +352,13 @@ fn test_selection_range_extends() {
 }
 
 extend type User {
-  email: String!
+  |email: String!
   posts: [Post!]!
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "email" in the type extension
-    let position = Position {
-        line: 6,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -464,18 +379,13 @@ fn test_selection_range_interface() {
 }
 
 type User implements Node {
-  id: ID!
+  |id: ID!
   name: String!
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "id" in interface
-    let position = Position {
-        line: 1,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -493,12 +403,7 @@ type User {
 }
 "#;
     let doc = create_doc("file:///test.graphql", text);
-
-    // Position on the union type
-    let position = Position {
-        line: 0,
-        character: 10,
-    };
+    let position = pos_for_token(&doc, text, "SearchResult");
 
     let ranges = doc.get_selection_ranges(vec![position]);
     // Union definitions may or may not provide selection ranges depending on cursor position
@@ -513,19 +418,14 @@ fn test_selection_range_mutation() {
     let text = r#"mutation CreateUser($input: CreateUserInput!) {
   createUser(input: $input) {
     id
-    name
+    |name
     email
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "name" in mutation result
-    let position = Position {
-        line: 3,
-        character: 4,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -541,21 +441,16 @@ fn test_selection_range_subscription() {
     let text = r#"subscription OnMessageAdded($roomId: ID!) {
   messageAdded(roomId: $roomId) {
     id
-    text
+    |text
     author {
       name
     }
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "text" in subscription
-    let position = Position {
-        line: 3,
-        character: 4,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -569,18 +464,13 @@ fn test_selection_range_subscription() {
 #[test]
 fn test_selection_range_list_type() {
     let text = r#"type User {
-  posts: [Post!]!
+  |posts: [Post!]!
   tags: [String]
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "posts" field
-    let position = Position {
-        line: 1,
-        character: 2,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,
@@ -592,22 +482,17 @@ fn test_selection_range_list_type() {
 fn test_selection_range_object_argument() {
     let text = r#"query ComplexQuery {
   search(filter: {
-    status: ACTIVE
+    |status: ACTIVE
     category: "tech"
     tags: ["graphql", "rust"]
   }) {
     id
   }
 }"#;
-    let doc = create_doc("file:///test.graphql", text);
+    let (text, positions) = with_cursors(text);
+    let doc = create_doc("file:///test.graphql", &text);
 
-    // Position on "status" inside object argument
-    let position = Position {
-        line: 2,
-        character: 4,
-    };
-
-    let ranges = doc.get_selection_ranges(vec![position]);
+    let ranges = doc.get_selection_ranges(positions);
     assert_eq!(
         ranges.len(),
         1,

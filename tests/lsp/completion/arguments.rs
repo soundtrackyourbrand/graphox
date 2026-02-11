@@ -1,6 +1,6 @@
 use crate::support::{
     completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
-    make_temp_project_with_schema, pos, with_cursor, write_project_file,
+    make_temp_project_with_schema, with_cursor, write_project_file,
 };
 
 #[tokio::test]
@@ -145,11 +145,11 @@ async fn test_completion_input_value_definition_default() {
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "type Mutation { updateUser(status: Status = ): User }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("type Mutation { updateUser(status: Status = |): User }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    let result = lsp_request_completion(&mut service, uri.clone(), pos(0, 44)).await;
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
@@ -169,11 +169,11 @@ async fn test_completion_argument_value_boolean() {
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let text = "query { user(isAdmin: ) { id } }";
-    let uri = write_project_file(&dir, "test.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor("query { user(isAdmin: |) { id } }");
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    let result = lsp_request_completion(&mut service, uri.clone(), pos(0, 22)).await;
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();

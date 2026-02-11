@@ -1,6 +1,6 @@
 use crate::support::{
     create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
-    write_project_file,
+    with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -15,15 +15,15 @@ async fn test_document_highlight_variable_in_operation() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Open a GraphQL document with a variable
-    let query_text = "query GetUser($id: ID!) { user(id: $id) { id name } }";
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let (query_text, position) =
+        with_cursor("query GetUser($i|d: ID!) { user(id: $id) { id name } }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Small delay to ensure document is processed
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Trigger document highlight on $id in the variable definition
-    let position = Position::new(0, 15); // Position inside $id variable name (on 'i')
     let params = DocumentHighlightParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
@@ -72,15 +72,15 @@ async fn test_document_highlight_variable_across_fragments_same_file() {
     // Create a file with both fragment and query in the same file
     let query_text = r#"fragment UserFields on User { id name @skip(if: $skipName) }
 
-query GetUser($id: ID!, $skipName: Boolean!) { user(id: $id) { ...UserFields } }"#;
-    let query_uri = write_project_file(&dir, "query_with_fragment.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+query GetUser($id: ID!, $skip|Name: Boolean!) { user(id: $id) { ...UserFields } }"#;
+    let (query_text, position) = with_cursor(query_text);
+    let query_uri = write_project_file(&dir, "query_with_fragment.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Small delay to ensure processing completes
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-    // Trigger document highlight on $skipName in the query (line 2, position 25 is 's' in skipName)
-    let position = Position::new(2, 25); // Position inside $skipName variable name
+    // Trigger document highlight on $skipName in the query
     let params = DocumentHighlightParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
@@ -136,25 +136,27 @@ async fn test_document_highlight_variable_in_tsx() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Open a TSX file with embedded GraphQL
-    let tsx_text = r#"
+    let (tsx_text, position) = with_cursor(
+        r#"
 import { gql } from '@apollo/client';
 
 const GET_USER = gql`
-  query GetUser($id: ID!) {
+  query GetUser($i|d: ID!) {
     user(id: $id) {
       id
       name
     }
   }
 `;
-"#;
-    let tsx_uri = write_project_file(&dir, "component.tsx", tsx_text);
+"#,
+    );
+    let tsx_uri = write_project_file(&dir, "component.tsx", &tsx_text);
     lsp_did_open(
         &mut service,
         tsx_uri.clone(),
         "typescriptreact",
         1,
-        tsx_text,
+        &tsx_text,
     )
     .await;
 
@@ -162,8 +164,6 @@ const GET_USER = gql`
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Trigger document highlight on $id in the variable definition
-    // Line 4 is "  query GetUser($id: ID!) {"
-    let position = Position::new(4, 17); // Position of $id
     let params = DocumentHighlightParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {

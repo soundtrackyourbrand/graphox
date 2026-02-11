@@ -1,6 +1,6 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_typed,
-    make_temp_project_with_schema, pos, write_project_file,
+    make_temp_project_with_schema, with_cursor, write_project_file,
 };
 use std::fs;
 use tower_lsp::lsp_types::*;
@@ -21,12 +21,13 @@ async fn test_goto_definition_type_vs_fragment_collision() {
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     // Create a fragment where fragment name = type name
-    let frag_text = "fragment Displayable on Displayable { id }";
-    let frag_uri = write_project_file(&tmpdir, "frag.graphql", frag_text);
+    let frag_text = "fragment Displayable on |Displayable { id }";
+    let (frag_text, position) = with_cursor(frag_text);
+    let frag_uri = write_project_file(&tmpdir, "frag.graphql", &frag_text);
 
-    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, &frag_text).await;
 
-    let frag_doc = create_doc(frag_uri.as_str(), frag_text);
+    let frag_doc = create_doc(frag_uri.as_str(), &frag_text);
 
     // 1. Trigger Go to Definition on "Displayable" in type condition position
     let params = GotoDefinitionParams {
@@ -34,7 +35,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
             text_document: TextDocumentIdentifier {
                 uri: frag_uri.clone(),
             },
-            position: pos(0, 25),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -54,17 +55,18 @@ async fn test_goto_definition_type_vs_fragment_collision() {
     }
 
     // 2. Trigger Go to Definition on fragment spread
-    let query_text = "query GetUser { user { ...Displayable } }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    let query_text = "query GetUser { user { ...|Displayable } }";
+    let (query_text, position) = with_cursor(query_text);
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
 
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 26),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -78,7 +80,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
             // Expected: definition points to the fragment in this file
             assert_eq!(
                 loc.range,
-                crate::support::range_for_token_at_index(&frag_doc, frag_text, "Displayable", 0)
+                crate::support::range_for_token_at_index(&frag_doc, &frag_text, "Displayable", 0)
             );
         } else if loc.uri == schema_uri {
             // Some environments may resolve the spread name to the type definition
@@ -121,17 +123,17 @@ async fn test_goto_definition_directive() {
     // Open schema
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let query_text = "query { id @customDirective(arg: \"test\") }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    let (query_text, position) = with_cursor("query { id @custom|Directive(arg: \"test\") }");
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
 
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 15),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -167,22 +169,17 @@ async fn test_goto_definition_enum_value() {
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     // Create query with enum value
-    let query_text = "query GetUsers { users(status: ACTIVE) { id } }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    let (query_text, position) = with_cursor("query GetUsers { users(status: ACT|IVE) { id } }");
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
 
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
-    // Trigger Go to Definition on "ACTIVE"
-    // query GetUsers { users(status: ACTIVE) { id } }
-    // 0         1         2         3         4
-    //          0123456789012345678901234567890123456
-    // Position 31 is the 'A' of "ACTIVE"
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 31),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -217,12 +214,15 @@ async fn test_goto_definition_variable_in_argument() {
 
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let query_text = "query GetUser($id: ID!) { user(id: $id) { name } }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    let query_text = "query GetUser($id: ID!) { user(|id: $|id) { name } }";
+    let (query_text, positions) = crate::support::with_cursors(query_text);
+    let position2 = positions[0]; // on 'id' in user(id: ...)
+    let position1 = positions[1]; // on '$id' in user(..., $id)
 
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let query_doc = create_doc("file:///query.graphql", &query_text);
 
-    let query_doc = create_doc(query_uri.as_str(), query_text);
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // 1. Trigger Go to Definition on "$id" in "id: $id"
     let params = GotoDefinitionParams {
@@ -230,7 +230,7 @@ async fn test_goto_definition_variable_in_argument() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 36), // On 'i' of $id in "id: $id"
+            position: position1,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -243,7 +243,7 @@ async fn test_goto_definition_variable_in_argument() {
         assert_eq!(loc.uri, query_uri);
         assert_eq!(
             loc.range,
-            crate::support::range_for_token_at_index(&query_doc, query_text, "$id", 0)
+            crate::support::range_for_token_at_index(&query_doc, &query_text, "$id", 0)
         );
     } else {
         panic!("Expected definition of $id variable, got {:?}", result);
@@ -255,7 +255,7 @@ async fn test_goto_definition_variable_in_argument() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 31),
+            position: position2,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -294,22 +294,18 @@ async fn test_goto_definition_inline_fragment_type() {
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     // Create query with inline fragment
-    let query_text = "query GetUser { user { ... on User { name } } }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
+    let (query_text, position) = with_cursor("query GetUsers { user { ... on Us|er { name } } }");
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
 
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Trigger Go to Definition on "User" in "... on User"
-    // query GetUser { user { ... on User { name } } }
-    // 0         1         2         3         4
-    //          0123456789012345678901234567890123456
-    // Position 30 is the 'U' of "User" in "... on User"
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 30), // On 'U' of "User" in "... on User"
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -345,18 +341,17 @@ async fn test_goto_definition_input_object_field() {
 
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let query_text = "mutation { createUser(input: { id: \"1\", name: \"test\" }) }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let (query_text, position) =
+        with_cursor("mutation { createUser(input: { i|d: \"1\", name: \"test\" }) }");
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
-    // Trigger on "id" in "{ id: \"1\" }"
-    // Position 31 is roughly where "id" is
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 31),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -386,17 +381,16 @@ async fn test_goto_definition_nested_enum_value() {
 
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let query_text = "query { orders(filter: { status: ACTIVE }) }";
-    let query_uri = write_project_file(&tmpdir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let (query_text, position) = with_cursor("query { orders(filter: { status: ACT|IVE }) }");
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
-    // Trigger on "ACTIVE"
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 33),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),

@@ -1,6 +1,6 @@
 use crate::support::{
-    create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
-    pos, write_project_file,
+    create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_typed,
+    make_temp_project_with_schema, range_for_token, with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -25,15 +25,16 @@ async fn test_goto_definition_cross_file() {
     .await;
 
     // 2. Create and Open the query file that uses the fragment
-    let query_text = "query GetUser { user { ...UserFields } }";
-    let query_uri = write_project_file(&dir, "query_with_fragment.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let query_text = "query GetUser { user { ...|UserFields } }";
+    let (query_text, position) = with_cursor(query_text);
+    let query_uri = write_project_file(&dir, "query_with_fragment.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // 3. Trigger Go to Definition on "...UserFields" in query file
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: query_uri },
-            position: pos(0, 26),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -45,8 +46,11 @@ async fn test_goto_definition_cross_file() {
     match result {
         Some(GotoDefinitionResponse::Scalar(location)) => {
             assert_eq!(location.uri, fragment_uri);
-            assert_eq!(location.range.start.line, 0);
-            assert_eq!(location.range.start.character, 9);
+            let frag_doc = create_doc("file:///frag.graphql", fragment_text);
+            assert_eq!(
+                location.range,
+                range_for_token(&frag_doc, fragment_text, "UserFields")
+            );
         }
         _ => panic!("Expected Scalar location, got {:?}", result),
     }
@@ -61,11 +65,13 @@ async fn test_goto_definition_types() {
     // Open schema
     let schema_uri = write_project_file(&dir, "schema.graphql", schema_text);
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
+    let schema_doc = create_doc(schema_uri.as_str(), schema_text);
 
     // 1. From fragment type condition to type definition
-    let frag_text = "fragment UserFields on Profile { bio }";
-    let frag_uri = write_project_file(&dir, "frag.graphql", frag_text);
-    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+    let frag_text = "fragment UserFields on |Profile { bio }";
+    let (frag_text, position) = with_cursor(frag_text);
+    let frag_uri = write_project_file(&dir, "frag.graphql", &frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, &frag_text).await;
 
     // Click on "Profile" in "fragment UserFields on Profile"
     let params = GotoDefinitionParams {
@@ -73,7 +79,7 @@ async fn test_goto_definition_types() {
             text_document: TextDocumentIdentifier {
                 uri: frag_uri.clone(),
             },
-            position: pos(0, 25),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -84,19 +90,24 @@ async fn test_goto_definition_types() {
 
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
-        assert_eq!(loc.range.start.line, 3);
-        assert_eq!(loc.range.start.character, 5); // "type Profile"
+        assert_eq!(
+            loc.range,
+            range_for_token(&schema_doc, schema_text, "Profile")
+        );
     } else {
         panic!("Expected definition of Profile, got {:?}", result);
     }
 
     // 2. From field type to type definition (in schema)
+    let (_schema_text_with_cursor, position) = with_cursor(
+        "scalar CustomScalar\ninput MyInput { id: ID }\ntype User { id: ID! name: String profile: Pro|file }\ntype Profile { bio: String }\ntype Query { user: User }",
+    );
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: schema_uri.clone(),
             },
-            position: pos(2, 45), // profile: Pro|file
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -107,15 +118,19 @@ async fn test_goto_definition_types() {
 
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
-        assert_eq!(loc.range.start.line, 3);
+        assert_eq!(
+            loc.range,
+            range_for_token(&schema_doc, schema_text, "Profile")
+        );
     } else {
         panic!("Expected definition of Profile, got {:?}", result);
     }
 
     // 3. From variable type to type definition
-    let query_text = "query ($input: MyInput) { user { id } }";
-    let query_uri = write_project_file(&dir, "query.graphql", query_text);
-    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+    let query_text = "query ($input: My|Input) { user { id } }";
+    let (query_text, position) = with_cursor(query_text);
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
     // Click on "MyInput" in "query ($input: MyInput)"
     let params = GotoDefinitionParams {
@@ -123,7 +138,7 @@ async fn test_goto_definition_types() {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 18), // My|Input
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -134,19 +149,26 @@ async fn test_goto_definition_types() {
 
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
-        assert_eq!(loc.range.start.line, 1);
-        assert_eq!(loc.range.start.character, 6); // "input MyInput"
+        assert_eq!(
+            loc.range,
+            range_for_token(&schema_doc, schema_text, "MyInput")
+        );
     } else {
         panic!("Expected definition of MyInput, got {:?}", result);
     }
 
     // 4. Variable definition from usage
+    let (query_text, position) = with_cursor("query ($in|put: MyInput) { user { id } }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
+    let query_doc = create_doc(query_uri.as_str(), &query_text);
+
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: pos(0, 8), // $in|put
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -157,19 +179,26 @@ async fn test_goto_definition_types() {
 
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, query_uri);
-        assert_eq!(loc.range.start.line, 0);
-        assert_eq!(loc.range.start.character, 7); // "$input"
+        assert_eq!(
+            loc.range,
+            range_for_token(&query_doc, &query_text, "$input")
+        );
     } else {
         panic!("Expected definition of $input, got {:?}", result);
     }
 
     // 5. Field definition from usage in fragment
+    let frag_text = "fragment UserFields on Profile { bi|o }";
+    let (frag_text, position) = with_cursor(frag_text);
+    let frag_uri = write_project_file(&dir, "frag.graphql", &frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, &frag_text).await;
+
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: frag_uri.clone(),
             },
-            position: pos(0, 35), // bi|o
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -180,8 +209,7 @@ async fn test_goto_definition_types() {
 
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, schema_uri);
-        assert_eq!(loc.range.start.line, 3);
-        assert_eq!(loc.range.start.character, 15); // "type Profile { bio"
+        assert_eq!(loc.range, range_for_token(&schema_doc, schema_text, "bio"));
     } else {
         panic!("Expected definition of field 'bio', got {:?}", result);
     }

@@ -1,6 +1,6 @@
 use crate::support::{
-    create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
-    pos, write_project_file,
+    create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_typed,
+    make_temp_project_with_schema, range_for_token, with_cursor, write_project_file,
 };
 use std::fs;
 use tempfile::tempdir;
@@ -15,9 +15,9 @@ async fn test_field_references() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Create and Open the schema file containing the field definition
-    let schema_text = "type User { id: ID! name: String }";
-    let schema_uri = write_project_file(&dir, "schema.graphql", schema_text);
-    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
+    let (schema_text, position) = with_cursor("type User { id: ID! na|me: String }");
+    let schema_uri = write_project_file(&dir, "schema.graphql", &schema_text);
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
     // 2. Create and Open a query file that uses the field
     let query_text = "query GetUser { user { name } }";
@@ -28,8 +28,7 @@ async fn test_field_references() {
     let params = ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: schema_uri.clone() },
-            // 'name' starts at column 18 in the schema_text: "type User { id: ID! name: String }"
-            position: pos(0, 18),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -43,12 +42,15 @@ async fn test_field_references() {
     // should include definition + usage
     assert!(locations.len() >= 2, "Expected at least 2 locations, got {}", locations.len());
 
+    let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
+    let expected_range = range_for_token(&schema_doc, &schema_text, "name");
+
     let has_def = locations
         .iter()
-        .any(|l| l.uri == schema_uri && l.range.start.character == 18);
+        .any(|l| l.uri == schema_uri && l.range == expected_range);
     let has_usage = locations
         .iter()
-        .any(|l| l.uri == query_uri && l.range.start.character > 0);
+        .any(|l| l.uri == query_uri);
 
     assert!(has_def, "Missing field definition in references");
     assert!(has_usage, "Missing field usage in references");
@@ -63,9 +65,9 @@ async fn test_directive_references() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Create and Open the directive definition file
-    let def_text = "directive @foo on FIELD_DEFINITION";
-    let def_uri = write_project_file(&dir, "directive.graphql", def_text);
-    lsp_did_open(&mut service, def_uri.clone(), "graphql", 1, def_text).await;
+    let (def_text, position) = with_cursor("directive @fo|o on FIELD_DEFINITION");
+    let def_uri = write_project_file(&dir, "directive.graphql", &def_text);
+    lsp_did_open(&mut service, def_uri.clone(), "graphql", 1, &def_text).await;
 
     // 2. Create and Open a query file that uses the directive
     let query_text = "query { user @foo { id } }";
@@ -76,8 +78,7 @@ async fn test_directive_references() {
     let params = ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: def_uri.clone() },
-            // 'foo' starts at column 11 in def_text: "directive @foo on FIELD_DEFINITION"
-            position: pos(0, 11),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -90,7 +91,10 @@ async fn test_directive_references() {
     let locations = result.expect("Expected locations");
     assert!(locations.len() >= 2, "Expected at least 2 locations, got {}", locations.len());
 
-    let has_def = locations.iter().any(|l| l.uri == def_uri && l.range.start.character == 11);
+    let def_doc = create_doc(def_uri.as_str(), &def_text);
+    let expected_range = range_for_token(&def_doc, &def_text, "foo");
+
+    let has_def = locations.iter().any(|l| l.uri == def_uri && l.range == expected_range);
     let has_usage = locations.iter().any(|l| l.uri == query_uri && l.range.start.line == 0);
 
     assert!(has_def, "Missing directive definition in references");

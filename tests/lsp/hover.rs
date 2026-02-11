@@ -1,6 +1,6 @@
 use crate::support::{
-    create_initialized_lsp_service, lsp_did_open, lsp_request_hover, make_temp_project_with_schema,
-    pos, write_project_file,
+    create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_hover,
+    make_temp_project_with_schema, pos, pos_for_token, with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -22,15 +22,16 @@ async fn test_hover_fragment_spread() {
 
         query {
             users {
-                ...UserFields
+                ...|UserFields
             }
         }
     "#;
-    let uri = write_project_file(&dir, "hover.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "hover.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
     // 2. Request hover over 'UserFields' in the spread
-    let result = lsp_request_hover(&mut service, uri.clone(), pos(8, 20)).await;
+    let result = lsp_request_hover(&mut service, uri.clone(), position).await;
 
     assert!(result.is_some(), "Hover should return something");
     let hover = result.unwrap();
@@ -62,15 +63,16 @@ async fn test_hover_schema_type() {
     // 1. Open file
     let text = r#"
         query {
-            users {
+            us|ers {
                 id
             }
         }
     "#;
-    let uri = write_project_file(&dir, "hover_schema.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "hover_schema.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    let result = lsp_request_hover(&mut service, uri.clone(), pos(2, 13)).await;
+    let result = lsp_request_hover(&mut service, uri.clone(), position).await;
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -106,7 +108,9 @@ async fn test_hover_graphql_description() {
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let result = lsp_request_hover(&mut service, schema_uri.clone(), pos(2, 15)).await;
+    let doc = create_doc(&schema_uri.to_string(), &schema_text);
+    let position = pos_for_token(&doc, &schema_text, "DocumentedType");
+    let result = lsp_request_hover(&mut service, schema_uri.clone(), position).await;
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {
@@ -131,14 +135,15 @@ async fn test_hover_schema_field() {
     let text = r#"
         query {
             users {
-                id
+                i|d
             }
         }
     "#;
-    let uri = write_project_file(&dir, "hover_field.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "hover_field.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    let result = lsp_request_hover(&mut service, uri.clone(), pos(3, 17)).await;
+    let result = lsp_request_hover(&mut service, uri.clone(), position).await;
 
     assert!(result.is_some(), "Hover should return something");
     if let HoverContents::Markup(m) = result.unwrap().contents {

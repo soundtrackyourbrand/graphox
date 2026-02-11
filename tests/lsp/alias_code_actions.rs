@@ -1,6 +1,6 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
-    lsp_request_code_actions, make_temp_project_with_schema, with_cursor, write_project_file,
+    lsp_request_code_actions, make_temp_project_with_schema, pos, with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -195,12 +195,12 @@ async fn test_alias_definition() {
     let query_uri = write_project_file(&dir, "query.graphql", query_text);
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
-    let params = crate::lsp::alias_code_actions::GotoDefinitionParams {
-        text_document_position_params: tower_lsp::lsp_types::TextDocumentPositionParams {
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {
                 uri: query_uri.clone(),
             },
-            position: crate::support::pos(1, 18),
+            position: pos(1, 18),
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -213,7 +213,9 @@ async fn test_alias_definition() {
         Some(tower_lsp::lsp_types::GotoDefinitionResponse::Scalar(loc)) => {
             assert!(
                 loc.uri == query_uri,
-                "Definition should point to the same document"
+                "Definition should point to the same document. Got {}, expected {}",
+                loc.uri,
+                query_uri
             );
         }
         Some(tower_lsp::lsp_types::GotoDefinitionResponse::Array(arr)) => {

@@ -1,6 +1,6 @@
 use crate::support::{
     create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
-    pos, write_project_file,
+    with_cursor, write_project_file,
 };
 use tower_lsp::lsp_types::*;
 
@@ -14,14 +14,14 @@ async fn test_fragment_rename() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Fragment file
-    let fragment_text = "fragment UserFields on User { id name }";
-    let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
+    let (fragment_text, position) = with_cursor("fragment User|Fields on User { id name }");
+    let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", &fragment_text);
     lsp_did_open(
         &mut service,
         fragment_uri.clone(),
         "graphql",
         1,
-        fragment_text,
+        &fragment_text,
     )
     .await;
 
@@ -36,7 +36,7 @@ async fn test_fragment_rename() {
             text_document: TextDocumentIdentifier {
                 uri: fragment_uri.clone(),
             },
-            position: pos(0, 9),
+            position,
         },
         new_name: "MyFields".to_string(),
         work_done_progress_params: Default::default(),
@@ -71,14 +71,14 @@ async fn test_fragment_rename_tsx() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Fragment file
-    let fragment_text = "fragment UserFields on User { id name }";
-    let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
+    let (fragment_text, position) = with_cursor("fragment User|Fields on User { id name }");
+    let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", &fragment_text);
     lsp_did_open(
         &mut service,
         fragment_uri.clone(),
         "graphql",
         1,
-        fragment_text,
+        &fragment_text,
     )
     .await;
 
@@ -108,7 +108,7 @@ async fn test_fragment_rename_tsx() {
             text_document: TextDocumentIdentifier {
                 uri: fragment_uri.clone(),
             },
-            position: pos(0, 9),
+            position,
         },
         new_name: "RenamedFields".to_string(),
         work_done_progress_params: Default::default(),
@@ -150,14 +150,14 @@ async fn test_rename_unopened_file() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Open only the fragment file
-    let fragment_text = "fragment UserFields on User { id name }";
-    let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", fragment_text);
+    let (fragment_text, position) = with_cursor("fragment User|Fields on User { id name }");
+    let fragment_uri = write_project_file(&tmpdir, "user_fragment.graphql", &fragment_text);
     lsp_did_open(
         &mut service,
         fragment_uri.clone(),
         "graphql",
         1,
-        fragment_text,
+        &fragment_text,
     )
     .await;
 
@@ -167,7 +167,7 @@ async fn test_rename_unopened_file() {
             text_document: TextDocumentIdentifier {
                 uri: fragment_uri.clone(),
             },
-            position: pos(0, 9),
+            position,
         },
         new_name: "MyFields".to_string(),
         work_done_progress_params: Default::default(),

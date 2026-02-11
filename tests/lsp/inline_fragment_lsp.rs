@@ -1,6 +1,7 @@
 use crate::support::{
     completion_items_array, create_initialized_lsp_service, lsp_did_open, lsp_request_completion,
-    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, pos, write_project_file,
+    lsp_request_hover, lsp_request_typed, make_temp_project_with_schema, with_cursor,
+    write_project_file,
 };
 use std::fs;
 use tower_lsp::lsp_types::*;
@@ -18,16 +19,16 @@ async fn test_hover_inside_inline_fragment() {
         query {
             search {
                 ... on User {
-                    username
+                    user|name
                 }
             }
         }
     "#;
-    let uri = write_project_file(&dir, "query.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "query.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
-    // Hover over 'username' inside the inline fragment (line 4, column 20 is approximate, let's use exact)
-    let result = lsp_request_hover(&mut service, uri.clone(), pos(4, 20)).await;
+    let result = lsp_request_hover(&mut service, uri.clone(), position).await;
 
     assert!(
         result.is_some(),
@@ -44,7 +45,21 @@ async fn test_hover_inside_inline_fragment() {
     }
 
     // Hover over 'User' type condition
-    let result = lsp_request_hover(&mut service, uri.clone(), pos(3, 23)).await;
+    let (text2, position2) = with_cursor(
+        r#"
+        query {
+            search {
+                ... on Us|er {
+                    username
+                }
+            }
+        }
+    "#,
+    );
+    let uri2 = write_project_file(&dir, "query2.graphql", &text2);
+    lsp_did_open(&mut service, uri2.clone(), "graphql", 1, &text2).await;
+
+    let result = lsp_request_hover(&mut service, uri2.clone(), position2).await;
 
     assert!(
         result.is_some(),
@@ -77,19 +92,20 @@ async fn test_goto_definition_inside_inline_fragment() {
         query {
             search {
                 ... on User {
-                    ...UserFields
+                    ...User|Fields
                 }
             }
         }
     "#;
-    let uri = write_project_file(&dir, "query.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "query.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
     // Go to definition for 'UserFields' inside the inline fragment
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position: pos(7, 23),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -117,16 +133,17 @@ async fn test_completion_inside_inline_fragment() {
         query {
             search {
                 ... on User {
-                    
+                    |
                 }
             }
         }
     "#;
-    let uri = write_project_file(&dir, "query.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "query.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
     // Completion inside the inline fragment
-    let result = lsp_request_completion(&mut service, uri.clone(), pos(4, 20)).await;
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
     let items = completion_items_array(&result);
 
     let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
@@ -152,7 +169,7 @@ async fn test_references_inside_inline_fragment() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
-        fragment UserFields on User {
+        fragment User|Fields on User {
             id
         }
         query {
@@ -163,14 +180,15 @@ async fn test_references_inside_inline_fragment() {
             }
         }
     "#;
-    let uri = write_project_file(&dir, "query.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "query.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
     // Find references for 'UserFields'
     let params = ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position: pos(1, 17),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
@@ -201,7 +219,7 @@ async fn test_rename_inside_inline_fragment() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
-        fragment UserFields on User {
+        fragment User|Fields on User {
             id
         }
         query {
@@ -212,14 +230,15 @@ async fn test_rename_inside_inline_fragment() {
             }
         }
     "#;
-    let uri = write_project_file(&dir, "query.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "query.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
     // Rename 'UserFields'
     let params = RenameParams {
         text_document_position: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position: pos(1, 17),
+            position,
         },
         new_name: "RenamedUserFields".to_string(),
         work_done_progress_params: Default::default(),
@@ -256,19 +275,20 @@ async fn test_goto_definition_field_in_schema() {
         query {
             search {
                 ... on User {
-                    username
+                    user|name
                 }
             }
         }
     "#;
-    let uri = write_project_file(&dir, "query.graphql", text);
-    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "query.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
 
     // Go to definition for 'username'
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
-            position: pos(4, 20),
+            position,
         },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),

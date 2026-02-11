@@ -571,6 +571,31 @@ pub fn with_cursor(text: &str) -> (String, Position) {
     (format!("{}{}", before, after), pos(line as u32, col as u32))
 }
 
+/// Helper to find multiple cursor positions marked by '|' in a string.
+/// Returns the string with markers removed and a Vec of Positions.
+pub fn with_cursors(text: &str) -> (String, Vec<Position>) {
+    let mut positions = Vec::new();
+    let mut clean_text = String::new();
+    let mut current_line = 0;
+    let mut current_col = 0;
+
+    for c in text.chars() {
+        if c == '|' {
+            positions.push(pos(current_line, current_col));
+        } else {
+            clean_text.push(c);
+            if c == '\n' {
+                current_line += 1;
+                current_col = 0;
+            } else {
+                current_col += 1;
+            }
+        }
+    }
+
+    (clean_text, positions)
+}
+
 /// Convenience constructor for LSP positions.
 pub fn pos(line: u32, col: u32) -> Position {
     Position::new(line, col)
@@ -592,6 +617,34 @@ pub fn find_diag_by_code<'a>(diags: &'a [Diagnostic], code: &str) -> Option<&'a 
 /// Find a diagnostic by the exact message.
 pub fn find_diag_by_message<'a>(diags: &'a [Diagnostic], message: &str) -> Option<&'a Diagnostic> {
     diags.iter().find(|d| d.message == message)
+}
+
+/// Compute a Position for the last occurrence of `token` in `text`.
+pub fn pos_for_token(doc: &DocumentState, text: &str, token: &str) -> Position {
+    let start_byte = text
+        .rfind(token)
+        .unwrap_or_else(|| panic!("Token '{}' not found in text", token));
+    doc.byte_to_position(start_byte)
+}
+
+/// Compute a Position for the nth occurrence of `token` in `text` (0-indexed).
+pub fn pos_for_token_at_index(
+    doc: &DocumentState,
+    text: &str,
+    token: &str,
+    index: usize,
+) -> Position {
+    let mut current_pos = 0;
+    let mut count = 0;
+    while let Some(start_byte) = text[current_pos..].find(token) {
+        let absolute_start = current_pos + start_byte;
+        if count == index {
+            return doc.byte_to_position(absolute_start);
+        }
+        current_pos = absolute_start + token.len();
+        count += 1;
+    }
+    panic!("Token '{}' at index {} not found in text", token, index);
 }
 
 /// Compute a Range for the last occurrence of `token` in `text` using the document's
@@ -774,6 +827,23 @@ impl TestWorkspace {
     pub fn uri_for(&self, rel: &str) -> Url {
         let path = std::fs::canonicalize(self.tmp.path().join(rel)).expect("canonicalize");
         Url::from_file_path(path).expect("from_file_path")
+    }
+
+    /// Copy a directory recursively to the workspace root.
+    pub fn copy_from(&self, src: impl AsRef<Path>) {
+        fn copy_recursive(src: &Path, dst: &Path) {
+            fs::create_dir_all(dst).expect("create dir");
+            for entry in fs::read_dir(src).expect("read dir") {
+                let entry = entry.expect("dir entry");
+                let file_type = entry.file_type().expect("file type");
+                if file_type.is_dir() {
+                    copy_recursive(&entry.path(), &dst.join(entry.file_name()));
+                } else {
+                    fs::copy(entry.path(), dst.join(entry.file_name())).expect("copy file");
+                }
+            }
+        }
+        copy_recursive(src.as_ref(), self.tmp.path());
     }
 }
 
