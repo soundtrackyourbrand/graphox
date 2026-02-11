@@ -421,7 +421,7 @@ fn bench_phase_timings(c: &mut Criterion) {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let mut group = c.benchmark_group("Phase Timings");
-    group.sample_size(5);
+    group.sample_size(10);
     group.warm_up_time(Duration::from_millis(100));
     group.measurement_time(Duration::from_millis(2000));
 

@@ -15,6 +15,7 @@ use graphox_core::types::{
 };
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -333,6 +334,40 @@ async fn validate_all_documents_cancellable(
             package_roots,
         );
 
+    // PRE-INDEX FRAGMENTS BY PACKAGE AND SCHEMA (CRITICAL OPTIMIZATION)
+    // This eliminates O(N×M) filtering during validation
+    // Maps package_path_string -> list of fragment indices
+    let mut fragments_by_package: AHashMap<String, Vec<usize>> = AHashMap::new();
+    let mut public_fragment_indices: Vec<usize> = Vec::new();
+
+    for (idx, (frag, _schema_key)) in all_fragments_info.iter().enumerate() {
+        if frag.is_public {
+            public_fragment_indices.push(idx);
+        }
+        let pkg_key = frag.package_root
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        fragments_by_package
+            .entry(pkg_key)
+            .or_insert_with(Vec::new)
+            .push(idx);
+    }
+
+    // Also build schema_key lookup
+    let mut fragments_by_schema_key: AHashMap<Option<Arc<str>>, Vec<usize>> = AHashMap::new();
+    for (idx, (_frag, schema_key)) in all_fragments_info.iter().enumerate() {
+        fragments_by_schema_key
+            .entry(schema_key.clone())
+            .or_insert_with(Vec::new)
+            .push(idx);
+    }
+
+    // Helper to convert Option<PathBuf> to String key
+    fn pkg_to_key(pkg: Option<&PathBuf>) -> String {
+        pkg.map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+    }
+
     // Validate all documents in parallel with cancellation support
     use rayon::prelude::*;
 
@@ -369,47 +404,63 @@ async fn validate_all_documents_cancellable(
                 (None, valid_empty_schema.clone())
             };
 
-            // Filter fragments for this doc (same project/schema or public)
-            let target_package_root = doc.package_root.as_ref();
-            let filtered_fragments: Vec<FragmentCompletionInfo> = all_fragments_info
+            // FAST FRAGMENT LOOKUP using pre-built indices (O(1) instead of O(M))
+            // Collect relevant fragments: same package, same project, or public
+            let mut relevant_frags: Vec<usize> = Vec::with_capacity(64);
+            let doc_pkg_key = pkg_to_key(doc.package_root.as_ref());
+
+            // Same package
+            if let Some(pkg_frags) = fragments_by_package.get(&doc_pkg_key) {
+                relevant_frags.extend(pkg_frags.iter().copied());
+            }
+
+            // Same project (different package but same schema_key)
+            if let Some(ref sk) = schema_key {
+                let sk_arc: Arc<str> = sk.as_str().into();
+                if let Some(project_frags) = fragments_by_schema_key.get(&Some(sk_arc)) {
+                    for &idx in project_frags {
+                        if !relevant_frags.contains(&idx) {
+                            relevant_frags.push(idx);
+                        }
+                    }
+                }
+            }
+
+            // Add public fragments (if not already included)
+            for &pub_idx in &public_fragment_indices {
+                if !relevant_frags.contains(&pub_idx) {
+                    relevant_frags.push(pub_idx);
+                }
+            }
+
+            // Clone only the fragments we actually need (reduced from M to ~few dozen)
+            let mut filtered_fragments: Vec<FragmentCompletionInfo> = relevant_frags
                 .iter()
-                .filter(|(f, f_schema_key)| {
-                    let is_same_project = f_schema_key
-                        .as_ref()
-                        .is_some_and(|k| schema_key.as_ref().is_some_and(|sk| k.as_ref() == sk));
-                    let is_same_package = graphox_core::utils::paths_match(
-                        f.package_root.as_deref(),
-                        target_package_root.map(|p| p.as_path()),
-                    );
-                    is_same_project || is_same_package || f.is_public
-                })
-                .map(|(f, _)| f.clone())
+                .map(|&idx| all_fragments_info[idx].0.clone())
                 .collect();
 
             // If there are duplicate fragment names, prioritize the one in the same package,
             // then same project, then public.
-            let mut sorted_fragments = filtered_fragments;
-            sorted_fragments.sort_by(|a, b| {
+            filtered_fragments.sort_by(|a, b| {
                 let a_same_pkg = graphox_core::utils::paths_match(
                     a.package_root.as_deref(),
-                    target_package_root.map(|p| p.as_path()),
+                    doc.package_root.as_deref(),
                 );
                 let b_same_pkg = graphox_core::utils::paths_match(
                     b.package_root.as_deref(),
-                    target_package_root.map(|p| p.as_path()),
+                    doc.package_root.as_deref(),
                 );
 
                 if a_same_pkg != b_same_pkg {
                     return b_same_pkg.cmp(&a_same_pkg);
                 }
 
-                // If both (or neither) are same package, prefer same project (already filtered)
-                b.is_public.cmp(&a.is_public).reverse() // prefer non-public (local)
+                b.is_public.cmp(&a.is_public).reverse()
             });
 
             let diagnostics = doc.get_semantic_diagnostics(
                 &schema,
-                &sorted_fragments,
+                &filtered_fragments,
                 Some(&used_fragments),
                 Some(config),
                 false,
