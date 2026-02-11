@@ -142,7 +142,7 @@ fn convert_selection_set(
                     selections.push(convert_selection(selection, all_fragments));
                 }
             }
-            Selection::InlineFragment(inline) => {
+            Selection::InlineFragment(_inline) => {
                 selections.push(convert_selection(selection, all_fragments));
             }
             Selection::FragmentSpread(spread) => {
@@ -157,7 +157,7 @@ fn convert_selection_set(
                                         .push(convert_selection(frag_selection, all_fragments));
                                 }
                             }
-                            Selection::InlineFragment(inline) => {
+                            Selection::InlineFragment(_inline) => {
                                 selections.push(convert_selection(frag_selection, all_fragments));
                             }
                             Selection::FragmentSpread(nested_spread) => {
@@ -174,7 +174,7 @@ fn convert_selection_set(
                                                     ));
                                                 }
                                             }
-                                            Selection::InlineFragment(nested_inline) => {
+                                            Selection::InlineFragment(_nested_inline) => {
                                                 selections.push(convert_selection(
                                                     nested_selection,
                                                     all_fragments,
@@ -221,7 +221,7 @@ fn expand_deep_nested_fragment(
                         selections.push(convert_selection(frag_selection, all_fragments));
                     }
                 }
-                Selection::InlineFragment(inline) => {
+                Selection::InlineFragment(_inline) => {
                     selections.push(convert_selection(frag_selection, all_fragments));
                 }
                 Selection::FragmentSpread(nested_spread) => {
