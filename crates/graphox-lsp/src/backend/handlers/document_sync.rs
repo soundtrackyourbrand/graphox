@@ -1,0 +1,267 @@
+use crate::backend::state::Backend;
+use crate::backend::{document_changes, file_change_handler};
+use graphox_core::DocumentState;
+use graphox_core::document::DocumentLanguage;
+
+use ahash::AHashSet;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use tower_lsp::lsp_types::*;
+
+pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParams) {
+    let uri = backend.normalize_uri(params.text_document.uri.clone());
+    backend.open_documents.insert(uri.clone());
+    let language = DocumentLanguage::from_uri(&uri);
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&language.get_parser_language())
+        .unwrap();
+
+    let position_encoding = if let Ok(caps) = backend.client_capabilities.read() {
+        caps.negotiated_encoding()
+    } else {
+        PositionEncodingKind::UTF16
+    };
+
+    let doc = DocumentState::new(
+        uri.clone(),
+        &params.text_document.text,
+        parser,
+        position_encoding,
+    );
+
+    let mut affected_fragment_names = AHashSet::default();
+    for f in doc.fragments() {
+        affected_fragment_names.insert(f.name.clone());
+    }
+
+    // Update performance indices
+    backend.invalidate_fragment_cache();
+    backend
+        .fragment_defs
+        .insert(uri.clone(), doc.fragments().to_vec());
+    backend
+        .fragment_spreads
+        .insert(uri.clone(), doc.fragment_spreads.clone());
+    backend
+        .package_roots
+        .insert(uri.clone(), doc.package_root.clone());
+    backend.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
+    backend.update_definition_indices(
+        &uri,
+        None,
+        doc.fragments().iter().map(|f| f.name.clone()).collect(),
+    );
+
+    // Update operation names index for duplicate detection
+    let config = backend.config.read().unwrap().clone();
+    let schema_key: Arc<str> = if let Ok(path) = uri.to_file_path() {
+        if let Some(key) = config.get_schema_for_path(&path) {
+            key.into()
+        } else {
+            "default".into()
+        }
+    } else {
+        "default".into()
+    };
+    for op in doc.operations() {
+        if let Some(name) = &op.name {
+            backend
+                .operation_names
+                .entry(name.clone())
+                .or_default()
+                .push((schema_key.clone(), uri.clone()));
+        }
+    }
+
+    let mut affected_spread_names = AHashSet::default();
+    for s in &doc.fragment_spreads {
+        affected_spread_names.insert(s.clone());
+    }
+
+    backend.documents.insert(uri.clone(), Arc::new(doc));
+
+    let uris_to_validate =
+        backend.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
+    backend.validate_uris(uris_to_validate).await;
+
+    // Request throttled codegen if enabled
+    if let Some(throttle) = &backend.codegen_throttle {
+        throttle.request_codegen();
+    }
+}
+
+pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentParams) {
+    let uri = backend.normalize_uri(params.text_document.uri);
+    backend.open_documents.remove(&uri);
+}
+
+pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentParams) {
+    let uri = backend.normalize_uri(params.text_document.uri.clone());
+    let version = params.text_document.version;
+
+    let position_encoding = if let Ok(caps) = backend.client_capabilities.read() {
+        caps.negotiated_encoding()
+    } else {
+        PositionEncodingKind::UTF16
+    };
+
+    // Process document changes and update indices
+    let change_params = document_changes::DocumentChangeParams {
+        documents: &backend.documents,
+        fragment_defs: &backend.fragment_defs,
+        fragment_spreads: &backend.fragment_spreads,
+        package_roots: &backend.package_roots,
+        fragment_dependents: &backend.fragment_dependents,
+        fragment_definitions: &backend.fragment_definitions,
+        position_encoding,
+    };
+
+    if let Some(result) = document_changes::process_document_change(
+        &uri,
+        params.content_changes,
+        version,
+        &change_params,
+    ) {
+        // Invalidate fragment metadata cache since fragments might have changed
+        backend.invalidate_fragment_cache();
+
+        // Validate affected documents
+        backend.validate_uris(result.uris_to_validate).await;
+
+        // Request throttled codegen if enabled
+        if let Some(throttle) = &backend.codegen_throttle {
+            throttle.request_codegen();
+        }
+    }
+}
+
+pub async fn handle_did_change_watched_files(
+    backend: &Backend,
+    params: DidChangeWatchedFilesParams,
+) {
+    let start = std::time::Instant::now();
+
+    // Get timeout duration
+    let timeout_ms = {
+        let config = backend.config.read().unwrap();
+        config.get_timeouts().lsp_request_ms
+    };
+
+    // Apply timeout
+    let _res = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async move {
+        let position_encoding = if let Ok(caps) = backend.client_capabilities.read() {
+            caps.negotiated_encoding()
+        } else {
+            PositionEncodingKind::UTF16
+        };
+
+        let config = backend.config.read().unwrap().clone();
+        for change in params.changes {
+            let change_params = file_change_handler::FileChangeParams {
+                client: &backend.client,
+                config: &config,
+                documents: &backend.documents,
+                fragment_defs: &backend.fragment_defs,
+                fragment_spreads: &backend.fragment_spreads,
+                package_roots: &backend.package_roots,
+                fragment_dependents: &backend.fragment_dependents,
+                fragment_definitions: &backend.fragment_definitions,
+                operation_names: &backend.operation_names,
+                gitignore: &backend.gitignore,
+                position_encoding: position_encoding.clone(),
+            };
+
+            let result =
+                if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
+                    file_change_handler::process_file_created_or_changed(
+                        change.uri,
+                        &change_params,
+                        |uri| backend.normalize_uri(uri),
+                    )
+                    .await
+                } else if change.typ == FileChangeType::DELETED {
+                    file_change_handler::process_file_deleted(change.uri, &change_params, |uri| {
+                        backend.normalize_uri(uri)
+                    })
+                } else {
+                    None
+                };
+
+            if let Some(result) = result {
+                // Invalidate fragment metadata cache since fragments might have changed
+                backend.invalidate_fragment_cache();
+
+                // Config reload takes precedence - if config changed, reload everything
+                if result.should_reload_config {
+                    backend.reload_config().await;
+                    continue; // Skip other processing since we're doing a full reload
+                }
+
+                if result.should_reload_schema
+                    && let Some(schema_path) = result.schema_path
+                {
+                    backend.reload_schema(&schema_path).await;
+                }
+
+                if !result.uris_to_validate.is_empty() {
+                    backend.validate_uris(result.uris_to_validate).await;
+                }
+
+                // Request throttled codegen if enabled and workspace is loaded
+                if result.should_run_codegen {
+                    if backend.workspace_loaded.load(Ordering::SeqCst) {
+                        if let Some(throttle) = &backend.codegen_throttle {
+                            throttle.request_codegen();
+                        }
+                    } else {
+                        // Queue codegen for after workspace scan completes
+                        backend
+                            .codegen_requested_during_scan
+                            .store(true, Ordering::SeqCst);
+                    }
+                }
+            }
+        }
+    })
+    .await;
+
+    if _res.is_err() {
+        let elapsed = start.elapsed();
+        backend
+            .client
+            .log_message(
+                MessageType::ERROR,
+                format!(
+                    "LSP Request 'did_change_watched_files' exceeded timeout of {}ms (took {}ms)",
+                    timeout_ms,
+                    elapsed.as_millis()
+                ),
+            )
+            .await;
+    }
+
+    // Extract tracing config
+    let should_log = {
+        let config = backend.config.read().unwrap();
+        config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+    };
+
+    if let Some((enabled, threshold_ms)) = should_log
+        && enabled
+    {
+        let elapsed = start.elapsed();
+        if elapsed.as_millis() >= threshold_ms as u128 {
+            backend
+                .client
+                .log_message(
+                    MessageType::INFO,
+                    format!(
+                        "LSP Request 'did_change_watched_files' took {}ms",
+                        elapsed.as_millis()
+                    ),
+                )
+                .await;
+        }
+    }
+}

@@ -1154,6 +1154,7 @@ fn format_intersection(
 }
 
 /// Generate TypeScript union type for inline fragments
+#[allow(clippy::too_many_arguments)]
 fn generate_union_type(
     fields: &[&Node<executable::Field>],
     has_explicit_typename: bool,
@@ -1200,7 +1201,7 @@ fn generate_union_type(
             .as_ref()
             .map(|n| n.as_str())
             .unwrap_or_else(|| parent_type.name());
-        
+
         let empty_vec = Vec::new();
         let applicable_spreads = member_to_spreads.get(type_name).unwrap_or(&empty_vec);
 
@@ -1221,7 +1222,7 @@ fn generate_union_type(
     // if they have fragment spreads that apply)
     // Wait, if an inline fragment is present, it *is* the branch for that type.
     // If multiple inline fragments apply to the same type (unlikely in valid GQL but possible), they would be separate branches in current impl.
-    
+
     for member in all_members {
         if !covered_types.contains(member) {
             let member_type = ctx.schema.types.get(member).unwrap();
@@ -1253,6 +1254,7 @@ fn generate_union_type(
 }
 
 /// Generate a single inline fragment branch
+#[allow(clippy::too_many_arguments)]
 fn generate_inline_fragment_branch(
     common_fields: &[&Node<executable::Field>],
     has_explicit_typename: bool,
@@ -1312,14 +1314,13 @@ fn get_abstract_members<'a>(ty: &'a ExtendedType, schema: &'a Schema) -> Vec<&'a
             .types
             .iter()
             .filter_map(|(name, t)| {
-                if let ExtendedType::Object(obj) = t {
-                    if obj
+                if let ExtendedType::Object(obj) = t
+                    && obj
                         .implements_interfaces
                         .iter()
                         .any(|i| i.as_str() == ty.name().as_str())
-                    {
-                        return Some(name.as_str());
-                    }
+                {
+                    return Some(name.as_str());
                 }
                 None
             })

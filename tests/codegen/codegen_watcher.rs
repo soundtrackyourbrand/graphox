@@ -58,11 +58,11 @@ fn test_codegen_watch_mode() {
     let mut updated = false;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Ok(content) = fs::read_to_string(&gen_file) {
-            if content.contains("name: string | null") {
-                updated = true;
-                break;
-            }
+        if let Ok(content) = fs::read_to_string(&gen_file)
+            && content.contains("name: string | null")
+        {
+            updated = true;
+            break;
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -136,11 +136,11 @@ fn test_codegen_watch_schema_changes() {
     let mut updated = false;
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Ok(content) = fs::read_to_string(&gen_file) {
-            if content.contains("email: string") {
-                updated = true;
-                break;
-            }
+        if let Ok(content) = fs::read_to_string(&gen_file)
+            && content.contains("email: string")
+        {
+            updated = true;
+            break;
         }
         thread::sleep(Duration::from_millis(50));
     }

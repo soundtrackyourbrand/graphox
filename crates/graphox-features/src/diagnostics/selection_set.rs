@@ -4,6 +4,7 @@ use graphox_core::document::DocumentState;
 use lsp_types::*;
 use tree_sitter::Node;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn validate_selection_set(
     this: &DocumentState,
     selection_set: Node,
@@ -79,6 +80,7 @@ pub(super) fn validate_selection_set(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn validate_field(
     this: &DocumentState,
     field_node: Node,

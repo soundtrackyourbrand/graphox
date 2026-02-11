@@ -228,7 +228,9 @@ pub async fn process_file_created_or_changed(
 
     // Update documents map if we have it
     if params.documents.contains_key(&uri) {
-        params.documents.insert(uri.clone(), Arc::new(new_doc.clone()));
+        params
+            .documents
+            .insert(uri.clone(), Arc::new(new_doc.clone()));
     }
 
     let uris_to_validate = super::validation::get_affected_uris(

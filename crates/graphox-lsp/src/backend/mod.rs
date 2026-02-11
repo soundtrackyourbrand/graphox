@@ -18,5 +18,8 @@ pub mod schema_management;
 pub mod validation;
 pub mod workspace_scan;
 
-// Re-export the main Backend struct and its implementation
-pub use lsp::Backend;
+pub mod handlers;
+pub mod state;
+
+// Re-export the main Backend struct from state
+pub use state::Backend;

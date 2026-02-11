@@ -10,8 +10,8 @@ use std::path::Path;
 use std::time::Duration;
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
+use tower_lsp::LspService;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService};
 
 fn generate_cross_project_workspace(
     base_dir: &Path,

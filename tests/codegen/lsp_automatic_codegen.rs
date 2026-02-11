@@ -506,7 +506,10 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
 
     wait_for_file(&gen_path, Duration::from_millis(500)).await;
 
-    assert!(gen_path.exists(), "Codegen file should exist after triggering codegen");
+    assert!(
+        gen_path.exists(),
+        "Codegen file should exist after triggering codegen"
+    );
 
     let output_file_path = gen_dir.join("output.ts");
     fs::write(&output_file_path, "export const foo = 'bar';").unwrap();

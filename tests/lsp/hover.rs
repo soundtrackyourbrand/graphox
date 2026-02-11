@@ -108,7 +108,7 @@ async fn test_hover_graphql_description() {
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
-    let doc = create_doc(&schema_uri.to_string(), &schema_text);
+    let doc = create_doc(schema_uri.as_ref(), &schema_text);
     let position = pos_for_token(&doc, &schema_text, "DocumentedType");
     let result = lsp_request_hover(&mut service, schema_uri.clone(), position).await;
 

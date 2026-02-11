@@ -15,6 +15,7 @@ mod values;
 
 use std::sync::Arc;
 
+#[allow(clippy::type_complexity)]
 pub struct ValidationContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub all_fragments: &'a [crate::completion::FragmentCompletionInfo],

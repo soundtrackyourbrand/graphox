@@ -1,8 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use graphox::document::DocumentState;
-use std::fs;
-use std::path::Path;
-use tempfile::tempdir;
 use tower_lsp::lsp_types::{
     Position, PositionEncodingKind, Range, TextDocumentContentChangeEvent, Url,
 };
