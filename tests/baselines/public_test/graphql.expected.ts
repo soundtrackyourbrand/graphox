@@ -3,7 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
-import { GetPublicQuery, GetPublicQueryVariables, GetPublicQueryDocument } from "./pkg_b/query.codegen";
+import { GetPublicQuery, GetPublicQueryVariables, GetPublicQueryDocument } from "./query.codegen";
 
 const documents: { [key: string]: any } = {
   "query GetPublic { users { ...PublicFrag } }\n": GetPublicQueryDocument,
