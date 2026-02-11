@@ -1296,6 +1296,7 @@ fn generate_inline_fragment_branch(
     for selection in &inline.selection_set.selections {
         if let Selection::FragmentSpread(spread) = selection {
             all_fragment_spreads.push(spread);
+            used_fragments.insert(spread.fragment_name.to_string(), String::new());
         }
     }
 
