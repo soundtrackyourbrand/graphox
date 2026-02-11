@@ -90,6 +90,9 @@ pub struct Config {
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
+    pub query_suffix: Option<String>,
+    pub mutation_suffix: Option<String>,
+    pub subscription_suffix: Option<String>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
     pub base_dir: PathBuf,
 }
@@ -260,6 +263,9 @@ pub struct ProjectConfig {
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
+    pub query_suffix: Option<String>,
+    pub mutation_suffix: Option<String>,
+    pub subscription_suffix: Option<String>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
     pub possible_types: Option<PathBuf>,
     pub type_policies: Option<PathBuf>,
@@ -293,6 +299,9 @@ impl Config {
             document_suffix: None,
             variables_suffix: None,
             fragment_suffix: None,
+            query_suffix: None,
+            mutation_suffix: None,
+            subscription_suffix: None,
             fragment_masking: None,
             base_dir: PathBuf::from("."),
         }
@@ -389,6 +398,9 @@ impl Config {
                 let document_suffix = p_node["document_suffix"].as_str().map(String::from);
                 let variables_suffix = p_node["variables_suffix"].as_str().map(String::from);
                 let fragment_suffix = p_node["fragment_suffix"].as_str().map(String::from);
+                let query_suffix = p_node["query_suffix"].as_str().map(String::from);
+                let mutation_suffix = p_node["mutation_suffix"].as_str().map(String::from);
+                let subscription_suffix = p_node["subscription_suffix"].as_str().map(String::from);
                 let fragment_masking_node = &p_node["fragment_masking"];
                 let fragment_masking = FragmentMasking::from_yaml(fragment_masking_node)
                     .map(|mode| FragmentMaskingConfig { mode });
@@ -406,6 +418,9 @@ impl Config {
                     document_suffix,
                     variables_suffix,
                     fragment_suffix,
+                    query_suffix,
+                    mutation_suffix,
+                    subscription_suffix,
                     fragment_masking,
                     possible_types,
                     type_policies,
@@ -503,6 +518,9 @@ impl Config {
         config.document_suffix = node["document_suffix"].as_str().map(String::from);
         config.variables_suffix = node["variables_suffix"].as_str().map(String::from);
         config.fragment_suffix = node["fragment_suffix"].as_str().map(String::from);
+        config.query_suffix = node["query_suffix"].as_str().map(String::from);
+        config.mutation_suffix = node["mutation_suffix"].as_str().map(String::from);
+        config.subscription_suffix = node["subscription_suffix"].as_str().map(String::from);
 
         let fragment_masking_node = &node["fragment_masking"];
         if let Some(mode) = FragmentMasking::from_yaml(fragment_masking_node) {
@@ -592,6 +610,20 @@ impl Config {
 
     pub fn fragment_suffix(&self) -> &str {
         self.fragment_suffix.as_deref().unwrap_or("")
+    }
+
+    pub fn query_suffix(&self) -> &str {
+        self.query_suffix.as_deref().unwrap_or("Query")
+    }
+
+    pub fn mutation_suffix(&self) -> &str {
+        self.mutation_suffix.as_deref().unwrap_or("Mutation")
+    }
+
+    pub fn subscription_suffix(&self) -> &str {
+        self.subscription_suffix
+            .as_deref()
+            .unwrap_or("Subscription")
     }
 
     pub fn fragment_masking(&self) -> FragmentMaskingConfig {

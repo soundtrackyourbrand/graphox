@@ -1,0 +1,7 @@
+query_suffix: "Q"
+mutation_suffix: "Mut"
+subscription_suffix: "Sub"
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+    output_dir: "__generated__"

@@ -171,6 +171,21 @@ pub async fn run_codegen(
                         .as_deref()
                         .or(config.fragment_suffix.as_deref())
                         .unwrap_or(""),
+                    project
+                        .query_suffix
+                        .as_deref()
+                        .or(config.query_suffix.as_deref())
+                        .unwrap_or("Query"),
+                    project
+                        .mutation_suffix
+                        .as_deref()
+                        .or(config.mutation_suffix.as_deref())
+                        .unwrap_or("Mutation"),
+                    project
+                        .subscription_suffix
+                        .as_deref()
+                        .or(config.subscription_suffix.as_deref())
+                        .unwrap_or("Subscription"),
                     graphox_codegen::FragmentMasking::from_config(
                         &project
                             .fragment_masking

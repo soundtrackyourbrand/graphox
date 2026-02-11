@@ -1,0 +1,17 @@
+/* tslint:disable */
+/* eslint-disable */
+// This file was automatically generated and should not be edited.
+
+import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
+
+export interface OnUserCreatedSub {
+  __typename: "Subscription";
+  userCreated: {
+    __typename: "User";
+    id: string;
+    name: string;
+  };
+}
+
+export const OnUserCreatedSubDocument = {"definitions":[{"directives":[],"kind":"OperationDefinition","name":{"kind":"Name","value":"OnUserCreated"},"operation":"subscription","selectionSet":{"kind":"SelectionSet","selections":[{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"userCreated"},"selectionSet":{"kind":"SelectionSet","selections":[{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null},{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":null}]}}]},"variableDefinitions":[]}],"kind":"Document"} as unknown as DocumentNode<OnUserCreatedSub, { [key: string]: never; }>;
+

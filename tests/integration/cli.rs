@@ -1021,6 +1021,16 @@ fn test_cli_codegen_baselines() {
 
 #[test]
 #[ntest::timeout(250)]
+fn test_cli_operation_suffixes_baselines() {
+    run_baseline_test(
+        "tests/fixtures/operation_suffixes",
+        "tests/baselines/operation_suffixes",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
 fn test_cli_schema_import_baselines() {
     run_baseline_test(
         "tests/fixtures/schema_import",

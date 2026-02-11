@@ -1,0 +1,6 @@
+subscription OnUserCreated {
+  userCreated {
+    id
+    name
+  }
+}

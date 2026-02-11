@@ -27,6 +27,9 @@ pub struct CodegenParams<'a> {
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
+    pub query_suffix: &'a str,
+    pub mutation_suffix: &'a str,
+    pub subscription_suffix: &'a str,
     pub fragment_masking: codegen::FragmentMasking,
 }
 
@@ -77,7 +80,10 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                         if utils::is_path_ignored(&e.path, &gitignore) {
                             return false;
                         }
-                        if output_dirs.iter().any(|d| utils::path_starts_with(&e.path, d)) {
+                        if output_dirs
+                            .iter()
+                            .any(|d| utils::path_starts_with(&e.path, d))
+                        {
                             return false;
                         }
                         true
@@ -280,64 +286,65 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     "{}: emit_permission_data is enabled but no output_dir is specified for project.",
                     "Warning".yellow()
                 );
+            }
+        }
+
+        let pt_output = project.possible_types.as_ref();
+        let tp_output = project.type_policies.as_ref();
+
+        let pt_path = pt_output.map(|p| cfg.base_dir.join(p));
+        let tp_path = tp_output.map(|p| cfg.base_dir.join(p));
+
+        match (&pt_path, &tp_path) {
+            (Some(pt), Some(tp)) if pt == tp => {
+                if verbose {
+                    println!(
+                        "{}: {}",
+                        "Generating possibleTypes and typePolicies".bright_black(),
+                        pt.display().to_string().bright_black()
+                    );
+                }
+                let pt_content = codegen::generate_possible_types(&valid_schema);
+                let tp_content = codegen::generate_type_policies(&valid_schema);
+                let combined =
+                    format!("{}\n\n{}\n", pt_content.trim_end(), tp_content.trim_start());
+                if let Err(e) = std::fs::write(pt, combined) {
+                    eprintln!("{}: {}", "Failed to write combined output".red(), e);
+                    success = false;
                 }
             }
-
-            let pt_output = project.possible_types.as_ref();
-            let tp_output = project.type_policies.as_ref();
-
-            let pt_path = pt_output.map(|p| cfg.base_dir.join(p));
-            let tp_path = tp_output.map(|p| cfg.base_dir.join(p));
-
-            match (&pt_path, &tp_path) {
-                (Some(pt), Some(tp)) if pt == tp => {
+            _ => {
+                if let Some(pt) = &pt_path {
                     if verbose {
                         println!(
                             "{}: {}",
-                            "Generating possibleTypes and typePolicies".bright_black(),
+                            "Generating possibleTypes".bright_black(),
                             pt.display().to_string().bright_black()
                         );
                     }
-                    let pt_content = codegen::generate_possible_types(&valid_schema);
-                    let tp_content = codegen::generate_type_policies(&valid_schema);
-                    let combined = format!("{}\n\n{}\n", pt_content.trim_end(), tp_content.trim_start());
-                    if let Err(e) = std::fs::write(pt, combined) {
-                        eprintln!("{}: {}", "Failed to write combined output".red(), e);
+                    let content = codegen::generate_possible_types(&valid_schema);
+                    if let Err(e) = std::fs::write(pt, content) {
+                        eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
                         success = false;
                     }
                 }
-                _ => {
-                    if let Some(pt) = &pt_path {
-                        if verbose {
-                            println!(
-                                "{}: {}",
-                                "Generating possibleTypes".bright_black(),
-                                pt.display().to_string().bright_black()
-                            );
-                        }
-                        let content = codegen::generate_possible_types(&valid_schema);
-                        if let Err(e) = std::fs::write(pt, content) {
-                            eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
-                            success = false;
-                        }
-                    }
 
-                    if let Some(tp) = &tp_path {
-                        if verbose {
-                            println!(
-                                "{}: {}",
-                                "Generating typePolicies".bright_black(),
-                                tp.display().to_string().bright_black()
-                            );
-                        }
-                        let content = codegen::generate_type_policies(&valid_schema);
-                        if let Err(e) = std::fs::write(tp, content) {
-                            eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
-                            success = false;
-                        }
+                if let Some(tp) = &tp_path {
+                    if verbose {
+                        println!(
+                            "{}: {}",
+                            "Generating typePolicies".bright_black(),
+                            tp.display().to_string().bright_black()
+                        );
+                    }
+                    let content = codegen::generate_type_policies(&valid_schema);
+                    if let Err(e) = std::fs::write(tp, content) {
+                        eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
+                        success = false;
                     }
                 }
             }
+        }
 
         let document_suffix = project
             .document_suffix
@@ -354,6 +361,21 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             .as_deref()
             .or(cfg.fragment_suffix.as_deref())
             .unwrap_or("");
+        let query_suffix = project
+            .query_suffix
+            .as_deref()
+            .or(cfg.query_suffix.as_deref())
+            .unwrap_or("Query");
+        let mutation_suffix = project
+            .mutation_suffix
+            .as_deref()
+            .or(cfg.mutation_suffix.as_deref())
+            .unwrap_or("Mutation");
+        let subscription_suffix = project
+            .subscription_suffix
+            .as_deref()
+            .or(cfg.subscription_suffix.as_deref())
+            .unwrap_or("Subscription");
 
         match execute_project_codegen_entry(
             CodegenParams {
@@ -373,6 +395,9 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 document_suffix,
                 variables_suffix,
                 fragment_suffix,
+                query_suffix,
+                mutation_suffix,
+                subscription_suffix,
                 fragment_masking: codegen::FragmentMasking::from_config(
                     &project
                         .fragment_masking
@@ -445,7 +470,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                             }
                             let pt_content = codegen::generate_possible_types(&schema);
                             let tp_content = codegen::generate_type_policies(&schema);
-                            let combined = format!("{}\n\n{}\n", pt_content.trim_end(), tp_content.trim_start());
+                            let combined = format!(
+                                "{}\n\n{}\n",
+                                pt_content.trim_end(),
+                                tp_content.trim_start()
+                            );
                             if let Err(e) = std::fs::write(pt, combined) {
                                 eprintln!("{}: {}", "Failed to write combined output".red(), e);
                                 success = false;
@@ -727,6 +756,9 @@ async fn generate_project_files(
                 params.document_suffix,
                 params.variables_suffix,
                 params.fragment_suffix,
+                params.query_suffix,
+                params.mutation_suffix,
+                params.subscription_suffix,
                 params.fragment_masking.clone(),
                 masking_import_path,
             );

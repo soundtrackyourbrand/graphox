@@ -71,6 +71,9 @@ pub struct CodegenContext<'a> {
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
+    pub query_suffix: &'a str,
+    pub mutation_suffix: &'a str,
+    pub subscription_suffix: &'a str,
     pub fragment_masking: FragmentMasking,
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
@@ -146,6 +149,9 @@ impl<'a> CodegenContext<'a> {
         document_suffix: &'a str,
         variables_suffix: &'a str,
         fragment_suffix: &'a str,
+        query_suffix: &'a str,
+        mutation_suffix: &'a str,
+        subscription_suffix: &'a str,
         fragment_masking: FragmentMasking,
         masking_import_path: String,
     ) -> Self {
@@ -165,6 +171,9 @@ impl<'a> CodegenContext<'a> {
             document_suffix,
             variables_suffix,
             fragment_suffix,
+            query_suffix,
+            mutation_suffix,
+            subscription_suffix,
             fragment_masking,
             masking_import_path,
             used_schema_types: RefCell::new(HashSet::new()),
@@ -253,9 +262,9 @@ pub fn generate_typescript_with_profile(
                 .map(|n| n.as_str())
                 .unwrap_or("UnnamedOperation");
             let suffix = match op.operation_type {
-                OperationType::Query => "Query",
-                OperationType::Mutation => "Mutation",
-                OperationType::Subscription => "Subscription",
+                OperationType::Query => ctx.query_suffix,
+                OperationType::Mutation => ctx.mutation_suffix,
+                OperationType::Subscription => ctx.subscription_suffix,
             };
 
             let root_type = ctx
@@ -844,6 +853,9 @@ pub fn emit_permission_data_content(
         "Document",
         "Variables",
         "",
+        "Query",
+        "Mutation",
+        "Subscription",
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
     );
@@ -1389,6 +1401,9 @@ pub fn generate_schema_types(
         "Document",
         "Variables",
         "",
+        "Query",
+        "Mutation",
+        "Subscription",
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
     );
