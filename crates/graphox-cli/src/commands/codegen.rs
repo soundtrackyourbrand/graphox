@@ -228,11 +228,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
             // 2. Build the type_imports map
             for st in matches.iter().rev() {
-                if let Some(import_path) = &st.import {
-                    if let Ok(st_schema) = schema::load_and_validate_schema(&cfg.base_dir, &st.schema) {
-                        for type_name in st_schema.types.keys() {
-                            type_imports.insert(type_name.to_string(), import_path.clone());
-                        }
+                if let Some(import_path) = &st.import
+                    && let Ok(st_schema) =
+                        schema::load_and_validate_schema(&cfg.base_dir, &st.schema)
+                {
+                    for type_name in st_schema.types.keys() {
+                        type_imports.insert(type_name.to_string(), import_path.clone());
                     }
                 }
             }
@@ -277,6 +278,29 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             } else {
                 eprintln!(
                     "{}: emit_permission_data is enabled but no output_dir is specified for project.",
+                    "Warning".yellow()
+                );
+            }
+        }
+
+        if !clean && project.generate_possible_types.unwrap_or(false) {
+            if let Some(pt_output) = &project.possible_types_output {
+                let pt_path = cfg.base_dir.join(pt_output);
+                if verbose {
+                    println!(
+                        "{}: {}",
+                        "Generating possibleTypes".bright_black(),
+                        pt_path.display().to_string().bright_black()
+                    );
+                }
+                let content = codegen::generate_possible_types(&valid_schema);
+                if let Err(e) = std::fs::write(&pt_path, content) {
+                    eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
+                    success = false;
+                }
+            } else {
+                eprintln!(
+                    "{}: generate_possible_types is enabled but no possible_types_output is specified for project.",
                     "Warning".yellow()
                 );
             }
@@ -577,7 +601,7 @@ async fn generate_project_files(
             let masking_import_path = if let Some(out_dir) = params.output_dir {
                 let abs_out_dir = params.base_dir.join(out_dir);
                 let abs_file_out_dir = abs_out_path.parent().unwrap();
-                
+
                 let rel_to_masking = pathdiff::diff_paths(&abs_out_dir, abs_file_out_dir)
                     .unwrap_or_else(|| PathBuf::from("."));
 

@@ -180,8 +180,9 @@ impl Engine {
                     .iter()
                     .map(|p_exc| config.base_dir.join(p_exc).to_string_lossy().to_string())
                     .collect();
+                let output_dir = p.output_dir.as_deref();
                 (
-                    get_project_files(&abs_includes, &abs_excludes, &config.base_dir),
+                    get_project_files(&abs_includes, &abs_excludes, &config.base_dir, output_dir),
                     p.import.clone(),
                 )
             })
