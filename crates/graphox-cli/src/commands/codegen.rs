@@ -393,6 +393,39 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 {
                     success = false;
                 }
+
+                if st.generate_possible_types.unwrap_or(false) {
+                    if let Some(pt_output) = &st.possible_types_output {
+                        let pt_path = cfg.base_dir.join(pt_output);
+                        if verbose {
+                            println!(
+                                "{}: {}",
+                                "Generating possibleTypes".bright_black(),
+                                pt_path.display().to_string().bright_black()
+                            );
+                        }
+                        if let Ok(schema) =
+                            schema::load_and_validate_schema(&cfg.base_dir, &st.schema)
+                        {
+                            let content = codegen::generate_possible_types(&schema);
+                            if let Err(e) = std::fs::write(&pt_path, content) {
+                                eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
+                                success = false;
+                            }
+                        } else {
+                            eprintln!(
+                                "{}: Failed to load schema for possibleTypes generation",
+                                "Error".red()
+                            );
+                            success = false;
+                        }
+                    } else {
+                        eprintln!(
+                            "{}: generate_possible_types is enabled but no possible_types_output is specified for schema_types.",
+                            "Warning".yellow()
+                        );
+                    }
+                }
             }
         }
     }

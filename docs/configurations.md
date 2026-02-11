@@ -11,6 +11,7 @@ This document provides ready-to-use configuration examples for common use cases,
 - [Fragment Masking](#fragment-masking)
 - [Custom Scalars](#custom-scalars)
 - [Schema Types Only](#schema-types-only)
+- [Apollo Client possibleTypes](#apollo-client-possibletypes)
 - [Selective Codegen](#selective-codegen)
 - [Ignoring Deprecations](#ignoring-deprecations)
 - [Performance Tuning](#performance-tuning)
@@ -55,6 +56,8 @@ projects:
     variables_suffix: "Variables"                # Suffix for Variables interfaces
     fragment_suffix: ""                          # Suffix for Fragment interfaces
     fragment_masking: disabled                   # Enable/disable fragment masking (default: disabled)
+    generate_possible_types: true               # Generate possibleTypes for Apollo Client
+    possible_types_output: "graphql-introspection.ts"  # Output path for possibleTypes
 
   - schema:                                      # Multiple schema files
       - "schema/base.graphql"
@@ -69,6 +72,8 @@ schema_types:
   - schema: "schema.graphql"
     output: "types/schema.ts"
     import: "@workspace/schema"                  # How generated files import this
+    generate_possible_types: true               # Generate possibleTypes for Apollo Client
+    possible_types_output: "types/possible-types.ts"  # Output path for possibleTypes
 
 # LSP settings
 lsp_automatic_codegen: true                       # Auto-run codegen on file changes
@@ -394,6 +399,116 @@ export interface Query {
   user: User | null;
   users: Array<User>;
 }
+```
+
+---
+
+## Apollo Client possibleTypes
+
+Generate `possibleTypes` introspection data for Apollo Client's `InMemoryCache`. Apollo Client requires knowledge of interface and union type hierarchies to properly cache and merge results.
+
+### Overview
+
+When your GraphQL schema uses interfaces or unions, Apollo Client needs to know which concrete types implement each interface or belong to each union. Without this, cache reads for interface/union fields return `null` or incomplete data.
+
+### Configuration
+
+Generate `possibleTypes` at the **project level** (for project-specific schemas) or **schema_types level** (for shared schemas):
+
+```yaml
+# graphox.yaml
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
+    generate_possible_types: true
+    possible_types_output: "graphql-introspection.ts"
+
+schema_types:
+  - schema: "schema.graphql"
+    output: "types/schema.ts"
+    generate_possible_types: true
+    possible_types_output: "types/possible-types.ts"
+```
+
+### Generated Output
+
+```typescript
+// graphql-introspection.ts
+/* tslint:disable */
+/* eslint-disable */
+// This file was automatically generated and should not be edited.
+
+export interface PossibleTypesResultData {
+  possibleTypes: { [key: string]: string[] }
+}
+
+const result: PossibleTypesResultData = {
+  possibleTypes: {
+    "Node": ["Album", "Artist", "Track"],
+    "SearchResult": ["Album", "Artist", "Track"],
+    "Displayable": ["Album", "Track"]
+  },
+};
+
+export default result;
+```
+
+### Usage with Apollo Client
+
+```typescript
+// apollo/index.ts
+import { ApolloClient, InMemoryCache } from '@apollo/client';
+import possibleTypes from '../graphql-introspection';
+
+const cache = new InMemoryCache({
+  possibleTypes: possibleTypes.possibleTypes,
+});
+
+const client = new ApolloClient({
+  cache,
+  // ... other options
+});
+```
+
+### Multi-Schema Projects
+
+For projects with multiple schemas, generate `possibleTypes` at the **project level** for each project:
+
+```yaml
+# graphox.yaml
+projects:
+  # Business API project
+  - schema: "schemas/business.graphql"
+    include: "apps/business/src/**/*.{ts,tsx}"
+    generate_possible_types: true
+    possible_types_output: "apps/business/src/graphql-introspection.ts"
+
+  # Storefront project (different schema)
+  - schema: "schemas/storefront.graphql"
+    include: "apps/storefront/src/**/*.{ts,tsx}"
+    generate_possible_types: true
+    possible_types_output: "apps/storefront/src/graphql-introspection.ts"
+```
+
+### Single Shared Schema
+
+For multiple projects sharing the same schema, generate `possibleTypes` once at the **schema_types level**:
+
+```yaml
+# graphox.yaml
+schema_types:
+  - schema: "shared/schema.graphql"
+    output: "shared/schema.types.ts"
+    generate_possible_types: true
+    possible_types_output: "shared/possible-types.ts"
+
+projects:
+  - schema: "shared/schema.graphql"
+    include: "apps/business/**/*.{ts,tsx}"
+
+  - schema: "shared/schema.graphql"
+    include: "apps/storefront/**/*.{ts,tsx}"
 ```
 
 ---

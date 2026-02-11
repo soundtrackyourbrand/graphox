@@ -265,13 +265,8 @@ pub fn generate_typescript_with_profile(
                 .ok_or_else(|| format!("Root type for {:?} not found", op.operation_type))?;
 
             let sel_start = Instant::now();
-            let result = generate_selection_set(
-                &op.selection_set,
-                root_type,
-                ctx,
-                0,
-                &mut used_fragments,
-            );
+            let result =
+                generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
             if result.needs_type_declaration {
@@ -296,12 +291,7 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str(&v_name);
                 bodies.push_str(" {\n");
                 for var in &op.variables {
-                    let ts_type_str = gql_type_to_ts(
-                        &var.ty,
-                        ctx.schema,
-                        ctx.scalars,
-                        ctx,
-                    );
+                    let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx);
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
                     bodies.push_str("  ");
                     bodies.push_str(&var.name);
@@ -402,13 +392,8 @@ pub fn generate_typescript_with_profile(
                 .ok_or_else(|| format!("Type {} not found in schema", type_name))?;
 
             let sel_start = Instant::now();
-            let result = generate_selection_set(
-                &frag.selection_set,
-                type_def,
-                ctx,
-                0,
-                &mut used_fragments,
-            );
+            let result =
+                generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
             if result.needs_type_declaration {
@@ -427,7 +412,7 @@ pub fn generate_typescript_with_profile(
                 if ctx.fragment_masking.is_enabled() {
                     bodies.push_str("\n\n");
                 } else {
-                    bodies.push_str("\n");
+                    bodies.push('\n');
                 }
             }
 
@@ -509,7 +494,7 @@ pub fn generate_typescript_with_profile(
                 profile.ast_serialization_time += ast_start.elapsed();
             }
 
-            bodies.push_str("\n");
+            bodies.push('\n');
         }
     }
 
@@ -579,7 +564,10 @@ pub fn generate_typescript_with_profile(
                 import_section.push_str(&line);
             }
 
-            if !untracked_types.is_empty() && ctx.schema_import.is_none() && ctx.type_imports.is_empty() {
+            if !untracked_types.is_empty()
+                && ctx.schema_import.is_none()
+                && ctx.type_imports.is_empty()
+            {
                 // If no imports configured but types used, we might want to warn or just skip
                 // For now, we follow existing behavior which was to not emit imports if schema_import is None
             }
@@ -862,12 +850,7 @@ pub fn emit_permission_data_content(
 
     output.push_str("export interface PermissionsType {\n");
     for (typename, field) in &types_with_permissions {
-        let ts_type = gql_type_to_ts_with_names(
-            &field.ty,
-            schema,
-            scalars,
-            &dummy_ctx,
-        );
+        let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
         output.push_str(&format!("  {}: {};\n", typename, ts_type));
     }
     output.push_str("}\n\n");
@@ -907,13 +890,7 @@ fn generate_selection_set(
     let categorized = categorize_selections(selection_set, used_fragments);
 
     if categorized.inline_fragments.is_empty() {
-        generate_object_or_intersection(
-            &categorized,
-            parent_type,
-            ctx,
-            indent,
-            used_fragments,
-        )
+        generate_object_or_intersection(&categorized, parent_type, ctx, indent, used_fragments)
     } else {
         generate_union_type(
             &categorized.inline_fragments,
@@ -1140,13 +1117,8 @@ fn generate_union_type(
 
     // Add inline fragment branches
     for inline in inline_fragments {
-        let branch = generate_inline_fragment_branch(
-            inline,
-            parent_type,
-            ctx,
-            indent,
-            used_fragments,
-        );
+        let branch =
+            generate_inline_fragment_branch(inline, parent_type, ctx, indent, used_fragments);
         branches.push(branch);
     }
 
@@ -1304,16 +1276,18 @@ fn gql_type_to_ts_internal(
             "String" | "Int" | "Float" | "Boolean" | "ID"
         );
 
-        if !is_builtin {
-            if let Some(t) = schema.types.get(inner_name.as_str()) {
-                match t {
-                    ExtendedType::Enum(_) | ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
-                        ctx.used_schema_types.borrow_mut().insert(inner_name.to_string());
-                    }
-                    ExtendedType::Object(_) | ExtendedType::Interface(_) | ExtendedType::Union(_) => {
-                        if use_names {
-                            ctx.used_schema_types.borrow_mut().insert(inner_name.to_string());
-                        }
+        if !is_builtin && let Some(t) = schema.types.get(inner_name.as_str()) {
+            match t {
+                ExtendedType::Enum(_) | ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
+                    ctx.used_schema_types
+                        .borrow_mut()
+                        .insert(inner_name.to_string());
+                }
+                ExtendedType::Object(_) | ExtendedType::Interface(_) | ExtendedType::Union(_) => {
+                    if use_names {
+                        ctx.used_schema_types
+                            .borrow_mut()
+                            .insert(inner_name.to_string());
                     }
                 }
             }
@@ -1475,12 +1449,7 @@ pub fn generate_schema_types(
                     field_deprecation,
                     1,
                 ));
-                let ts_type = gql_type_to_ts_with_names(
-                    &field.ty,
-                    schema,
-                    scalars,
-                    &dummy_ctx,
-                );
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
             }
@@ -1661,4 +1630,75 @@ export function {}<TFragment, TData>(
 "#,
         unmask_function_name
     )
+}
+
+pub fn generate_possible_types(schema: &apollo_compiler::validation::Valid<Schema>) -> String {
+    let mut possible_types: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+
+    for (name, ty) in &schema.types {
+        if name.starts_with("__") {
+            continue;
+        }
+        match ty {
+            ExtendedType::Object(obj) => {
+                for iface in &obj.implements_interfaces {
+                    possible_types
+                        .entry(iface.to_string())
+                        .or_default()
+                        .push(name.to_string());
+                }
+            }
+            ExtendedType::Interface(iface) => {
+                for iface_impl in &iface.implements_interfaces {
+                    possible_types
+                        .entry(iface_impl.to_string())
+                        .or_default()
+                        .push(name.to_string());
+                }
+            }
+            ExtendedType::Union(union) => {
+                for member in &union.members {
+                    possible_types
+                        .entry(name.to_string())
+                        .or_default()
+                        .push(member.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for values in possible_types.values_mut() {
+        values.sort();
+    }
+
+    let mut output = String::new();
+    output.push_str("/* tslint:disable */\n");
+    output.push_str("/* eslint-disable */\n");
+    output.push_str("// This file was automatically generated and should not be edited.\n\n");
+
+    output.push_str("export interface PossibleTypesResultData {\n");
+    output.push_str("  possibleTypes: { [key: string]: string[] }\n");
+    output.push_str("}\n\n");
+
+    output.push_str("const result: PossibleTypesResultData = {\n");
+    output.push_str("  possibleTypes: {\n");
+
+    let entries: Vec<_> = possible_types.iter().collect();
+    for (i, (name, impls)) in entries.iter().enumerate() {
+        let comma = if i + 1 < entries.len() { "," } else { "" };
+        output.push_str(&format!("    \"{}\": [", name));
+        let impls_str: Vec<String> = impls.iter().map(|s| format!("\"{}\"", s)).collect();
+        output.push_str(&impls_str.join(", "));
+        output.push(']');
+        output.push_str(comma);
+        output.push('\n');
+    }
+
+    output.push_str("  },\n");
+    output.push_str("};\n\n");
+    output.push_str("export default result;\n");
+
+    output
 }

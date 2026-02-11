@@ -1,0 +1,65 @@
+interface Node {
+  id: ID!
+}
+
+interface Displayable {
+  title: String!
+}
+
+union SearchResult = Album | Artist | Track
+
+union Media = AudioFile | VideoFile
+
+interface Audio {
+  duration: Int!
+}
+
+interface Video {
+  thumbnail: String!
+}
+
+type Album implements Node & Displayable {
+  id: ID!
+  title: String!
+  artist: Artist
+}
+
+type Artist implements Node {
+  id: ID!
+  name: String!
+}
+
+type Track implements Node & Displayable & Audio {
+  id: ID!
+  title: String!
+  duration: Int!
+}
+
+type AudioFile implements Audio {
+  id: ID!
+  duration: Int!
+  url: String!
+}
+
+type VideoFile implements Video {
+  id: ID!
+  thumbnail: String!
+  url: String!
+}
+
+type AudioBook implements Node & Audio {
+  id: ID!
+  title: String!
+  duration: Int!
+}
+
+type Movie implements Node & Video {
+  id: ID!
+  title: String!
+  thumbnail: String!
+}
+
+type Query {
+  search(term: String): [SearchResult]
+  node(id: ID!): Node
+}

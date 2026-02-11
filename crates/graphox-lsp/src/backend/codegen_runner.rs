@@ -79,13 +79,12 @@ pub async fn run_codegen(
 
             // Build type_imports
             for st in matches.iter().rev() {
-                if let Some(import_path) = &st.import {
-                    if let Ok(st_schema) =
+                if let Some(import_path) = &st.import
+                    && let Ok(st_schema) =
                         graphox_core::schema::load_schema(&config.base_dir, &st.schema)
-                    {
-                        for type_name in st_schema.types.keys() {
-                            type_imports.insert(type_name.to_string(), import_path.clone());
-                        }
+                {
+                    for type_name in st_schema.types.keys() {
+                        type_imports.insert(type_name.to_string(), import_path.clone());
                     }
                 }
             }
