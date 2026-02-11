@@ -4,12 +4,12 @@
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
-import type { UserEmail, UserFields } from "./fragments.codegen";
-import type { UserPosts } from "./post_fragment.codegen";
+import { UserEmail, UserFields } from "./fragments.codegen";
+import { UserPosts } from "./post_fragment.codegen";
 
 export interface GetUserQuery {
   __typename: "Query";
-  user: FragmentType<typeof UserFields> | null;
+  user: ({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserFields': UserFields } }) | null;
 }
 
 export interface GetUserQueryVariables {
@@ -20,14 +20,14 @@ export const GetUserQueryDocument = {"definitions":[{"directives":[],"kind":"Ope
 
 export interface GetUsersQuery {
   __typename: "Query";
-  users: Array<(FragmentType<typeof UserEmail> & FragmentType<typeof UserFields>) | null> | null;
+  users: Array<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserEmail': UserEmail, 'UserFields': UserFields } }) | null> | null;
 }
 
 export const GetUsersQueryDocument = {"definitions":[{"directives":[],"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUsers"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"users"},"selectionSet":{"kind":"SelectionSet","selections":[{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null},{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":null},{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"email"},"selectionSet":null}]}}]},"variableDefinitions":[]},{"directives":[],"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserEmail"},"selectionSet":{"kind":"SelectionSet","selections":[{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"email"},"selectionSet":null}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"User"}}},{"directives":[],"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserFields"},"selectionSet":{"kind":"SelectionSet","selections":[{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null},{"alias":null,"arguments":[],"directives":[],"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":null}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"User"}}}],"kind":"Document"} as unknown as DocumentNode<GetUsersQuery, { [key: string]: never; }>;
 
 export interface GetUserWithPostsQuery {
   __typename: "Query";
-  user: ({ __typename: "User", posts: Array<FragmentType<typeof UserPosts> | null> | null } & FragmentType<typeof UserFields>) | null;
+  user: ({ __typename: "User", posts: Array<({ __typename: "Post" } & { ' $fragmentRefs'?: { 'UserPosts': UserPosts } }) | null> | null } & { ' $fragmentRefs'?: { 'UserFields': UserFields } }) | null;
 }
 
 export interface GetUserWithPostsQueryVariables {

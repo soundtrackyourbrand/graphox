@@ -3,31 +3,24 @@
 // This file was automatically generated and should not be edited.
 
 import type { FragmentType } from "./fragment-masking";
-export interface UserFields {
+export type UserFields = ({
   __typename: "User";
   id: string;
   name: string | null;
-}
+}) & { ' $fragmentName'?: 'UserFields' };
 
 export declare const UserFields: {
-  __fragment: {
-  __typename: "User";
-  id: string;
-  name: string | null;
-};
+  __fragment: UserFields;
 };
 
 
-export interface UserEmail {
+export type UserEmail = ({
   __typename: "User";
   email: string | null;
-}
+}) & { ' $fragmentName'?: 'UserEmail' };
 
 export declare const UserEmail: {
-  __fragment: {
-  __typename: "User";
-  email: string | null;
-};
+  __fragment: UserEmail;
 };
 
 

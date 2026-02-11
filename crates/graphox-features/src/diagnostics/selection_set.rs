@@ -215,14 +215,9 @@ pub(super) fn validate_field(
                                 }
 
                                 if let Some(s_key) = sibling_key {
-                                    println!(
-                                        "    SIBLING KEY: {}, CURRENT KEY: {}",
-                                        s_key, response_key
-                                    );
                                     if s_key == response_key {
                                         // same response key; treated as duplicate
                                         seen_conflict = true;
-                                        println!("    CONFLICT FOUND!");
                                         break;
                                     }
                                 }

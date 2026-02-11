@@ -405,34 +405,44 @@ pub fn generate_typescript_with_profile(
                 generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
-            if result.needs_type_declaration {
-                bodies.push_str("export type ");
-                bodies.push_str(&frag.name);
-                bodies.push_str(ctx.fragment_suffix);
-                bodies.push_str(" = ");
-                bodies.push_str(&result.type_str);
-                bodies.push_str(";\n");
-            } else {
-                bodies.push_str("export interface ");
-                bodies.push_str(&frag.name);
-                bodies.push_str(ctx.fragment_suffix);
-                bodies.push(' ');
-                bodies.push_str(&result.type_str);
-                if ctx.fragment_masking.is_enabled() {
-                    bodies.push_str("\n\n");
-                } else {
-                    bodies.push('\n');
-                }
-            }
+            let fragment_type_name = format!("{}{}", frag.name, ctx.fragment_suffix);
 
             if ctx.fragment_masking.is_enabled() {
+                let type_str = if result.type_str.contains('|') && !result.type_str.starts_with('(')
+                {
+                    format!("({})", result.type_str.trim())
+                } else {
+                    result.type_str.trim().to_string()
+                };
+
+                bodies.push_str("export type ");
+                bodies.push_str(&fragment_type_name);
+                bodies.push_str(" = ");
+                bodies.push_str(&type_str);
+                bodies.push_str(" & { ' $fragmentName'?: '");
+                bodies.push_str(&fragment_type_name);
+                bodies.push_str("' };\n\n");
+
                 bodies.push_str("export declare const ");
-                bodies.push_str(&frag.name);
-                bodies.push_str(ctx.fragment_suffix);
+                bodies.push_str(&fragment_type_name);
                 bodies.push_str(": {\n");
                 bodies.push_str("  __fragment: ");
-                bodies.push_str(&result.type_str);
+                bodies.push_str(&fragment_type_name);
                 bodies.push_str(";\n};\n\n");
+            } else {
+                if result.needs_type_declaration {
+                    bodies.push_str("export type ");
+                    bodies.push_str(&fragment_type_name);
+                    bodies.push_str(" = ");
+                    bodies.push_str(&result.type_str);
+                    bodies.push_str(";\n");
+                } else {
+                    bodies.push_str("export interface ");
+                    bodies.push_str(&fragment_type_name);
+                    bodies.push(' ');
+                    bodies.push_str(&result.type_str);
+                    bodies.push('\n');
+                }
             }
 
             if ctx.generate_ast_for_fragments {
@@ -617,7 +627,11 @@ pub fn generate_typescript_with_profile(
             .map(|n| format!("{}{}", n, ctx.fragment_suffix))
             .collect();
 
-        import_section.push_str("import type { ");
+        if ctx.fragment_masking.is_enabled() {
+            import_section.push_str("import { ");
+        } else {
+            import_section.push_str("import type { ");
+        }
         import_section.push_str(&suffixed_names.join(", "));
         import_section.push_str(" } from \"");
         import_section.push_str(&final_import_path);
@@ -1078,29 +1092,27 @@ fn format_intersection(
     ctx: &CodegenContext,
 ) -> String {
     let base_obj = format!("{{ {} }}", fields.join(", "));
-    let mut spreads: Vec<_> = fragment_spreads
-        .iter()
-        .map(|s| {
-            format!(
-                "FragmentType<typeof {}{}>",
-                s.fragment_name.as_str(),
-                ctx.fragment_suffix
-            )
-        })
-        .collect();
-    spreads.sort();
 
     if ctx.fragment_masking.is_enabled() {
-        if spreads.is_empty() {
-            base_obj
-        } else if fields.len() == 1 && fields[0].starts_with("__typename:") {
-            if spreads.len() == 1 {
-                spreads[0].clone()
-            } else {
-                format!("({})", spreads.join(" & "))
-            }
+        if fragment_spreads.is_empty() {
+            return base_obj;
+        }
+
+        let mut refs: Vec<_> = fragment_spreads
+            .iter()
+            .map(|s| {
+                let name = format!("{}{}", s.fragment_name.as_str(), ctx.fragment_suffix);
+                format!("'{}': {}", name, name)
+            })
+            .collect();
+        refs.sort();
+
+        let refs_obj = format!("{{ ' $fragmentRefs'?: {{ {} }} }}", refs.join(", "));
+
+        if fields.len() == 1 && fields[0].starts_with("__typename:") {
+            format!("({} & {})", base_obj, refs_obj)
         } else {
-            format!("({} & {})", base_obj, spreads.join(" & "))
+            format!("({} & {})", base_obj, refs_obj)
         }
     } else {
         let mut plain_spreads: Vec<_> = fragment_spreads
@@ -1632,17 +1644,36 @@ pub fn generate_fragment_masking_file(unmask_function_name: &str) -> String {
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-export type FragmentType<TFragment> = TFragment extends {{ __fragment: infer T }}
-  ? T
+export type FragmentType<TFragment> = TFragment extends {{ ' $fragmentRefs'?: {{ [key: string]: any }} }}
+  ? TFragment
+  : TFragment extends {{ ' $fragmentName'?: string }}
+  ? TFragment
   : never;
 
-export function {}<TFragment, TData>(
+export function {}<TFragment>(
   _fragment: TFragment,
-  data: TData
-): FragmentType<TFragment> {{
-  return data as FragmentType<TFragment>;
+  data: FragmentType<TFragment>
+): FragmentType<TFragment>;
+export function {}<TFragment>(
+  _fragment: TFragment,
+  data: FragmentType<TFragment> | null | undefined
+): FragmentType<TFragment> | null | undefined;
+export function {}<TFragment>(
+  _fragment: TFragment,
+  data: ReadonlyArray<FragmentType<TFragment>>
+): ReadonlyArray<FragmentType<TFragment>>;
+export function {}<TFragment>(
+  _fragment: TFragment,
+  data: ReadonlyArray<FragmentType<TFragment>> | null | undefined
+): ReadonlyArray<FragmentType<TFragment>> | null | undefined;
+export function {}(_fragment: any, data: any): any {{
+  return data;
 }}
 "#,
+        unmask_function_name,
+        unmask_function_name,
+        unmask_function_name,
+        unmask_function_name,
         unmask_function_name
     )
 }
@@ -1650,14 +1681,16 @@ export function {}<TFragment, TData>(
 pub fn generate_index_content(fragment_masking: &FragmentMasking) -> String {
     let mut output = String::with_capacity(256);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
-    
-    output.push_str("export type { ResultOf, VariablesOf } from \"@graphql-typed-document-node/core\";\n");
-    
+
+    output.push_str(
+        "export type { ResultOf, VariablesOf } from \"@graphql-typed-document-node/core\";\n",
+    );
+
     if fragment_masking.is_enabled() {
         output.push_str("export * from \"./fragment-masking\";\n");
     }
     output.push_str("export * from \"./graphql\";\n");
-    
+
     output
 }
 
