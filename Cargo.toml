@@ -140,8 +140,11 @@ lto = false
 incremental = true
 codegen-units = 32
 
-# [profile.dev.build-override]
-# opt-level = 2
+[profile.dev.build-override]
+opt-level = 2
+
+[profile.dev.package."*"]
+debug = false # Don't generate debug info for dependencies as we have some heavy ones (apollo-compiler, tower-lsp)
 
 [profile.release]
 opt-level = 3

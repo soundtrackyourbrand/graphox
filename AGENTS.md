@@ -7,10 +7,10 @@ All modifying git actions MUST be handled by the user. Never commit and never ev
 ## Build, Lint, and Test Commands
 
 - **Build:** `cargo build`
-- **Lint:** `cargo clippy`
+- **Lint:** `cargo clippy --workspace`
 - **Format:** `cargo fmt`
-- **Run all tests:** `cargo test`
-- **Run a specific test file:** `cargo test --test <filename>` (e.g., `cargo test --test validation`)
+- **Run all tests:** `cargo test --workspace`
+- **Run a specific test file:** `cargo test --test <filename>` (e.g., `cargo test --test validation_suite`)
 - **Run a single test:** `cargo test <test_name_substring>` (e.g., `cargo test test_validation_valid_query`)
 - **Benchmarks:** `make benchmark`
 - **Update test baselines:** `make update-baselines` (runs `./scripts/update_baselines.py`)
@@ -117,7 +117,7 @@ The schema cache (`src/schema_cache.rs`) provides two-tier caching for performan
 - Disable caching in `graphox.yaml` with `enable_schema_cache: false` if needed.
 
 ### Codegen & Baselines
-The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/`.
+The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/` using the function `run_baseline_test`.
 - **Entrypoint:** A `graphql.ts` file is generated in the root of the `output_dir` providing a type-safe `graphql` function.
 - **Incremental Codegen:** The LSP can automatically run codegen on file changes if `lsp_automatic_codegen` is enabled.
 - **Throttling:** Automatic LSP codegen is throttled (default: 300ms) to prevent storms when many files change. The `codegen --watch` command uses debouncing (default: 200ms) for similar protection.

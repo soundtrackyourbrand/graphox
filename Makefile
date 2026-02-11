@@ -10,7 +10,7 @@ cargo-build:
 
 ## cargo-test: Run Rust tests
 cargo-test:
-	cargo test
+	cargo test --workspace
 
 ## swc-build: Build SWC plugin (WASM + TypeScript)
 swc-build:
