@@ -65,7 +65,8 @@ projects:
         content
     );
     assert!(
-        content.contains("} as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;"),
+        content
+            .contains("} as unknown as DocumentNode<GetUserQuery, Exact<GetUserQueryVariables>>;"),
         "Missing correct type cast for DocumentNode. Content:\n{}",
         content
     );

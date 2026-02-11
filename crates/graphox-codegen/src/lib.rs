@@ -294,11 +294,11 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str("\n\n");
             }
 
-            let vars_type = if !op.variables.is_empty() {
-                let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix);
-                bodies.push_str("export interface ");
-                bodies.push_str(&v_name);
-                bodies.push_str(" {\n");
+            let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix);
+            bodies.push_str("export interface ");
+            bodies.push_str(&v_name);
+            bodies.push_str(" {\n");
+            if !op.variables.is_empty() {
                 for var in &op.variables {
                     let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx);
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
@@ -309,11 +309,9 @@ pub fn generate_typescript_with_profile(
                     bodies.push_str(&ts_type_str);
                     bodies.push_str(";\n");
                 }
-                bodies.push_str("}\n\n");
-                v_name
-            } else {
-                "{ [key: string]: never; }".to_string()
-            };
+            }
+            bodies.push_str("}\n\n");
+            let vars_type = format!("Exact<{}>", v_name);
 
             let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
@@ -429,20 +427,18 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str("  __fragment: ");
                 bodies.push_str(&fragment_type_name);
                 bodies.push_str(";\n};\n\n");
+            } else if result.needs_type_declaration {
+                bodies.push_str("export type ");
+                bodies.push_str(&fragment_type_name);
+                bodies.push_str(" = ");
+                bodies.push_str(&result.type_str);
+                bodies.push_str(";\n");
             } else {
-                if result.needs_type_declaration {
-                    bodies.push_str("export type ");
-                    bodies.push_str(&fragment_type_name);
-                    bodies.push_str(" = ");
-                    bodies.push_str(&result.type_str);
-                    bodies.push_str(";\n");
-                } else {
-                    bodies.push_str("export interface ");
-                    bodies.push_str(&fragment_type_name);
-                    bodies.push(' ');
-                    bodies.push_str(&result.type_str);
-                    bodies.push('\n');
-                }
+                bodies.push_str("export interface ");
+                bodies.push_str(&fragment_type_name);
+                bodies.push(' ');
+                bodies.push_str(&result.type_str);
+                bodies.push('\n');
             }
 
             if ctx.generate_ast_for_fragments {
@@ -690,6 +686,10 @@ pub fn generate_typescript_with_profile(
         output.push('\n');
     }
 
+    if has_operations {
+        output.push_str("export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };\n\n");
+    }
+
     output.push_str(&bodies);
     profile.import_generation_time = import_start.elapsed();
 
@@ -822,7 +822,7 @@ pub fn emit_permission_data_content(
     }
 
     if types_with_permissions.is_empty() {
-        output.push_str("export interface PermissionsType {}\n\n");
+        output.push_str("export interface PermissionTypes {}\n\n");
         output.push_str("export const permissionTypes = {};\n");
         return output;
     }
@@ -1841,7 +1841,7 @@ pub fn generate_type_policies(schema: &apollo_compiler::validation::Valid<Schema
         output.push_str(&format!("    fields?: {},\n", field_policy_name));
         output.push_str("  }");
         output.push_str(comma);
-        output.push_str("\n");
+        output.push('\n');
     }
     output.push_str("};\n\n");
 
