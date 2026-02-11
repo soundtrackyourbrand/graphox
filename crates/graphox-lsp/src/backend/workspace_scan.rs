@@ -33,6 +33,10 @@ pub struct WorkspaceScanParams {
     pub fragment_definitions: FragmentDefinitionsMap,
     pub operation_names: OperationNamesMap,
     pub workspace_loaded: Arc<AtomicBool>,
+    /// Set to true if codegen was requested during the scan - triggers codegen after scan completes
+    pub codegen_requested_during_scan: Arc<AtomicBool>,
+    /// Callback to trigger codegen after scan completes (passed from Backend)
+    pub trigger_codegen_after_scan: Option<Arc<dyn Fn() + Send + Sync>>,
     pub empty_schema: Arc<Schema>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
@@ -116,6 +120,16 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         .await;
 
     params.workspace_loaded.store(true, Ordering::SeqCst);
+
+    // Trigger queued codegen if it was requested during the scan
+    if params.codegen_requested_during_scan.load(Ordering::SeqCst) {
+        params
+            .codegen_requested_during_scan
+            .store(false, Ordering::SeqCst);
+        if let Some(ref trigger_codegen) = params.trigger_codegen_after_scan {
+            trigger_codegen();
+        }
+    }
 
     // Validate all documents with proper schemas and fragments
     validate_all_documents(&params).await;

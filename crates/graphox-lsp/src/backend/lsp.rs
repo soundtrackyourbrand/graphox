@@ -26,7 +26,7 @@ use apollo_compiler::Schema;
 use dashmap::DashMap;
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::{Client, LanguageServer, LspService, Server, jsonrpc::Result, lsp_types::*};
 
 // Re-export ClientCapabilities for backward compatibility
@@ -59,6 +59,8 @@ pub struct Backend {
     /// Used to detect duplicate operation names within a project
     pub operation_names: OperationNamesMap,
     pub workspace_loaded: Arc<AtomicBool>,
+    /// Tracks if codegen was requested during workspace scan (to run after scan completes)
+    pub codegen_requested_during_scan: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
     pub gitignore: Arc<ignore::gitignore::Gitignore>,
@@ -173,6 +175,7 @@ impl Backend {
             fragment_definitions: Arc::new(fragment_definitions),
             operation_names: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
             workspace_loaded: Arc::new(AtomicBool::new(false)),
+            codegen_requested_during_scan: Arc::new(AtomicBool::new(false)),
             open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
             workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
             gitignore,
@@ -450,6 +453,8 @@ impl Backend {
             fragment_definitions: self.fragment_definitions.clone(),
             operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
+            codegen_requested_during_scan: self.codegen_requested_during_scan.clone(),
+            trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
@@ -574,6 +579,8 @@ impl Backend {
             fragment_definitions: self.fragment_definitions.clone(),
             operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
+            codegen_requested_during_scan: self.codegen_requested_during_scan.clone(),
+            trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
@@ -850,6 +857,7 @@ impl LanguageServer for Backend {
             };
 
         let config = self.config.read().unwrap().clone();
+        let codegen_throttle = self.codegen_throttle.clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
             config,
@@ -861,6 +869,12 @@ impl LanguageServer for Backend {
             fragment_definitions: self.fragment_definitions.clone(),
             operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
+            codegen_requested_during_scan: self.codegen_requested_during_scan.clone(),
+            trigger_codegen_after_scan: Some(Arc::new(move || {
+                if let Some(throttle) = &codegen_throttle {
+                    throttle.request_codegen();
+                }
+            })),
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
@@ -1974,11 +1988,17 @@ impl LanguageServer for Backend {
                         self.validate_uris(result.uris_to_validate).await;
                     }
 
-                    // Request throttled codegen if enabled
-                    if result.should_run_codegen
-                        && let Some(throttle) = &self.codegen_throttle
-                    {
-                        throttle.request_codegen();
+                    // Request throttled codegen if enabled and workspace is loaded
+                    if result.should_run_codegen {
+                        if self.workspace_loaded.load(Ordering::SeqCst) {
+                            if let Some(throttle) = &self.codegen_throttle {
+                                throttle.request_codegen();
+                            }
+                        } else {
+                            // Queue codegen for after workspace scan completes
+                            self.codegen_requested_during_scan
+                                .store(true, Ordering::SeqCst);
+                        }
                     }
                 }
             }
