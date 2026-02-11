@@ -1,0 +1,5 @@
+query GetPlaylist($id: ID!) {
+  playlist(id: $id) {
+    ...DuplicateFields
+  }
+}

@@ -4,11 +4,11 @@
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
-import type { UserWithId } from "./fragments.codegen";
+import { UserWithId } from "./fragments.codegen";
 
 export interface GetUserWithInlineAndFragmentQuery {
   __typename: "Query";
-  user: ({ __typename: "User", name: string } & FragmentType<typeof UserWithId>) | null;
+  user: ({ __typename: "User", name: string } & { ' $fragmentRefs'?: { 'UserWithId': UserWithId } }) | null;
 }
 
 export interface GetUserWithInlineAndFragmentQueryVariables {

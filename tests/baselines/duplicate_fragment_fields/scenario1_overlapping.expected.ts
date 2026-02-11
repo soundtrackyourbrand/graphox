@@ -4,11 +4,11 @@
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
-import type { UserBasic, UserExtended } from "./fragments.codegen";
+import { UserBasic, UserExtended } from "./fragments.codegen";
 
 export interface GetUserWithOverlappingFragmentsQuery {
   __typename: "Query";
-  user: (FragmentType<typeof UserBasic> & FragmentType<typeof UserExtended>) | null;
+  user: ({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserBasic': UserBasic, 'UserExtended': UserExtended } }) | null;
 }
 
 export interface GetUserWithOverlappingFragmentsQueryVariables {

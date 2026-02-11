@@ -1,0 +1,44 @@
+type Query {
+  playlist(id: ID!): Playlist
+  playlists: [Playlist!]!
+}
+
+type Playlist {
+  id: ID!
+  name: String!
+  snapshot: String!
+  shortDescription: String
+  curated: Boolean!
+  curator: Curator
+  presets: [Preset!]!
+  permissions: [PlaylistPermission!]!
+  presentAs: PlaylistPresentAs!
+}
+
+type Curator {
+  id: ID!
+  accountId: ID!
+  name: String!
+}
+
+type Preset {
+  playbackMode: PlaybackMode!
+}
+
+enum PlaylistPermission {
+  READ
+  WRITE
+  ADMIN
+}
+
+enum PlaylistPresentAs {
+  LIST
+  GRID
+  CAROUSEL
+}
+
+enum PlaybackMode {
+  SEQUENTIAL
+  SHUFFLE
+  LOOP
+}

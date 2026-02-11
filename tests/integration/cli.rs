@@ -1327,6 +1327,15 @@ fn test_cli_fragment_masking_baselines() {
 }
 
 #[test]
+fn test_cli_duplicate_type_fields() {
+    run_baseline_test(
+        "tests/fixtures/duplicate_type_fields",
+        "tests/baselines/duplicate_type_fields",
+        None,
+    );
+}
+
+#[test]
 fn test_cli_duplicate_fragment_fields_baselines() {
     run_baseline_test(
         "tests/fixtures/duplicate_fragment_fields",

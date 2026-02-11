@@ -1,0 +1,21 @@
+fragment DuplicateFields on Playlist @public {
+  id
+  __typename
+  permissions
+  presentAs
+  name
+  snapshot
+  shortDescription
+  curated
+  curator {
+    id
+    accountId
+    name
+  }
+  presets {
+    playbackMode
+  }
+  snapshot
+  permissions
+  presentAs
+}

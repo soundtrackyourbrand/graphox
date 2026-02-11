@@ -4,11 +4,11 @@
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
-import type { UserAliasedName, UserRealName } from "./fragments.codegen";
+import { UserAliasedName, UserRealName } from "./fragments.codegen";
 
 export interface GetUserWithAliasedFragmentsQuery {
   __typename: "Query";
-  user: (FragmentType<typeof UserAliasedName> & FragmentType<typeof UserRealName>) | null;
+  user: ({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserAliasedName': UserAliasedName, 'UserRealName': UserRealName } }) | null;
 }
 
 export interface GetUserWithAliasedFragmentsQueryVariables {

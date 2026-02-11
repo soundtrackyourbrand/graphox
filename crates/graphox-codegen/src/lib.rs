@@ -1015,6 +1015,7 @@ fn generate_field_list(
     used_fragments: &mut HashMap<String, String>,
 ) -> Vec<String> {
     let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
+    let mut seen_fields: HashSet<String> = HashSet::with_capacity(fields.len() + 1);
 
     if !has_explicit_typename {
         local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
@@ -1022,6 +1023,11 @@ fn generate_field_list(
 
     for field in fields {
         let name = field.alias.as_ref().unwrap_or(&field.name);
+
+        if !seen_fields.insert(name.to_string()) {
+            continue;
+        }
+
         let field_def = match parent_type {
             ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
             ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
