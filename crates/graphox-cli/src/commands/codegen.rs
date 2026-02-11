@@ -280,31 +280,64 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     "{}: emit_permission_data is enabled but no output_dir is specified for project.",
                     "Warning".yellow()
                 );
+                }
             }
-        }
 
-        if !clean && project.generate_possible_types.unwrap_or(false) {
-            if let Some(pt_output) = &project.possible_types_output {
-                let pt_path = cfg.base_dir.join(pt_output);
-                if verbose {
-                    println!(
-                        "{}: {}",
-                        "Generating possibleTypes".bright_black(),
-                        pt_path.display().to_string().bright_black()
-                    );
+            let pt_output = project.possible_types.as_ref();
+            let tp_output = project.type_policies.as_ref();
+
+            let pt_path = pt_output.map(|p| cfg.base_dir.join(p));
+            let tp_path = tp_output.map(|p| cfg.base_dir.join(p));
+
+            match (&pt_path, &tp_path) {
+                (Some(pt), Some(tp)) if pt == tp => {
+                    if verbose {
+                        println!(
+                            "{}: {}",
+                            "Generating possibleTypes and typePolicies".bright_black(),
+                            pt.display().to_string().bright_black()
+                        );
+                    }
+                    let pt_content = codegen::generate_possible_types(&valid_schema);
+                    let tp_content = codegen::generate_type_policies(&valid_schema);
+                    let combined = format!("{}\n\n{}\n", pt_content.trim_end(), tp_content.trim_start());
+                    if let Err(e) = std::fs::write(pt, combined) {
+                        eprintln!("{}: {}", "Failed to write combined output".red(), e);
+                        success = false;
+                    }
                 }
-                let content = codegen::generate_possible_types(&valid_schema);
-                if let Err(e) = std::fs::write(&pt_path, content) {
-                    eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
-                    success = false;
+                _ => {
+                    if let Some(pt) = &pt_path {
+                        if verbose {
+                            println!(
+                                "{}: {}",
+                                "Generating possibleTypes".bright_black(),
+                                pt.display().to_string().bright_black()
+                            );
+                        }
+                        let content = codegen::generate_possible_types(&valid_schema);
+                        if let Err(e) = std::fs::write(pt, content) {
+                            eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
+                            success = false;
+                        }
+                    }
+
+                    if let Some(tp) = &tp_path {
+                        if verbose {
+                            println!(
+                                "{}: {}",
+                                "Generating typePolicies".bright_black(),
+                                tp.display().to_string().bright_black()
+                            );
+                        }
+                        let content = codegen::generate_type_policies(&valid_schema);
+                        if let Err(e) = std::fs::write(tp, content) {
+                            eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
+                            success = false;
+                        }
+                    }
                 }
-            } else {
-                eprintln!(
-                    "{}: generate_possible_types is enabled but no possible_types_output is specified for project.",
-                    "Warning".yellow()
-                );
             }
-        }
 
         let document_suffix = project
             .document_suffix
@@ -394,37 +427,68 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     success = false;
                 }
 
-                if st.generate_possible_types.unwrap_or(false) {
-                    if let Some(pt_output) = &st.possible_types_output {
-                        let pt_path = cfg.base_dir.join(pt_output);
-                        if verbose {
-                            println!(
-                                "{}: {}",
-                                "Generating possibleTypes".bright_black(),
-                                pt_path.display().to_string().bright_black()
-                            );
-                        }
-                        if let Ok(schema) =
-                            schema::load_and_validate_schema(&cfg.base_dir, &st.schema)
-                        {
-                            let content = codegen::generate_possible_types(&schema);
-                            if let Err(e) = std::fs::write(&pt_path, content) {
-                                eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
+                if let Ok(schema) = schema::load_and_validate_schema(&cfg.base_dir, &st.schema) {
+                    let pt_output = st.possible_types.as_ref();
+                    let tp_output = st.type_policies.as_ref();
+
+                    let pt_path = pt_output.map(|p| cfg.base_dir.join(p));
+                    let tp_path = tp_output.map(|p| cfg.base_dir.join(p));
+
+                    match (&pt_path, &tp_path) {
+                        (Some(pt), Some(tp)) if pt == tp => {
+                            if verbose {
+                                println!(
+                                    "{}: {}",
+                                    "Generating possibleTypes and typePolicies".bright_black(),
+                                    pt.display().to_string().bright_black()
+                                );
+                            }
+                            let pt_content = codegen::generate_possible_types(&schema);
+                            let tp_content = codegen::generate_type_policies(&schema);
+                            let combined = format!("{}\n\n{}\n", pt_content.trim_end(), tp_content.trim_start());
+                            if let Err(e) = std::fs::write(pt, combined) {
+                                eprintln!("{}: {}", "Failed to write combined output".red(), e);
                                 success = false;
                             }
-                        } else {
-                            eprintln!(
-                                "{}: Failed to load schema for possibleTypes generation",
-                                "Error".red()
-                            );
-                            success = false;
                         }
-                    } else {
-                        eprintln!(
-                            "{}: generate_possible_types is enabled but no possible_types_output is specified for schema_types.",
-                            "Warning".yellow()
-                        );
+                        _ => {
+                            if let Some(pt) = &pt_path {
+                                if verbose {
+                                    println!(
+                                        "{}: {}",
+                                        "Generating possibleTypes".bright_black(),
+                                        pt.display().to_string().bright_black()
+                                    );
+                                }
+                                let content = codegen::generate_possible_types(&schema);
+                                if let Err(e) = std::fs::write(pt, content) {
+                                    eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
+                                    success = false;
+                                }
+                            }
+
+                            if let Some(tp) = &tp_path {
+                                if verbose {
+                                    println!(
+                                        "{}: {}",
+                                        "Generating typePolicies".bright_black(),
+                                        tp.display().to_string().bright_black()
+                                    );
+                                }
+                                let content = codegen::generate_type_policies(&schema);
+                                if let Err(e) = std::fs::write(tp, content) {
+                                    eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
+                                    success = false;
+                                }
+                            }
+                        }
                     }
+                } else {
+                    eprintln!(
+                        "{}: Failed to load schema for codegen generation",
+                        "Error".red()
+                    );
+                    success = false;
                 }
             }
         }

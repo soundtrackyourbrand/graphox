@@ -1127,6 +1127,16 @@ fn test_cli_permissions_baselines() {
 
 #[test]
 #[ntest::timeout(250)]
+fn test_cli_possible_types_baselines() {
+    run_baseline_test(
+        "tests/fixtures/possible_types",
+        "tests/baselines/possible_types",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
 fn test_cli_swc_plugin_baselines() {
     run_baseline_test(
         "tests/fixtures/swc_plugin",

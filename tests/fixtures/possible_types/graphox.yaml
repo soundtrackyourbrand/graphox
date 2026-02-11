@@ -1,5 +1,5 @@
 schema_types:
   - schema: "schema.graphql"
     output: "schema.types.ts"
-    generate_possible_types: true
-    possible_types_output: "possible-types.ts"
+    possible_types: "possible-types.ts"
+    type_policies: "type-policies.ts"

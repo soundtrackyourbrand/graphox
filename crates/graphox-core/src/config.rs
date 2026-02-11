@@ -261,8 +261,8 @@ pub struct ProjectConfig {
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
-    pub generate_possible_types: Option<bool>,
-    pub possible_types_output: Option<PathBuf>,
+    pub possible_types: Option<PathBuf>,
+    pub type_policies: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -270,8 +270,8 @@ pub struct SchemaTypeConfig {
     pub schema: SchemaSource,
     pub output: String,
     pub import: Option<String>,
-    pub generate_possible_types: Option<bool>,
-    pub possible_types_output: Option<PathBuf>,
+    pub possible_types: Option<PathBuf>,
+    pub type_policies: Option<PathBuf>,
 }
 
 impl Config {
@@ -392,9 +392,8 @@ impl Config {
                 let fragment_masking_node = &p_node["fragment_masking"];
                 let fragment_masking = FragmentMasking::from_yaml(fragment_masking_node)
                     .map(|mode| FragmentMaskingConfig { mode });
-                let generate_possible_types = p_node["generate_possible_types"].as_bool();
-                let possible_types_output =
-                    p_node["possible_types_output"].as_str().map(PathBuf::from);
+                let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
+                let type_policies = p_node["type_policies"].as_str().map(PathBuf::from);
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -408,8 +407,8 @@ impl Config {
                     variables_suffix,
                     fragment_suffix,
                     fragment_masking,
-                    generate_possible_types,
-                    possible_types_output,
+                    possible_types,
+                    type_policies,
                 });
             }
         }
@@ -420,15 +419,14 @@ impl Config {
                 let schema = SchemaSource::from_yaml(&s_node["schema"])?;
                 let output = s_node["output"].as_str()?.to_string();
                 let import = s_node["import"].as_str().map(String::from);
-                let generate_possible_types = s_node["generate_possible_types"].as_bool();
-                let possible_types_output =
-                    s_node["possible_types_output"].as_str().map(PathBuf::from);
+                let possible_types = s_node["possible_types"].as_str().map(PathBuf::from);
+                let type_policies = s_node["type_policies"].as_str().map(PathBuf::from);
                 schema_types.push(SchemaTypeConfig {
                     schema,
                     output,
                     import,
-                    generate_possible_types,
-                    possible_types_output,
+                    possible_types,
+                    type_policies,
                 });
             }
             config.schema_types = Some(schema_types);

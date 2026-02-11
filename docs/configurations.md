@@ -56,8 +56,8 @@ projects:
     variables_suffix: "Variables"                # Suffix for Variables interfaces
     fragment_suffix: ""                          # Suffix for Fragment interfaces
     fragment_masking: disabled                   # Enable/disable fragment masking (default: disabled)
-    generate_possible_types: true               # Generate possibleTypes for Apollo Client
-    possible_types_output: "graphql-introspection.ts"  # Output path for possibleTypes
+    possible_types: "graphql-introspection.ts"  # Generate possibleTypes for Apollo Client
+    type_policies: "type-policies.ts"            # Generate TypePolicies for Apollo Client
 
   - schema:                                      # Multiple schema files
       - "schema/base.graphql"
@@ -72,8 +72,8 @@ schema_types:
   - schema: "schema.graphql"
     output: "types/schema.ts"
     import: "@workspace/schema"                  # How generated files import this
-    generate_possible_types: true               # Generate possibleTypes for Apollo Client
-    possible_types_output: "types/possible-types.ts"  # Output path for possibleTypes
+    possible_types: "types/possible-types.ts"   # Generate possibleTypes for Apollo Client
+    type_policies: "types/type-policies.ts"      # Generate TypePolicies for Apollo Client
 
 # LSP settings
 lsp_automatic_codegen: true                       # Auto-run codegen on file changes
@@ -421,14 +421,12 @@ projects:
   - schema: "schema.graphql"
     include: "src/**/*.{ts,tsx}"
     output_dir: "__generated__"
-    generate_possible_types: true
-    possible_types_output: "graphql-introspection.ts"
+    possible_types: "graphql-introspection.ts"
 
 schema_types:
   - schema: "schema.graphql"
     output: "types/schema.ts"
-    generate_possible_types: true
-    possible_types_output: "types/possible-types.ts"
+    possible_types: "types/possible-types.ts"
 ```
 
 ### Generated Output
@@ -481,14 +479,12 @@ projects:
   # Business API project
   - schema: "schemas/business.graphql"
     include: "apps/business/src/**/*.{ts,tsx}"
-    generate_possible_types: true
-    possible_types_output: "apps/business/src/graphql-introspection.ts"
+    possible_types: "apps/business/src/graphql-introspection.ts"
 
   # Storefront project (different schema)
   - schema: "schemas/storefront.graphql"
     include: "apps/storefront/src/**/*.{ts,tsx}"
-    generate_possible_types: true
-    possible_types_output: "apps/storefront/src/graphql-introspection.ts"
+    possible_types: "apps/storefront/src/graphql-introspection.ts"
 ```
 
 ### Single Shared Schema
@@ -500,8 +496,7 @@ For multiple projects sharing the same schema, generate `possibleTypes` once at 
 schema_types:
   - schema: "shared/schema.graphql"
     output: "shared/schema.types.ts"
-    generate_possible_types: true
-    possible_types_output: "shared/possible-types.ts"
+    possible_types: "shared/possible-types.ts"
 
 projects:
   - schema: "shared/schema.graphql"
@@ -510,6 +505,99 @@ projects:
   - schema: "shared/schema.graphql"
     include: "apps/storefront/**/*.{ts,tsx}"
 ```
+
+---
+
+## Apollo Client TypePolicies
+
+Generate strict TypeScript types for Apollo Client `TypePolicies` configuration. This provides compile-time safety for your cache configuration.
+
+### Overview
+
+Apollo Client's `TypePolicies` can be error-prone when typed generically. This feature generates strictly typed `FieldPolicy`, `KeySpecifier`, and `TypePolicy` types for every object and interface in your schema.
+
+### Configuration
+
+```yaml
+# graphox.yaml
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.{ts,tsx}"
+    output_dir: "__generated__"
+    type_policies: "type-policies.ts"
+
+schema_types:
+  - schema: "schema.graphql"
+    output: "types/schema.ts"
+    type_policies: "types/type-policies.ts"
+```
+
+### Generated Output
+
+```typescript
+// type-policies.ts
+import { FieldPolicy, FieldReadFunction, TypePolicies, TypePolicy } from '@apollo/client/cache';
+
+export type UserKeySpecifier = ('id' | 'name' | 'email' | UserKeySpecifier)[];
+
+export type UserFieldPolicy = {
+  id?: FieldPolicy<any> | FieldReadFunction<any>,
+  name?: FieldPolicy<any> | FieldReadFunction<any>,
+  email?: FieldPolicy<any> | FieldReadFunction<any>,
+};
+
+export type StrictTypedTypePolicies = {
+  User?: Omit<TypePolicy, "fields" | "keyFields"> & {
+    keyFields?: false | UserKeySpecifier | (() => undefined | UserKeySpecifier),
+    fields?: UserFieldPolicy,
+  },
+  // ... other types
+};
+
+export type TypedTypePolicies = StrictTypedTypePolicies & TypePolicies;
+```
+
+### Usage with Apollo Client
+
+```typescript
+// apollo/index.ts
+import { TypedTypePolicies } from '../type-policies';
+import { InMemoryCache } from '@apollo/client/cache';
+
+const cache = new InMemoryCache({
+  typePolicies: {
+    User: {
+      keyFields: ['id'],
+      fields: {
+        friends: {
+          merge: (existing, incoming) => [...incoming],
+        },
+      },
+    },
+  } as TypedTypePolicies,
+});
+```
+
+### Combining with possibleTypes
+
+Generate both features together. You can generate them to separate files or the same file:
+
+```yaml
+# graphox.yaml
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.{ts,tsx}"
+    possible_types: "graphql-introspection.ts"  # Separate files
+    type_policies: "type-policies.ts"
+
+  # Or generate to the same file:
+  - schema: "schema.graphql"
+    include: "src/**/*.{ts,tsx}"
+    possible_types: "apollo-shared.ts"
+    type_policies: "apollo-shared.ts"  # Same path = concatenated output
+```
+
+When both are set to the same path, their outputs are concatenated with proper formatting.
 
 ---
 
