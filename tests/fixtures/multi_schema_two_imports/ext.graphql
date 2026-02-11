@@ -1,0 +1,17 @@
+# Second schema: defines Priority enum and Task type (COMPLETELY SEPARATE)
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+type Task {
+  id: ID!
+  title: String!
+  priority: Priority!
+}
+
+type Query {
+  task(id: ID!): Task
+}

@@ -1,0 +1,11 @@
+schema_types:
+  - schema: 
+      - "schema.graphql"
+    output: "types.ts"
+    import: "@my/schema"
+
+projects:
+  - schema:
+      - "schema.graphql"
+    include: "*.graphql"
+    output_dir: "__generated__"

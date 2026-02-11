@@ -1,0 +1,16 @@
+# First schema: defines UserStatus enum and User type
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+type User {
+  id: ID!
+  name: String!
+  status: UserStatus!
+}
+
+type Query {
+  me: User
+}

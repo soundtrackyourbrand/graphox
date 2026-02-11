@@ -89,11 +89,37 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                 let d_time = dp_start.elapsed();
 
                 if let Some(doc) = doc_opt {
+                    let mut type_imports = ahash::AHashMap::default();
+                    let project_schema_files: ahash::AHashSet<_> =
+                        project.schema.files().into_iter().collect();
+
                     let schema_import = config.schema_types.as_ref().and_then(|sts| {
-                        sts.iter()
-                            .find(|st| st.schema.as_key() == project.schema.as_key())
-                            .and_then(|st| st.import.clone())
+                        let mut matches: Vec<_> = sts
+                            .iter()
+                            .filter(|st| {
+                                let st_files = st.schema.files();
+                                st_files.iter().all(|f| project_schema_files.contains(f))
+                            })
+                            .collect();
+
+                        matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
+
+                        for st in matches.iter().rev() {
+                            if let Some(import_path) = &st.import {
+                                if let Ok(st_schema) = graphox_core::schema::load_schema(
+                                    &config.base_dir,
+                                    &st.schema,
+                                ) {
+                                    for type_name in st_schema.types.keys() {
+                                        type_imports.insert(type_name.to_string(), import_path.clone());
+                                    }
+                                }
+                            }
+                        }
+
+                        matches.first().and_then(|st| st.import.clone())
                     });
+
                     let ctx = codegen::CodegenContext::new(
                         &valid_schema,
                         project_fragment_to_path,
@@ -103,6 +129,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         path,
                         &config.scalars,
                         &schema_import,
+                        &type_imports,
                         config.generate_ast_for_fragments.unwrap_or(false),
                         &project_context.fragment_dependencies,
                         &shared_type_cache,

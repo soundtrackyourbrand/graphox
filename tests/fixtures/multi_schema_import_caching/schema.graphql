@@ -1,0 +1,8 @@
+enum MyEnum {
+  A
+  B
+}
+
+type Query {
+  test(e: MyEnum): String
+}

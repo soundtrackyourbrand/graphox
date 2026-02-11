@@ -1,0 +1,21 @@
+# Configuration with TWO separate schema_types entries
+# Each schema maps to a DIFFERENT import path
+schema_types:
+  # First schema maps to @my/base-package
+  - schema: base.graphql
+    output: "base-types.ts"
+    import: "@my/base-package"
+
+  # Second schema maps to @my/ext-package
+  - schema: ext.graphql
+    output: "ext-types.ts"
+    import: "@my/ext-package"
+
+projects:
+  # Project uses BOTH schemas
+  - name: main
+    schema:
+      - base.graphql
+      - ext.graphql
+    include: "query.graphql"
+    output_dir: "__generated__"

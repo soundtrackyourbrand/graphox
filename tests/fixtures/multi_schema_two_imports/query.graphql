@@ -1,0 +1,15 @@
+# Query that uses types from BOTH schemas:
+# - UserStatus from base.graphql
+# - Priority from ext.graphql
+query GetUserWithTask {
+  me {
+    id
+    name
+    status # Uses UserStatus from base schema
+  }
+  task(id: "1") {
+    id
+    title
+    priority # Uses Priority from ext schema
+  }
+}

@@ -1061,6 +1061,26 @@ fn test_cli_multi_schema_import_superset_baselines() {
 
 #[test]
 #[ntest::timeout(250)]
+fn test_cli_multi_schema_import_caching_baselines() {
+    run_baseline_test(
+        "tests/fixtures/multi_schema_import_caching",
+        "tests/baselines/multi_schema_import_caching",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
+fn test_cli_multi_schema_two_imports_baselines() {
+    run_baseline_test(
+        "tests/fixtures/multi_schema_two_imports",
+        "tests/baselines/multi_schema_two_imports",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
 fn test_cli_public_test_baselines() {
     run_baseline_test(
         "tests/fixtures/public_test",

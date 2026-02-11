@@ -1,0 +1,3 @@
+query Query2($e: MyEnum) {
+  test(e: $e)
+}

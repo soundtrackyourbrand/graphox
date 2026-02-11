@@ -1,0 +1,12 @@
+[
+  {
+    "source": "query Query1($e: MyEnum) {\n  test(e: $e)\n}\n",
+    "name": "Query1QueryDocument",
+    "path": "./query1.codegen"
+  },
+  {
+    "path": "./query2.codegen",
+    "name": "Query2QueryDocument",
+    "source": "query Query2($e: MyEnum) {\n  test(e: $e)\n}\n"
+  }
+]

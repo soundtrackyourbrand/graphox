@@ -18,6 +18,7 @@ pub struct CodegenParams<'a> {
     pub output_dir: Option<&'a str>,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
+    pub type_imports: &'a HashMap<String, String>,
     pub project_context: &'a ProjectContext,
     pub global_metadata: &'a [FragmentMetadata],
     pub generate_ast_for_fragments: bool,
@@ -208,18 +209,37 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
         let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
 
-        let schema_import = cfg.schema_types.as_ref().and_then(|sts| {
-            let mut matches: Vec<_> = sts
+        let mut type_imports = HashMap::default();
+        let mut schema_import = None;
+
+        if let Some(schema_types) = &cfg.schema_types {
+            // 1. Collect all matching schema_types and their import paths
+            let mut matches: Vec<_> = schema_types
                 .iter()
                 .filter(|st| {
                     let st_files = st.schema.files();
+                    // Check if this schema_type is a subset of the project schema
                     st_files.iter().all(|f| project_schema_files.contains(f))
                 })
                 .collect();
 
+            // Sort by number of files descending for specificity
             matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
-            matches.first().and_then(|st| st.import.clone())
-        });
+
+            // 2. Build the type_imports map
+            for st in matches.iter().rev() {
+                if let Some(import_path) = &st.import {
+                    if let Ok(st_schema) = schema::load_and_validate_schema(&cfg.base_dir, &st.schema) {
+                        for type_name in st_schema.types.keys() {
+                            type_imports.insert(type_name.to_string(), import_path.clone());
+                        }
+                    }
+                }
+            }
+
+            // 3. Keep schema_import for backward compatibility (the "best" match)
+            schema_import = matches.first().and_then(|st| st.import.clone());
+        }
 
         let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
             Ok(v) => v,
@@ -287,6 +307,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 output_dir: project_output_dir,
                 scalars: &cfg.scalars,
                 schema_import: &schema_import,
+                type_imports: &type_imports,
                 project_context: &project_context,
                 global_metadata,
                 generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
@@ -536,6 +557,39 @@ async fn generate_project_files(
         .filter_map(|path| params.workspace_documents.get(path).map(|doc| (path, doc)))
         .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
         .map(|(path, doc)| {
+            let glob_pattern = params.include.as_key();
+            let include_prefix_path = utils::get_glob_root(&glob_pattern);
+            let include_prefix = include_prefix_path.to_str().unwrap_or("");
+
+            let out_path_raw = utils::get_output_path(
+                path,
+                params.base_dir,
+                params.output_dir,
+                Some(include_prefix),
+            );
+
+            let abs_out_path = if out_path_raw.is_absolute() {
+                out_path_raw
+            } else {
+                params.base_dir.join(out_path_raw)
+            };
+
+            let masking_import_path = if let Some(out_dir) = params.output_dir {
+                let abs_out_dir = params.base_dir.join(out_dir);
+                let abs_file_out_dir = abs_out_path.parent().unwrap();
+                
+                let rel_to_masking = pathdiff::diff_paths(&abs_out_dir, abs_file_out_dir)
+                    .unwrap_or_else(|| PathBuf::from("."));
+
+                let mut path_str = utils::to_posix_path(&rel_to_masking.join("fragment-masking"));
+                if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                    path_str.insert_str(0, "./");
+                }
+                path_str
+            } else {
+                "./fragment-masking".to_string()
+            };
+
             let ctx = codegen::CodegenContext::new(
                 &valid_schema,
                 &params.project_context.fragment_to_path,
@@ -545,6 +599,7 @@ async fn generate_project_files(
                 path,
                 params.scalars,
                 params.schema_import,
+                params.type_imports,
                 params.generate_ast_for_fragments,
                 &params.project_context.fragment_dependencies,
                 &shared_type_cache,
@@ -552,39 +607,18 @@ async fn generate_project_files(
                 params.variables_suffix,
                 params.fragment_suffix,
                 params.fragment_masking.clone(),
-                {
-                    if let Some(out_dir) = params.output_dir {
-                        let out_path = utils::get_output_path(
-                            path,
-                            params.base_dir,
-                            params.output_dir,
-                            Some(utils::get_glob_root(&params.include.as_key()).to_str().unwrap_or("")),
-                        );
-                        let abs_out_dir = if out_path.is_absolute() {
-                            out_path.parent().unwrap().to_path_buf()
-                        } else {
-                            params.base_dir.join(out_path).parent().unwrap().to_path_buf()
-                        };
-
-                        let abs_masking_dir = params.base_dir.join(out_dir);
-                        let rel_to_masking = pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
-                            .unwrap_or_else(|| PathBuf::from("."));
-
-                        let mut path_str = utils::to_posix_path(&rel_to_masking.join("fragment-masking"));
-                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
-                            path_str.insert_str(0, "./");
-                        }
-                        path_str
-                    } else {
-                        "./fragment-masking".to_string()
-                    }
-                },
+                masking_import_path,
             );
 
-                let glob_pattern = params.include.as_key();
-                let include_prefix = utils::get_glob_root(&glob_pattern);
-                execute_single_file_codegen(doc, &ctx, params.output_dir, params.base_dir, include_prefix.to_str().unwrap_or(""), verbose)
-                .map_err(|e| (path.to_path_buf(), e))
+            execute_single_file_codegen(
+                doc,
+                &ctx,
+                params.output_dir,
+                params.base_dir,
+                include_prefix,
+                verbose,
+            )
+            .map_err(|e| (path.to_path_buf(), e))
         })
         .collect::<Vec<_>>()
         .into_iter()

@@ -11,6 +11,7 @@ use graphox_core::apollo_ast::{
 };
 use graphox_core::config::FragmentMaskingConfig;
 use graphox_core::document::DocumentState;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -63,16 +64,16 @@ pub struct CodegenContext<'a> {
     pub current_file_path: &'a Path,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
+    pub type_imports: &'a HashMap<String, String>,
     pub generate_ast_for_fragments: bool,
-    /// Cached fragment dependencies from workspace scan
     pub fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
-    /// Shared cache for type conversions across all files in a project (thread-safe)
-    type_cache: &'a TypeCache,
+    pub type_cache: &'a TypeCache,
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
     pub fragment_masking: FragmentMasking,
     pub masking_import_path: String,
+    pub used_schema_types: RefCell<HashSet<String>>,
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
@@ -138,6 +139,7 @@ impl<'a> CodegenContext<'a> {
         current_file_path: &'a Path,
         scalars: &'a Option<HashMap<String, String>>,
         schema_import: &'a Option<String>,
+        type_imports: &'a HashMap<String, String>,
         generate_ast_for_fragments: bool,
         fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
         type_cache: &'a TypeCache,
@@ -156,6 +158,7 @@ impl<'a> CodegenContext<'a> {
             current_file_path,
             scalars,
             schema_import,
+            type_imports,
             generate_ast_for_fragments,
             fragment_dependencies,
             type_cache,
@@ -164,6 +167,7 @@ impl<'a> CodegenContext<'a> {
             fragment_suffix,
             fragment_masking,
             masking_import_path,
+            used_schema_types: RefCell::new(HashSet::new()),
         }
     }
 
@@ -213,7 +217,6 @@ pub fn generate_typescript_with_profile(
     // Pre-allocate bodies string
     let mut bodies = String::with_capacity(2048);
     let mut has_operations = false;
-    let mut used_schema_types = HashSet::default();
 
     for block in doc.get_graphql_trees() {
         // Avoid intermediate string allocation by using byte_slice directly
@@ -268,7 +271,6 @@ pub fn generate_typescript_with_profile(
                 ctx,
                 0,
                 &mut used_fragments,
-                &mut used_schema_types,
             );
             profile.selection_set_time += sel_start.elapsed();
 
@@ -299,7 +301,6 @@ pub fn generate_typescript_with_profile(
                         ctx.schema,
                         ctx.scalars,
                         ctx,
-                        &mut used_schema_types,
                     );
                     let optional = if var.ty.is_non_null() { "" } else { "?" };
                     bodies.push_str("  ");
@@ -407,7 +408,6 @@ pub fn generate_typescript_with_profile(
                 ctx,
                 0,
                 &mut used_fragments,
-                &mut used_schema_types,
             );
             profile.selection_set_time += sel_start.elapsed();
 
@@ -546,28 +546,44 @@ pub fn generate_typescript_with_profile(
 
     let mut import_section = String::new();
 
-    if let Some(schema_import_path) = ctx.schema_import
-        && !used_schema_types.is_empty()
     {
-        // Use BTreeSet to keep schema types sorted
-        let types: std::collections::BTreeSet<_> = used_schema_types.into_iter().collect();
+        let used_schema_types = ctx.used_schema_types.borrow();
+        if !used_schema_types.is_empty() {
+            let mut grouped_imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            let mut untracked_types = Vec::new();
 
-        // Pre-allocate string for import line
-        let estimated_size = types.len() * 20 + schema_import_path.len() + 30;
-        let mut line = String::with_capacity(estimated_size);
-        line.push_str("import type { ");
-        let mut first = true;
-        for ty in types {
-            if !first {
-                line.push_str(", ");
+            for ty in used_schema_types.iter() {
+                if let Some(import_path) = ctx.type_imports.get(ty) {
+                    grouped_imports
+                        .entry(import_path.clone())
+                        .or_default()
+                        .push(ty.clone());
+                } else if let Some(import_path) = ctx.schema_import {
+                    grouped_imports
+                        .entry(import_path.clone())
+                        .or_default()
+                        .push(ty.clone());
+                } else {
+                    untracked_types.push(ty.clone());
+                }
             }
-            first = false;
-            line.push_str(&ty);
+
+            for (import_path, mut types) in grouped_imports {
+                types.sort();
+                let mut line = String::new();
+                line.push_str("import type { ");
+                line.push_str(&types.join(", "));
+                line.push_str(" } from \"");
+                line.push_str(&import_path);
+                line.push_str("\";\n");
+                import_section.push_str(&line);
+            }
+
+            if !untracked_types.is_empty() && ctx.schema_import.is_none() && ctx.type_imports.is_empty() {
+                // If no imports configured but types used, we might want to warn or just skip
+                // For now, we follow existing behavior which was to not emit imports if schema_import is None
+            }
         }
-        line.push_str(" } from \"");
-        line.push_str(schema_import_path);
-        line.push_str("\";\n");
-        import_section.push_str(&line);
     }
 
     // Pre-compute current_file_parent to avoid repeated calls
@@ -823,6 +839,7 @@ pub fn emit_permission_data_content(
     let empty_import_map = HashMap::default();
     let empty_type_only_map = HashMap::default();
     let dummy_cache = TypeCache::new();
+    let empty_type_imports = HashMap::default();
     let dummy_ctx = CodegenContext::new(
         schema,
         &empty_path_map,
@@ -832,6 +849,7 @@ pub fn emit_permission_data_content(
         Path::new(""),
         scalars,
         schema_import,
+        &empty_type_imports,
         false,
         &empty_deps,
         &dummy_cache,
@@ -841,7 +859,6 @@ pub fn emit_permission_data_content(
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
     );
-    let mut used_schema_types = HashSet::default();
 
     output.push_str("export interface PermissionsType {\n");
     for (typename, field) in &types_with_permissions {
@@ -850,7 +867,6 @@ pub fn emit_permission_data_content(
             schema,
             scalars,
             &dummy_ctx,
-            &mut used_schema_types,
         );
         output.push_str(&format!("  {}: {};\n", typename, ts_type));
     }
@@ -887,7 +903,6 @@ fn generate_selection_set(
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
-    used_schema_types: &mut HashSet<String>,
 ) -> SelectionSetType {
     let categorized = categorize_selections(selection_set, used_fragments);
 
@@ -898,7 +913,6 @@ fn generate_selection_set(
             ctx,
             indent,
             used_fragments,
-            used_schema_types,
         )
     } else {
         generate_union_type(
@@ -908,7 +922,6 @@ fn generate_selection_set(
             ctx,
             indent,
             used_fragments,
-            used_schema_types,
         )
     }
 }
@@ -964,7 +977,6 @@ fn generate_object_or_intersection(
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
-    used_schema_types: &mut HashSet<String>,
 ) -> SelectionSetType {
     let local_fields_list = generate_field_list(
         &categorized.fields,
@@ -973,7 +985,6 @@ fn generate_object_or_intersection(
         indent,
         categorized.has_explicit_typename,
         used_fragments,
-        used_schema_types,
     );
 
     if categorized.fragment_spreads.is_empty() {
@@ -999,7 +1010,6 @@ fn generate_field_list(
     indent: usize,
     has_explicit_typename: bool,
     used_fragments: &mut HashMap<String, String>,
-    used_schema_types: &mut HashSet<String>,
 ) -> Vec<String> {
     let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
 
@@ -1017,7 +1027,7 @@ fn generate_field_list(
 
         if let Some(fd) = field_def {
             let ts_type = if field.selection_set.selections.is_empty() {
-                gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx, used_schema_types)
+                gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx)
             } else {
                 let inner_type_name = fd.ty.inner_named_type();
                 let inner_type = ctx
@@ -1031,7 +1041,6 @@ fn generate_field_list(
                     ctx,
                     indent + 1,
                     used_fragments,
-                    used_schema_types,
                 );
                 result.type_str
             };
@@ -1122,7 +1131,6 @@ fn generate_union_type(
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
-    used_schema_types: &mut HashSet<String>,
 ) -> SelectionSetType {
     let pad = "  ".repeat(indent);
     let mut branches = Vec::with_capacity(inline_fragments.len() + fragment_spreads.len() + 1);
@@ -1138,7 +1146,6 @@ fn generate_union_type(
             ctx,
             indent,
             used_fragments,
-            used_schema_types,
         );
         branches.push(branch);
     }
@@ -1163,7 +1170,6 @@ fn generate_inline_fragment_branch(
     ctx: &CodegenContext,
     indent: usize,
     used_fragments: &mut HashMap<String, String>,
-    used_schema_types: &mut HashSet<String>,
 ) -> String {
     let pad = "  ".repeat(indent);
     let type_name = inline
@@ -1196,7 +1202,7 @@ fn generate_inline_fragment_branch(
 
             if let Some(fd) = field_def {
                 let ts_type = if field.selection_set.selections.is_empty() {
-                    gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx, used_schema_types)
+                    gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx)
                 } else {
                     let inner_type_name = fd.ty.inner_named_type();
                     let inner_type = ctx
@@ -1210,7 +1216,6 @@ fn generate_inline_fragment_branch(
                         ctx,
                         indent + 2,
                         used_fragments,
-                        used_schema_types,
                     );
                     wrap_in_list_and_nullability(&result.type_str, &fd.ty)
                 };
@@ -1269,9 +1274,8 @@ fn gql_type_to_ts(
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
-    used_schema_types: &mut HashSet<String>,
 ) -> String {
-    gql_type_to_ts_internal(ty, schema, false, scalars, ctx, used_schema_types)
+    gql_type_to_ts_internal(ty, schema, false, scalars, ctx)
 }
 
 fn gql_type_to_ts_with_names(
@@ -1279,9 +1283,8 @@ fn gql_type_to_ts_with_names(
     schema: &Schema,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
-    used_schema_types: &mut HashSet<String>,
 ) -> String {
-    gql_type_to_ts_internal(ty, schema, true, scalars, ctx, used_schema_types)
+    gql_type_to_ts_internal(ty, schema, true, scalars, ctx)
 }
 
 fn gql_type_to_ts_internal(
@@ -1290,9 +1293,33 @@ fn gql_type_to_ts_internal(
     use_names: bool,
     scalars: &Option<HashMap<String, String>>,
     ctx: &CodegenContext,
-    used_schema_types: &mut HashSet<String>,
 ) -> String {
     let inner_name = ty.inner_named_type();
+
+    // Check if we should track this type for imports (Issue 1 Fix)
+    // We check both the legacy single schema_import and the new type_imports map
+    if ctx.schema_import.is_some() || ctx.type_imports.contains_key(inner_name.as_str()) {
+        let is_builtin = matches!(
+            inner_name.as_str(),
+            "String" | "Int" | "Float" | "Boolean" | "ID"
+        );
+
+        if !is_builtin {
+            if let Some(t) = schema.types.get(inner_name.as_str()) {
+                match t {
+                    ExtendedType::Enum(_) | ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
+                        ctx.used_schema_types.borrow_mut().insert(inner_name.to_string());
+                    }
+                    ExtendedType::Object(_) | ExtendedType::Interface(_) | ExtendedType::Union(_) => {
+                        if use_names {
+                            ctx.used_schema_types.borrow_mut().insert(inner_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let base = match inner_name.as_str() {
         "String" | "ID" => "string".to_string(),
         "Int" | "Float" => "number".to_string(),
@@ -1307,10 +1334,10 @@ fn gql_type_to_ts_internal(
                 } else if let Some(t) = schema.types.get(other) {
                     match t {
                         ExtendedType::Enum(enm) => {
-                            if ctx.schema_import.is_some() {
-                                used_schema_types.insert(other.to_string());
-                                other.to_string()
-                            } else if use_names {
+                            if ctx.schema_import.is_some()
+                                || ctx.type_imports.contains_key(other)
+                                || use_names
+                            {
                                 other.to_string()
                             } else {
                                 // This is expensive - building the union of all enum values
@@ -1325,10 +1352,10 @@ fn gql_type_to_ts_internal(
                             }
                         }
                         ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
-                            if ctx.schema_import.is_some() {
-                                used_schema_types.insert(other.to_string());
-                                other.to_string()
-                            } else if use_names {
+                            if ctx.schema_import.is_some()
+                                || ctx.type_imports.contains_key(other)
+                                || use_names
+                            {
                                 other.to_string()
                             } else {
                                 "any".to_string()
@@ -1337,8 +1364,10 @@ fn gql_type_to_ts_internal(
                         ExtendedType::Object(_)
                         | ExtendedType::Interface(_)
                         | ExtendedType::Union(_) => {
-                            if ctx.schema_import.is_some() || use_names {
-                                used_schema_types.insert(other.to_string());
+                            if ctx.schema_import.is_some()
+                                || ctx.type_imports.contains_key(other)
+                                || use_names
+                            {
                                 other.to_string()
                             } else {
                                 "any".to_string()
@@ -1369,6 +1398,7 @@ pub fn generate_schema_types(
     let empty_import_map = HashMap::default();
     let empty_type_only_map = HashMap::default();
     let dummy_cache = TypeCache::new();
+    let empty_type_imports = HashMap::default();
     let dummy_ctx = CodegenContext::new(
         schema,
         &empty_path_map,
@@ -1378,6 +1408,7 @@ pub fn generate_schema_types(
         Path::new(""),
         scalars,
         &None,
+        &empty_type_imports,
         false,
         &empty_deps,
         &dummy_cache,
@@ -1387,7 +1418,6 @@ pub fn generate_schema_types(
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
     );
-    let mut used_schema_types = HashSet::default();
 
     // 1. Enums
     let mut enum_names: Vec<_> = schema.types.keys().collect();
@@ -1450,7 +1480,6 @@ pub fn generate_schema_types(
                     schema,
                     scalars,
                     &dummy_ctx,
-                    &mut used_schema_types,
                 );
                 let optional = if field.ty.is_non_null() { "" } else { "?" };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
