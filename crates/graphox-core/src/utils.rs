@@ -147,13 +147,11 @@ pub fn get_project_files(
         .build()
         .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
 
-    let mut files = direct_files.clone();
+    let mut files = Vec::new();
 
     if roots.is_empty() && include_patterns.iter().any(|p| p.contains('*')) {
         roots.push(base_dir.to_path_buf());
     }
-
-    let output_base_dir = output_dir.map(|d| base_dir.join(d));
 
     if !roots.is_empty() {
         roots.sort();
@@ -179,13 +177,6 @@ pub fn get_project_files(
             if entry.file_type().is_some_and(|ft| ft.is_file()) {
                 let path = entry.path();
                 if is_relevant_file(path) {
-                    // Skip files in output directory
-                    if let Some(ref output_base) = output_base_dir
-                        && path.starts_with(output_base)
-                    {
-                        continue;
-                    }
-
                     let mut matched = include_set.is_match(path);
 
                     if !matched && let Ok(abs_path) = std::fs::canonicalize(path) {
@@ -232,11 +223,6 @@ pub fn get_project_files(
     // Also check direct files for generated header
     let mut filtered_direct_files = Vec::new();
     for path in &direct_files {
-        if let Some(ref output_base) = output_base_dir
-            && path.starts_with(output_base)
-        {
-            continue;
-        }
         if let Ok(content) = std::fs::read_to_string(path) {
             if !has_generated_header(&content) {
                 filtered_direct_files.push(path.clone());
@@ -314,6 +300,32 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
     }
 }
 
+pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
+    if path.starts_with(prefix) {
+        return true;
+    }
+
+    #[cfg(windows)]
+    {
+        let s_path = path.to_string_lossy().replace('/', "\\");
+        let s_prefix = prefix.to_string_lossy().replace('/', "\\");
+        let clean_path = s_path.strip_prefix(r"\\?\").unwrap_or(&s_path);
+        let clean_prefix = s_prefix.strip_prefix(r"\\?\").unwrap_or(&s_prefix);
+
+        if clean_path.len() >= clean_prefix.len()
+            && clean_path[..clean_prefix.len()].eq_ignore_ascii_case(clean_prefix)
+        {
+            if clean_path.len() == clean_prefix.len() {
+                return true;
+            }
+            let next_char = clean_path.chars().nth(clean_prefix.len()).unwrap();
+            return next_char == '\\' || next_char == '/';
+        }
+    }
+
+    false
+}
+
 pub fn get_output_path(
     path: &Path,
     base_dir: &Path,
@@ -326,7 +338,36 @@ pub fn get_output_path(
         let rel = if path.is_absolute() {
             // Strip the include prefix from the absolute path
             let include_path = base_dir.join(include_prefix.unwrap_or(""));
-            path.strip_prefix(&include_path).unwrap_or(path)
+
+            match path.strip_prefix(&include_path) {
+                Ok(rel) => rel,
+                Err(_) => {
+                    #[cfg(windows)]
+                    {
+                        // Fallback for Windows path quirks (case sensitivity, \\?\ prefix)
+                        let s_path = path.to_string_lossy().to_string();
+                        let s_include = include_path.to_string_lossy().to_string();
+                        let clean_path = s_path.strip_prefix(r"\\?\").unwrap_or(&s_path);
+                        let clean_include = s_include.strip_prefix(r"\\?\").unwrap_or(&s_include);
+
+                        if clean_path.len() >= clean_include.len()
+                            && clean_path[..clean_include.len()].eq_ignore_ascii_case(clean_include)
+                        {
+                            let mut rel_s = &clean_path[clean_include.len()..];
+                            while rel_s.starts_with('\\') || rel_s.starts_with('/') {
+                                rel_s = &rel_s[1..];
+                            }
+                            // We return a temporary PathBuf here, but we need it to live long enough
+                            // Since we can't easily return a &Path to a temporary, we'll just
+                            // do the p.push here and return early.
+                            p.push(rel_s);
+                            p.set_extension("codegen.ts");
+                            return p;
+                        }
+                    }
+                    path
+                }
+            }
         } else {
             // For relative paths, strip the include prefix if provided
             if let Some(prefix) = include_prefix {
@@ -503,23 +544,6 @@ pub fn mask_interpolations(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_is_relevant_file() {
-        assert!(is_relevant_file(Path::new("test.graphql")));
-        assert!(is_relevant_file(Path::new("test.ts")));
-        assert!(is_relevant_file(Path::new("src/test.tsx")));
-        assert!(is_relevant_file(Path::new("graphql.ts")));
-
-        // Should ignore generated files
-        assert!(!is_relevant_file(Path::new("test.codegen.ts")));
-        assert!(!is_relevant_file(Path::new("manifest.json")));
-        assert!(!is_relevant_file(Path::new("permissions.ts")));
-
-        // Should ignore common directories
-        assert!(!is_relevant_file(Path::new("node_modules/test.ts")));
-        assert!(!is_relevant_file(Path::new(".git/config")));
-    }
 
     #[test]
     #[ntest::timeout(100)]

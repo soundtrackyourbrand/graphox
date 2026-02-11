@@ -77,7 +77,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                         if utils::is_path_ignored(&e.path, &gitignore) {
                             return false;
                         }
-                        if output_dirs.iter().any(|d| e.path.starts_with(d)) {
+                        if output_dirs.iter().any(|d| utils::path_starts_with(&e.path, d)) {
                             return false;
                         }
                         true

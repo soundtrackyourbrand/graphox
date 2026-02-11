@@ -529,7 +529,7 @@ impl Config {
                 for pattern in project.include.patterns() {
                     let include_path = self.base_dir.join(&pattern);
                     if let Ok(include_path) = fs::canonicalize(include_path)
-                        && abs_path.starts_with(&include_path)
+                        && crate::utils::path_starts_with(&abs_path, &include_path)
                     {
                         matched = true;
                         break;
