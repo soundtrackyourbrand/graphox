@@ -953,6 +953,9 @@ projects:
             config.fragment_masking_mode(),
             FragmentMasking::Enabled { .. }
         ));
-        assert!(config.projects[1].fragment_masking_mode().is_none());
+        assert!(matches!(
+            config.projects[1].fragment_masking_mode(),
+            Some(FragmentMasking::Disabled)
+        ));
     }
 }
