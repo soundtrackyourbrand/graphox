@@ -10,10 +10,23 @@ use graphox_core::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
-use graphox_core::utils::{is_path_ignored, is_relevant_file};
+use graphox_core::utils::{is_path_ignored, is_relevant_file, path_starts_with};
+use std::path::Path;
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
+
+fn is_output_file(path: &Path, config: &Config) -> bool {
+    for project in &config.projects {
+        if let Some(ref output_dir) = project.output_dir {
+            let abs_output = config.base_dir.join(output_dir);
+            if path_starts_with(path, &abs_output) {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 /// Parameters for file change processing
 pub struct FileChangeParams<'a> {
@@ -58,6 +71,11 @@ pub async fn process_file_created_or_changed(
         }
     };
     let path_str = path.to_string_lossy().to_string();
+
+    // Ignore changes to files in output directories to prevent infinite codegen loops
+    if is_output_file(&path, params.config) {
+        return None;
+    }
 
     // Check if this is a config file
     if is_config_file(&path, params.config) {
@@ -222,11 +240,14 @@ pub async fn process_file_created_or_changed(
         params.fragment_definitions,
     );
 
+    let should_run_codegen =
+        params.config.lsp_automatic_codegen() && !new_doc.get_graphql_trees().is_empty();
+
     Some(FileChangeResult {
         uris_to_validate,
         should_reload_schema: false,
         schema_path: None,
-        should_run_codegen: params.config.lsp_automatic_codegen(),
+        should_run_codegen,
         should_reload_config: false,
     })
 }

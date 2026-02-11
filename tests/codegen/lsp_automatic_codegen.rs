@@ -411,3 +411,152 @@ async fn test_lsp_automatic_codegen_disabled() {
         "Enabled project codegen was not updated after didChange"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    let query_path = base_dir.join("query.graphql");
+    let query_text = "query GetMe { me { id } }";
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("query.graphql".to_string()),
+            output_dir: Some("gen".to_string()),
+            ..Default::default()
+        }],
+        lsp_automatic_codegen: Some(true),
+        lsp_codegen_throttle_ms: Some(50),
+        enable_schema_cache: Some(true),
+        base_dir: base_dir.to_path_buf(),
+        ..Config::new_empty()
+    };
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
+                if params.message.starts_with("Workspace scan complete") {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
+
+    let gen_dir = base_dir.join("gen");
+    let gen_path = gen_dir.join("query.codegen.ts");
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+
+    service
+        .call(
+            Request::build("workspace/didChangeWatchedFiles")
+                .params(
+                    serde_json::to_value(DidChangeWatchedFilesParams {
+                        changes: vec![FileEvent {
+                            uri: query_uri.clone(),
+                            typ: FileChangeType::CHANGED,
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+
+    assert!(gen_path.exists(), "Codegen file should exist after triggering codegen");
+
+    let output_file_path = gen_dir.join("output.ts");
+    fs::write(&output_file_path, "export const foo = 'bar';").unwrap();
+
+    let output_uri = Url::from_file_path(&output_file_path).unwrap();
+
+    let initial_file_count = std::fs::read_dir(&gen_dir)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().path().is_file())
+        .count();
+
+    for _ in 0..10 {
+        fs::write(
+            &output_file_path,
+            format!(
+                "export const foo = 'bar{}';",
+                std::time::Instant::now().elapsed().as_millis()
+            ),
+        )
+        .unwrap();
+
+        service
+            .call(
+                Request::build("workspace/didChangeWatchedFiles")
+                    .params(
+                        serde_json::to_value(DidChangeWatchedFilesParams {
+                            changes: vec![FileEvent {
+                                uri: output_uri.clone(),
+                                typ: FileChangeType::CHANGED,
+                            }],
+                        })
+                        .unwrap(),
+                    )
+                    .finish(),
+            )
+            .await
+            .unwrap();
+
+        sleep(Duration::from_millis(50)).await;
+    }
+
+    sleep(Duration::from_millis(300)).await;
+
+    let final_file_count = std::fs::read_dir(&gen_dir)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().path().is_file())
+        .count();
+
+    assert_eq!(
+        initial_file_count, final_file_count,
+        "Codegen loop detected: output file changes triggered additional codegen runs"
+    );
+}
