@@ -8,10 +8,17 @@ export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K]
 
 export interface GetNodeQuery {
   __typename: "Query";
-  node: { __typename: "Node" }
-    | {
+  node: {
       __typename: "User";
+      id: string;
       username: string;
+    }
+    | {
+      __typename: "Post";
+      id: string;
+    } | {
+      __typename: "Comment";
+      id: string;
     } | null;
 }
 

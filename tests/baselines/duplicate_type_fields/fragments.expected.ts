@@ -5,6 +5,7 @@
 import type { FragmentType } from "./fragment-masking";
 export type DuplicateFields = ({
   id: string;
+  __typename: "Playlist";
   permissions: Array<"ADMIN" | "READ" | "WRITE">;
   presentAs: "CAROUSEL" | "GRID" | "LIST";
   name: string;

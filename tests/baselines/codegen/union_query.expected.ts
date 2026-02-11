@@ -8,15 +8,17 @@ export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K]
 
 export interface GetNodePolymorphicQuery {
   __typename: "Query";
-  node: { __typename: "Node" }
-    | {
+  node: {
       __typename: "User";
       id: string;
       username: string;
-    } | {
+    }
+    | {
       __typename: "Post";
       id: string;
       title: string;
+    } | {
+      __typename: "Comment";
     } | null;
 }
 
