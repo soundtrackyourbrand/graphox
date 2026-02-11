@@ -357,6 +357,17 @@ pub async fn run_codegen(
                 }
             }
 
+            let index_path = out_dir_path.join("index.ts");
+            let index_content = graphox_codegen::generate_index_content(&fragment_masking);
+            if let Err(e) = std::fs::write(&index_path, index_content) {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!("Failed to write index.ts {}: {}", index_path.display(), e),
+                    )
+                    .await;
+            }
+
             let manifest_path = out_dir_path.join("manifest.json");
             let manifest_entries: Vec<_> = all_generated_operations
                 .iter()

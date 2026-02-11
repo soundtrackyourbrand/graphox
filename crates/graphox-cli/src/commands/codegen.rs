@@ -841,6 +841,13 @@ async fn generate_project_files(
                 success = false;
             }
         }
+
+        let index_path = out_dir_path.join("index.ts");
+        let index_content = codegen::generate_index_content(&params.fragment_masking);
+        if let Err(e) = std::fs::write(&index_path, index_content) {
+            eprintln!("{}: {}", "Failed to write index.ts".red(), e);
+            success = false;
+        }
     }
 
     if success { Ok(all_ops) } else { Err(()) }

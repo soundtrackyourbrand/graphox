@@ -1647,6 +1647,20 @@ export function {}<TFragment, TData>(
     )
 }
 
+pub fn generate_index_content(fragment_masking: &FragmentMasking) -> String {
+    let mut output = String::with_capacity(256);
+    output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+    
+    output.push_str("export type { ResultOf, VariablesOf } from \"@graphql-typed-document-node/core\";\n");
+    
+    if fragment_masking.is_enabled() {
+        output.push_str("export * from \"./fragment-masking\";\n");
+    }
+    output.push_str("export * from \"./graphql\";\n");
+    
+    output
+}
+
 pub fn generate_possible_types(schema: &apollo_compiler::validation::Valid<Schema>) -> String {
     let mut possible_types: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
