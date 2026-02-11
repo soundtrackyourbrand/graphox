@@ -378,70 +378,73 @@ impl Engine {
     fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
         // Build a map of fragment name -> direct dependencies
         // We use a simple pattern matching approach that's faster than full parsing
-        let mut direct_deps: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
-
-        // Build fragment name set for quick lookup
+        // Build a HashMap of all fragment names for O(1) lookup
         let fragment_names: HashSet<Arc<str>> = fragments.iter().map(|f| f.name.clone()).collect();
 
-        // Parallelize the direct dependency computation
+        // OPTIMIZED: Instead of O(N²) nested loops, extract all spread patterns first
+        // then look them up. This is O(N) where N = total fragment count.
         let deps_vec: Vec<(Arc<str>, Vec<Arc<str>>)> = fragments
             .par_iter()
             .map(|frag| {
-                let mut deps = Vec::new();
+                let mut deps = HashSet::default();
                 let source = &frag.masked_source;
 
                 // Quick heuristic: only look for fragments if source contains "..."
                 if !source.contains("...") {
-                    return (frag.name.clone(), deps);
+                    return (frag.name.clone(), Vec::new());
                 }
 
-                // Look for fragment spreads: ...FragmentName
-                // More efficient pattern matching without repeated allocations
-                for other_frag_name in &fragment_names {
-                    if frag.name == *other_frag_name {
+                // Find all fragment spread patterns in one pass
+                // Pattern: ...FragmentName where FragmentName is a known fragment
+                let mut chars = source.char_indices().peekable();
+                while let Some((start_idx, ch)) = chars.next() {
+                    if ch != '.' {
                         continue;
                     }
 
-                    // Build pattern once and search for it
-                    let spread_marker = "...";
-                    let mut search_offset = 0;
+                    // Check if we have "..."
+                    if let Some((_, next1)) = chars.next() {
+                        if next1 != '.' {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
 
-                    // Search for all occurrences of the fragment name after "..."
-                    while let Some(marker_pos) = source[search_offset..].find(spread_marker) {
-                        let actual_pos = search_offset + marker_pos;
-                        let name_start = actual_pos + spread_marker.len();
+                    // Collect the fragment name that follows
+                    let name_start = start_idx + 3; // After "..."
+                    let mut name_end = name_start;
+                    let mut chars_peek = chars.clone();
+                    while let Some((_, ch)) = chars_peek.next() {
+                        if ch.is_alphanumeric() || ch == '_' {
+                            name_end += ch.len_utf8();
+                            let _ = chars.next(); // Advance main iterator
+                        } else {
+                            break;
+                        }
+                        chars_peek = chars.clone();
+                    }
 
-                        // Check if fragment name follows
-                        if name_start + other_frag_name.len() <= source.len() {
-                            let potential_name =
-                                &source[name_start..name_start + other_frag_name.len()];
-
-                            if potential_name == other_frag_name.as_ref() {
-                                // Verify it's not part of a longer identifier
-                                let end_idx = name_start + other_frag_name.len();
-                                let is_valid = if end_idx < source.len() {
-                                    let next_char = source[end_idx..].chars().next().unwrap();
-                                    !next_char.is_alphanumeric() && next_char != '_'
-                                } else {
-                                    true // End of string is valid
-                                };
-
-                                if is_valid {
-                                    deps.push(other_frag_name.clone());
-                                    break; // Found this fragment, no need to keep searching
-                                }
+                    if name_end > name_start {
+                        let potential_name = &source[name_start..name_end];
+                        if let Some(name_arc) = fragment_names.get(potential_name) {
+                            // Don't add self-reference
+                            if **name_arc != *frag.name {
+                                deps.insert(name_arc.clone());
                             }
                         }
-
-                        search_offset = actual_pos + 1;
                     }
                 }
 
-                (frag.name.clone(), deps)
+                // Convert HashSet to Vec
+                let mut deps_vec: Vec<Arc<str>> = deps.into_iter().collect();
+                deps_vec.sort();
+                (frag.name.clone(), deps_vec)
             })
             .collect();
 
         // Convert to HashMap
+        let mut direct_deps: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
         for (name, deps) in deps_vec {
             direct_deps.insert(name, deps);
         }

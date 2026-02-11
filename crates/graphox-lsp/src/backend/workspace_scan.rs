@@ -158,13 +158,28 @@ fn scan_and_index_workspace(
             }
 
             // Also index type definitions (for Go to Definition)
+            // Add timeout protection and max matches limit to prevent slow queries
+            const MAX_QUERY_MATCHES: usize = 1000;
+            const QUERY_TIMEOUT_MS: u64 = 100;
+
             let query = graphox_core::queries::GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
                 let lang = tree_sitter_graphql::LANGUAGE.into();
                 tree_sitter::Query::new(&lang, graphox_core::queries::GQL_DEFINITION_QUERY)
                     .expect("GQL_DEFINITION_QUERY should be a valid tree-sitter query")
             });
             let mut cursor = tree_sitter::QueryCursor::new();
+            let query_start = std::time::Instant::now();
+
             for block in doc.get_graphql_trees() {
+                // Check timeout
+                if query_start.elapsed().as_millis() as u64 > QUERY_TIMEOUT_MS {
+                    eprintln!(
+                        "[graphox] Tree-sitter query timed out for URI {}, skipping remaining blocks",
+                        uri
+                    );
+                    break;
+                }
+
                 let mut matches =
                     cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
                         doc.rope
@@ -174,7 +189,19 @@ fn scan_and_index_workspace(
                             )
                             .chunks()
                     });
+                let mut match_count = 0;
+
                 while let Some(m) = matches.next() {
+                    // Check max matches limit
+                    if match_count >= MAX_QUERY_MATCHES {
+                        eprintln!(
+                            "[graphox] Too many query matches for URI {}, stopping at {}",
+                            uri, MAX_QUERY_MATCHES
+                        );
+                        break;
+                    }
+                    match_count += 1;
+
                     let name_node = m.captures[0].node;
                     let name = doc.get_node_text(name_node, block.offset);
                     params
@@ -226,6 +253,14 @@ fn scan_and_index_workspace(
 
 /// Validates all documents in the workspace
 async fn validate_all_documents(params: &WorkspaceScanParams) {
+    validate_all_documents_cancellable(params, &Arc::new(AtomicBool::new(false))).await;
+}
+
+/// Validates all documents in the workspace with cancellation support
+async fn validate_all_documents_cancellable(
+    params: &WorkspaceScanParams,
+    cancelled: &Arc<AtomicBool>,
+) {
     let documents = &params.documents;
     let config = &params.config;
     let fragment_defs = &params.fragment_defs;
@@ -234,6 +269,13 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
     let schemas = &params.schemas;
     let empty_schema = &params.empty_schema;
     let client = &params.client;
+
+    // Check cancellation early
+    if cancelled.load(Ordering::Relaxed) {
+        eprintln!("[graphox] Validation cancelled early");
+        return;
+    }
+
     // Collect all used fragments
     let used_fragments = {
         let mut used = AHashSet::default();
@@ -277,12 +319,26 @@ async fn validate_all_documents(params: &WorkspaceScanParams) {
             package_roots,
         );
 
-    // Validate all documents in parallel
+    // Validate all documents in parallel with cancellation support
     use rayon::prelude::*;
-    let to_publish: Vec<(Url, Vec<Diagnostic>)> = documents
-        .as_ref()
-        .par_iter()
-        .map(|entry| {
+
+    // Use indexed parallel iterator for periodic cancellation checks
+    let docs_vec: Vec<_> = documents.iter().collect();
+    let total_docs = docs_vec.len();
+
+    let to_publish: Vec<(Url, Vec<Diagnostic>)> = docs_vec
+        .into_par_iter()
+        .enumerate()
+        .map(|(idx, entry)| {
+            // Check cancellation periodically (every 100 documents)
+            if idx > 0 && idx % 100 == 0 && cancelled.load(Ordering::Relaxed) {
+                eprintln!(
+                    "[graphox] Validation cancelled at document {}/{}",
+                    idx, total_docs
+                );
+                return (entry.key().clone(), Vec::new());
+            }
+
             let uri = entry.key();
             let doc = entry.value();
 
