@@ -874,7 +874,7 @@ pub fn emit_permission_data_content(
         "./fragment-masking".to_string(),
     );
 
-    output.push_str("export interface PermissionsType {\n");
+    output.push_str("export interface PermissionTypes {\n");
     for (typename, field) in &types_with_permissions {
         let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
         output.push_str(&format!("  {}: {};\n", typename, ts_type));

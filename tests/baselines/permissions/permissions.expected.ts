@@ -4,7 +4,7 @@
 
 import type { PostPermissions, UserPermissions } from "./schema.types";
 
-export interface PermissionsType {
+export interface PermissionTypes {
   Post: PostPermissions | null;
   User: UserPermissions;
 }
