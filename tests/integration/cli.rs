@@ -1162,6 +1162,16 @@ fn test_cli_suffixes_baselines() {
     run_baseline_test("tests/fixtures/suffixes", "tests/baselines/suffixes", None);
 }
 
+#[test]
+#[ntest::timeout(250)]
+fn test_cli_output_types_baselines() {
+    run_baseline_test(
+        "tests/fixtures/output_types",
+        "tests/baselines/output_types",
+        None,
+    );
+}
+
 fn run_baseline_test(
     fixture_dir_str: &str,
     baseline_dir_str: &str,

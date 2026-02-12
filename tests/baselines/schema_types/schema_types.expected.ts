@@ -30,3 +30,8 @@ export interface CreateUserInput {
 export interface OldInput {
   id: string;
 }
+
+export interface Query {
+  __typename: "Query";
+  user?: string | null;
+}

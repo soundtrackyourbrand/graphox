@@ -1,0 +1,4 @@
+projects: []
+schema_types:
+  - schema: "schema.graphql"
+    output: "__generated__/schema_types.ts"

@@ -1548,7 +1548,142 @@ pub fn generate_schema_types(
         }
     }
 
-    // 3. Custom Scalars (Fallback to any if not handled in gql_type_to_ts)
+    // 3. Objects
+    let mut object_names: Vec<_> = schema.types.keys().collect();
+    object_names.sort();
+
+    for name in object_names {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let Some(ExtendedType::Object(obj)) = schema.types.get(name) {
+            let deprecation = obj.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(obj.description.as_deref(), deprecation, 0));
+            output.push_str(&format!("export interface {} {{\n", name));
+            output.push_str(&format!("  __typename: \"{}\";\n", name));
+
+            let mut field_names: Vec<_> = obj.fields.keys().collect();
+            field_names.sort();
+
+            for field_name in field_names {
+                let field = &obj.fields[field_name];
+                let field_deprecation = field.directives.get("deprecated").map(|d| {
+                    d.argument_by_name("reason", schema)
+                        .ok()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("No reason provided")
+                });
+                output.push_str(&format_jsdoc(
+                    field.description.as_deref(),
+                    field_deprecation,
+                    1,
+                ));
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
+                let optional = if field.ty.is_non_null() { "" } else { "?" };
+                output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
+            }
+            output.push_str("}\n\n");
+        }
+    }
+
+    // 4. Interfaces
+    let mut interface_names: Vec<_> = schema.types.keys().collect();
+    interface_names.sort();
+
+    for name in interface_names {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let Some(ExtendedType::Interface(interface)) = schema.types.get(name) {
+            let deprecation = interface.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(interface.description.as_deref(), deprecation, 0));
+            output.push_str(&format!("export interface {} {{\n", name));
+
+            // For interfaces, __typename is a union of all possible types
+            let mut implementors: Vec<_> = schema
+                .types
+                .iter()
+                .filter_map(|(n, t)| {
+                    if let ExtendedType::Object(obj) = t {
+                        if obj
+                            .implements_interfaces
+                            .iter()
+                            .any(|i| i.as_str() == name.as_str())
+                        {
+                            Some(format!("\"{}\"", n))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            implementors.sort();
+
+            if !implementors.is_empty() {
+                output.push_str(&format!("  __typename: {};\n", implementors.join(" | ")));
+            } else {
+                output.push_str("  __typename: string;\n");
+            }
+
+            let mut field_names: Vec<_> = interface.fields.keys().collect();
+            field_names.sort();
+
+            for field_name in field_names {
+                let field = &interface.fields[field_name];
+                let field_deprecation = field.directives.get("deprecated").map(|d| {
+                    d.argument_by_name("reason", schema)
+                        .ok()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("No reason provided")
+                });
+                output.push_str(&format_jsdoc(
+                    field.description.as_deref(),
+                    field_deprecation,
+                    1,
+                ));
+                let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
+                let optional = if field.ty.is_non_null() { "" } else { "?" };
+                output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
+            }
+            output.push_str("}\n\n");
+        }
+    }
+
+    // 5. Unions
+    let mut union_names: Vec<_> = schema.types.keys().collect();
+    union_names.sort();
+
+    for name in union_names {
+        if name.starts_with("__") {
+            continue;
+        }
+        if let Some(ExtendedType::Union(un)) = schema.types.get(name) {
+            let deprecation = un.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+            output.push_str(&format_jsdoc(un.description.as_deref(), deprecation, 0));
+            let mut members: Vec<_> = un.members.iter().map(|m| m.to_string()).collect();
+            members.sort();
+            output.push_str(&format!("export type {} = {};\n\n", name, members.join(" | ")));
+        }
+    }
+
+    // 6. Custom Scalars (Fallback to any if not handled in gql_type_to_ts)
     let mut scalar_names: Vec<_> = schema.types.keys().collect();
     scalar_names.sort();
 
