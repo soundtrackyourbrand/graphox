@@ -842,10 +842,7 @@ pub fn emit_permission_data_content(
     output.push_str("export interface PermissionTypes {\n");
     for (typename, field) in &types_with_permissions {
         let inner_name = field.ty.inner_named_type();
-        let mut ts_type = inner_name.to_string();
-        if field.ty.is_list() {
-            ts_type = format!("Array<{}>", ts_type);
-        }
+        let ts_type = inner_name.to_string();
         output.push_str(&format!("  {}: {};\n", typename, ts_type));
     }
     output.push_str("}\n\n");
