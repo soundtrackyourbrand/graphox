@@ -993,6 +993,7 @@ fn generate_field_list(
 
     if !has_explicit_typename {
         local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
+        seen_fields.insert("__typename".to_string());
     }
 
     for field in fields {

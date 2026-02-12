@@ -5,3 +5,4 @@ mod lsp_automatic_codegen;
 mod self_import_fix;
 mod throttle;
 mod union_fragment_codegen;
+mod duplicate_typename;
