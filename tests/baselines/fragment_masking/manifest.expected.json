@@ -1,17 +1,17 @@
 [
   {
-    "path": "./queries.codegen",
     "name": "GetUserQueryDocument",
+    "path": "./queries.codegen",
     "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n    ...UserEmail\n  }\n}\n\nquery GetUserWithPosts($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    posts {\n      ...UserPosts\n    }\n  }\n}\n"
   },
   {
+    "name": "GetUserWithPostsQueryDocument",
     "path": "./queries.codegen",
-    "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n    ...UserEmail\n  }\n}\n\nquery GetUserWithPosts($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    posts {\n      ...UserPosts\n    }\n  }\n}\n",
-    "name": "GetUserWithPostsQueryDocument"
+    "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n    ...UserEmail\n  }\n}\n\nquery GetUserWithPosts($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    posts {\n      ...UserPosts\n    }\n  }\n}\n"
   },
   {
-    "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n    ...UserEmail\n  }\n}\n\nquery GetUserWithPosts($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    posts {\n      ...UserPosts\n    }\n  }\n}\n",
+    "name": "GetUsersQueryDocument",
     "path": "./queries.codegen",
-    "name": "GetUsersQueryDocument"
+    "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n    ...UserEmail\n  }\n}\n\nquery GetUserWithPosts($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    posts {\n      ...UserPosts\n    }\n  }\n}\n"
   }
 ]

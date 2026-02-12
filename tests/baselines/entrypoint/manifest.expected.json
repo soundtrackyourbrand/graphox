@@ -1,12 +1,12 @@
 [
   {
-    "source": "query GetMe {\n  me {\n    id\n    username\n  }\n}\n",
+    "name": "GetMeQueryDocument",
     "path": "./query.codegen",
-    "name": "GetMeQueryDocument"
+    "source": "query GetMe {\n  me {\n    id\n    username\n  }\n}\n"
   },
   {
     "name": "GetMyIdQueryDocument",
-    "source": "query GetMyId {\n  me {\n    id\n  }\n}\n",
-    "path": "./subdir/other.codegen"
+    "path": "./subdir/other.codegen",
+    "source": "query GetMyId {\n  me {\n    id\n  }\n}\n"
   }
 ]

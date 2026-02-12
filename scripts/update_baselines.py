@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import re
+import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_PATH = os.path.join(ROOT, "target/debug/graphox")
@@ -71,6 +72,11 @@ def update_baselines(fixture_rel, baseline_rel):
                 elif f.endswith(".json"):
                     stem = f.replace(".json", "")
                     baseline_name = stem + ".expected.json"
+                    with open(os.path.join(root, f), 'r') as jf:
+                        json_data = json.load(jf)
+                    with open(os.path.join(target_dir, baseline_name), 'w') as jf:
+                        json.dump(json_data, jf, indent=2, sort_keys=True)
+                    continue
                 else:
                     baseline_name = f
 
