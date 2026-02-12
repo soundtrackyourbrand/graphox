@@ -160,6 +160,7 @@ def main():
         ("tests/fixtures/possible_types", "tests/baselines/possible_types"),
         ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
         ("tests/fixtures/output_types", "tests/baselines/output_types"),
+        ("tests/fixtures/interface_fragment_typename", "tests/baselines/interface_fragment_typename"),
     ]
 
 

@@ -245,6 +245,9 @@ pub fn generate_typescript_with_profile(
     // Pre-allocate output with estimated capacity
     let mut output = String::with_capacity(4096);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+    output.push_str(
+        "export type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;\n\n",
+    );
 
     let mut used_fragments = HashMap::default();
     let mut generated_operations = Vec::new();
@@ -1123,7 +1126,8 @@ fn generate_field_list(
     let mut seen_fields: HashSet<String> = HashSet::with_capacity(fields.len() + 1);
 
     if !has_explicit_typename {
-        local_fields_list.push(format!("__typename: \"{}\"", parent_type.name()));
+        let typename_value = get_typename_value_for_type(parent_type, ctx.schema);
+        local_fields_list.push(format!("__typename: {}", typename_value));
         seen_fields.insert("__typename".to_string());
     }
 
@@ -1135,7 +1139,8 @@ fn generate_field_list(
         }
 
         if field.name.as_str() == "__typename" {
-            local_fields_list.push(format!("{}: \"{}\"", name, parent_type.name()));
+            let typename_value = get_typename_value_for_type(parent_type, ctx.schema);
+            local_fields_list.push(format!("{}: {}", name, typename_value));
             continue;
         }
 
@@ -1212,7 +1217,7 @@ fn format_intersection(
         return format!("{{ {} }}", fields.join(", "));
     }
 
-    if ctx.fragment_masking.is_enabled() {
+    let result = if ctx.fragment_masking.is_enabled() {
         let mut refs: Vec<_> = fragment_spreads
             .iter()
             .map(|s| {
@@ -1225,11 +1230,11 @@ fn format_intersection(
         let refs_obj = format!("{{ ' $fragmentRefs'?: {{ {} }} }}", refs.join(", "));
 
         if fields.is_empty() {
-            return refs_obj;
+            refs_obj
+        } else {
+            let base_obj = format!("{{ {} }}", fields.join(", "));
+            format!("({} & {})", base_obj, refs_obj)
         }
-
-        let base_obj = format!("{{ {} }}", fields.join(", "));
-        format!("({} & {})", base_obj, refs_obj)
     } else {
         let mut plain_spreads: Vec<_> = fragment_spreads
             .iter()
@@ -1243,11 +1248,18 @@ fn format_intersection(
         };
 
         if fields.is_empty() {
-            return spreads_str;
+            spreads_str
+        } else {
+            let base_obj = format!("{{ {} }}", fields.join(", "));
+            format!("({} & {})", base_obj, spreads_str)
         }
+    };
 
-        let base_obj = format!("{{ {} }}", fields.join(", "));
-        format!("({} & {})", base_obj, spreads_str)
+    // Wrap intersection types with Identity<> for better TypeScript inference
+    if fragment_spreads.len() > 1 || (ctx.fragment_masking.is_enabled() && !fields.is_empty()) {
+        format!("Identity<{}>", result)
+    } else {
+        result
     }
 }
 
@@ -1425,6 +1437,42 @@ fn get_abstract_members<'a>(ty: &'a ExtendedType, schema: &'a Schema) -> Vec<&'a
             })
             .collect(),
         _ => vec![ty.name().as_str()],
+    }
+}
+
+fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<String> {
+    schema
+        .types
+        .iter()
+        .filter_map(|(n, t)| {
+            if let ExtendedType::Object(obj) = t {
+                if obj
+                    .implements_interfaces
+                    .iter()
+                    .any(|i| i.as_str() == interface_name)
+                {
+                    Some(format!("\"{}\"", n))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn get_typename_value_for_type(parent_type: &ExtendedType, schema: &Schema) -> String {
+    match parent_type {
+        ExtendedType::Interface(iface) => {
+            let implementors = get_interface_implementors(&iface.name, schema);
+            if implementors.is_empty() {
+                "string".to_string()
+            } else {
+                implementors.join(" | ")
+            }
+        }
+        _ => format!("\"{}\"", parent_type.name()),
     }
 }
 
@@ -1746,25 +1794,7 @@ pub fn generate_schema_types(
             output.push_str(&format!("export interface {} {{\n", name));
 
             // For interfaces, __typename is a union of all possible types
-            let mut implementors: Vec<_> = schema
-                .types
-                .iter()
-                .filter_map(|(n, t)| {
-                    if let ExtendedType::Object(obj) = t {
-                        if obj
-                            .implements_interfaces
-                            .iter()
-                            .any(|i| i.as_str() == name.as_str())
-                        {
-                            Some(format!("\"{}\"", n))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let mut implementors = get_interface_implementors(name, schema);
             implementors.sort();
 
             if !implementors.is_empty() {

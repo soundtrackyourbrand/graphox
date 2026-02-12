@@ -4,6 +4,7 @@ mod cross_project_features;
 mod duplicate_operations;
 mod emit_extensions_test;
 mod github_reporter;
+mod interface_fragment_typename;
 mod lsp_multi_schema;
 mod lsp_updates;
 mod multibyte;

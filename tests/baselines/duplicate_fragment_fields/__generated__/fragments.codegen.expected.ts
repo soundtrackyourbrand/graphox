@@ -2,6 +2,8 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
+export type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+
 import type { FragmentType } from "./fragment-masking";
 export type UserBasic = {
   __typename: "User";
@@ -55,14 +57,14 @@ export declare const UserContact: {
 };
 
 
-export type UserNestedA = ({ __typename: "User", role: string } & { ' $fragmentRefs'?: { 'UserFullName': UserFullName } }) & { ' $fragmentName'?: 'UserNestedA' };
+export type UserNestedA = Identity<({ __typename: "User", role: string } & { ' $fragmentRefs'?: { 'UserFullName': UserFullName } })> & { ' $fragmentName'?: 'UserNestedA' };
 
 export declare const UserNestedA: {
   __fragment: UserNestedA;
 };
 
 
-export type UserNestedB = ({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserContact': UserContact, 'UserFullName': UserFullName } }) & { ' $fragmentName'?: 'UserNestedB' };
+export type UserNestedB = Identity<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserContact': UserContact, 'UserFullName': UserFullName } })> & { ' $fragmentName'?: 'UserNestedB' };
 
 export declare const UserNestedB: {
   __fragment: UserNestedB;

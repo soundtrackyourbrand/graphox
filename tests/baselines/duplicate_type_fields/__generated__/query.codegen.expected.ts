@@ -2,6 +2,8 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
+export type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
 import { DuplicateFields } from "./fragments.codegen";
@@ -10,7 +12,7 @@ export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K]
 
 export interface GetPlaylistQuery {
   __typename: "Query";
-  playlist: ({ __typename: "Playlist" } & { ' $fragmentRefs'?: { 'DuplicateFields': DuplicateFields } }) | null;
+  playlist: Identity<({ __typename: "Playlist" } & { ' $fragmentRefs'?: { 'DuplicateFields': DuplicateFields } })> | null;
 }
 
 export type GetPlaylistQueryVariables = Exact<{

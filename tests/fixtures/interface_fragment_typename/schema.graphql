@@ -1,0 +1,23 @@
+interface Displayable {
+  display: Display
+}
+
+type Display {
+  title: String!
+}
+
+type Schedule implements Displayable {
+  id: ID!
+  name: String!
+  display: Display
+}
+
+type Curator implements Displayable {
+  id: ID!
+  accountId: String!
+  display: Display
+}
+
+type Query {
+  items: [Displayable!]!
+}

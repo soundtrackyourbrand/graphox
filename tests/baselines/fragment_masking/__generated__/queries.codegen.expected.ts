@@ -2,6 +2,8 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
+export type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
 import { UserEmail, UserFields } from "./fragments.codegen";
@@ -11,7 +13,7 @@ export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K]
 
 export interface GetUserQuery {
   __typename: "Query";
-  user: ({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserFields': UserFields } }) | null;
+  user: Identity<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserFields': UserFields } })> | null;
 }
 
 export type GetUserQueryVariables = Exact<{
@@ -22,7 +24,7 @@ export const GetUserQueryDocument = {"definitions":[{"directives":[],"kind":"Ope
 
 export interface GetUsersQuery {
   __typename: "Query";
-  users: Array<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserEmail': UserEmail, 'UserFields': UserFields } }) | null> | null;
+  users: Array<Identity<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserEmail': UserEmail, 'UserFields': UserFields } })> | null> | null;
 }
 
 export type GetUsersQueryVariables = Exact<{
@@ -32,7 +34,7 @@ export const GetUsersQueryDocument = {"definitions":[{"directives":[],"kind":"Op
 
 export interface GetUserWithPostsQuery {
   __typename: "Query";
-  user: ({ __typename: "User", posts: Array<({ __typename: "Post" } & { ' $fragmentRefs'?: { 'UserPosts': UserPosts } }) | null> | null } & { ' $fragmentRefs'?: { 'UserFields': UserFields } }) | null;
+  user: Identity<({ __typename: "User", posts: Array<Identity<({ __typename: "Post" } & { ' $fragmentRefs'?: { 'UserPosts': UserPosts } })> | null> | null } & { ' $fragmentRefs'?: { 'UserFields': UserFields } })> | null;
 }
 
 export type GetUserWithPostsQueryVariables = Exact<{
