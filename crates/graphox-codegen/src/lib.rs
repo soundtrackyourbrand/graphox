@@ -528,9 +528,12 @@ pub fn generate_typescript_with_profile(
                 .or_default()
                 .push(frag_name.clone().into());
         } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name[..]) {
-            // fragment_to_path contains absolute paths as strings.
-            // doc.uri.path() is also absolute.
-            if other_path.as_ref() != current_path {
+            let other_path_buf = PathBuf::from(other_path.as_ref());
+            let current_path_buf = PathBuf::from(current_path);
+            let other_canonical = std::fs::canonicalize(&other_path_buf).unwrap_or(other_path_buf);
+            let current_canonical =
+                std::fs::canonicalize(&current_path_buf).unwrap_or(current_path_buf);
+            if other_canonical != current_canonical {
                 imports
                     .entry(other_path.clone())
                     .or_default()
