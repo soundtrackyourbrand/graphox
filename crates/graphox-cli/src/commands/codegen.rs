@@ -860,25 +860,91 @@ async fn clean_project_files(
     params: CodegenParams<'_>,
     verbose: bool,
 ) -> Result<Vec<codegen::OperationGenerated>, ()> {
-    let glob_pattern = params.include.as_key();
-    let include_prefix = utils::get_glob_root(&glob_pattern);
-    let success = params
-        .project_files
-        .par_iter()
-        .map(|path| {
-            let out_path = utils::get_output_path(
-                path,
-                params.base_dir,
-                params.output_dir,
-                Some(include_prefix.to_str().unwrap_or("")),
-            );
-            let mut ok = true;
-            if out_path.exists() {
-                if let Err(e) = std::fs::remove_file(&out_path) {
+    let include_root = utils::get_glob_root(&params.include.as_key());
+    let abs_include_root = params.base_dir.join(&include_root);
+
+    match params.output_dir {
+        Some(out_dir) => {
+            let abs_out_dir = params.base_dir.join(out_dir);
+
+            if abs_out_dir != abs_include_root {
+                if abs_out_dir.exists() {
+                    if let Err(e) = std::fs::remove_dir_all(&abs_out_dir) {
+                        eprintln!(
+                            "{}: {} - {}",
+                            "Failed to remove output directory".red(),
+                            abs_out_dir.display().to_string().red(),
+                            e
+                        );
+                        return Err(());
+                    } else if verbose {
+                        println!(
+                            "{}: {}",
+                            "Removed directory".bright_black(),
+                            abs_out_dir.display().to_string().bright_black()
+                        );
+                    }
+                }
+            } else {
+                eprintln!(
+                    "{}: output_dir '{}' is the same as include root, performing surgical cleanup",
+                    "Warning".yellow(),
+                    out_dir
+                );
+                surgical_clean(&abs_out_dir, verbose)?;
+            }
+        }
+        None => {
+            let include_prefix = include_root.to_str().unwrap_or("");
+            params
+                .project_files
+                .par_iter()
+                .map(|path| {
+                    let out_path = utils::get_output_path(
+                        path,
+                        params.base_dir,
+                        params.output_dir,
+                        Some(include_prefix),
+                    );
+                    let mut ok = true;
+                    if out_path.exists() {
+                        if let Err(e) = std::fs::remove_file(&out_path) {
+                            eprintln!(
+                                "{}: {} - {}",
+                                "Failed to remove".red(),
+                                out_path.display().to_string().red(),
+                                e
+                            );
+                            ok = false;
+                        } else if verbose {
+                            println!(
+                                "{}: {}",
+                                "Removed".bright_black(),
+                                out_path.display().to_string().bright_black()
+                            );
+                        }
+                    }
+                    ok
+                })
+                .reduce(|| true, |a, b| a && b);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn surgical_clean(dir: &Path, verbose: bool) -> Result<(), ()> {
+    let mut ok = true;
+
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "codegen.ts").unwrap_or(false) {
+                if let Err(e) = std::fs::remove_file(&path) {
                     eprintln!(
                         "{}: {} - {}",
                         "Failed to remove".red(),
-                        out_path.display().to_string().red(),
+                        path.display().to_string().red(),
                         e
                     );
                     ok = false;
@@ -886,83 +952,42 @@ async fn clean_project_files(
                     println!(
                         "{}: {}",
                         "Removed".bright_black(),
-                        out_path.display().to_string().bright_black()
-                    );
-                }
-            }
-            ok
-        })
-        .reduce(|| true, |a, b| a && b);
-
-    let mut entrypoint_ok = true;
-    let mut manifest_ok = true;
-    let mut permissions_ok = true;
-    if let Some(out_dir) = params.output_dir {
-        let entrypoint_path = params.base_dir.join(out_dir).join("graphql.ts");
-        if entrypoint_path.exists() {
-            if let Err(e) = std::fs::remove_file(&entrypoint_path) {
-                eprintln!(
-                    "{} {}: {}",
-                    "Failed to remove entrypoint".red(),
-                    entrypoint_path.display().to_string().red(),
-                    e
-                );
-                entrypoint_ok = false;
-            } else if verbose {
-                println!(
-                    "{}: {}",
-                    "Removed".bright_black(),
-                    entrypoint_path.display().to_string().bright_black()
-                );
-            }
-        }
-
-        let manifest_path = params.base_dir.join(out_dir).join("manifest.json");
-        if manifest_path.exists() {
-            if let Err(e) = std::fs::remove_file(&manifest_path) {
-                eprintln!(
-                    "{} {}: {}",
-                    "Failed to remove manifest".red(),
-                    manifest_path.display().to_string().red(),
-                    e
-                );
-                manifest_ok = false;
-            } else if verbose {
-                println!(
-                    "{}: {}",
-                    "Removed".bright_black(),
-                    manifest_path.display().to_string().bright_black()
-                );
-            }
-        }
-
-        if params.emit_permission_data {
-            let permissions_path = params.base_dir.join(out_dir).join("permissions.ts");
-            if permissions_path.exists() {
-                if let Err(e) = std::fs::remove_file(&permissions_path) {
-                    eprintln!(
-                        "{} {}: {}",
-                        "Failed to remove permissions".red(),
-                        permissions_path.display().to_string().red(),
-                        e
-                    );
-                    permissions_ok = false;
-                } else if verbose {
-                    println!(
-                        "{}: {}",
-                        "Removed".bright_black(),
-                        permissions_path.display().to_string().bright_black()
+                        path.display().to_string().bright_black()
                     );
                 }
             }
         }
     }
 
-    if success && entrypoint_ok && manifest_ok && permissions_ok {
-        Ok(Vec::new())
-    } else {
-        Err(())
+    let known_files = [
+        "graphql.ts",
+        "manifest.json",
+        "permissions.ts",
+        "fragment-masking.ts",
+        "index.ts",
+    ];
+    for name in &known_files {
+        let path = dir.join(name);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!(
+                    "{}: {} - {}",
+                    "Failed to remove".red(),
+                    path.display().to_string().red(),
+                    e
+                );
+                ok = false;
+            } else if verbose {
+                println!(
+                    "{}: {}",
+                    "Removed".bright_black(),
+                    path.display().to_string().bright_black()
+                );
+            }
+        }
     }
+
+    if ok { Ok(()) } else { Err(()) }
 }
 
 fn execute_single_file_codegen(
