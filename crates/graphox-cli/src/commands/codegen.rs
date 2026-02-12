@@ -220,6 +220,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
         let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
 
+        let project_output_dir = project.output_dir.as_deref().map(Path::new);
+
         let mut type_imports = HashMap::default();
         let mut schema_import = project.import.clone();
 
@@ -249,8 +251,6 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 schema_import = matches.first().and_then(|st| st.import.clone());
             }
         }
-
-        let project_output_dir = project.output_dir.as_deref().map(Path::new);
 
         let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
             Ok(v) => v,
