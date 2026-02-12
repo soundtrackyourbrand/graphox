@@ -15,7 +15,7 @@ pub struct CodegenParams<'a> {
     pub source: &'a SchemaSource,
     pub include: &'a GlobPattern,
     pub project_files: &'a [PathBuf],
-    pub output_dir: Option<&'a str>,
+    pub output_dir: Option<&'a Path>,
     pub scalars: &'a Option<HashMap<String, String>>,
     pub schema_import: &'a Option<String>,
     pub type_imports: &'a HashMap<String, String>,
@@ -53,7 +53,12 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
         let mut output_dirs = Vec::new();
         for p in &config.projects {
             if let Some(out) = &p.output_dir {
-                output_dirs.push(config.base_dir.join(out));
+                let out_dir = config.base_dir.join(out);
+                if let Ok(canon) = out_dir.canonicalize() {
+                    output_dirs.push(canon);
+                } else {
+                    output_dirs.push(out_dir);
+                }
             }
         }
 
@@ -199,41 +204,35 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         .enumerate()
     {
         if !project.codegen_enabled() {
-            if verbose {
-                println!(
-                    "{}: {} (codegen disabled)",
-                    "Skipping project".bright_black(),
-                    project.include.as_key().bright_black()
-                );
-            }
             continue;
         }
 
-        let project_files = &project_meta.files;
+        let project_files: Vec<PathBuf> = project_meta
+            .files
+            .iter()
+            .map(|p| cfg.base_dir.join(p))
+            .collect();
 
-        println!("Processing project: {}", project.include.as_key().blue());
-        let project_output_dir = project.output_dir.as_deref();
+        if project_files.is_empty() {
+            continue;
+        }
 
         let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
 
         let mut type_imports = HashMap::default();
-        let mut schema_import = None;
+        let mut schema_import = project.import.clone();
 
         if let Some(schema_types) = &cfg.schema_types {
-            // 1. Collect all matching schema_types and their import paths
             let mut matches: Vec<_> = schema_types
                 .iter()
                 .filter(|st| {
                     let st_files = st.schema.files();
-                    // Check if this schema_type is a subset of the project schema
                     st_files.iter().all(|f| project_schema_files.contains(f))
                 })
                 .collect();
 
-            // Sort by number of files descending for specificity
             matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
 
-            // 2. Build the type_imports map
             for st in matches.iter().rev() {
                 if let Some(import_path) = &st.import
                     && let Ok(st_schema) =
@@ -245,9 +244,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 }
             }
 
-            // 3. Keep schema_import for backward compatibility (the "best" match)
-            schema_import = matches.first().and_then(|st| st.import.clone());
+            if schema_import.is_none() {
+                schema_import = matches.first().and_then(|st| st.import.clone());
+            }
         }
+
+        let project_output_dir = project.output_dir.as_deref().map(Path::new);
 
         let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
             Ok(v) => v,
@@ -259,7 +261,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         };
 
         let project_context =
-            Engine::resolve_project_context(&valid_schema, global_metadata, project_files);
+            Engine::resolve_project_context(&valid_schema, global_metadata, &project_files);
 
         if !clean && project.emit_permission_data.unwrap_or(false) {
             if let Some(out_dir) = project_output_dir {
@@ -388,7 +390,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 base_dir: &cfg.base_dir,
                 source: &project.schema,
                 include: &project.include,
-                project_files,
+                project_files: &project_files,
                 output_dir: project_output_dir,
                 scalars: &cfg.scalars,
                 schema_import: &schema_import,
@@ -530,18 +532,57 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         }
     }
 
-    // Generate graphql.ts and manifest.json for each project
+    // Generate graphql.ts and manifest.json for each output directory
     if !clean {
-        for (project_idx, _ops) in project_operations.iter() {
-            let Some(project) = cfg.projects.get(*project_idx) else {
+        use std::collections::BTreeMap;
+        let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
+        let mut dir_to_config: HashMap<PathBuf, (codegen::FragmentMasking, String, String)> =
+            HashMap::new();
+
+        for (project_idx, ops) in project_operations.into_iter() {
+            let Some(project) = cfg.projects.get(project_idx) else {
                 continue;
             };
             let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
-            let Some(ops) = project_operations.get(project_idx) else {
-                continue;
-            };
-
             let out_dir_path = cfg.base_dir.join(out_dir);
+            let canon_out_dir_path = out_dir_path.canonicalize().unwrap_or_else(|_| out_dir_path.clone());
+
+            dir_to_ops
+                .entry(canon_out_dir_path.clone())
+                .or_default()
+                .extend(ops);
+
+            if !dir_to_config.contains_key(&canon_out_dir_path) {
+                let fragment_masking = codegen::FragmentMasking::from_config(
+                    &project
+                        .fragment_masking
+                        .clone()
+                        .or(cfg.fragment_masking.clone()),
+                );
+                dir_to_config.insert(
+                    canon_out_dir_path,
+                    (
+                        fragment_masking,
+                        cfg.document_suffix().to_string(),
+                        cfg.variables_suffix().to_string(),
+                    ),
+                );
+            }
+        }
+
+        for (out_dir_path, mut ops) in dir_to_ops {
+            let (fragment_masking, doc_suffix, var_suffix) =
+                dir_to_config.get(&out_dir_path).unwrap();
+
+            // Deduplicate operations by name and source
+            ops.sort_by(|a, b| {
+                a.operation_type_name
+                    .cmp(&b.operation_type_name)
+                    .then_with(|| a.source_text.cmp(&b.source_text))
+            });
+            ops.dedup_by(|a, b| {
+                a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
+            });
 
             // Check if path exists but is a file (blocks directory creation)
             if out_dir_path.exists() && out_dir_path.is_file() {
@@ -555,12 +596,6 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
 
             let entrypoint_path = out_dir_path.join("graphql.ts");
-            let fragment_masking = codegen::FragmentMasking::from_config(
-                &project
-                    .fragment_masking
-                    .clone()
-                    .or(cfg.fragment_masking.clone()),
-            );
 
             if verbose {
                 println!(
@@ -571,10 +606,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
             let content = codegen::generate_entrypoint_content(
                 &out_dir_path,
-                ops,
-                cfg.document_suffix(),
-                cfg.variables_suffix(),
-                &fragment_masking,
+                &ops,
+                doc_suffix,
+                var_suffix,
+                fragment_masking,
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
                 eprintln!(
@@ -714,18 +749,31 @@ async fn generate_project_files(
     let results: Vec<_> = params
         .project_files
         .par_iter()
-        .filter_map(|path| params.workspace_documents.get(path).map(|doc| (path, doc)))
-        .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
+        .filter_map(|path| {
+            params.workspace_documents.get(path).map(|doc| (path, doc))
+        })
+        .filter(|(_, doc)| {
+            !doc.get_graphql_trees().is_empty()
+        })
         .map(|(path, doc)| {
-            let glob_pattern = params.include.as_key();
-            let include_prefix_path = utils::get_glob_root(&glob_pattern);
-            let include_prefix = include_prefix_path.to_str().unwrap_or("");
+            let patterns = params.include.patterns();
+            let include_prefix_path = patterns
+                .iter()
+                .map(|p| {
+                    let root = utils::get_glob_root(p);
+                    root
+                })
+                .find(|root| {
+                    let abs_root = params.base_dir.join(root);
+                    path.starts_with(&abs_root)
+                })
+                .unwrap_or_default();
 
             let out_path_raw = utils::get_output_path(
                 path,
                 params.base_dir,
                 params.output_dir,
-                Some(include_prefix),
+                Some(&include_prefix_path),
             );
 
             let abs_out_path = if out_path_raw.is_absolute() {
@@ -779,7 +827,7 @@ async fn generate_project_files(
                 &ctx,
                 params.output_dir,
                 params.base_dir,
-                include_prefix,
+                &include_prefix_path,
                 verbose,
             )
             .map_err(|e| (path.to_path_buf(), e))
@@ -876,6 +924,7 @@ async fn clean_project_files(
             let abs_out_dir = params.base_dir.join(out_dir);
 
             if abs_out_dir != abs_include_root {
+
                 if abs_out_dir.exists() {
                     if let Err(e) = std::fs::remove_dir_all(&abs_out_dir) {
                         eprintln!(
@@ -897,13 +946,12 @@ async fn clean_project_files(
                 eprintln!(
                     "{}: output_dir '{}' is the same as include root, performing surgical cleanup",
                     "Warning".yellow(),
-                    out_dir
+                    out_dir.display()
                 );
                 surgical_clean(&abs_out_dir, verbose)?;
             }
         }
         None => {
-            let include_prefix = include_root.to_str().unwrap_or("");
             params
                 .project_files
                 .par_iter()
@@ -912,7 +960,7 @@ async fn clean_project_files(
                         path,
                         params.base_dir,
                         params.output_dir,
-                        Some(include_prefix),
+                        Some(&include_root),
                     );
                     let mut ok = true;
                     if out_path.exists() {
@@ -1001,9 +1049,9 @@ fn surgical_clean(dir: &Path, verbose: bool) -> Result<(), ()> {
 fn execute_single_file_codegen(
     doc: &DocumentState,
     ctx: &codegen::CodegenContext<'_>,
-    output_dir: Option<&str>,
+    output_dir: Option<&Path>,
     base_dir: &Path,
-    include_prefix: &str,
+    include_prefix: &Path,
     verbose: bool,
 ) -> Result<Vec<codegen::OperationGenerated>, String> {
     let (ts_code, mut ops) = codegen::generate_typescript(doc, ctx)?;

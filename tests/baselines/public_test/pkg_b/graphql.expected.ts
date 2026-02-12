@@ -3,10 +3,8 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
-import type { GetSettingsQuery, GetSettingsQueryVariables } from "./settings.codegen";
-import type { GetUserQuery, GetUserQueryVariables } from "./user.codegen";
-import { GetSettingsQueryDocument } from "./settings.codegen";
-import { GetUserQueryDocument } from "./user.codegen";
+import type { GetPublicQuery, GetPublicQueryVariables } from "./query.codegen";
+import { GetPublicQueryDocument } from "./query.codegen";
 
 const documents: { [key: string]: any } = {
 };

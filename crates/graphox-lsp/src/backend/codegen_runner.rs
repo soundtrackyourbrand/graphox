@@ -4,7 +4,7 @@
 //! processing each project, generating types, and creating the entrypoint file.
 
 use graphox_core::Config;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
@@ -41,18 +41,19 @@ pub async fn run_codegen(
         .filter(|p| p.codegen_enabled())
         .count();
     let mut current_project = 0;
-    let mut all_generated_operations = Vec::new();
+    let mut project_operations_list = Vec::new();
 
     // Generate types for each project
     for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
         // Skip projects with codegen disabled
         if !project.codegen_enabled() {
+            project_operations_list.push(Vec::new());
             continue;
         }
 
         current_project += 1;
         let project_files = &project_meta.files;
-        let project_output_dir = project.output_dir.as_deref();
+        let project_output_dir = project.output_dir.as_ref().map(Path::new);
 
         progress
             .report(
@@ -98,6 +99,7 @@ pub async fn run_codegen(
                 client
                     .log_message(MessageType::ERROR, format!("Failed to load schema: {}", e))
                     .await;
+                project_operations_list.push(Vec::new());
                 continue;
             }
         };
@@ -115,6 +117,7 @@ pub async fn run_codegen(
                         ),
                     )
                     .await;
+                project_operations_list.push(Vec::new());
                 continue;
             }
         };
@@ -134,6 +137,7 @@ pub async fn run_codegen(
 
         let total_files = project_files.len();
         let mut current_file = 0;
+        let mut project_ops = Vec::new();
 
         for path in project_files {
             current_file += 1;
@@ -202,15 +206,12 @@ pub async fn run_codegen(
                     ),
                     {
                         if let Some(out_dir) = project_output_dir {
+                            let include_root_path = graphox_core::utils::get_glob_root(&project.include.as_key());
                             let out_path = graphox_core::utils::get_output_path(
                                 path,
                                 &config.base_dir,
                                 project_output_dir,
-                                Some(
-                                    graphox_core::utils::get_glob_root(&project.include.as_key())
-                                        .to_str()
-                                        .unwrap_or(""),
-                                ),
+                                Some(&include_root_path),
                             );
                             let abs_out_dir = if out_path.is_absolute() {
                                 out_path.parent().unwrap().to_path_buf()
@@ -243,14 +244,14 @@ pub async fn run_codegen(
 
                 if let Ok((ts_code, mut ops)) = graphox_codegen::generate_typescript(doc, &ctx) {
                     let glob_pattern = project.include.patterns().first().cloned();
-                    let include_prefix = glob_pattern
+                    let include_prefix_path = glob_pattern
                         .as_ref()
                         .map(|p| graphox_core::utils::get_glob_root(p));
                     let out_path = graphox_core::utils::get_output_path(
                         path,
                         &config.base_dir,
                         project_output_dir,
-                        include_prefix.as_ref().and_then(|p| p.to_str()),
+                        include_prefix_path.as_deref(),
                     );
                     let abs_out_path = if out_path.is_absolute() {
                         out_path
@@ -279,7 +280,7 @@ pub async fn run_codegen(
                             for op in &mut ops {
                                 op.codegen_path = abs_out_path.clone();
                             }
-                            all_generated_operations.extend(ops);
+                            project_ops.extend(ops);
                         }
                         Err(e) => {
                             client
@@ -313,96 +314,130 @@ pub async fn run_codegen(
                     .await;
             }
         }
+        project_operations_list.push(project_ops);
     }
 
     progress
-        .report("Writing entrypoint file...", Some(80))
+        .report("Writing entrypoint files...", Some(80))
         .await;
 
-    if let Some(out_dir) = config.projects.first().and_then(|p| p.output_dir.as_ref()) {
+    // Group all generated operations by their canonicalized absolute output directory
+    let mut dir_to_ops: std::collections::BTreeMap<PathBuf, Vec<graphox_codegen::OperationGenerated>> = std::collections::BTreeMap::new();
+    let mut dir_to_config: std::collections::HashMap<PathBuf, (graphox_codegen::FragmentMasking, String, String)> = std::collections::HashMap::new();
+
+    for (project, project_ops) in config.projects.iter().zip(project_operations_list) {
+        if !project.codegen_enabled() {
+            continue;
+        }
+        let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
         let out_dir_path = config.base_dir.join(out_dir);
-        let entrypoint_path = out_dir_path.join("graphql.ts");
-        let fragment_masking =
-            graphox_codegen::FragmentMasking::from_config(&config.fragment_masking);
-        if !all_generated_operations.is_empty() {
-            let content = graphox_codegen::generate_entrypoint_content(
-                &out_dir_path,
-                &all_generated_operations,
-                config.document_suffix(),
-                config.variables_suffix(),
-                &fragment_masking,
+        let canon_out_dir_path = out_dir_path.canonicalize().unwrap_or_else(|_| out_dir_path.clone());
+
+        dir_to_ops.entry(canon_out_dir_path.clone()).or_default().extend(project_ops);
+
+        if !dir_to_config.contains_key(&canon_out_dir_path) {
+            let fragment_masking = graphox_codegen::FragmentMasking::from_config(
+                &project.fragment_masking.clone().or(config.fragment_masking.clone())
             );
-            std::fs::create_dir_all(&out_dir_path).ok();
-            if let Err(e) = std::fs::write(&entrypoint_path, content) {
+            dir_to_config.insert(canon_out_dir_path, (
+                fragment_masking,
+                project.document_suffix.as_deref().or(config.document_suffix.as_deref()).unwrap_or("Document").to_string(),
+                project.variables_suffix.as_deref().or(config.variables_suffix.as_deref()).unwrap_or("Variables").to_string(),
+            ));
+        }
+    }
+
+    for (out_dir_path, mut ops) in dir_to_ops {
+        let (fragment_masking, doc_suffix, var_suffix) = dir_to_config.get(&out_dir_path).unwrap();
+
+        // Deduplicate operations by name and source
+        ops.sort_by(|a, b| {
+            a.operation_type_name
+                .cmp(&b.operation_type_name)
+                .then_with(|| a.source_text.cmp(&b.source_text))
+        });
+        ops.dedup_by(|a, b| {
+            a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
+        });
+
+        let entrypoint_path = out_dir_path.join("graphql.ts");
+        let content = graphox_codegen::generate_entrypoint_content(
+            &out_dir_path,
+            &ops,
+            doc_suffix,
+            var_suffix,
+            fragment_masking,
+        );
+        std::fs::create_dir_all(&out_dir_path).ok();
+        if let Err(e) = std::fs::write(&entrypoint_path, content) {
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "Failed to write entrypoint file {}: {}",
+                        entrypoint_path.display(),
+                        e
+                    ),
+                )
+                .await;
+        }
+
+        if fragment_masking.is_enabled() {
+            let masking_path = out_dir_path.join("fragment-masking.ts");
+            let masking_content = graphox_codegen::generate_fragment_masking_file(
+                fragment_masking.unmask_function_name(),
+            );
+            if let Err(e) = std::fs::write(&masking_path, masking_content) {
                 client
                     .log_message(
                         MessageType::ERROR,
                         format!(
-                            "Failed to write entrypoint file {}: {}",
-                            entrypoint_path.display(),
+                            "Failed to write fragment-masking file {}: {}",
+                            masking_path.display(),
                             e
                         ),
                     )
                     .await;
             }
+        }
 
-            if fragment_masking.is_enabled() {
-                let masking_path = out_dir_path.join("fragment-masking.ts");
-                let masking_content = graphox_codegen::generate_fragment_masking_file(
-                    fragment_masking.unmask_function_name(),
-                );
-                if let Err(e) = std::fs::write(&masking_path, masking_content) {
-                    client
-                        .log_message(
-                            MessageType::ERROR,
-                            format!(
-                                "Failed to write fragment-masking file {}: {}",
-                                masking_path.display(),
-                                e
-                            ),
-                        )
-                        .await;
+        let index_path = out_dir_path.join("index.ts");
+        let index_content = graphox_codegen::generate_index_content(fragment_masking);
+        if let Err(e) = std::fs::write(&index_path, index_content) {
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Failed to write index.ts {}: {}", index_path.display(), e),
+                )
+                .await;
+        }
+
+        let manifest_path = out_dir_path.join("manifest.json");
+        let manifest_entries: Vec<_> = ops
+            .iter()
+            .map(|op| {
+                let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
+                    .unwrap_or_else(|| op.codegen_path.clone());
+                let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
+                if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                    path_str = format!("./{}", path_str);
                 }
-            }
+                let path_no_ext = if path_str.ends_with(".ts") {
+                    &path_str[..path_str.len() - 3]
+                } else {
+                    &path_str
+                };
 
-            let index_path = out_dir_path.join("index.ts");
-            let index_content = graphox_codegen::generate_index_content(&fragment_masking);
-            if let Err(e) = std::fs::write(&index_path, index_content) {
-                client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!("Failed to write index.ts {}: {}", index_path.display(), e),
-                    )
-                    .await;
-            }
-
-            let manifest_path = out_dir_path.join("manifest.json");
-            let manifest_entries: Vec<_> = all_generated_operations
-                .iter()
-                .map(|op| {
-                    let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
-                        .unwrap_or_else(|| op.codegen_path.clone());
-                    let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-                    if !path_str.starts_with('.') && !path_str.starts_with('/') {
-                        path_str = format!("./{}", path_str);
-                    }
-                    let path_no_ext = if path_str.ends_with(".ts") {
-                        &path_str[..path_str.len() - 3]
-                    } else {
-                        &path_str
-                    };
-
-                    serde_json::json!({
-                        "source": op.source_text,
-                        "path": path_no_ext,
-                        "name": format!("{}Document", op.operation_type_name)
-                    })
+                serde_json::json!({
+                    "source": op.source_text,
+                    "path": path_no_ext,
+                    "name": format!("{}Document", op.operation_type_name)
                 })
-                .collect();
+            })
+            .collect();
 
-            if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries)
-                && let Err(e) = std::fs::write(&manifest_path, manifest_json)
-            {
+        if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries) {
+            if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
                 client
                     .log_message(
                         MessageType::ERROR,

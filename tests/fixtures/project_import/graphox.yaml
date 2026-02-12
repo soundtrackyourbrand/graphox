@@ -1,8 +1,11 @@
 projects:
-  - schema: "schema.graphql"
-    include: "fragments.graphql"
-    import: "@workspace/fragments"
+  - name: project_a
+    schema: "schema.graphql"
+    include:
+      - "projects/a/**/*"
     output_dir: "__generated__"
-  - schema: "schema.graphql"
-    include: "query.graphql"
+  - name: project_b
+    schema: "schema.graphql"
+    include:
+      - "projects/b/**/*"
     output_dir: "__generated__"

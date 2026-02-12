@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::process::Command;
 
+use graphox_core::config;
+use graphox_core::schema_cache;
+
 #[test]
 #[ntest::timeout(250)]
 fn test_cli_check_no_deprecations() {
@@ -657,10 +660,8 @@ projects:
     println!("--- ENTRYPOINT CONTENT ---\n{}", content);
 
     // Check for imports - now split into type-only and runtime imports
-    assert!(
-        content
-            .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";")
-    );
+    assert!(content
+        .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";"));
     assert!(content.contains("import { GetMeQueryDocument } from \"./query.codegen\";"));
 
     // Check for graphql function overloads - now uses generic signature
@@ -677,7 +678,13 @@ projects:
 #[ntest::timeout(250)]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_config_test");
+    let temp_dir = std::env::temp_dir().join(format!(
+        "graphox_config_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -712,6 +719,8 @@ projects:
         .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
+
+    eprintln!("{}", String::from_utf8_lossy(&output.stderr));
 
     assert!(
         output.status.success(),
@@ -982,11 +991,18 @@ scalars:
         .output()
         .expect("Failed to execute process");
 
-    assert!(
-        output.status.success(),
-        "Codegen failed with custom scalars: {}",
+    println!(
+        "SUBPROCESS STDOUT: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    println!(
+        "SUBPROCESS STDERR: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+
+    if !output.status.success() {
+        panic!("Process failed with status: {}", output.status);
+    }
 
     let gen_file = temp_dir.join("query.codegen.ts");
     assert!(gen_file.exists(), "Codegen file was not created");
@@ -1177,12 +1193,19 @@ fn run_baseline_test(
     baseline_dir_str: &str,
     output_dir_param: Option<&str>,
 ) {
+    config::clear_globset_cache();
+    schema_cache::clear_memory_cache();
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let fixture_dir = Path::new(fixture_dir_str);
     let baseline_dir = Path::new(baseline_dir_str);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let temp_dir = std::env::temp_dir().join(format!(
-        "graphox_baselines_{}",
-        fixture_dir_str.replace("/", "_")
+        "graphox_baselines_{}_{}",
+        fixture_dir_str.replace("/", "_"),
+        timestamp
     ));
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();

@@ -117,10 +117,13 @@ pub fn get_project_files(
         }
 
         let root = get_glob_root(p_clean);
-        if root.as_os_str().is_empty() {
-            roots.push(base_dir.to_path_buf());
+        let root_path = if root.as_os_str().is_empty() {
+            base_dir.to_path_buf()
         } else {
-            roots.push(base_dir.join(root));
+            base_dir.join(root)
+        };
+        if root_path.exists() {
+            roots.push(root_path);
         }
     }
 
@@ -145,10 +148,6 @@ pub fn get_project_files(
         .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
 
     let mut files = Vec::new();
-
-    if roots.is_empty() && include_patterns.iter().any(|p| p.contains('*')) {
-        roots.push(base_dir.to_path_buf());
-    }
 
     if !roots.is_empty() {
         roots.sort();
@@ -326,63 +325,33 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
 pub fn get_output_path(
     path: &Path,
     base_dir: &Path,
-    output_dir: Option<&str>,
-    include_prefix: Option<&str>,
+    output_dir: Option<&Path>,
+    include_prefix: Option<&Path>,
 ) -> PathBuf {
-    if let Some(dir) = output_dir {
-        let mut p = base_dir.join(dir);
+    let mut output_path = base_dir.to_path_buf();
 
-        let rel = if path.is_absolute() {
-            // Strip the include prefix from the absolute path
-            let include_path = base_dir.join(include_prefix.unwrap_or(""));
+    // Canonicalize base_dir and path to handle symlinks (like /tmp -> /private/tmp on macOS)
+    let abs_base_dir = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
+    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
-            match path.strip_prefix(&include_path) {
-                Ok(rel) => rel,
-                Err(_) => {
-                    #[cfg(windows)]
-                    {
-                        // Fallback for Windows path quirks (case sensitivity, \\?\ prefix)
-                        let s_path = path.to_string_lossy().to_string();
-                        let s_include = include_path.to_string_lossy().to_string();
-                        let clean_path = s_path.strip_prefix(r"\\?\").unwrap_or(&s_path);
-                        let clean_include = s_include.strip_prefix(r"\\?\").unwrap_or(&s_include);
-
-                        if clean_path.len() >= clean_include.len()
-                            && clean_path[..clean_include.len()].eq_ignore_ascii_case(clean_include)
-                        {
-                            let mut rel_s = &clean_path[clean_include.len()..];
-                            while rel_s.starts_with('\\') || rel_s.starts_with('/') {
-                                rel_s = &rel_s[1..];
-                            }
-                            // We return a temporary PathBuf here, but we need it to live long enough
-                            // Since we can't easily return a &Path to a temporary, we'll just
-                            // do the p.push here and return early.
-                            p.push(rel_s);
-                            p.set_extension("codegen.ts");
-                            return p;
-                        }
-                    }
-                    path
-                }
-            }
-        } else {
-            // For relative paths, strip the include prefix if provided
-            if let Some(prefix) = include_prefix {
-                path.strip_prefix(prefix).unwrap_or(path)
-            } else {
-                path
-            }
-        };
-
-        p.push(rel);
-        p.set_extension("codegen.ts");
-        p
+    let rel_path = if let Some(prefix) = include_prefix {
+        let abs_prefix = base_dir.join(prefix).canonicalize().unwrap_or_else(|_| base_dir.join(prefix));
+        abs_path.strip_prefix(&abs_prefix).unwrap_or(&abs_path)
     } else {
-        let mut p = path.to_path_buf();
-        p.set_extension("codegen.ts");
-        p
+        abs_path.strip_prefix(&abs_base_dir).unwrap_or(&abs_path)
+    };
+
+    if let Some(out_dir) = output_dir {
+        output_path.push(out_dir);
+        output_path.push(rel_path);
+    } else {
+        output_path.push(rel_path);
     }
+
+    output_path.set_extension("codegen.ts");
+    output_path
 }
+
 
 pub fn merge_schema_texts(texts: &[String]) -> String {
     let total_len: usize = texts.iter().map(|s| s.len() + 1).sum();
