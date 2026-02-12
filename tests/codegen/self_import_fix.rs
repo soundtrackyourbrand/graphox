@@ -163,8 +163,20 @@ query GetUser {
                 );
             }
         } else {
-            if let Err(e) = std::os::unix::fs::symlink(&fragment_file, &fragment_link) {
-                panic!("Failed to create symlink: {}", e);
+            #[cfg(target_family = "unix")]
+            {
+                if let Err(e) = std::os::unix::fs::symlink(&fragment_file, &fragment_link) {
+                    panic!("Failed to create symlink: {}", e);
+                }
+            }
+            #[cfg(not(target_family = "unix"))]
+            {
+                if let Err(e) = std::fs::copy(&fragment_file, &fragment_link) {
+                    eprintln!(
+                        "Warning: Failed to copy file for symlink test on non-Unix: {}",
+                        e
+                    );
+                }
             }
         }
     }
