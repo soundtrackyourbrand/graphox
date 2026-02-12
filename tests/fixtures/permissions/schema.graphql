@@ -14,7 +14,7 @@ enum UserPermissions {
 
 type Post {
   id: ID!
-  permissions: PostPermissions
+  permissions: [PostPermissions!]!
 }
 
 enum PostPermissions {
