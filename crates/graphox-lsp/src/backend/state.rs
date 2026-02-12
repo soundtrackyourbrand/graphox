@@ -221,8 +221,10 @@ impl Backend {
         doc: &DocumentState,
         all_fragments: &[FragmentCompletionInfo],
     ) -> Vec<FragmentCompletionInfo> {
-        let config = self.config.read().unwrap();
-        super::validation::get_fragments_for_doc_with_metadata(doc, &config, all_fragments)
+        super::validation::get_fragments_for_doc_with_metadata(
+            doc.package_root.as_deref(),
+            all_fragments,
+        )
     }
 
     pub fn get_transitive_fragments(

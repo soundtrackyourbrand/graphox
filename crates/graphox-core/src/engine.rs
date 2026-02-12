@@ -4,7 +4,9 @@ use crate::utils::{get_project_files, is_relevant_file};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
 use lsp_types::Url;
+use once_cell::sync::Lazy;
 use rayon::prelude::*;
+use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,6 +70,9 @@ pub struct ProjectContext {
 }
 
 pub struct Engine;
+
+static FRAGMENT_SPREAD_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\.\.\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap());
 
 impl Engine {
     pub fn resolve_project_context(
@@ -391,123 +396,169 @@ impl Engine {
     /// Compute transitive fragment dependencies for all fragments
     /// This is called once during workspace scan to cache dependencies
     fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
-        // Build a map of fragment name -> direct dependencies
-        // We use a simple pattern matching approach that's faster than full parsing
-        // Build a HashMap of all fragment names for O(1) lookup
-        let fragment_names: HashSet<Arc<str>> = fragments.iter().map(|f| f.name.clone()).collect();
+        let n = fragments.len();
+        if n == 0 {
+            return;
+        }
 
-        // OPTIMIZED: Instead of O(N²) nested loops, extract all spread patterns first
-        // then look them up. This is O(N) where N = total fragment count.
-        let deps_vec: Vec<(Arc<str>, Vec<Arc<str>>)> = fragments
+        // 1. Build a map of fragment name -> index for O(1) integer-based lookup
+        let mut name_to_idx = HashMap::with_capacity(n);
+        for (i, f) in fragments.iter().enumerate() {
+            name_to_idx.insert(f.name.clone(), i);
+        }
+
+        // 2. Extract direct dependencies as indices (Parallel)
+        let direct_deps_idx: Vec<Vec<usize>> = fragments
             .par_iter()
             .map(|frag| {
-                let mut deps = HashSet::default();
                 let source = &frag.masked_source;
-
-                // Quick heuristic: only look for fragments if source contains "..."
                 if !source.contains("...") {
-                    return (frag.name.clone(), Vec::new());
+                    return Vec::new();
                 }
 
-                // Find all fragment spread patterns in one pass
-                // Pattern: ...FragmentName where FragmentName is a known fragment
-                let mut chars = source.char_indices().peekable();
-                while let Some((start_idx, ch)) = chars.next() {
-                    if ch != '.' {
-                        continue;
-                    }
-
-                    // Check if we have "..."
-                    if let Some((_, next1)) = chars.next() {
-                        if next1 != '.' {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
-
-                    // Collect the fragment name that follows
-                    let name_start = start_idx + 3; // After "..."
-                    let mut name_end = name_start;
-                    let mut chars_peek = chars.clone();
-                    while let Some((_, ch)) = chars_peek.next() {
-                        if ch.is_alphanumeric() || ch == '_' {
-                            name_end += ch.len_utf8();
-                            let _ = chars.next(); // Advance main iterator
-                        } else {
-                            break;
-                        }
-                        chars_peek = chars.clone();
-                    }
-
-                    if name_end > name_start {
-                        let potential_name = &source[name_start..name_end];
-                        if let Some(name_arc) = fragment_names.get(potential_name) {
-                            // Don't add self-reference
-                            if **name_arc != *frag.name {
-                                deps.insert(name_arc.clone());
-                            }
+                let mut deps = HashSet::default();
+                for mat in FRAGMENT_SPREAD_RE.find_iter(source) {
+                    let potential_name = &mat.as_str()[3..];
+                    if let Some(&idx) = name_to_idx.get(potential_name) {
+                        if idx != name_to_idx[&frag.name] {
+                            deps.insert(idx);
                         }
                     }
                 }
 
-                // Convert HashSet to Vec
-                let mut deps_vec: Vec<Arc<str>> = deps.into_iter().collect();
-                deps_vec.sort();
-                (frag.name.clone(), deps_vec)
+                let mut deps_vec: Vec<usize> = deps.into_iter().collect();
+                deps_vec.sort_unstable();
+                deps_vec
             })
             .collect();
 
-        // Convert to HashMap
-        let mut direct_deps: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
-        for (name, deps) in deps_vec {
-            direct_deps.insert(name, deps);
+        // 3. Find SCCs using iterative Tarjan's (Sequential O(V+E))
+        let mut index = 0;
+        let mut indices = vec![-1; n];
+        let mut lowlink = vec![-1; n];
+        let mut on_stack = vec![false; n];
+        let mut stack = Vec::new();
+        let mut sccs = Vec::new();
+        let mut call_stack = Vec::new();
+
+        for i in 0..n {
+            if indices[i] == -1 {
+                call_stack.push((i, 0)); // (node, next_child_idx)
+                while let Some((v, child_idx)) = call_stack.last_mut() {
+                    let v = *v;
+                    if *child_idx == 0 {
+                        indices[v] = index;
+                        lowlink[v] = index;
+                        index += 1;
+                        stack.push(v);
+                        on_stack[v] = true;
+                    }
+
+                    let mut found_child = false;
+                    let children = &direct_deps_idx[v];
+                    for i in (*child_idx)..children.len() {
+                        let w = children[i];
+                        *child_idx = i + 1;
+                        if indices[w] == -1 {
+                            call_stack.push((w, 0));
+                            found_child = true;
+                            break;
+                        } else if on_stack[w] {
+                            lowlink[v] = lowlink[v].min(indices[w]);
+                        }
+                    }
+
+                    if found_child {
+                        continue;
+                    }
+
+                    // Finished visiting v
+                    if lowlink[v] == indices[v] {
+                        let mut scc = Vec::new();
+                        while let Some(w) = stack.pop() {
+                            on_stack[w] = false;
+                            scc.push(w);
+                            if w == v {
+                                break;
+                            }
+                        }
+                        sccs.push(scc);
+                    }
+
+                    call_stack.pop();
+                    if let Some((parent, _)) = call_stack.last_mut() {
+                        lowlink[*parent] = lowlink[*parent].min(lowlink[v]);
+                    }
+                }
+            }
         }
 
-        // Compute transitive closure using DFS with memoization
-        fn get_transitive_deps(
-            frag_name: &Arc<str>,
-            direct_deps: &HashMap<Arc<str>, Vec<Arc<str>>>,
-            memo: &mut HashMap<Arc<str>, Vec<Arc<str>>>,
-            visited: &mut HashSet<Arc<str>>,
-        ) -> Vec<Arc<str>> {
-            // Check memo first
-            if let Some(cached) = memo.get(frag_name) {
-                return cached.clone();
+        // 4. Compute transitive closure on the condensation graph using bitsets
+        let words = (n + 63) / 64;
+        let mut scc_bitsets = vec![0u64; sccs.len() * words];
+        let mut node_to_scc = vec![0; n];
+        for (scc_idx, scc) in sccs.iter().enumerate() {
+            for &node in scc {
+                node_to_scc[node] = scc_idx;
+                // Each node in SCC depends on all other nodes in the same SCC
+                for &other in scc {
+                    if node != other {
+                        scc_bitsets[scc_idx * words + (other / 64)] |= 1 << (other % 64);
+                    }
+                }
+                // And its direct external dependencies
+                for &dep in &direct_deps_idx[node] {
+                    scc_bitsets[scc_idx * words + (dep / 64)] |= 1 << (dep % 64);
+                }
             }
+        }
 
-            // Cycle detection
-            if visited.contains(frag_name) {
-                return Vec::new();
-            }
-            visited.insert(frag_name.clone());
-
-            let mut all_deps = HashSet::default();
-            if let Some(deps) = direct_deps.get(frag_name) {
-                for dep in deps {
-                    all_deps.insert(dep.clone());
-                    // Recursively get transitive deps
-                    for transitive_dep in get_transitive_deps(dep, direct_deps, memo, visited) {
-                        all_deps.insert(transitive_dep);
+        // Propagate bitsets in reverse topological order (Tarjan's produces it)
+        for scc_idx in 0..sccs.len() {
+            let mut external_scc_deps = HashSet::default();
+            for &node in &sccs[scc_idx] {
+                for &dep in &direct_deps_idx[node] {
+                    let dep_scc_idx = node_to_scc[dep];
+                    if dep_scc_idx != scc_idx {
+                        external_scc_deps.insert(dep_scc_idx);
                     }
                 }
             }
 
-            visited.remove(frag_name);
-            let mut result: Vec<_> = all_deps.into_iter().collect();
-            result.sort(); // Keep consistent ordering
-
-            // Cache the result
-            memo.insert(frag_name.clone(), result.clone());
-            result
+            for dep_scc_idx in external_scc_deps {
+                let (earlier_sccs, later_sccs) = scc_bitsets.split_at_mut(scc_idx * words);
+                let current_bs = &mut later_sccs[0..words];
+                let dep_bs = &earlier_sccs[dep_scc_idx * words..dep_scc_idx * words + words];
+                for w in 0..words {
+                    current_bs[w] |= dep_bs[w];
+                }
+            }
         }
 
-        // Populate the transitive_deps field for each fragment with memoization
-        let mut memo: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
-        for frag in fragments.iter_mut() {
-            let mut visited = HashSet::default();
-            frag.transitive_deps =
-                get_transitive_deps(&frag.name, &direct_deps, &mut memo, &mut visited);
+        // 5. Map bitsets back to fragments and convert to names (Parallel)
+        let transitive_results: Vec<Vec<Arc<str>>> = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let scc_idx = node_to_scc[i];
+                let bitset = &scc_bitsets[scc_idx * words..(scc_idx + 1) * words];
+                let mut res = Vec::new();
+                for (word_idx, mut word) in bitset.iter().copied().enumerate() {
+                    while word != 0 {
+                        let bit_idx = word.trailing_zeros();
+                        let idx = word_idx * 64 + bit_idx as usize;
+                        if idx < n {
+                            res.push(fragments[idx].name.clone());
+                        }
+                        word &= !(1 << bit_idx);
+                    }
+                }
+                res.sort_unstable();
+                res
+            })
+            .collect();
+
+        for (i, res) in transitive_results.into_iter().enumerate() {
+            fragments[i].transitive_deps = res;
         }
     }
 

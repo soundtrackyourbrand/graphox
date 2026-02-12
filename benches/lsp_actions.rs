@@ -354,22 +354,38 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
     group.bench_function("Check Workspace (Full Diagnostics)", |b| {
         b.to_async(&rt).iter(|| async {
-            let used_fragments = backend.get_used_fragments();
-            let all_fragments = backend.get_all_fragments_info();
-            for entry in backend.documents.iter() {
-                let uri = entry.key();
-                let doc = entry.value();
-                let schema = backend.get_schema_for_doc(uri);
-                let fragments = backend.get_fragments_for_doc(doc, &all_fragments);
-                let _diagnostics = doc.get_semantic_diagnostics(
-                    &schema,
-                    &fragments,
-                    Some(&used_fragments),
-                    Some(&backend.config.read().unwrap()),
-                    false,
-                    true,
-                );
-            }
+            let config = backend.config.read().unwrap();
+            let all_uris: Vec<Url> = backend.documents.iter().map(|e| e.key().clone()).collect();
+            let fragment_defs = backend.fragment_defs.clone();
+            let fragment_spreads = backend.fragment_spreads.clone();
+            let package_roots = backend.package_roots.clone();
+            let validated_schemas = backend.validated_schemas.clone();
+            let valid_empty_schema = backend.valid_empty_schema.clone();
+            let workspace_loaded = backend.workspace_loaded.clone();
+            let open_documents = backend.open_documents.clone();
+            let fragment_dependents = backend.fragment_dependents.clone();
+            let fragment_definitions = backend.fragment_definitions.clone();
+            let operation_names = backend.operation_names.clone();
+
+            let params = graphox_lsp::backend::validation::ValidationParams {
+                client: &backend.client,
+                documents: &backend.documents,
+                config: &config,
+                fragment_defs: &fragment_defs,
+                fragment_spreads: &fragment_spreads,
+                package_roots: &package_roots,
+                validated_schemas: &validated_schemas,
+                valid_empty_schema: &valid_empty_schema,
+                workspace_loaded: &workspace_loaded,
+                open_documents: &open_documents,
+                fragment_dependents: &fragment_dependents,
+                fragment_definitions: &fragment_definitions,
+                operation_names: &operation_names,
+                supports_progress: false,
+                position_encoding: PositionEncodingKind::UTF16,
+            };
+
+            graphox_lsp::backend::validation::validate_uris(params, all_uris, false, None).await;
         });
     });
 

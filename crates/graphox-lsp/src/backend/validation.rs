@@ -4,7 +4,7 @@
 //! validating individual URIs, computing affected documents, and
 //! publishing diagnostics.
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use apollo_compiler::Schema;
 use apollo_compiler::validation::Valid;
 use dashmap::{DashMap, DashSet};
@@ -16,6 +16,7 @@ use graphox_core::utils::{find_operation_range, push_duplicate_operation_diagnos
 use graphox_core::{Config, DocumentState};
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
+use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -71,7 +72,6 @@ pub async fn validate_uris(
         None
     };
 
-    let mut to_publish = Vec::new();
     let used_fragments = get_used_fragments(params.fragment_spreads);
     let workspace_loaded = params.workspace_loaded.load(Ordering::SeqCst);
     let total = uris.len();
@@ -83,7 +83,11 @@ pub async fn validate_uris(
         params.package_roots,
     );
 
-    for (idx, uri) in uris.into_iter().enumerate() {
+    // Pre-collect documents and their package roots to optimize fragment filtering
+    let mut docs_to_validate = Vec::new();
+    let mut unique_package_roots = AHashSet::new();
+
+    for uri in uris {
         if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
             // Skip validating schema files as executable documents
             if let Ok(path) = uri.to_file_path()
@@ -94,18 +98,36 @@ pub async fn validate_uris(
                 continue;
             }
 
+            unique_package_roots.insert(doc.package_root.clone());
+            docs_to_validate.push((uri, doc));
+        }
+    }
+
+    // Pre-calculate filtered fragments for each unique package root
+    let mut fragments_by_pkg = AHashMap::with_capacity(unique_package_roots.len());
+    for pkg_root in unique_package_roots {
+        let filtered = get_fragments_for_doc_with_metadata(pkg_root.as_deref(), &all_fragments);
+        fragments_by_pkg.insert(pkg_root, Arc::new(filtered));
+    }
+
+    // Process documents in parallel
+    let results: Vec<_> = docs_to_validate
+        .into_par_iter()
+        .map(|(uri, doc)| {
             let schema = get_schema_for_doc(
                 &uri,
                 params.config,
                 params.validated_schemas,
                 params.valid_empty_schema,
             );
-            let filtered_fragments =
-                get_fragments_for_doc_with_metadata(&doc, params.config, &all_fragments);
+
+            let filtered_fragments = fragments_by_pkg
+                .get(&doc.package_root)
+                .expect("Package root should be in cache");
 
             let mut diagnostics = doc.get_semantic_diagnostics(
                 &schema,
-                &filtered_fragments,
+                filtered_fragments,
                 Some(&used_fragments),
                 Some(params.config),
                 false,
@@ -127,37 +149,38 @@ pub async fn validate_uris(
                 );
             }
 
-            // Cache diagnostics for pull-based diagnostics
-            if let Some(cache) = diagnostic_cache {
-                cache.insert(uri.clone(), (doc.version, diagnostics.clone()));
-            }
+            (uri, doc.version, diagnostics)
+        })
+        .collect();
 
-            if use_push {
-                to_publish.push((uri.clone(), diagnostics));
-            }
+    // Publish and cache results sequentially (async)
+    for (idx, (uri, version, diagnostics)) in results.into_iter().enumerate() {
+        // Cache diagnostics for pull-based diagnostics
+        if let Some(cache) = diagnostic_cache {
+            cache.insert(uri.clone(), (version, diagnostics.clone()));
+        }
 
-            // Report progress
-            if let Some(ref p) = progress {
-                let percentage = ((idx + 1) * 100 / total) as u32;
-                p.report(
-                    format!("Validated {}/{} documents", idx + 1, total),
-                    Some(percentage),
-                )
+        if use_push {
+            params
+                .client
+                .publish_diagnostics(uri, diagnostics, None)
                 .await;
-            }
+        }
+
+        // Report progress
+        if let Some(ref p) = progress {
+            let percentage = ((idx + 1) * 100 / total) as u32;
+            p.report(
+                format!("Validated {}/{} documents", idx + 1, total),
+                Some(percentage),
+            )
+            .await;
         }
     }
 
     // End progress
     if let Some(p) = progress {
         p.end(Some(format!("Validated {} documents", total))).await;
-    }
-
-    // Only publish if using push-based diagnostics
-    if use_push {
-        for (u, d) in to_publish {
-            params.client.publish_diagnostics(u, d, None).await;
-        }
     }
 }
 
@@ -253,48 +276,37 @@ pub fn get_fragments_for_doc(
     let all_fragments =
         super::fragment_manager::collect_fragment_metadata(fragment_defs, config, package_roots);
 
-    get_fragments_for_doc_with_metadata(doc, config, &all_fragments)
+    get_fragments_for_doc_with_metadata(doc.package_root.as_deref(), &all_fragments)
 }
 
 /// Gets fragments available for a given document using pre-collected metadata
 pub fn get_fragments_for_doc_with_metadata(
-    doc: &DocumentState,
-    _config: &Config,
+    target_package_root: Option<&std::path::Path>,
     all_fragments: &[FragmentCompletionInfo],
 ) -> Vec<FragmentCompletionInfo> {
-    let target_package_root = doc.package_root.as_ref();
-
     let mut filtered: Vec<_> = all_fragments
         .iter()
-        .filter(|f| {
-            let is_same_package = graphox_core::utils::paths_match(
-                f.package_root.as_deref(),
-                target_package_root.map(|p| p.as_path()),
-            );
-            is_same_package || f.is_public
+        .filter_map(|f| {
+            let is_same_package =
+                graphox_core::utils::paths_match(f.package_root.as_deref(), target_package_root);
+            if is_same_package || f.is_public {
+                Some((f, is_same_package))
+            } else {
+                None
+            }
         })
-        .cloned()
         .collect();
 
     // Prioritize fragments from same package
-    filtered.sort_by(|a, b| {
-        let a_same_pkg = graphox_core::utils::paths_match(
-            a.package_root.as_deref(),
-            target_package_root.map(|p| p.as_path()),
-        );
-        let b_same_pkg = graphox_core::utils::paths_match(
-            b.package_root.as_deref(),
-            target_package_root.map(|p| p.as_path()),
-        );
-
+    filtered.sort_by(|(a, a_same_pkg), (b, b_same_pkg)| {
         if a_same_pkg != b_same_pkg {
-            return b_same_pkg.cmp(&a_same_pkg);
+            return b_same_pkg.cmp(a_same_pkg);
         }
 
         b.is_public.cmp(&a.is_public).reverse()
     });
 
-    filtered
+    filtered.into_iter().map(|(f, _)| f.clone()).collect()
 }
 
 /// Adds diagnostics for duplicate operation names within the same project
