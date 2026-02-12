@@ -6,4 +6,4 @@ projects:
 schema_types:
   - schema: "schema.graphql"
     output: "schema.types.ts"
-    import: "./schema.types"
+    import: "@workspace/permissions-schema"

@@ -1,0 +1,5 @@
+{
+  "main": "__generated__/graphql.ts",
+  "name": "@workspace/project-b",
+  "version": "1.0.0"
+}

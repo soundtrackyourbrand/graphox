@@ -1,0 +1,5 @@
+{
+  "main": "ext-types.ts",
+  "name": "@my/ext-package",
+  "version": "1.0.0"
+}

@@ -1,0 +1,5 @@
+{
+  "main": "types.ts",
+  "name": "@my/schema",
+  "version": "1.0.0"
+}

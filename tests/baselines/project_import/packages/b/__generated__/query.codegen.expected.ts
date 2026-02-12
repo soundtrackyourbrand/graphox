@@ -3,7 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
-import type { UserFields } from "../a/fragments.codegen";
+import type { UserFields } from "@workspace/project-a";
 
 export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
 

@@ -1,0 +1,5 @@
+{
+  "main": "index.ts",
+  "name": "@workspace/project-a",
+  "version": "1.0.0"
+}

@@ -3,8 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
-import type { UserStatus } from "@my/base-package";
-import type { Priority } from "@my/ext-package";
+import type { Priority, UserStatus } from "@my/ext-package";
 
 export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
 

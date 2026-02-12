@@ -72,7 +72,7 @@ def update_baselines(fixture_rel, baseline_rel):
             
             # Generated file patterns
             generated_extensions = (".codegen.ts",)
-            generated_names = ("graphql.ts", "manifest.json", "schema.types.ts", "possible-types.ts", "type-policies.ts", "apollo-shared.ts")
+            generated_names = ("graphql.ts", "manifest.json", "schema.types.ts", "possible-types.ts", "type-policies.ts", "apollo-shared.ts", "package.json", "pnpm-workspace.yaml", "schema.ts", "types.ts", "base-types.ts", "ext-types.ts", "index.ts")
 
             for root, dirs, files in os.walk(source_root):
                 for f in files:

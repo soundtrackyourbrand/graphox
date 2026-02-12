@@ -1,0 +1,5 @@
+{
+  "main": "base-types.ts",
+  "name": "@my/base-package",
+  "version": "1.0.0"
+}

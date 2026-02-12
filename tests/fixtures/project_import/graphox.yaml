@@ -1,11 +1,12 @@
 projects:
   - name: project_a
-    schema: "schema.graphql"
+    schema: "packages/a/schema.graphql"
     include:
-      - "projects/a/**/*"
-    output_dir: "__generated__"
+      - "packages/a/**/*"
+    output_dir: "packages/a/__generated__"
+    import: "@workspace/project-a"
   - name: project_b
-    schema: "schema.graphql"
+    schema: "packages/a/schema.graphql"
     include:
-      - "projects/b/**/*"
-    output_dir: "__generated__"
+      - "packages/b/**/*"
+    output_dir: "packages/b/__generated__"
