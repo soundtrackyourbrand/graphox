@@ -544,16 +544,14 @@ async fn test_progress_messages_during_validation() {
 
         for n in notifications.iter() {
             if let Some(value) = n.get("value") {
-                let kind = value.get("kind").and_then(|k| k.as_str());
                 let message = value.get("message").and_then(|m| m.as_str());
                 let percentage = value.get("percentage").and_then(|p| p.as_u64());
 
-                if let Some(msg) = message {
-                    if msg.contains("Validating") {
-                        if let Some(p) = percentage {
-                            validation_percentages.push(p);
-                        }
-                    }
+                if let Some(msg) = message
+                    && msg.contains("Validating")
+                    && let Some(p) = percentage
+                {
+                    validation_percentages.push(p);
                 }
             }
         }

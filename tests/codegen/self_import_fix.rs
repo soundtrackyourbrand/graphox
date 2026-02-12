@@ -84,7 +84,7 @@ projects:
     let content = fs::read_to_string(&gen_file).unwrap_or_default();
 
     let self_import_pattern =
-        format!("import type {{ FormFragment }} from './form_fragment.codegen'",);
+        "import type { FormFragment } from './form_fragment.codegen'".to_string();
     assert!(
         !content.contains(&self_import_pattern),
         "form_fragment.codegen.ts should not import itself. Content:\n{}",

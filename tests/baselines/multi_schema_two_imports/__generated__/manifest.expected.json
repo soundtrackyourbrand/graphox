@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetUserWithTaskQueryDocument",
+    "path": "./query.codegen",
+    "source": "# Query that uses types from BOTH schemas:\n# - UserStatus from base.graphql\n# - Priority from ext.graphql\nquery GetUserWithTask {\n  me {\n    id\n    name\n    status # Uses UserStatus from base schema\n  }\n  task(id: \"1\") {\n    id\n    title\n    priority # Uses Priority from ext schema\n  }\n}\n"
+  }
+]

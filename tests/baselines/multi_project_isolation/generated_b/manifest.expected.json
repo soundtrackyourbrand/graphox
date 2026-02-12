@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetSettingsQueryDocument",
+    "path": "./settings.codegen",
+    "source": "query GetSettings {\n  settings {\n    theme\n    notifications\n  }\n}\n"
+  }
+]

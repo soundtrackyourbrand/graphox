@@ -660,8 +660,10 @@ projects:
     println!("--- ENTRYPOINT CONTENT ---\n{}", content);
 
     // Check for imports - now split into type-only and runtime imports
-    assert!(content
-        .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";"));
+    assert!(
+        content
+            .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";")
+    );
     assert!(content.contains("import { GetMeQueryDocument } from \"./query.codegen\";"));
 
     // Check for graphql function overloads - now uses generic signature
@@ -1300,55 +1302,87 @@ pub(crate) fn run_baseline_test(
         }
     }
 
-    // Check for special files (all are now in output_dir)
-    for special in &["graphql", "permissions", "manifest", "fragment-masking"] {
-        let expected_json = baseline_dir.join(format!("{}.expected.json", special));
-        let expected_ts = baseline_dir.join(format!("{}.expected.ts", special));
+    // Phase 2: Verify ALL baseline files have corresponding codegen output
+    // This catches stale baselines and extra directories that don't match actual output
+    verify_all_baseline_files(baseline_dir, &temp_dir, output_dir);
 
-        let (expected_path, actual_name, is_json) = if expected_json.exists() {
-            (expected_json, format!("{}.json", special), true)
-        } else if expected_ts.exists() {
-            (expected_ts, format!("{}.ts", special), false)
-        } else {
-            continue;
-        };
+    std::fs::remove_dir_all(temp_dir).ok();
+}
 
-        let actual_path = temp_dir.join(output_dir).join(&actual_name);
-        assert!(
-            actual_path.exists(),
-            "{} was not created in {}/{}",
-            actual_name,
-            fixture_dir_str,
-            output_dir
-        );
+fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: &str) {
+    fn verify_files_recursive(
+        baseline_root: &Path,
+        codegen_root: &Path,
+        current_baseline_dir: &Path,
+    ) {
+        for entry in std::fs::read_dir(current_baseline_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
 
-        let actual = std::fs::read_to_string(&actual_path).unwrap();
-        let expected = std::fs::read_to_string(&expected_path).unwrap();
+            if path.is_dir() {
+                verify_files_recursive(baseline_root, codegen_root, &path);
+                continue;
+            }
 
-        if is_json {
-            let actual_norm = actual.replace("\r\n", "\n").replace("\\\\", "/");
-            let expected_norm = expected.replace("\r\n", "\n").replace("\\\\", "/");
-            let actual_v: serde_json::Value = serde_json::from_str(&actual_norm).unwrap();
-            let expected_v: serde_json::Value = serde_json::from_str(&expected_norm).unwrap();
-            assert_eq!(
-                actual_v, expected_v,
-                "{} mismatch in {}",
-                actual_name, fixture_dir_str
-            );
-        } else {
+            let ext = path.extension().and_then(|s| s.to_str());
+            if ext != Some("ts") && ext != Some("json") {
+                continue;
+            }
+
+            let file_stem = path.file_stem().unwrap().to_str().unwrap();
+            if !file_stem.ends_with(".expected") {
+                continue;
+            }
+
+            let actual_name = &file_stem[..file_stem.len() - ".expected".len()];
+            let rel_path = path.parent().unwrap().strip_prefix(baseline_root).unwrap();
+
+            let possible_extensions = if ext == Some("ts") {
+                vec!["codegen.ts", "ts"]
+            } else {
+                vec!["json"]
+            };
+
+            let mut actual_path = None;
+            for e in possible_extensions {
+                let p = codegen_root
+                    .join(rel_path)
+                    .join(format!("{}.{}", actual_name, e));
+                if p.exists() {
+                    actual_path = Some(p);
+                    break;
+                }
+            }
+
+            let actual_path = actual_path.unwrap_or_else(|| {
+                panic!(
+                    "Baseline file {:?} has no corresponding codegen output in {:?}",
+                    path,
+                    codegen_root.join(rel_path)
+                )
+            });
+
+            let actual = std::fs::read_to_string(&actual_path).unwrap();
+            let expected = std::fs::read_to_string(&path).unwrap();
+
             let actual_norm = actual.trim().replace("\r\n", "\n").replace("\\\\", "/");
             let expected_norm = expected.trim().replace("\r\n", "\n").replace("\\\\", "/");
-            if actual_norm != expected_norm {
-                println!("--- ACTUAL ({}) ---", actual_name);
-                println!("{}", actual);
-                println!("--- EXPECTED ---");
-                println!("{}", expected);
-                panic!("{} mismatch in {}", actual_name, fixture_dir_str);
+
+            if ext == Some("json") {
+                let actual_v: serde_json::Value = serde_json::from_str(&actual_norm).unwrap();
+                let expected_v: serde_json::Value = serde_json::from_str(&expected_norm).unwrap();
+                assert_eq!(actual_v, expected_v, "Baseline mismatch for {:?}", path);
+            } else {
+                assert_eq!(
+                    actual_norm, expected_norm,
+                    "Baseline mismatch for {:?}",
+                    path
+                );
             }
         }
     }
 
-    std::fs::remove_dir_all(temp_dir).ok();
+    verify_files_recursive(baseline_dir, temp_dir, baseline_dir);
 }
 
 #[test]
