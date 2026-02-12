@@ -97,6 +97,7 @@ pub fn build_server_capabilities(client_caps: &ClientCapabilities) -> ServerCapa
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
+        type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(true),

@@ -378,7 +378,16 @@ pub fn resolve_symbol_at_node(
                 if let Some(name_node) = doc.find_child_by_kind(current_node, "name") {
                     let name_range =
                         (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
-                    if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+
+                    // Also resolve if on the operation keyword (query/mutation/subscription)
+                    let is_on_keyword = current_node.child(0).is_some_and(|k| {
+                        let r = (k.start_byte() + offset)..(k.end_byte() + offset);
+                        cursor_offset >= r.start && cursor_offset <= r.end
+                    });
+
+                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
+                        || is_on_keyword
+                    {
                         let op_name = doc.get_node_text(name_node, offset);
                         let op_type = doc.get_operation_type(current_node, offset);
                         let variables =
@@ -411,10 +420,23 @@ pub fn resolve_symbol_at_node(
                 }
             }
             "fragment_definition" => {
-                if let Some(name_node) = doc.find_child_by_kind(current_node, "name") {
+                if let Some(name_node) = doc
+                    .find_child_by_kind(current_node, "fragment_name")
+                    .and_then(|fn_node| doc.find_child_by_kind(fn_node, "name"))
+                    .or_else(|| doc.find_child_by_kind(current_node, "name"))
+                {
                     let name_range =
                         (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
-                    if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+
+                    // Also resolve if on the "fragment" keyword (helpful for cross-file navigation fallback)
+                    let is_on_keyword = current_node.child(0).is_some_and(|k| {
+                        let r = (k.start_byte() + offset)..(k.end_byte() + offset);
+                        cursor_offset >= r.start && cursor_offset <= r.end
+                    });
+
+                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
+                        || is_on_keyword
+                    {
                         let frag_name = doc.get_node_text(name_node, offset);
                         let type_condition = doc
                             .get_fragment_type_condition(current_node, offset)
@@ -434,6 +456,7 @@ pub fn resolve_symbol_at_node(
     }
 
     // Default value check (MUST check before literal check)
+
     if kind == "string_value"
         || kind == "int_value"
         || kind == "float_value"
@@ -474,6 +497,41 @@ pub fn resolve_symbol_at_node(
         });
     }
 
+    None
+}
+
+pub fn resolve_fragment_spread_at_node(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+    cursor_offset: usize,
+) -> Option<SemanticSymbol> {
+    let mut curr = Some(node);
+    while let Some(current_node) = curr {
+        if current_node.kind() == "fragment_spread" {
+            let is_on_ellipsis = current_node.child(0).is_some_and(|k| {
+                let r = (k.start_byte() + offset)..(k.end_byte() + offset);
+                cursor_offset >= r.start && cursor_offset <= r.end
+            });
+            if let Some(name_node) = doc
+                .find_child_by_kind(current_node, "fragment_name")
+                .and_then(|fn_node| doc.find_child_by_kind(fn_node, "name"))
+            {
+                let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
+                    || is_on_ellipsis
+                {
+                    let frag_name = doc.get_node_text(name_node, offset);
+                    return Some(SemanticSymbol::Fragment {
+                        name: frag_name,
+                        type_condition: String::new(),
+                        description: None,
+                    });
+                }
+            }
+        }
+        curr = current_node.parent();
+    }
     None
 }
 

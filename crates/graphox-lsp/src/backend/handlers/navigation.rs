@@ -4,6 +4,7 @@ use graphox_features::document_highlight::DocumentHighlightFeature;
 use graphox_features::folding_range::DocumentFoldingRange;
 use graphox_features::references::DocumentReferences;
 use graphox_features::selection_range::DocumentSelectionRange;
+use graphox_features::type_definition::DocumentTypeDefinition;
 use rayon::prelude::*;
 
 use tower_lsp::jsonrpc::Result;
@@ -311,6 +312,56 @@ pub async fn handle_selection_range(
                     Some(ranges)
                 });
             }
+            Ok(None)
+        })
+        .await
+}
+
+pub async fn handle_goto_type_definition(
+    backend: &Backend,
+    params: GotoDefinitionParams,
+) -> Result<Option<GotoDefinitionResponse>> {
+    backend
+        .with_tracing("goto_type_definition", async move {
+            let uri = backend.normalize_uri(params.text_document_position_params.text_document.uri);
+            let position = params.text_document_position_params.position;
+
+            let doc_arc = if let Some(d) = backend.documents.get(&uri).map(|r| r.value().clone()) {
+                d
+            } else {
+                return Ok(None);
+            };
+
+            let schema = backend.get_schema_for_doc(&uri);
+
+            // 1. Try to get the generated type definition
+            if let Some(location) = {
+                let config = backend.config.read().unwrap();
+                doc_arc.get_type_definition(position, &schema, &config)
+            } {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+
+            // 2. Fallback: If it's a fragment spread, jump to the definition in the fragment's codegen
+            let symbol_name = doc_arc.get_symbol_at_position(position);
+            if let Some(location) = backend
+                .try_goto_fragment_definition(&symbol_name, &doc_arc)
+                .await
+            {
+                let frag_uri = location.uri.clone();
+                if let Some(frag_doc) = backend.documents.get(&frag_uri).map(|r| r.value().clone())
+                {
+                    let frag_schema = backend.get_schema_for_doc(&frag_uri);
+                    // Use the fragment's range start to find its type definition
+                    let config = backend.config.read().unwrap();
+                    if let Some(type_location) =
+                        frag_doc.get_type_definition(location.range.start, &frag_schema, &config)
+                    {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(type_location)));
+                    }
+                }
+            }
+
             Ok(None)
         })
         .await

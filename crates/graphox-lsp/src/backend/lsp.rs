@@ -161,6 +161,13 @@ impl LanguageServer for Backend {
         navigation::handle_goto_definition(self, params).await
     }
 
+    async fn goto_type_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        navigation::handle_goto_type_definition(self, params).await
+    }
+
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         navigation::handle_references(self, params).await
     }

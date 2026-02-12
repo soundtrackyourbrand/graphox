@@ -12,3 +12,4 @@ pub mod semantic_tokens;
 pub mod shared;
 pub mod signature_help;
 pub mod symbols;
+pub mod type_definition;

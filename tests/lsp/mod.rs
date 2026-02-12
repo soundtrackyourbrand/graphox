@@ -12,6 +12,7 @@ mod duplicate_operations;
 mod folding_ranges;
 mod format;
 mod goto_definition;
+mod goto_type_definition;
 mod hover;
 mod inline_fragment_lsp;
 mod lsp_code_actions;
