@@ -72,6 +72,36 @@ impl RequiredFieldRule {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EmitExtensions {
+    #[default]
+    None,
+    Js,
+    Ts,
+}
+
+impl EmitExtensions {
+    pub fn from_yaml(node: &Yaml) -> Self {
+        if let Some(s) = node.as_str() {
+            match s.to_lowercase().as_str() {
+                "js" => EmitExtensions::Js,
+                "ts" => EmitExtensions::Ts,
+                _ => EmitExtensions::None,
+            }
+        } else {
+            EmitExtensions::None
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EmitExtensions::None => "",
+            EmitExtensions::Js => ".js",
+            EmitExtensions::Ts => ".ts",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub projects: Vec<ProjectConfig>,
@@ -95,6 +125,7 @@ pub struct Config {
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
+    pub emit_extensions: Option<EmitExtensions>,
     pub base_dir: PathBuf,
 }
 
@@ -269,6 +300,7 @@ pub struct ProjectConfig {
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
+    pub emit_extensions: Option<EmitExtensions>,
     pub possible_types: Option<PathBuf>,
     pub type_policies: Option<PathBuf>,
 }
@@ -306,6 +338,7 @@ impl Config {
             mutation_suffix: None,
             subscription_suffix: None,
             fragment_masking: None,
+            emit_extensions: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -408,6 +441,7 @@ impl Config {
                 let fragment_masking_node = &p_node["fragment_masking"];
                 let fragment_masking = FragmentMasking::from_yaml(fragment_masking_node)
                     .map(|mode| FragmentMaskingConfig { mode });
+                let emit_extensions = Some(EmitExtensions::from_yaml(&p_node["emit_extensions"]));
                 let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
                 let type_policies = p_node["type_policies"].as_str().map(PathBuf::from);
 
@@ -427,6 +461,7 @@ impl Config {
                     mutation_suffix,
                     subscription_suffix,
                     fragment_masking,
+                    emit_extensions,
                     possible_types,
                     type_policies,
                 });
@@ -533,7 +568,16 @@ impl Config {
             config.fragment_masking = Some(FragmentMaskingConfig { mode });
         }
 
+        config.emit_extensions = Some(EmitExtensions::from_yaml(&node["emit_extensions"]));
+
         Some(config)
+    }
+
+    pub fn get_emit_extensions(&self, project: &ProjectConfig) -> EmitExtensions {
+        project
+            .emit_extensions
+            .or(self.emit_extensions)
+            .unwrap_or(EmitExtensions::None)
     }
 
     pub fn get_project_for_path(&self, path: &Path) -> Option<&ProjectConfig> {

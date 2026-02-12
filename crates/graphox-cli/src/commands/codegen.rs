@@ -2,7 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::config::{Config, GlobPattern, SchemaSource};
+use graphox_core::config::{Config, EmitExtensions, GlobPattern, SchemaSource};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
 use graphox_core::schema_cache;
@@ -32,6 +32,7 @@ pub struct CodegenParams<'a> {
     pub mutation_suffix: &'a str,
     pub subscription_suffix: &'a str,
     pub fragment_masking: codegen::FragmentMasking,
+    pub emit_extensions: graphox_core::config::EmitExtensions,
 }
 
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
@@ -385,6 +386,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             .or(cfg.subscription_suffix.as_deref())
             .unwrap_or("Subscription");
 
+        let emit_extensions = cfg.get_emit_extensions(project);
         match execute_project_codegen_entry(
             CodegenParams {
                 base_dir: &cfg.base_dir,
@@ -413,6 +415,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                         .clone()
                         .or(cfg.fragment_masking.clone()),
                 ),
+                emit_extensions,
             },
             verbose,
             clean,
@@ -536,7 +539,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     if !clean {
         use std::collections::BTreeMap;
         let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
-        let mut dir_to_config: HashMap<PathBuf, (codegen::FragmentMasking, String, String)> =
+        let mut dir_to_config: HashMap<PathBuf, (codegen::FragmentMasking, String, String, EmitExtensions)> =
             HashMap::new();
 
         for (project_idx, ops) in project_operations.into_iter() {
@@ -565,13 +568,14 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                         fragment_masking,
                         cfg.document_suffix().to_string(),
                         cfg.variables_suffix().to_string(),
+                        cfg.get_emit_extensions(project),
                     ),
                 );
             }
         }
 
         for (out_dir_path, mut ops) in dir_to_ops {
-            let (fragment_masking, doc_suffix, var_suffix) =
+            let (fragment_masking, doc_suffix, var_suffix, emit_extensions) =
                 dir_to_config.get(&out_dir_path).unwrap();
 
             // Deduplicate operations by name and source
@@ -610,6 +614,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 doc_suffix,
                 var_suffix,
                 fragment_masking,
+                *emit_extensions,
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
                 eprintln!(
@@ -793,9 +798,12 @@ async fn generate_project_files(
                 if !path_str.starts_with('.') && !path_str.starts_with('/') {
                     path_str.insert_str(0, "./");
                 }
+                path_str.push_str(params.emit_extensions.as_str());
                 path_str
             } else {
-                "./fragment-masking".to_string()
+                let mut path_str = "./fragment-masking".to_string();
+                path_str.push_str(params.emit_extensions.as_str());
+                path_str
             };
 
             let ctx = codegen::CodegenContext::new(
@@ -820,6 +828,7 @@ async fn generate_project_files(
                 params.subscription_suffix,
                 params.fragment_masking.clone(),
                 masking_import_path,
+                params.emit_extensions,
             );
 
             execute_single_file_codegen(
@@ -902,7 +911,7 @@ async fn generate_project_files(
         }
 
         let index_path = out_dir_path.join("index.ts");
-        let index_content = codegen::generate_index_content(&params.fragment_masking);
+        let index_content = codegen::generate_index_content(&params.fragment_masking, params.emit_extensions);
         if let Err(e) = std::fs::write(&index_path, index_content) {
             eprintln!("{}: {}", "Failed to write index.ts".red(), e);
             success = false;

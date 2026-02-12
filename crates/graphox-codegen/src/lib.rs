@@ -9,7 +9,7 @@ use graphox_core::apollo_ast::{
     get_fragment_fragment_dependencies, serialize_fragment_definition,
     serialize_operation_definition,
 };
-use graphox_core::config::FragmentMaskingConfig;
+use graphox_core::config::{EmitExtensions, FragmentMaskingConfig};
 use graphox_core::document::DocumentState;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -78,6 +78,7 @@ pub struct CodegenContext<'a> {
     pub fragment_masking: FragmentMasking,
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
+    pub emit_extensions: EmitExtensions,
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
@@ -156,6 +157,7 @@ impl<'a> CodegenContext<'a> {
         subscription_suffix: &'a str,
         fragment_masking: FragmentMasking,
         masking_import_path: String,
+        emit_extensions: EmitExtensions,
     ) -> Self {
         Self {
             schema,
@@ -179,6 +181,7 @@ impl<'a> CodegenContext<'a> {
             subscription_suffix,
             fragment_masking,
             masking_import_path,
+            emit_extensions,
             used_schema_types: RefCell::new(HashSet::new()),
         }
     }
@@ -622,6 +625,7 @@ pub fn generate_typescript_with_profile(
                 final_path_str.insert_str(0, "./");
             }
             final_path_str.push_str(".codegen");
+            final_path_str.push_str(ctx.emit_extensions.as_str());
             final_path_str
         };
 
@@ -713,21 +717,26 @@ pub fn generate_entrypoint_content(
     document_suffix: &str,
     variables_suffix: &str,
     fragment_masking: &FragmentMasking,
+    emit_extensions: EmitExtensions,
 ) -> String {
     // Pre-allocate with estimated capacity based on number of operations
     let estimated_size = operations.len() * 200 + 500; // ~200 chars per operation + overhead
     let mut output = String::with_capacity(estimated_size);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
+    let ext = emit_extensions.as_str();
     if fragment_masking.is_enabled() {
-        output.push_str("import type { FragmentType } from \"./fragment-masking\";\n");
+        output.push_str(&format!(
+            "import type {{ FragmentType }} from \"./fragment-masking{}\";\n",
+            ext
+        ));
     }
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
     let mut type_import_lines = Vec::with_capacity(operations.len());
     let mut runtime_import_lines = Vec::with_capacity(operations.len());
-    let overloads = String::with_capacity(operations.len() * 100);
-    let map_entries = String::with_capacity(operations.len() * 80);
+    let mut overloads = String::with_capacity(operations.len() * 100);
+    let mut map_entries = String::with_capacity(operations.len() * 80);
 
     for op in operations {
         let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
@@ -741,15 +750,26 @@ pub fn generate_entrypoint_content(
         } else {
             &path_str
         };
+        let final_path = format!("{}{}", path_no_ext, ext);
 
         type_import_lines.push(format!(
             "import type {{ {}, {}{} }} from \"{}\";",
-            op.operation_type_name, op.operation_type_name, variables_suffix, path_no_ext
+            op.operation_type_name, op.operation_type_name, variables_suffix, final_path
         ));
 
         runtime_import_lines.push(format!(
             "import {{ {}{} }} from \"{}\";",
-            op.operation_type_name, document_suffix, path_no_ext
+            op.operation_type_name, document_suffix, final_path
+        ));
+
+        overloads.push_str(&format!(
+            "export function graphql(source: {:?}): typeof {}{};\n",
+            op.source_text, op.operation_type_name, document_suffix
+        ));
+
+        map_entries.push_str(&format!(
+            "  {:?}: {}{},\n",
+            op.source_text, op.operation_type_name, document_suffix
         ));
     }
 
@@ -1485,6 +1505,7 @@ pub fn generate_schema_types(
         "Subscription",
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
+        EmitExtensions::None,
     );
 
     // 1. Enums
@@ -1882,7 +1903,10 @@ export function {}(_fragment: any, data: any): any {{
     )
 }
 
-pub fn generate_index_content(fragment_masking: &FragmentMasking) -> String {
+pub fn generate_index_content(
+    fragment_masking: &FragmentMasking,
+    emit_extensions: EmitExtensions,
+) -> String {
     let mut output = String::with_capacity(256);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
@@ -1890,10 +1914,11 @@ pub fn generate_index_content(fragment_masking: &FragmentMasking) -> String {
         "export type { ResultOf, VariablesOf } from \"@graphql-typed-document-node/core\";\n",
     );
 
+    let ext = emit_extensions.as_str();
     if fragment_masking.is_enabled() {
-        output.push_str("export * from \"./fragment-masking\";\n");
+        output.push_str(&format!("export * from \"./fragment-masking{}\";\n", ext));
     }
-    output.push_str("export * from \"./graphql\";\n");
+    output.push_str(&format!("export * from \"./graphql{}\";\n", ext));
 
     output
 }

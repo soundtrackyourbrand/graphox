@@ -140,6 +140,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         "Subscription",
                         codegen::FragmentMasking::Disabled,
                         "./fragment-masking".to_string(),
+                        graphox_core::config::EmitExtensions::None,
                     );
                     let g_start = Instant::now();
                     if let Ok((_ts_code, _ops, profile)) =

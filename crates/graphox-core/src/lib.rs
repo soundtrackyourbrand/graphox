@@ -9,7 +9,6 @@ pub mod types;
 pub mod utils;
 
 pub use apollo_compiler;
-pub use config::Config;
-pub use config::FragmentMaskingConfig;
+pub use config::{Config, EmitExtensions, FragmentMaskingConfig};
 pub use document::DocumentState;
 pub use engine::Engine;

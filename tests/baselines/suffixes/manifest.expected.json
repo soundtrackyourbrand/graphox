@@ -1,7 +1,7 @@
 [
   {
     "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    email\n  }\n}\n",
-    "path": "./query.codegen",
-    "name": "GetUserQueryDocument"
+    "name": "GetUserQueryDocument",
+    "path": "./query.codegen"
   }
 ]
