@@ -51,8 +51,10 @@ pub async fn handle_incoming_calls(
                         let refs = doc.find_references_in_tree(&symbol_name, false);
 
                         if !refs.is_empty() {
-                            let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> =
-                                std::collections::HashMap::new();
+                            let mut ranges_by_container: std::collections::HashMap<
+                                String,
+                                Vec<Range>,
+                            > = std::collections::HashMap::new();
 
                             for r in refs {
                                 let container_name = doc.get_container_name_at_range(r.range);
@@ -111,16 +113,17 @@ pub async fn handle_outgoing_calls(
                 for call in &mut calls {
                     let callee_name = call.to.name.clone();
                     if let Some(def_uris) = backend.fragment_definitions.get(callee_name.as_str()) {
-                    for def_uri in def_uris.iter() {
-                        if let Some(def_doc) = backend.documents.get(def_uri).map(|r| r.value().clone())
-                            && let Some(loc) = def_doc.find_definition_in_tree(&callee_name)
-                        {
-                            call.to.uri = loc.uri;
-                            call.to.range = loc.range;
-                            call.to.selection_range = loc.range;
-                            break;
+                        for def_uri in def_uris.iter() {
+                            if let Some(def_doc) =
+                                backend.documents.get(def_uri).map(|r| r.value().clone())
+                                && let Some(loc) = def_doc.find_definition_in_tree(&callee_name)
+                            {
+                                call.to.uri = loc.uri;
+                                call.to.range = loc.range;
+                                call.to.selection_range = loc.range;
+                                break;
+                            }
                         }
-                    }
                     }
                 }
 

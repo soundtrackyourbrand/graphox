@@ -213,7 +213,9 @@ impl Engine {
                 if let Some(prev) = previous_metadata
                     && let Some(prev_doc) = prev.documents.get(p)
                 {
-                    let current_mtime = std::fs::metadata(&full_path).ok().and_then(|m| m.modified().ok());
+                    let current_mtime = std::fs::metadata(&full_path)
+                        .ok()
+                        .and_then(|m| m.modified().ok());
                     if current_mtime == prev_doc.mtime && current_mtime.is_some() {
                         return Some((p.clone(), prev_doc.clone()));
                     }
@@ -223,7 +225,11 @@ impl Engine {
                 let abs_path = if full_path.is_absolute() {
                     full_path.clone()
                 } else {
-                    config.base_dir.join(&full_path).canonicalize().unwrap_or_else(|_| full_path.clone())
+                    config
+                        .base_dir
+                        .join(&full_path)
+                        .canonicalize()
+                        .unwrap_or_else(|_| full_path.clone())
                 };
                 let uri = Url::from_file_path(&abs_path).ok()?;
                 let language = DocumentLanguage::from_uri(&uri);

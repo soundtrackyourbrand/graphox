@@ -364,12 +364,6 @@ async fn validate_all_documents_cancellable(
             .push(idx);
     }
 
-    // Helper to convert Option<PathBuf> to String key
-    fn pkg_to_key(pkg: Option<&PathBuf>) -> String {
-        pkg.map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default()
-    }
-
     // Validate all documents in parallel with cancellation support
     use rayon::prelude::*;
     use std::sync::atomic::AtomicUsize;

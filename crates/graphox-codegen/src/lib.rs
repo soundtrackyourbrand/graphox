@@ -1630,7 +1630,11 @@ pub fn generate_schema_types(
                     .and_then(|v| v.as_str())
                     .unwrap_or("No reason provided")
             });
-            output.push_str(&format_jsdoc(interface.description.as_deref(), deprecation, 0));
+            output.push_str(&format_jsdoc(
+                interface.description.as_deref(),
+                deprecation,
+                0,
+            ));
             output.push_str(&format!("export interface {} {{\n", name));
 
             // For interfaces, __typename is a union of all possible types
@@ -1703,7 +1707,11 @@ pub fn generate_schema_types(
             output.push_str(&format_jsdoc(un.description.as_deref(), deprecation, 0));
             let mut members: Vec<_> = un.members.iter().map(|m| m.to_string()).collect();
             members.sort();
-            output.push_str(&format!("export type {} = {};\n\n", name, members.join(" | ")));
+            output.push_str(&format!(
+                "export type {} = {};\n\n",
+                name,
+                members.join(" | ")
+            ));
         }
     }
 

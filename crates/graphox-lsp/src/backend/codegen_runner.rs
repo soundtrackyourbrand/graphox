@@ -147,49 +147,49 @@ pub async fn run_codegen(
                     continue;
                 }
 
-                    let fragment_suffix = project
-                        .fragment_suffix
-                        .as_deref()
-                        .or(config.fragment_suffix.as_deref())
-                        .unwrap_or("");
-                    let fragment_document_suffix = project
-                        .fragment_document_suffix
-                        .as_deref()
-                        .or(config.fragment_document_suffix.as_deref())
-                        .unwrap_or(fragment_suffix);
+                let fragment_suffix = project
+                    .fragment_suffix
+                    .as_deref()
+                    .or(config.fragment_suffix.as_deref())
+                    .unwrap_or("");
+                let fragment_document_suffix = project
+                    .fragment_document_suffix
+                    .as_deref()
+                    .or(config.fragment_document_suffix.as_deref())
+                    .unwrap_or(fragment_suffix);
 
-                    let ctx = graphox_codegen::CodegenContext::new(
-                        &valid_schema,
-                        &project_context.fragment_to_path,
-                        &project_context.fragment_to_import,
-                        &project_context.fragment_to_type_only,
-                        &project_context.all_fragments,
-                        path,
-                        &config.scalars,
-                        &schema_import,
-                        &type_imports,
-                        config.generate_ast_for_fragments.unwrap_or(false),
-                        &project_context.fragment_dependencies,
-                        &type_cache, // Use persistent cache from Backend
-                        project
-                            .document_suffix
-                            .as_deref()
-                            .or(config.document_suffix.as_deref())
-                            .unwrap_or("Document"),
-                        project
-                            .variables_suffix
-                            .as_deref()
-                            .or(config.variables_suffix.as_deref())
-                            .unwrap_or("Variables"),
-                        fragment_suffix,
-                        fragment_document_suffix,
-                        project
-                            .query_suffix
-                            .as_deref()
-                            .or(config.query_suffix.as_deref())
-                            .unwrap_or("Query"),
-                        project
-                            .mutation_suffix
+                let ctx = graphox_codegen::CodegenContext::new(
+                    &valid_schema,
+                    &project_context.fragment_to_path,
+                    &project_context.fragment_to_import,
+                    &project_context.fragment_to_type_only,
+                    &project_context.all_fragments,
+                    path,
+                    &config.scalars,
+                    &schema_import,
+                    &type_imports,
+                    config.generate_ast_for_fragments.unwrap_or(false),
+                    &project_context.fragment_dependencies,
+                    &type_cache, // Use persistent cache from Backend
+                    project
+                        .document_suffix
+                        .as_deref()
+                        .or(config.document_suffix.as_deref())
+                        .unwrap_or("Document"),
+                    project
+                        .variables_suffix
+                        .as_deref()
+                        .or(config.variables_suffix.as_deref())
+                        .unwrap_or("Variables"),
+                    fragment_suffix,
+                    fragment_document_suffix,
+                    project
+                        .query_suffix
+                        .as_deref()
+                        .or(config.query_suffix.as_deref())
+                        .unwrap_or("Query"),
+                    project
+                        .mutation_suffix
                         .as_deref()
                         .or(config.mutation_suffix.as_deref())
                         .unwrap_or("Mutation"),
@@ -206,7 +206,8 @@ pub async fn run_codegen(
                     ),
                     {
                         if let Some(out_dir) = project_output_dir {
-                            let include_root_path = graphox_core::utils::get_glob_root(&project.include.as_key());
+                            let include_root_path =
+                                graphox_core::utils::get_glob_root(&project.include.as_key());
                             let out_path = graphox_core::utils::get_output_path(
                                 path,
                                 &config.base_dir,
@@ -326,8 +327,19 @@ pub async fn run_codegen(
         .await;
 
     // Group all generated operations by their canonicalized absolute output directory
-    let mut dir_to_ops: std::collections::BTreeMap<PathBuf, Vec<graphox_codegen::OperationGenerated>> = std::collections::BTreeMap::new();
-    let mut dir_to_config: std::collections::HashMap<PathBuf, (graphox_codegen::FragmentMasking, String, String, graphox_core::config::EmitExtensions)> = std::collections::HashMap::new();
+    let mut dir_to_ops: std::collections::BTreeMap<
+        PathBuf,
+        Vec<graphox_codegen::OperationGenerated>,
+    > = std::collections::BTreeMap::new();
+    let mut dir_to_config: std::collections::HashMap<
+        PathBuf,
+        (
+            graphox_codegen::FragmentMasking,
+            String,
+            String,
+            graphox_core::config::EmitExtensions,
+        ),
+    > = std::collections::HashMap::new();
 
     for (project, project_ops) in config.projects.iter().zip(project_operations_list) {
         if !project.codegen_enabled() {
@@ -335,26 +347,47 @@ pub async fn run_codegen(
         }
         let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
         let out_dir_path = config.base_dir.join(out_dir);
-        let canon_out_dir_path = out_dir_path.canonicalize().unwrap_or_else(|_| out_dir_path.clone());
+        let canon_out_dir_path = out_dir_path
+            .canonicalize()
+            .unwrap_or_else(|_| out_dir_path.clone());
 
-        dir_to_ops.entry(canon_out_dir_path.clone()).or_default().extend(project_ops);
+        dir_to_ops
+            .entry(canon_out_dir_path.clone())
+            .or_default()
+            .extend(project_ops);
 
-        if !dir_to_config.contains_key(&canon_out_dir_path) {
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            dir_to_config.entry(canon_out_dir_path)
+        {
             let fragment_masking = graphox_codegen::FragmentMasking::from_config(
-                &project.fragment_masking.clone().or(config.fragment_masking.clone())
+                &project
+                    .fragment_masking
+                    .clone()
+                    .or(config.fragment_masking.clone()),
             );
             let emit_extensions = config.get_emit_extensions(project);
-            dir_to_config.insert(canon_out_dir_path, (
+            e.insert((
                 fragment_masking,
-                project.document_suffix.as_deref().or(config.document_suffix.as_deref()).unwrap_or("Document").to_string(),
-                project.variables_suffix.as_deref().or(config.variables_suffix.as_deref()).unwrap_or("Variables").to_string(),
+                project
+                    .document_suffix
+                    .as_deref()
+                    .or(config.document_suffix.as_deref())
+                    .unwrap_or("Document")
+                    .to_string(),
+                project
+                    .variables_suffix
+                    .as_deref()
+                    .or(config.variables_suffix.as_deref())
+                    .unwrap_or("Variables")
+                    .to_string(),
                 emit_extensions,
             ));
         }
     }
 
     for (out_dir_path, mut ops) in dir_to_ops {
-        let (fragment_masking, doc_suffix, var_suffix, emit_extensions) = dir_to_config.get(&out_dir_path).unwrap();
+        let (fragment_masking, doc_suffix, var_suffix, emit_extensions) =
+            dir_to_config.get(&out_dir_path).unwrap();
 
         // Deduplicate operations by name and source
         ops.sort_by(|a, b| {
@@ -409,10 +442,8 @@ pub async fn run_codegen(
         }
 
         let index_path = out_dir_path.join("index.ts");
-        let index_content = graphox_codegen::generate_index_content(
-            fragment_masking,
-            *emit_extensions,
-        );
+        let index_content =
+            graphox_codegen::generate_index_content(fragment_masking, *emit_extensions);
         if let Err(e) = std::fs::write(&index_path, index_content) {
             client
                 .log_message(
@@ -446,19 +477,19 @@ pub async fn run_codegen(
             })
             .collect();
 
-        if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries) {
-            if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
-                client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!(
-                            "Failed to write manifest file {}: {}",
-                            manifest_path.display(),
-                            e
-                        ),
-                    )
-                    .await;
-            }
+        if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries)
+            && let Err(e) = std::fs::write(&manifest_path, manifest_json)
+        {
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "Failed to write manifest file {}: {}",
+                        manifest_path.display(),
+                        e
+                    ),
+                )
+                .await;
         }
     }
 

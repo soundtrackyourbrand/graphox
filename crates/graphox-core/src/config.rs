@@ -434,7 +434,9 @@ impl Config {
                 let document_suffix = p_node["document_suffix"].as_str().map(String::from);
                 let variables_suffix = p_node["variables_suffix"].as_str().map(String::from);
                 let fragment_suffix = p_node["fragment_suffix"].as_str().map(String::from);
-                let fragment_document_suffix = p_node["fragment_document_suffix"].as_str().map(String::from);
+                let fragment_document_suffix = p_node["fragment_document_suffix"]
+                    .as_str()
+                    .map(String::from);
                 let query_suffix = p_node["query_suffix"].as_str().map(String::from);
                 let mutation_suffix = p_node["mutation_suffix"].as_str().map(String::from);
                 let subscription_suffix = p_node["subscription_suffix"].as_str().map(String::from);
@@ -558,7 +560,8 @@ impl Config {
         config.document_suffix = node["document_suffix"].as_str().map(String::from);
         config.variables_suffix = node["variables_suffix"].as_str().map(String::from);
         config.fragment_suffix = node["fragment_suffix"].as_str().map(String::from);
-        config.fragment_document_suffix = node["fragment_document_suffix"].as_str().map(String::from);
+        config.fragment_document_suffix =
+            node["fragment_document_suffix"].as_str().map(String::from);
         config.query_suffix = node["query_suffix"].as_str().map(String::from);
         config.mutation_suffix = node["mutation_suffix"].as_str().map(String::from);
         config.subscription_suffix = node["subscription_suffix"].as_str().map(String::from);

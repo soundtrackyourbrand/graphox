@@ -331,11 +331,16 @@ pub fn get_output_path(
     let mut output_path = base_dir.to_path_buf();
 
     // Canonicalize base_dir and path to handle symlinks (like /tmp -> /private/tmp on macOS)
-    let abs_base_dir = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
+    let abs_base_dir = base_dir
+        .canonicalize()
+        .unwrap_or_else(|_| base_dir.to_path_buf());
     let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
     let rel_path = if let Some(prefix) = include_prefix {
-        let abs_prefix = base_dir.join(prefix).canonicalize().unwrap_or_else(|_| base_dir.join(prefix));
+        let abs_prefix = base_dir
+            .join(prefix)
+            .canonicalize()
+            .unwrap_or_else(|_| base_dir.join(prefix));
         abs_path.strip_prefix(&abs_prefix).unwrap_or(&abs_path)
     } else {
         abs_path.strip_prefix(&abs_base_dir).unwrap_or(&abs_path)
@@ -351,7 +356,6 @@ pub fn get_output_path(
     output_path.set_extension("codegen.ts");
     output_path
 }
-
 
 pub fn merge_schema_texts(texts: &[String]) -> String {
     let total_len: usize = texts.iter().map(|s| s.len() + 1).sum();

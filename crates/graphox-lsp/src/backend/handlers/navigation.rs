@@ -207,7 +207,9 @@ pub async fn handle_rename(
                 }
 
                 for other_uri in relevant_uris {
-                    if let Some(other_doc) = backend.documents.get(&other_uri).map(|r| r.value().clone()) {
+                    if let Some(other_doc) =
+                        backend.documents.get(&other_uri).map(|r| r.value().clone())
+                    {
                         let refs = other_doc.find_references_in_tree(&name, true);
                         if !refs.is_empty() {
                             let edits: Vec<TextEdit> = refs

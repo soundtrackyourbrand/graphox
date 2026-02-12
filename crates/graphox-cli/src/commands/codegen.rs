@@ -539,8 +539,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     if !clean {
         use std::collections::BTreeMap;
         let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
-        let mut dir_to_config: HashMap<PathBuf, (codegen::FragmentMasking, String, String, EmitExtensions)> =
-            HashMap::new();
+        let mut dir_to_config: HashMap<
+            PathBuf,
+            (codegen::FragmentMasking, String, String, EmitExtensions),
+        > = HashMap::new();
 
         for (project_idx, ops) in project_operations.into_iter() {
             let Some(project) = cfg.projects.get(project_idx) else {
@@ -548,7 +550,9 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             };
             let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
             let out_dir_path = cfg.base_dir.join(out_dir);
-            let canon_out_dir_path = out_dir_path.canonicalize().unwrap_or_else(|_| out_dir_path.clone());
+            let canon_out_dir_path = out_dir_path
+                .canonicalize()
+                .unwrap_or_else(|_| out_dir_path.clone());
 
             dir_to_ops
                 .entry(canon_out_dir_path.clone())
@@ -765,8 +769,7 @@ async fn generate_project_files(
             let include_prefix_path = patterns
                 .iter()
                 .map(|p| {
-                    let root = utils::get_glob_root(p);
-                    root
+                    utils::get_glob_root(p)
                 })
                 .find(|root| {
                     let abs_root = params.base_dir.join(root);
@@ -911,7 +914,8 @@ async fn generate_project_files(
         }
 
         let index_path = out_dir_path.join("index.ts");
-        let index_content = codegen::generate_index_content(&params.fragment_masking, params.emit_extensions);
+        let index_content =
+            codegen::generate_index_content(&params.fragment_masking, params.emit_extensions);
         if let Err(e) = std::fs::write(&index_path, index_content) {
             eprintln!("{}: {}", "Failed to write index.ts".red(), e);
             success = false;
@@ -933,7 +937,6 @@ async fn clean_project_files(
             let abs_out_dir = params.base_dir.join(out_dir);
 
             if abs_out_dir != abs_include_root {
-
                 if abs_out_dir.exists() {
                     if let Err(e) = std::fs::remove_dir_all(&abs_out_dir) {
                         eprintln!(
