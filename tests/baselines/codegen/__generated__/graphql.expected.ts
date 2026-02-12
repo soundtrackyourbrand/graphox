@@ -3,6 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
+type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 import type { AccountInfo } from "./union_fragment.codegen";
 import type { GetNodePolymorphicQuery, GetNodePolymorphicQueryVariables } from "./union_query.codegen";
 import type { GetNodeQuery, GetNodeQueryVariables } from "./query_with_variables.codegen";

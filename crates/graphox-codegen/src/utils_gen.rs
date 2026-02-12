@@ -13,34 +13,97 @@ pub fn generate_fragment_masking_file(unmask_function_name: &str) -> String {
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-export type FragmentType<TFragment> = TFragment extends {{ ' $fragmentRefs'?: {{ [key: string]: any }} }}
-  ? TFragment
-  : TFragment extends {{ ' $fragmentName'?: string }}
-  ? TFragment
-  : TFragment extends {{ __fragment: infer T }}
-  ? T
+import {{ ResultOf, DocumentTypeDecoration, TypedDocumentNode }} from '@graphql-typed-document-node/core';
+import {{ FragmentDefinitionNode }} from 'graphql';
+import {{ Incremental }} from './graphql';
+
+
+export type FragmentType<TDocumentType extends DocumentTypeDecoration<any, any>> = TDocumentType extends DocumentTypeDecoration<
+  infer TType,
+  any
+>
+  ? [TType] extends [{{ ' $fragmentName'?: infer TKey }}]
+    ? TKey extends string
+      ? {{ ' $fragmentRefs'?: {{ [key in TKey]: TType }} }}
+      : never
+    : never
   : never;
 
-export function {}<TFragment>(
-  _fragment: TFragment,
-  data: FragmentType<TFragment>
-): FragmentType<TFragment>;
-export function {}<TFragment>(
-  _fragment: TFragment,
-  data: FragmentType<TFragment> | null | undefined
-): FragmentType<TFragment> | null | undefined;
-export function {}<TFragment>(
-  _fragment: TFragment,
-  data: ReadonlyArray<FragmentType<TFragment>>
-): ReadonlyArray<FragmentType<TFragment>>;
-export function {}<TFragment>(
-  _fragment: TFragment,
-  data: ReadonlyArray<FragmentType<TFragment>> | null | undefined
-): ReadonlyArray<FragmentType<TFragment>> | null | undefined;
-export function {}(_fragment: any, data: any): any {{
-  return data;
+// return non-nullable if `fragmentType` is non-nullable
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: FragmentType<DocumentTypeDecoration<TType, any>>
+): TType;
+// return nullable if `fragmentType` is undefined
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: FragmentType<DocumentTypeDecoration<TType, any>> | undefined
+): TType | undefined;
+// return nullable if `fragmentType` is nullable
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: FragmentType<DocumentTypeDecoration<TType, any>> | null
+): TType | null;
+// return nullable if `fragmentType` is nullable or undefined
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: FragmentType<DocumentTypeDecoration<TType, any>> | null | undefined
+): TType | null | undefined;
+// return array of non-nullable if `fragmentType` is array of non-nullable
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: Array<FragmentType<DocumentTypeDecoration<TType, any>>>
+): Array<TType>;
+// return array of nullable if `fragmentType` is array of nullable
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: Array<FragmentType<DocumentTypeDecoration<TType, any>>> | null | undefined
+): Array<TType> | null | undefined;
+// return readonly array of non-nullable if `fragmentType` is array of non-nullable
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: ReadonlyArray<FragmentType<DocumentTypeDecoration<TType, any>>>
+): ReadonlyArray<TType>;
+// return readonly array of nullable if `fragmentType` is array of nullable
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: ReadonlyArray<FragmentType<DocumentTypeDecoration<TType, any>>> | null | undefined
+): ReadonlyArray<TType> | null | undefined;
+export function {}<TType>(
+  _documentNode: DocumentTypeDecoration<TType, any>,
+  fragmentType: FragmentType<DocumentTypeDecoration<TType, any>> | Array<FragmentType<DocumentTypeDecoration<TType, any>>> | ReadonlyArray<FragmentType<DocumentTypeDecoration<TType, any>>> | null | undefined
+): TType | Array<TType> | ReadonlyArray<TType> | null | undefined {{
+  return fragmentType as any;
+}}
+
+export function makeFragmentData<
+  F extends DocumentTypeDecoration<any, any>,
+  FT extends ResultOf<F>
+>(data: FT, _fragment: F): FragmentType<F> {{
+  return data as FragmentType<F>;
+}}
+
+export function isFragmentReady<TQuery, TFrag>(
+  queryNode: DocumentTypeDecoration<TQuery, any>,
+  fragmentNode: TypedDocumentNode<TFrag>,
+  data: FragmentType<TypedDocumentNode<Incremental<TFrag>, any>> | null | undefined
+): data is FragmentType<typeof fragmentNode> {{
+  const deferredFields = (queryNode as {{ __meta__?: {{ deferredFields: Record<string, (keyof TFrag)[]> }} }} ).__meta__
+    ?.deferredFields;
+
+  if (!deferredFields) return true;
+
+  const fragDef = fragmentNode.definitions[0] as FragmentDefinitionNode | undefined;
+  const fragName = fragDef?.name?.value;
+
+  const fields = (fragName && deferredFields[fragName]) || [];
+  return fields.length > 0 && fields.every(field => data && field in data);
 }}
 "#,
+        unmask_function_name,
+        unmask_function_name,
+        unmask_function_name,
+        unmask_function_name,
         unmask_function_name,
         unmask_function_name,
         unmask_function_name,

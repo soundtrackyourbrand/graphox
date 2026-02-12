@@ -3,6 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
+type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 import type { GetUserQuery, GetUserQueryVariables } from "./test.codegen";
 import type { UserFields } from "./fragments/user_fields.codegen";
 import { GetUserQueryDocument } from "./test.codegen";

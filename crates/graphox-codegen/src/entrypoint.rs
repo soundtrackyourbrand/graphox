@@ -30,6 +30,12 @@ pub fn generate_entrypoint_content(
     }
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
+    output.push_str("type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;\n");
+
+    if fragment_masking.is_enabled() {
+        output.push_str("export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };\n");
+    }
+
     let mut type_import_lines = Vec::with_capacity(operations.len());
     let mut runtime_import_lines = Vec::with_capacity(operations.len());
     let mut overloads = String::with_capacity(operations.len() * 100);
@@ -94,6 +100,9 @@ pub fn generate_entrypoint_content(
         unique_frags_by_name.entry(&frag.name).or_insert(frag);
     }
 
+    // Track source texts already added (from operations) to avoid duplicate keys
+    let mut added_source_texts: Vec<&String> = unique_ops_by_source.keys().cloned().collect();
+
     for frag in unique_frags_by_name.values() {
         let rel_codegen_path = pathdiff::diff_paths(&frag.codegen_path, output_dir)
             .unwrap_or_else(|| frag.codegen_path.clone());
@@ -122,6 +131,12 @@ pub fn generate_entrypoint_content(
     }
 
     for frag in unique_frags_by_source.values() {
+        // Skip if this source text was already added (from an operation)
+        if added_source_texts.contains(&&frag.source_text) {
+            continue;
+        }
+        added_source_texts.push(&frag.source_text);
+
         if generate_ast_for_fragments {
             overloads.push_str(&format!(
                 "export function graphql(source: {:?}): typeof {};\n",

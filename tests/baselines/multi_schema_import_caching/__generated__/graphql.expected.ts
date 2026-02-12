@@ -3,6 +3,7 @@
 // This file was automatically generated and should not be edited.
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
+type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 import type { Query1Query, Query1QueryVariables } from "./query1.codegen";
 import type { Query2Query, Query2QueryVariables } from "./query2.codegen";
 import { Query1QueryDocument } from "./query1.codegen";

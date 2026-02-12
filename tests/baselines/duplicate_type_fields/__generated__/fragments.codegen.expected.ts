@@ -2,7 +2,7 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-export type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 
 import type { FragmentType } from "./fragment-masking";
 export type DuplicateFields = ({

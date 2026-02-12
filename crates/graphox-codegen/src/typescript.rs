@@ -36,9 +36,7 @@ pub fn generate_typescript_with_profile(
     // Pre-allocate output with estimated capacity
     let mut output = String::with_capacity(4096);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
-    output.push_str(
-        "export type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;\n\n",
-    );
+    output.push_str("type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;\n\n");
 
     let mut used_fragments = HashMap::default();
     let mut generated_operations = Vec::new();

@@ -4,6 +4,8 @@
 
 import type { FragmentType } from "./fragment-masking";
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
+type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };
 import type { GetUserQuery, GetUserQueryVariables } from "./queries.codegen";
 import type { GetUserWithPostsQuery, GetUserWithPostsQueryVariables } from "./queries.codegen";
 import type { GetUsersQuery, GetUsersQueryVariables } from "./queries.codegen";
