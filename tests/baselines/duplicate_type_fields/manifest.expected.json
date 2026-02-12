@@ -1,7 +1,7 @@
 [
   {
-    "name": "GetPlaylistQueryDocument",
     "source": "query GetPlaylist($id: ID!) {\n  playlist(id: $id) {\n    ...DuplicateFields\n  }\n}\n",
-    "path": "./query.codegen"
+    "path": "./query.codegen",
+    "name": "GetPlaylistQueryDocument"
   }
 ]

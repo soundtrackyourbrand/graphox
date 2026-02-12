@@ -107,6 +107,9 @@ def main():
         ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
         ("tests/fixtures/include_strip", "tests/baselines/include_strip"),
         ("tests/fixtures/multi_project_isolation", "tests/baselines/multi_project_isolation"),
+        ("tests/fixtures/emit_extensions_none", "tests/baselines/emit_extensions_none"),
+        ("tests/fixtures/emit_extensions_js", "tests/baselines/emit_extensions_js"),
+        ("tests/fixtures/emit_extensions_ts", "tests/baselines/emit_extensions_ts"),
     ]
 
     for fixture, baseline in tasks:

@@ -1,0 +1,5 @@
+projects:
+  - name: default
+    schema: schema.graphql
+    include: "**/*.ts"
+    output_dir: generated

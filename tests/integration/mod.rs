@@ -2,6 +2,7 @@ mod cli;
 mod cross_project_docs;
 mod cross_project_features;
 mod duplicate_operations;
+mod emit_extensions_test;
 mod github_reporter;
 mod lsp_multi_schema;
 mod lsp_updates;

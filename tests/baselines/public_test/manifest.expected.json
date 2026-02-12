@@ -1,0 +1,7 @@
+[
+  {
+    "source": "query GetPublic { users { ...PublicFrag } }\n",
+    "name": "GetPublicQueryDocument",
+    "path": "./query.codegen"
+  }
+]

@@ -1188,7 +1188,7 @@ fn test_cli_output_types_baselines() {
     );
 }
 
-fn run_baseline_test(
+pub(crate) fn run_baseline_test(
     fixture_dir_str: &str,
     baseline_dir_str: &str,
     output_dir_param: Option<&str>,

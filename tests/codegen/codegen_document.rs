@@ -275,3 +275,98 @@ projects:
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }
+
+#[test]
+#[ntest::timeout(500)]
+fn test_entrypoint_documents_and_overloads_populated() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type Query { user(id: ID!): User } type User { id: ID! name: String }",
+    )
+    .unwrap();
+
+    // Create a query file
+    let query_file = temp_dir.join("query.graphql");
+    std::fs::write(
+        &query_file,
+        "query GetUser($id: ID!) { user(id: $id) { id name } }",
+    )
+    .unwrap();
+
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+    output_dir: "."
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let entrypoint_file = temp_dir.join("graphql.ts");
+    assert!(entrypoint_file.exists(), "graphql.ts should exist");
+
+    let content = std::fs::read_to_string(&entrypoint_file).unwrap();
+
+    // Verify documents export is populated (not empty)
+    assert!(
+        content.contains(r#"const documents: { [key: string]: any } = {"#),
+        "Missing documents export. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains(r#""query GetUser($id: ID!)"#),
+        "documents export should contain query source. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("GetUserQueryDocument"),
+        "documents export should reference GetUserQueryDocument. Content:\n{}",
+        content
+    );
+
+    // Verify specific function overloads are generated
+    assert!(
+        content.contains(r#"export function graphql(source: "query GetUser($id: ID!)"#),
+        "Missing specific graphql overload for GetUser. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("typeof GetUserQueryDocument"),
+        "overload should return typeof GetUserQueryDocument. Content:\n{}",
+        content
+    );
+
+    // Verify fallback generic overload exists
+    assert!(
+        content.contains("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;"),
+        "Missing generic fallback overload. Content:\n{}",
+        content
+    );
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
