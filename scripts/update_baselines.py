@@ -104,6 +104,8 @@ def main():
         ("tests/fixtures/multi_schema_import_caching", "tests/baselines/multi_schema_import_caching"),
         ("tests/fixtures/permissions", "tests/baselines/permissions"),
         ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
+        ("tests/fixtures/include_strip", "tests/baselines/include_strip"),
+        ("tests/fixtures/multi_project_isolation", "tests/baselines/multi_project_isolation"),
     ]
 
     for fixture, baseline in tasks:

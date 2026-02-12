@@ -1,0 +1,7 @@
+projects:
+  - schema: "schema.graphql"
+    include: "project_a/**/*.graphql"
+    output_dir: "generated_a"
+  - schema: "schema.graphql"
+    include: "project_b/**/*.graphql"
+    output_dir: "generated_b"

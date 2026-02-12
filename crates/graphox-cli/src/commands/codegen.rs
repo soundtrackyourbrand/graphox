@@ -525,9 +525,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
     // Generate graphql.ts and manifest.json for each project
     if !clean {
-        for (project_idx, project) in cfg.projects.iter().enumerate() {
+        for (project_idx, _ops) in project_operations.iter() {
+            let Some(project) = cfg.projects.get(*project_idx) else {
+                continue;
+            };
             let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
-            let Some(ops) = project_operations.get(&project_idx) else {
+            let Some(ops) = project_operations.get(project_idx) else {
                 continue;
             };
 

@@ -344,14 +344,12 @@ async fn validate_all_documents_cancellable(
         if frag.is_public {
             public_fragment_indices.push(idx);
         }
-        let pkg_key = frag.package_root
+        let pkg_key = frag
+            .package_root
             .as_ref()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
-        fragments_by_package
-            .entry(pkg_key)
-            .or_insert_with(Vec::new)
-            .push(idx);
+        fragments_by_package.entry(pkg_key).or_default().push(idx);
     }
 
     // Also build schema_key lookup
@@ -359,13 +357,14 @@ async fn validate_all_documents_cancellable(
     for (idx, (_frag, schema_key)) in all_fragments_info.iter().enumerate() {
         fragments_by_schema_key
             .entry(schema_key.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 
     // Helper to convert Option<PathBuf> to String key
     fn pkg_to_key(pkg: Option<&PathBuf>) -> String {
-        pkg.map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+        pkg.map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
     }
 
     // Validate all documents in parallel with cancellation support

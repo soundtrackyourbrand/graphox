@@ -1,0 +1,15 @@
+type Query {
+  user: User
+  settings: Settings
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+}
+
+type Settings {
+  theme: String!
+  notifications: Boolean!
+}

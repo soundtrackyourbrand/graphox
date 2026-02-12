@@ -5,8 +5,8 @@
     "source": "query GetMe {\n  me {\n    id\n    username\n  }\n}\n"
   },
   {
-    "source": "query GetMyId {\n  me {\n    id\n  }\n}\n",
     "name": "GetMyIdQueryDocument",
-    "path": "./subdir/other.codegen"
+    "path": "./subdir/other.codegen",
+    "source": "query GetMyId {\n  me {\n    id\n  }\n}\n"
   }
 ]

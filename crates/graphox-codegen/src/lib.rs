@@ -717,9 +717,10 @@ pub fn generate_entrypoint_content(
     }
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
-    let mut import_lines = Vec::with_capacity(operations.len());
-    let mut overloads = String::with_capacity(operations.len() * 100);
-    let mut map_entries = String::with_capacity(operations.len() * 80);
+    let mut type_import_lines = Vec::with_capacity(operations.len());
+    let mut runtime_import_lines = Vec::with_capacity(operations.len());
+    let overloads = String::with_capacity(operations.len() * 100);
+    let map_entries = String::with_capacity(operations.len() * 80);
 
     for op in operations {
         let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
@@ -728,40 +729,31 @@ pub fn generate_entrypoint_content(
         if !path_str.starts_with('.') && !path_str.starts_with('/') {
             path_str = format!("./{}", path_str);
         }
-        // Remove extension
         let path_no_ext = if path_str.ends_with(".ts") {
             &path_str[..path_str.len() - 3]
         } else {
             &path_str
         };
 
-        import_lines.push(format!(
-            "import {{ {}, {}{}, {}{} }} from \"{}\";",
-            op.operation_type_name,
-            op.operation_type_name,
-            variables_suffix,
-            op.operation_type_name,
-            document_suffix,
-            path_no_ext
+        type_import_lines.push(format!(
+            "import type {{ {}, {}{} }} from \"{}\";",
+            op.operation_type_name, op.operation_type_name, variables_suffix, path_no_ext
         ));
 
-        // Write overloads using format! for proper string escaping
-        overloads.push_str(&format!(
-            "export function graphql(source: {:?}): typeof {}{};\n",
-            op.source_text, op.operation_type_name, document_suffix
-        ));
-
-        // Write map entries using format! for proper string escaping
-        map_entries.push_str(&format!(
-            "  {:?}: {}{},\n",
-            op.source_text, op.operation_type_name, document_suffix
+        runtime_import_lines.push(format!(
+            "import {{ {}{} }} from \"{}\";",
+            op.operation_type_name, document_suffix, path_no_ext
         ));
     }
 
-    import_lines.sort();
-    import_lines.dedup();
-    for line in import_lines {
-        output.push_str(&line);
+    let mut all_import_lines: Vec<_> = type_import_lines
+        .iter()
+        .chain(runtime_import_lines.iter())
+        .collect();
+    all_import_lines.sort();
+    all_import_lines.dedup();
+    for line in all_import_lines {
+        output.push_str(line);
         output.push('\n');
     }
     output.push('\n');
@@ -782,7 +774,7 @@ pub fn generate_entrypoint_content(
 
 pub fn emit_permission_data_content(
     schema: &apollo_compiler::validation::Valid<Schema>,
-    scalars: &Option<HashMap<String, String>>,
+    _scalars: &Option<HashMap<String, String>>,
     schema_import: &Option<String>,
 ) -> String {
     let mut output = String::with_capacity(2048);
@@ -844,7 +836,7 @@ pub fn emit_permission_data_content(
         }
     }
 
-    let dummy_cache = TypeCache::new();
+    let _dummy_cache = TypeCache::new();
 
     output.push_str("export interface PermissionTypes {\n");
     for (typename, field) in &types_with_permissions {

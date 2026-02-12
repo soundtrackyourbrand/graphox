@@ -656,14 +656,15 @@ projects:
     let content = std::fs::read_to_string(entrypoint_file).unwrap();
     println!("--- ENTRYPOINT CONTENT ---\n{}", content);
 
-    // Check for imports
+    // Check for imports - now split into type-only and runtime imports
+    assert!(
+        content
+            .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";")
+    );
+    assert!(content.contains("import { GetMeQueryDocument } from \"./query.codegen\";"));
 
-    assert!(content.contains(
-        "import { GetMeQuery, GetMeQueryVariables, GetMeQueryDocument } from \"./query.codegen\";"
-    ));
-
-    // Check for graphql function overloads
-    assert!(content.contains("export function graphql(source: \"query GetMe { me { id name } }\"): typeof GetMeQueryDocument;"));
+    // Check for graphql function overloads - now uses generic signature
+    assert!(content.contains("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;"));
 
     // Check for gql export
     assert!(content.contains("export const gql = graphql;"));
@@ -1597,4 +1598,82 @@ fn test_cli_include_strip_baselines() {
         "tests/baselines/include_strip",
         None,
     );
+}
+
+#[test]
+#[ntest::timeout(250)]
+fn test_multi_project_isolation() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let fixture_dir = Path::new("tests/fixtures/multi_project_isolation");
+    let temp_dir = std::env::temp_dir().join("graphox_multi_project_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+            } else {
+                std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+
+    copy_dir_all(fixture_dir, &temp_dir).expect("Failed to copy fixture to temp");
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let graphql_a_path = temp_dir.join("generated_a/graphql.ts");
+    let graphql_b_path = temp_dir.join("generated_b/graphql.ts");
+
+    assert!(graphql_a_path.exists(), "project_a graphql.ts should exist");
+    assert!(graphql_b_path.exists(), "project_b graphql.ts should exist");
+
+    let graphql_a = std::fs::read_to_string(&graphql_a_path).unwrap();
+    let graphql_b = std::fs::read_to_string(&graphql_b_path).unwrap();
+
+    assert!(
+        graphql_a.contains("GetUserQuery"),
+        "project_a should contain GetUserQuery"
+    );
+    assert!(
+        !graphql_a.contains("GetSettingsQuery"),
+        "project_a should NOT contain GetSettingsQuery (cross-project leakage)"
+    );
+
+    assert!(
+        graphql_b.contains("GetSettingsQuery"),
+        "project_b should contain GetSettingsQuery"
+    );
+    assert!(
+        !graphql_b.contains("GetUserQuery"),
+        "project_b should NOT contain GetUserQuery (cross-project leakage)"
+    );
+
+    assert!(
+        graphql_a.contains("import type { GetUserQuery, GetUserQueryVariables }"),
+        "project_a should have type-only imports for types"
+    );
+    assert!(
+        graphql_a.contains("import { GetUserQueryDocument }"),
+        "project_a should have runtime imports for DocumentNode"
+    );
+
+    std::fs::remove_dir_all(temp_dir).ok();
 }
