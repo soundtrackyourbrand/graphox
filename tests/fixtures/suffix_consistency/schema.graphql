@@ -1,0 +1,1 @@
+type Query { user: User } type Mutation { updateUser(name: String!): User } type User { id: ID! name: String }

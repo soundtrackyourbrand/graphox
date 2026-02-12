@@ -26,7 +26,7 @@ export type DuplicateFields = ({
   }>;
 }) & { ' $fragmentName'?: 'DuplicateFields' };
 
-export declare const DuplicateFields: {
+export declare const DuplicateFieldsDocument: {
   __fragment: DuplicateFields;
 };
 

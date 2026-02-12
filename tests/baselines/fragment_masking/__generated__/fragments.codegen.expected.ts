@@ -11,7 +11,7 @@ export type UserFields = ({
   name: string | null;
 }) & { ' $fragmentName'?: 'UserFields' };
 
-export declare const UserFields: {
+export declare const UserFieldsDocument: {
   __fragment: UserFields;
 };
 
@@ -21,7 +21,7 @@ export type UserEmail = ({
   email: string | null;
 }) & { ' $fragmentName'?: 'UserEmail' };
 
-export declare const UserEmail: {
+export declare const UserEmailDocument: {
   __fragment: UserEmail;
 };
 

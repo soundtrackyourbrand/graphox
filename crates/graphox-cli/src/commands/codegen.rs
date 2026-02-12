@@ -417,7 +417,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             .fragment_document_suffix
             .as_deref()
             .or(cfg.fragment_document_suffix.as_deref())
-            .unwrap_or(fragment_suffix);
+            .unwrap_or(document_suffix);
         let query_suffix = project
             .query_suffix
             .as_deref()
@@ -645,10 +645,22 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                         .clone()
                         .or(cfg.fragment_masking.clone()),
                 );
+                let document_suffix = project
+                    .document_suffix
+                    .as_deref()
+                    .or(cfg.document_suffix.as_deref())
+                    .unwrap_or("Document")
+                    .to_string();
+                let variables_suffix = project
+                    .variables_suffix
+                    .as_deref()
+                    .or(cfg.variables_suffix.as_deref())
+                    .unwrap_or("Variables")
+                    .to_string();
                 e.insert((
                     fragment_masking,
-                    cfg.document_suffix().to_string(),
-                    cfg.variables_suffix().to_string(),
+                    document_suffix,
+                    variables_suffix,
                     cfg.get_emit_extensions(project),
                     project
                         .generate_ast_for_fragments
@@ -754,7 +766,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     sonic_rs::json!({
                         "source": op.source_text,
                         "path": path_no_ext,
-                        "name": format!("{}Document", op.operation_type_name)
+                        "name": format!("{}{}", op.operation_type_name, doc_suffix)
                     })
                 })
                 .collect();

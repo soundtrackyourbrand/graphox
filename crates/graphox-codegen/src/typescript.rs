@@ -226,7 +226,8 @@ pub fn generate_typescript_with_profile(
             profile.selection_set_time += sel_start.elapsed();
 
             let fragment_type_name = format!("{}{}", frag.name, ctx.fragment_suffix);
-            let fragment_document_name = format!("{}{}", frag.name, ctx.fragment_document_suffix);
+            let fragment_document_name =
+                format!("{}{}", fragment_type_name, ctx.fragment_document_suffix);
 
             if ctx.fragment_masking.is_enabled() {
                 let type_str = if result.type_str.contains('|') && !result.type_str.starts_with('(')
@@ -324,8 +325,7 @@ pub fn generate_typescript_with_profile(
                     definitions.push(']');
 
                     bodies.push_str("export const ");
-                    bodies.push_str(&frag.name);
-                    bodies.push_str(ctx.document_suffix);
+                    bodies.push_str(&fragment_document_name);
                     bodies.push_str(" = { kind: 'Document', definitions: ");
                     bodies.push_str(&definitions);
                     bodies.push_str(" } as unknown as DocumentNode<");
@@ -340,7 +340,7 @@ pub fn generate_typescript_with_profile(
             generated_fragments.push(FragmentGenerated {
                 name: fragment_type_name.clone(),
                 source_text: block_text.clone(),
-                document_name: format!("{}{}", frag.name, ctx.document_suffix),
+                document_name: fragment_document_name,
                 codegen_path: ctx.codegen_path.clone(),
             });
         }

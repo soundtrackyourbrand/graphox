@@ -11,7 +11,7 @@ export type UserPosts = ({
   title: string | null;
 }) & { ' $fragmentName'?: 'UserPosts' };
 
-export declare const UserPosts: {
+export declare const UserPostsDocument: {
   __fragment: UserPosts;
 };
 

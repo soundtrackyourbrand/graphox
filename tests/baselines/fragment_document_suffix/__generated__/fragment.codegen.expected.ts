@@ -11,7 +11,7 @@ export type UserFieldsFrag = ({
   name: string | null;
 }) & { ' $fragmentName'?: 'UserFieldsFrag' };
 
-export declare const UserFieldsDoc: {
+export declare const UserFieldsFragDoc: {
   __fragment: UserFieldsFrag;
 };
 

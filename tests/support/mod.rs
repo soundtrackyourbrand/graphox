@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tempfile::TempDir;
 
+pub mod baseline;
 pub mod builders;
 pub mod fixtures;
 pub mod lsp;

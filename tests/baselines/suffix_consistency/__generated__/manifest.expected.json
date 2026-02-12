@@ -1,0 +1,12 @@
+[
+  {
+    "name": "GetUserQueryDoc",
+    "path": "./query.codegen",
+    "source": "query GetUser { user { ...UserFields } }\n"
+  },
+  {
+    "name": "UpdateUserDoc",
+    "path": "./mutation.codegen",
+    "source": "mutation UpdateUser($name: String!) { updateUser(name: $name) { id name } }\n"
+  }
+]
