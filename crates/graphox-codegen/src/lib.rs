@@ -232,6 +232,7 @@ pub fn generate_typescript_with_profile(
     // Pre-allocate bodies string
     let mut bodies = String::with_capacity(2048);
     let mut has_operations = false;
+    let mut has_fragment_asts = false;
 
     for block in doc.get_graphql_trees() {
         // Avoid intermediate string allocation by using byte_slice directly
@@ -458,6 +459,7 @@ pub fn generate_typescript_with_profile(
                     .unwrap_or(false);
 
                 if !is_type_only {
+                    has_fragment_asts = true;
                     let frag_def = serialize_fragment_definition(frag, ctx.all_fragments);
 
                     // Use cached dependencies to avoid tree traversal
@@ -678,7 +680,7 @@ pub fn generate_typescript_with_profile(
         }
     }
 
-    if has_operations {
+    if has_operations || has_fragment_asts {
         output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
     }
 
@@ -738,7 +740,17 @@ pub fn generate_entrypoint_content(
     let mut overloads = String::with_capacity(operations.len() * 100);
     let mut map_entries = String::with_capacity(operations.len() * 80);
 
+    // Deduplicate operations by source text to avoid duplicate overloads and map entries
+    let mut unique_ops_by_source = BTreeMap::new();
+    // Deduplicate operations by name to avoid duplicate imports
+    let mut unique_ops_by_name = BTreeMap::new();
+
     for op in operations {
+        unique_ops_by_source.entry(&op.source_text).or_insert(op);
+        unique_ops_by_name.entry(&op.operation_type_name).or_insert(op);
+    }
+
+    for op in unique_ops_by_name.values() {
         let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
             .unwrap_or_else(|| op.codegen_path.clone());
         let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
@@ -761,7 +773,9 @@ pub fn generate_entrypoint_content(
             "import {{ {}{} }} from \"{}\";",
             op.operation_type_name, document_suffix, final_path
         ));
+    }
 
+    for op in unique_ops_by_source.values() {
         overloads.push_str(&format!(
             "export function graphql(source: {:?}): typeof {}{};\n",
             op.source_text, op.operation_type_name, document_suffix

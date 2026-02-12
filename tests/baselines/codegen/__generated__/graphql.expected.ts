@@ -13,14 +13,14 @@ import { GetUsersQueryDocument } from "./simple_query.codegen";
 import { GetUsersWithFragmentQueryDocument } from "./fragment_usage.codegen";
 
 const documents: { [key: string]: any } = {
-  "query GetNodePolymorphic($id: ID!) {\n  node(id: $id) {\n    __typename\n    ... on User {\n      id\n      username\n    }\n    ... on Post {\n      id\n      title\n    }\n  }\n}\n": GetNodePolymorphicQueryDocument,
   "query GetNode($id: ID!) {\n  node(id: $id) {\n    id\n    ... on User {\n      username\n    }\n  }\n}\n": GetNodeQueryDocument,
+  "query GetNodePolymorphic($id: ID!) {\n  node(id: $id) {\n    __typename\n    ... on User {\n      id\n      username\n    }\n    ... on Post {\n      id\n      title\n    }\n  }\n}\n": GetNodePolymorphicQueryDocument,
   "query GetUsers {\n  users {\n    id\n    username\n  }\n}\n": GetUsersQueryDocument,
   "query GetUsersWithFragment {\n  users {\n    ...UserFields\n    email\n  }\n}\n": GetUsersWithFragmentQueryDocument,
 };
 
-export function graphql(source: "query GetNodePolymorphic($id: ID!) {\n  node(id: $id) {\n    __typename\n    ... on User {\n      id\n      username\n    }\n    ... on Post {\n      id\n      title\n    }\n  }\n}\n"): typeof GetNodePolymorphicQueryDocument;
 export function graphql(source: "query GetNode($id: ID!) {\n  node(id: $id) {\n    id\n    ... on User {\n      username\n    }\n  }\n}\n"): typeof GetNodeQueryDocument;
+export function graphql(source: "query GetNodePolymorphic($id: ID!) {\n  node(id: $id) {\n    __typename\n    ... on User {\n      id\n      username\n    }\n    ... on Post {\n      id\n      title\n    }\n  }\n}\n"): typeof GetNodePolymorphicQueryDocument;
 export function graphql(source: "query GetUsers {\n  users {\n    id\n    username\n  }\n}\n"): typeof GetUsersQueryDocument;
 export function graphql(source: "query GetUsersWithFragment {\n  users {\n    ...UserFields\n    email\n  }\n}\n"): typeof GetUsersWithFragmentQueryDocument;
 export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;

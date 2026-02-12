@@ -34,16 +34,13 @@ def update_baselines(fixture_rel, baseline_rel):
     if not os.path.exists(baseline_dir):
         os.makedirs(baseline_dir)
 
-    # Clean baseline directory of old .expected.* files and subdirectories
-    for root, dirs, files in os.walk(baseline_dir, topdown=False):
-        for f in files:
-            if f.endswith(".expected.ts") or f.endswith(".expected.json"):
-                os.remove(os.path.join(root, f))
-        # Remove empty directories
-        for d in dirs:
-            dir_path = os.path.join(root, d)
-            if os.path.exists(dir_path) and not os.listdir(dir_path):
-                os.rmdir(dir_path)
+    # Clean baseline directory of ALL files and subdirectories
+    for item in os.listdir(baseline_dir):
+        item_path = os.path.join(baseline_dir, item)
+        if os.path.isfile(item_path):
+            os.remove(item_path)
+        elif os.path.isdir(item_path):
+            shutil.rmtree(item_path)
 
     # Create unique temp directories
     timestamp = str(int(time.time() * 1000))
@@ -98,10 +95,7 @@ def update_baselines(fixture_rel, baseline_rel):
                     if not os.path.exists(target_dir):
                         os.makedirs(target_dir)
 
-                    if f.endswith(".codegen.ts"):
-                        stem = f.replace(".codegen.ts", "")
-                        baseline_name = stem + ".expected.ts"
-                    elif f.endswith(".ts"):
+                    if f.endswith(".ts"):
                         stem = f.replace(".ts", "")
                         baseline_name = stem + ".expected.ts"
                     elif f.endswith(".json"):
