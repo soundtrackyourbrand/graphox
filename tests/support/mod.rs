@@ -1056,7 +1056,7 @@ pub fn create_complex_schema_a(num_types: usize) -> String {
     for i in 0..(num_types.saturating_sub(7)) {
         schema.push_str(&format!("type ExtraTypeA{} {{\n", i));
         schema.push_str("    id: ID!\n");
-        schema.push_str(&format!("    field: String\n"));
+        schema.push_str("    field: String\n");
         schema.push_str("}\n\n");
     }
 
@@ -1122,7 +1122,7 @@ pub fn create_complex_schema_b(num_types: usize) -> String {
     for i in 0..(num_types.saturating_sub(7)) {
         schema.push_str(&format!("type ExtraTypeB{} {{\n", i));
         schema.push_str("    id: ID!\n");
-        schema.push_str(&format!("    field: String\n"));
+        schema.push_str("    field: String\n");
         schema.push_str("}\n\n");
     }
 

@@ -1,0 +1,8 @@
+query GetUserById($id: ID!, $tags: [String!]!) {
+  node(id: $id) {
+    ... on User {
+      id
+      username
+    }
+  }
+}

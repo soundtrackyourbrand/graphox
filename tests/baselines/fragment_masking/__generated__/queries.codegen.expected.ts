@@ -24,7 +24,7 @@ export const GetUserQueryDocument = {"definitions":[{"directives":[],"kind":"Ope
 
 export interface GetUsersQuery {
   __typename: "Query";
-  users: Array<Identity<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserEmail': UserEmail, 'UserFields': UserFields } })> | null> | null;
+  users: Array<Identity<({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserEmail': UserEmail, 'UserFields': UserFields } })>> | null;
 }
 
 export type GetUsersQueryVariables = Exact<{
@@ -34,7 +34,7 @@ export const GetUsersQueryDocument = {"definitions":[{"directives":[],"kind":"Op
 
 export interface GetUserWithPostsQuery {
   __typename: "Query";
-  user: Identity<({ __typename: "User", posts: Array<Identity<({ __typename: "Post" } & { ' $fragmentRefs'?: { 'UserPosts': UserPosts } })> | null> | null } & { ' $fragmentRefs'?: { 'UserFields': UserFields } })> | null;
+  user: Identity<({ __typename: "User", posts: Array<Identity<({ __typename: "Post" } & { ' $fragmentRefs'?: { 'UserPosts': UserPosts } })>> | null } & { ' $fragmentRefs'?: { 'UserFields': UserFields } })> | null;
 }
 
 export type GetUserWithPostsQueryVariables = Exact<{

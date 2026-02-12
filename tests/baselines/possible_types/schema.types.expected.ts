@@ -39,7 +39,7 @@ export interface Movie {
 export interface Query {
   __typename: "Query";
   node?: Node | null;
-  search?: Array<SearchResult> | null;
+  search?: Array<SearchResult | null> | null;
 }
 
 export interface Track {

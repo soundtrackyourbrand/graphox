@@ -1,0 +1,6 @@
+query GetNonNullUsers {
+  nonNullUsers {
+    id
+    username
+  }
+}

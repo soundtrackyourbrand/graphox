@@ -746,6 +746,7 @@ pub fn generate_typescript_with_profile(
     Ok((output, generated_operations, generated_fragments, profile))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_entrypoint_content(
     output_dir: &Path,
     operations: &[OperationGenerated],
@@ -1492,18 +1493,17 @@ fn format_union_branches(branches: &[String], pad: &str) -> String {
     result
 }
 
+fn wrap_type_recursive(ty: &Type, base: &str) -> String {
+    match ty {
+        Type::Named(_) => format!("{} | null", base),
+        Type::NonNullNamed(_) => base.to_string(),
+        Type::List(inner) => format!("Array<{}> | null", wrap_type_recursive(inner, base)),
+        Type::NonNullList(inner) => format!("Array<{}>", wrap_type_recursive(inner, base)),
+    }
+}
+
 fn wrap_in_list_and_nullability(base: &str, ty: &Type) -> String {
-    let mut result = base.to_string();
-    if !ty.is_non_null() {
-        result = format!("{} | null", result);
-    }
-    if ty.is_list() {
-        result = format!("Array<{}>", result);
-        if !ty.is_non_null() {
-            result = format!("{} | null", result);
-        }
-    }
-    result
+    wrap_type_recursive(ty, base)
 }
 
 fn gql_type_to_ts(
@@ -1921,14 +1921,7 @@ fn format_jsdoc(
 }
 
 fn generate_ts_type(ty: &Type, base: &str) -> String {
-    let mut result = base.to_string();
-    if ty.is_list() {
-        result = format!("Array<{}>", result);
-    }
-    if !ty.is_non_null() {
-        result = format!("{} | null", result);
-    }
-    result
+    wrap_type_recursive(ty, base)
 }
 
 /// Get operation dependencies using cached fragment dependencies when available
