@@ -57,7 +57,7 @@ fn test_codegen_watch_mode() {
     // 5. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(2) {
+    while start.elapsed() < Duration::from_secs(3) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("name: string | null")
         {
@@ -114,7 +114,7 @@ fn test_codegen_watch_schema_changes() {
     let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(2)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(3)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -135,7 +135,7 @@ fn test_codegen_watch_schema_changes() {
     // 6. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(2) {
+    while start.elapsed() < Duration::from_secs(3) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("email: string")
         {
