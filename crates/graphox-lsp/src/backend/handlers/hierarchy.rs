@@ -1,10 +1,8 @@
 use crate::backend::state::Backend;
-use graphox_core::DocumentState;
 use graphox_features::call_hierarchy::DocumentCallHierarchy;
 use graphox_features::definition::DocumentDefinition;
 use graphox_features::references::DocumentReferences;
 
-use std::sync::Arc;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -42,53 +40,48 @@ pub async fn handle_incoming_calls(
             let symbol_name = item.name;
             let mut incoming = Vec::new();
 
-            // Collect documents first to avoid holding DashMap locks during processing
-            let doc_arcs: Vec<Arc<DocumentState>> = backend
-                .documents
-                .iter()
-                .map(|e| e.value().clone())
-                .collect();
+            let dependent_uris = backend
+                .fragment_dependents
+                .get(&*symbol_name)
+                .map(|set| set.iter().cloned().collect::<Vec<_>>());
 
-            for doc in doc_arcs {
-                let refs = doc.find_references_in_tree(&symbol_name, false);
+            if let Some(uris) = dependent_uris {
+                for dep_uri in uris {
+                    if let Some(doc) = backend.documents.get(&dep_uri).map(|r| r.value().clone()) {
+                        let refs = doc.find_references_in_tree(&symbol_name, false);
 
-                if !refs.is_empty() {
-                    // For each reference, we need to find the container (fragment or operation)
-                    // This is a bit expensive but necessary for call hierarchy.
-                    // For now, let's group by URI.
+                        if !refs.is_empty() {
+                            let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> =
+                                std::collections::HashMap::new();
 
-                    let mut ranges_by_container: std::collections::HashMap<String, Vec<Range>> =
-                        std::collections::HashMap::new();
+                            for r in refs {
+                                let container_name = doc.get_container_name_at_range(r.range);
+                                let key = container_name.unwrap_or_else(|| "unknown".to_string());
+                                ranges_by_container.entry(key).or_default().push(r.range);
+                            }
 
-                    // Grouping is hard because we need the container name.
-                    // Let's simplify: each reference is its own call from the file.
-                    for r in refs {
-                        // Try to find what container this range is in
-                        let container_name = doc.get_container_name_at_range(r.range);
-                        let key = container_name.unwrap_or_else(|| "unknown".to_string());
-                        ranges_by_container.entry(key).or_default().push(r.range);
-                    }
-
-                    for (name, ranges) in ranges_by_container {
-                        incoming.push(CallHierarchyIncomingCall {
-                            from: CallHierarchyItem {
-                                name: name.clone(),
-                                kind: SymbolKind::FUNCTION,
-                                tags: None,
-                                detail: Some(doc.uri.to_string()),
-                                uri: doc.uri.clone(),
-                                range: doc
-                                    .find_definition_in_tree(&name)
-                                    .map(|l| l.range)
-                                    .unwrap_or(ranges[0]),
-                                selection_range: doc
-                                    .find_definition_in_tree(&name)
-                                    .map(|l| l.range)
-                                    .unwrap_or(ranges[0]),
-                                data: None,
-                            },
-                            from_ranges: ranges,
-                        });
+                            for (name, ranges) in ranges_by_container {
+                                incoming.push(CallHierarchyIncomingCall {
+                                    from: CallHierarchyItem {
+                                        name: name.clone(),
+                                        kind: SymbolKind::FUNCTION,
+                                        tags: None,
+                                        detail: Some(doc.uri.to_string()),
+                                        uri: doc.uri.clone(),
+                                        range: doc
+                                            .find_definition_in_tree(&name)
+                                            .map(|l| l.range)
+                                            .unwrap_or(ranges[0]),
+                                        selection_range: doc
+                                            .find_definition_in_tree(&name)
+                                            .map(|l| l.range)
+                                            .unwrap_or(ranges[0]),
+                                        data: None,
+                                    },
+                                    from_ranges: ranges,
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -115,24 +108,19 @@ pub async fn handle_outgoing_calls(
             if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
                 let mut calls = doc.get_outgoing_calls(&symbol_name);
 
-                // Collect documents first to avoid holding DashMap locks during processing
-                let doc_arcs: Vec<Arc<DocumentState>> = backend
-                    .documents
-                    .iter()
-                    .map(|e| e.value().clone())
-                    .collect();
-
-                // Resolve the 'to' items
                 for call in &mut calls {
-                    let callee_name = &call.to.name;
-                    // Find where it's defined
-                    for other_doc in &doc_arcs {
-                        if let Some(loc) = other_doc.find_definition_in_tree(callee_name) {
+                    let callee_name = call.to.name.clone();
+                    if let Some(def_uris) = backend.fragment_definitions.get(callee_name.as_str()) {
+                    for def_uri in def_uris.iter() {
+                        if let Some(def_doc) = backend.documents.get(def_uri).map(|r| r.value().clone())
+                            && let Some(loc) = def_doc.find_definition_in_tree(&callee_name)
+                        {
                             call.to.uri = loc.uri;
                             call.to.range = loc.range;
                             call.to.selection_range = loc.range;
                             break;
                         }
+                    }
                     }
                 }
 
