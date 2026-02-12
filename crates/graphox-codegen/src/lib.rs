@@ -747,7 +747,9 @@ pub fn generate_entrypoint_content(
 
     for op in operations {
         unique_ops_by_source.entry(&op.source_text).or_insert(op);
-        unique_ops_by_name.entry(&op.operation_type_name).or_insert(op);
+        unique_ops_by_name
+            .entry(&op.operation_type_name)
+            .or_insert(op);
     }
 
     for op in unique_ops_by_name.values() {

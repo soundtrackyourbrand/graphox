@@ -273,29 +273,29 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
 
             // 3. Keep schema_import for backward compatibility (the "best" match)
-            if schema_import.is_none() {
-                if let Some(st) = matches.first() {
-                    let mut final_import_path = st.import.clone();
-                    if let Some(import_path) = &final_import_path
-                        && (import_path == "." || import_path == "./")
-                        && let Some(abs_out_dir) = &project_abs_out_dir
-                    {
-                        let abs_st_output = cfg.base_dir.join(&st.output);
-                        if abs_st_output.parent() == Some(abs_out_dir) {
-                            let rel = pathdiff::diff_paths(&abs_st_output, abs_out_dir)
-                                .unwrap_or_else(|| PathBuf::from(abs_st_output.file_name().unwrap()));
-                            let mut s = utils::to_posix_path(&rel);
-                            if s.ends_with(".ts") {
-                                s.truncate(s.len() - 3);
-                            }
-                            if !s.starts_with('.') {
-                                s = format!("./{}", s);
-                            }
-                            final_import_path = Some(s);
+            if schema_import.is_none()
+                && let Some(st) = matches.first()
+            {
+                let mut final_import_path = st.import.clone();
+                if let Some(import_path) = &final_import_path
+                    && (import_path == "." || import_path == "./")
+                    && let Some(abs_out_dir) = &project_abs_out_dir
+                {
+                    let abs_st_output = cfg.base_dir.join(&st.output);
+                    if abs_st_output.parent() == Some(abs_out_dir) {
+                        let rel = pathdiff::diff_paths(&abs_st_output, abs_out_dir)
+                            .unwrap_or_else(|| PathBuf::from(abs_st_output.file_name().unwrap()));
+                        let mut s = utils::to_posix_path(&rel);
+                        if s.ends_with(".ts") {
+                            s.truncate(s.len() - 3);
                         }
+                        if !s.starts_with('.') {
+                            s = format!("./{}", s);
+                        }
+                        final_import_path = Some(s);
                     }
-                    schema_import = final_import_path;
                 }
+                schema_import = final_import_path;
             }
         }
 
