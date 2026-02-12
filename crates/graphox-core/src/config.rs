@@ -303,6 +303,7 @@ pub struct ProjectConfig {
     pub emit_extensions: Option<EmitExtensions>,
     pub possible_types: Option<PathBuf>,
     pub type_policies: Option<PathBuf>,
+    pub generate_ast_for_fragments: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -446,6 +447,7 @@ impl Config {
                 let emit_extensions = Some(EmitExtensions::from_yaml(&p_node["emit_extensions"]));
                 let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
                 let type_policies = p_node["type_policies"].as_str().map(PathBuf::from);
+                let generate_ast_for_fragments = p_node["generate_ast_for_fragments"].as_bool();
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -466,6 +468,7 @@ impl Config {
                     emit_extensions,
                     possible_types,
                     type_policies,
+                    generate_ast_for_fragments,
                 });
             }
         }
