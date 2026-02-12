@@ -8,6 +8,7 @@ use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::*;
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_variable_used_in_fragment_spread() {
     let schema_content = r#"
         type User { id: ID! username: String }
@@ -38,6 +39,7 @@ fn test_variable_used_in_fragment_spread() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_variable_used_transitively_in_nested_fragments() {
     let schema_content = r#"
         type User { id: ID! username: String }
@@ -71,6 +73,7 @@ fn test_variable_used_transitively_in_nested_fragments() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_variable_unused_even_with_fragments() {
     let schema_content = r#"
         type User { id: ID! username: String }
@@ -114,6 +117,7 @@ fn test_variable_unused_even_with_fragments() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_undefined_variable_direct() {
     let schema_content = r#"
         type User { id: ID! username: String }
@@ -149,6 +153,7 @@ fn test_undefined_variable_direct() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_undefined_variable_in_fragment_spread() {
     let schema_content = r#"
         type User { id: ID! username: String }
@@ -188,6 +193,7 @@ fn test_undefined_variable_in_fragment_spread() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_hover_requirements() {
     let schema = "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -222,6 +228,7 @@ async fn test_fragment_hover_requirements() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_completion_requirements() {
     let schema = "type User { id: ID! name: String friend(id: ID): User } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -261,6 +268,7 @@ async fn test_fragment_completion_requirements() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_variable_in_directive_requirement() {
     let schema_content = r#"
         type User { id: ID! name: String }
@@ -277,6 +285,7 @@ fn test_variable_in_directive_requirement() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_variable_references_including_fragments() {
     let schema = "type User { id: ID! name: String } type Query { me: User } directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -338,6 +347,7 @@ async fn test_variable_references_including_fragments() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_fragment_variables_not_undefined_in_isolation() {
     let schema = crate::support::get_valid_schema();
 
@@ -354,6 +364,7 @@ fn test_fragment_variables_not_undefined_in_isolation() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_variable_used_only_in_directive() {
     let schema_content = r#"
         type User {

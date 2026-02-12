@@ -8,7 +8,7 @@ use graphox::config::RulesConfig;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(3000)]
 async fn test_duplicate_operation_names_cross_file() {
     let schema = "type User { id: ID! name: String! } type Query { user(id: ID!): User }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");

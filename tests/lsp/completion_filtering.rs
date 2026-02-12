@@ -4,6 +4,7 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fragment_spread_filtering() {
     let schema = "type Query { user: User posts: [Post] } type User { id: ID! } type Post { id: ID! title: String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -41,6 +42,7 @@ async fn test_completion_fragment_spread_filtering() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fragment_spread_interface_filtering() {
     let schema = "interface Node { id: ID! } type User implements Node { id: ID! name: String } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -77,6 +79,7 @@ async fn test_completion_fragment_spread_interface_filtering() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fragment_spread_union_filtering() {
     let schema = "type User { id: ID! } type Guest { name: String } union Actor = User | Guest type Query { actor: Actor }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");

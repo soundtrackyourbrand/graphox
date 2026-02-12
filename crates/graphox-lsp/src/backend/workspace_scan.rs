@@ -9,6 +9,7 @@ use ahash::AHashSet;
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use graphox_core::Config;
+use graphox_core::document::DocumentState;
 use graphox_core::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
@@ -21,6 +22,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 use tree_sitter::StreamingIterator;
+
+/// Percentage of progress where validation starts
+const VALIDATION_PROGRESS_START: u32 = 70;
 
 /// Parameters for workspace scanning operation
 pub struct WorkspaceScanParams {
@@ -40,7 +44,10 @@ pub struct WorkspaceScanParams {
     pub trigger_codegen_after_scan: Option<Arc<dyn Fn() + Send + Sync>>,
     pub empty_schema: Arc<Schema>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
+    pub validated_schemas:
+        Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
+    pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
     pub supports_progress: bool,
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
     pub position_encoding: PositionEncodingKind,
@@ -115,8 +122,8 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
     let total_docs = workspace_metadata.documents.len();
     progress
         .report(
-            format!("Indexed {} files, validating...", total_docs),
-            Some(70),
+            format!("Indexed {} files, Validating...", total_docs),
+            Some(VALIDATION_PROGRESS_START),
         )
         .await;
 
@@ -127,13 +134,13 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         params
             .codegen_requested_during_scan
             .store(false, Ordering::SeqCst);
-        if let Some(ref trigger_codegen) = params.trigger_codegen_after_scan {
-            trigger_codegen();
+        if let Some(throttle) = &params.codegen_throttle {
+            throttle.request_codegen();
         }
     }
 
     // Validate all documents with proper schemas and fragments
-    validate_all_documents(&params).await;
+    validate_all_documents_cancellable(&params, &cancelled, Some(&progress)).await;
 
     // End progress
     progress
@@ -266,15 +273,11 @@ fn scan_and_index_workspace(
     )
 }
 
-/// Validates all documents in the workspace
-async fn validate_all_documents(params: &WorkspaceScanParams) {
-    validate_all_documents_cancellable(params, &Arc::new(AtomicBool::new(false))).await;
-}
-
 /// Validates all documents in the workspace with cancellation support
 async fn validate_all_documents_cancellable(
     params: &WorkspaceScanParams,
     cancelled: &Arc<AtomicBool>,
+    progress: Option<&super::progress::ProgressReporter>,
 ) {
     let documents = &params.documents;
     let config = &params.config;
@@ -369,105 +372,160 @@ async fn validate_all_documents_cancellable(
 
     // Validate all documents in parallel with cancellation support
     use rayon::prelude::*;
+    use std::sync::atomic::AtomicUsize;
 
-    // Use indexed parallel iterator for periodic cancellation checks
-    let docs_vec: Vec<_> = documents.iter().collect();
-    let total_docs = docs_vec.len();
+    // To avoid holding locks on the entire DashMap while validating in parallel,
+    // we collect the documents and their URIs first.
+    let docs_to_validate: Vec<(Url, Arc<DocumentState>)> = documents
+        .iter()
+        .map(|entry| (entry.key().clone(), entry.value().clone()))
+        .collect();
+    let total_docs = docs_to_validate.len();
 
-    let to_publish: Vec<(Url, Vec<Diagnostic>)> = docs_vec
-        .into_par_iter()
-        .enumerate()
-        .map(|(idx, entry)| {
-            // Check cancellation periodically (every 100 documents)
-            if idx > 0 && idx % 100 == 0 && cancelled.load(Ordering::Relaxed) {
-                eprintln!(
-                    "[graphox] Validation cancelled at document {}/{}",
-                    idx, total_docs
-                );
-                return (entry.key().clone(), Vec::new());
+    // Progress tracking using atomic counter
+    let validated_count = Arc::new(AtomicUsize::new(0));
+    let validated_count_clone = validated_count.clone();
+
+    // Spawn a task to report progress from the parallel workers
+    let progress_cloned: Option<super::progress::ProgressReporter> = progress.cloned();
+    let validated_count_for_progress = validated_count_clone.clone();
+    let progress_task = tokio::spawn(async move {
+        let mut last_reported = 0;
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            let current = validated_count_for_progress.load(Ordering::Relaxed);
+            if current >= total_docs {
+                break;
             }
-
-            let uri = entry.key();
-            let doc = entry.value();
-
-            // Get schema for doc
-            let (schema_key, schema): (
-                Option<String>,
-                Arc<apollo_compiler::validation::Valid<Schema>>,
-            ) = if let Ok(path) = uri.to_file_path()
-                && let Some(schema_path) = config.get_schema_for_path(&path)
-                && let Some(schema) = validated_schemas_map.get(&schema_path)
-            {
-                (Some(schema_path), schema.clone())
-            } else {
-                (None, valid_empty_schema.clone())
-            };
-
-            // FAST FRAGMENT LOOKUP using pre-built indices (O(1) instead of O(M))
-            // Collect relevant fragments: same package, same project, or public
-            let mut relevant_frags: Vec<usize> = Vec::with_capacity(64);
-            let doc_pkg_key = pkg_to_key(doc.package_root.as_ref());
-
-            // Same package
-            if let Some(pkg_frags) = fragments_by_package.get(&doc_pkg_key) {
-                relevant_frags.extend(pkg_frags.iter().copied());
+            if current > last_reported {
+                let pct = VALIDATION_PROGRESS_START
+                    + (current * (100 - VALIDATION_PROGRESS_START as usize)
+                        / std::cmp::max(1, total_docs)) as u32;
+                if let Some(ref p) = progress_cloned {
+                    let _ = p
+                        .report(
+                            format!("Validating {}/{} documents", current, total_docs),
+                            Some(pct),
+                        )
+                        .await;
+                }
+                last_reported = current;
             }
+        }
+    });
 
-            // Same project (different package but same schema_key)
-            if let Some(ref sk) = schema_key {
-                let sk_arc: Arc<str> = sk.as_str().into();
-                if let Some(project_frags) = fragments_by_schema_key.get(&Some(sk_arc)) {
-                    for &idx in project_frags {
-                        if !relevant_frags.contains(&idx) {
-                            relevant_frags.push(idx);
+    let config_clone = config.clone();
+    let used_fragments_clone = used_fragments.clone();
+    let validated_schemas_map_clone = validated_schemas_map.clone();
+    let valid_empty_schema_clone = valid_empty_schema.clone();
+    let all_fragments_info_clone = all_fragments_info.clone();
+    let fragments_by_package_clone = fragments_by_package.clone();
+    let fragments_by_schema_key_clone = fragments_by_schema_key.clone();
+    let public_fragment_indices_clone = public_fragment_indices.clone();
+    let cancelled_clone = cancelled.clone();
+
+    let to_publish: Vec<(Url, Vec<Diagnostic>)> = tokio::task::spawn_blocking(move || {
+        docs_to_validate
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, (uri, doc)): (usize, (Url, Arc<DocumentState>))| {
+                // Check cancellation periodically (every 100 documents)
+                if idx > 0 && idx % 100 == 0 && cancelled_clone.load(Ordering::Relaxed) {
+                    return (uri, Vec::new());
+                }
+
+                // Get schema for doc
+                let (schema_key, schema): (
+                    Option<String>,
+                    Arc<apollo_compiler::validation::Valid<Schema>>,
+                ) = if let Ok(path) = uri.to_file_path()
+                    && let Some(schema_path) = config_clone.get_schema_for_path(&path)
+                    && let Some(schema) = validated_schemas_map_clone.get(&schema_path)
+                {
+                    (Some(schema_path), schema.clone())
+                } else {
+                    (None, valid_empty_schema_clone.clone())
+                };
+
+                // FAST FRAGMENT LOOKUP using pre-built indices (O(1) instead of O(M))
+                // Collect relevant fragments: same package, same project, or public
+                let mut relevant_frags: Vec<usize> = Vec::with_capacity(64);
+                let doc_pkg_key = doc
+                    .package_root
+                    .as_ref()
+                    .map(|p: &PathBuf| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                // Same package
+                if let Some(pkg_frags) = fragments_by_package_clone.get(&doc_pkg_key) {
+                    relevant_frags.extend(pkg_frags.iter().copied());
+                }
+
+                // Same project (different package but same schema_key)
+                if let Some(ref sk) = schema_key {
+                    let sk_arc: Arc<str> = sk.as_str().into();
+                    if let Some(project_frags) = fragments_by_schema_key_clone.get(&Some(sk_arc)) {
+                        for &idx in project_frags {
+                            if !relevant_frags.contains(&idx) {
+                                relevant_frags.push(idx);
+                            }
                         }
                     }
                 }
-            }
 
-            // Add public fragments (if not already included)
-            for &pub_idx in &public_fragment_indices {
-                if !relevant_frags.contains(&pub_idx) {
-                    relevant_frags.push(pub_idx);
-                }
-            }
-
-            // Clone only the fragments we actually need (reduced from M to ~few dozen)
-            let mut filtered_fragments: Vec<FragmentCompletionInfo> = relevant_frags
-                .iter()
-                .map(|&idx| all_fragments_info[idx].0.clone())
-                .collect();
-
-            // If there are duplicate fragment names, prioritize the one in the same package,
-            // then same project, then public.
-            filtered_fragments.sort_by(|a, b| {
-                let a_same_pkg = graphox_core::utils::paths_match(
-                    a.package_root.as_deref(),
-                    doc.package_root.as_deref(),
-                );
-                let b_same_pkg = graphox_core::utils::paths_match(
-                    b.package_root.as_deref(),
-                    doc.package_root.as_deref(),
-                );
-
-                if a_same_pkg != b_same_pkg {
-                    return b_same_pkg.cmp(&a_same_pkg);
+                // Add public fragments (if not already included)
+                for &pub_idx in &public_fragment_indices_clone {
+                    if !relevant_frags.contains(&pub_idx) {
+                        relevant_frags.push(pub_idx);
+                    }
                 }
 
-                b.is_public.cmp(&a.is_public).reverse()
-            });
+                // Clone only the fragments we actually need (reduced from M to ~few dozen)
+                let mut filtered_fragments: Vec<FragmentCompletionInfo> = relevant_frags
+                    .iter()
+                    .map(|&idx| all_fragments_info_clone[idx].0.clone())
+                    .collect();
 
-            let diagnostics = doc.get_semantic_diagnostics(
-                &schema,
-                &filtered_fragments,
-                Some(&used_fragments),
-                Some(config),
-                false,
-                true,
-            );
-            (uri.clone(), diagnostics)
-        })
-        .collect();
+                // If there are duplicate fragment names, prioritize the one in the same package,
+                // then same project, then public.
+                filtered_fragments.sort_by(|a, b| {
+                    let a_same_pkg = graphox_core::utils::paths_match(
+                        a.package_root.as_deref(),
+                        doc.package_root.as_deref(),
+                    );
+                    let b_same_pkg = graphox_core::utils::paths_match(
+                        b.package_root.as_deref(),
+                        doc.package_root.as_deref(),
+                    );
+
+                    if a_same_pkg != b_same_pkg {
+                        return b_same_pkg.cmp(&a_same_pkg);
+                    }
+
+                    b.is_public.cmp(&a.is_public).reverse()
+                });
+
+                let diagnostics = doc.get_semantic_diagnostics(
+                    &schema,
+                    &filtered_fragments,
+                    Some(&used_fragments_clone),
+                    Some(&config_clone),
+                    false,
+                    true,
+                );
+
+                // Increment progress
+                validated_count_clone.fetch_add(1, Ordering::Relaxed);
+
+                (uri, diagnostics)
+            })
+            .collect()
+    })
+    .await
+    .unwrap();
+
+    // Abort the progress task once validation is done
+    progress_task.abort();
 
     for (u, d) in to_publish {
         client.publish_diagnostics(u, d, None).await;

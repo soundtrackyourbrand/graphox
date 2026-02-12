@@ -5,6 +5,7 @@ use tower_lsp::lsp_types::FoldingRangeKind;
 use crate::support::create_doc;
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_operation() {
     let text = r#"
 query GetUser($id: ID!) {
@@ -32,6 +33,7 @@ query GetUser($id: ID!) {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_fragment() {
     let text = r#"
 fragment UserFields on User {
@@ -57,6 +59,7 @@ fragment UserFields on User {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_schema() {
     let text = r#"
 type User {
@@ -89,6 +92,7 @@ input CreateUserInput {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_nested_selection_sets() {
     let text = r#"
 query GetUserWithPosts {
@@ -117,6 +121,7 @@ query GetUserWithPosts {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_arguments() {
     let text = r#"
 query GetUser {
@@ -140,6 +145,7 @@ query GetUser {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_tsx() {
     let text = r#"
 const query = gql`
@@ -163,6 +169,7 @@ const query = gql`
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_single_line_no_fold() {
     let text = r#"
 query GetUser { user { id } }
@@ -178,6 +185,7 @@ query GetUser { user { id } }
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_inline_fragment() {
     let text = r#"
         query GetNode {
@@ -204,6 +212,7 @@ fn test_folding_ranges_inline_fragment() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_range_query() {
     let text = r#"
         query GetUser($id: ID!) {
@@ -222,6 +231,7 @@ fn test_folding_range_query() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_range_fragment() {
     let text = r#"
         fragment UserFields on User {
@@ -242,6 +252,7 @@ fn test_folding_range_fragment() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_range_schema_types() {
     let text = r#"
         type User {
@@ -275,6 +286,7 @@ fn test_folding_range_schema_types() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_range_directives() {
     let text = r#"
         query GetUser {
@@ -297,6 +309,7 @@ fn test_folding_range_directives() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_folding_range_tsx() {
     let text = r#"
         const Component = () => {

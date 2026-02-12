@@ -7,6 +7,7 @@ use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_references() {
     let (dir, config) = make_temp_project_with_schema(
         "type Query { user: User } type User { id: ID! name: String }",
@@ -57,6 +58,7 @@ async fn test_field_references() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_directive_references() {
     let (dir, config) = make_temp_project_with_schema(
         "directive @foo on FIELD_DEFINITION type Query { user: User } type User { id: ID }",

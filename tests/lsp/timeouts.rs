@@ -6,6 +6,7 @@ use graphox::config::TimeoutConfig;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_lsp_request_timeout() {
     // Create a schema file content
     let mut schema_content = String::new();
@@ -61,6 +62,7 @@ async fn test_lsp_request_timeout() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_workspace_scan_timeout() {
     let (dir, mut config) =
         make_temp_project_with_schema("type Query { field: String }", "*.graphql");
@@ -111,6 +113,7 @@ async fn test_workspace_scan_timeout() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_timeout_with_normal_config() {
     let (dir, config) = make_temp_project_with_schema("type Query { hello: String }", "*.graphql");
 

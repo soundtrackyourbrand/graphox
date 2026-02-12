@@ -69,6 +69,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_normalize_uri_preserves_valid_uri() {
         let uri = Url::parse("file:///tmp/test.graphql").unwrap();
         let normalized = normalize_uri(uri.clone());

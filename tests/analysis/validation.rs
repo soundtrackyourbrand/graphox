@@ -308,6 +308,7 @@ fn test_validation_known_fragment_spread() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_type_only_fragment_unused() {
     let schema = fixtures::user_schema().clone();
     let validated_schema = schema.validate().unwrap();
@@ -335,6 +336,7 @@ fn test_type_only_fragment_unused() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_type_only_fragment_used() {
     let schema = fixtures::user_schema().clone();
     let validated_schema = schema.validate().unwrap();

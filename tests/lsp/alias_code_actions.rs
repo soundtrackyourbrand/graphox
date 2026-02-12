@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_missing_field_code_action_with_alias() {
     let schema = "type User { id: ID! name: String! email: String! username: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -57,6 +58,7 @@ async fn test_missing_field_code_action_with_alias() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_duplicate_field_code_action_alias_collision() {
     let schema = "type Query { me: User } type User { id: ID name: String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -102,6 +104,7 @@ async fn test_duplicate_field_code_action_alias_collision() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_alias_completion() {
     let schema = "type User { id: ID! name: String! email: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -130,6 +133,7 @@ async fn test_alias_completion() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_aliased_field_hover() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -149,6 +153,7 @@ async fn test_aliased_field_hover() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_alias_hover() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -186,6 +191,7 @@ async fn test_alias_hover() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_alias_definition() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -234,6 +240,7 @@ async fn test_alias_definition() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_alias_semantic_tokens() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -275,6 +282,7 @@ async fn test_alias_semantic_tokens() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_alias_diagnostic_response_key() {
     let schema = "type Query { me: User } type User { id: ID name: String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");

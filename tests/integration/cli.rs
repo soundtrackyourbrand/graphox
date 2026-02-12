@@ -1319,6 +1319,7 @@ fn run_baseline_test(
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_fragment_masking_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_masking",
@@ -1328,6 +1329,7 @@ fn test_cli_fragment_masking_baselines() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_duplicate_type_fields() {
     run_baseline_test(
         "tests/fixtures/duplicate_type_fields",
@@ -1337,6 +1339,7 @@ fn test_cli_duplicate_type_fields() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_duplicate_fragment_fields_baselines() {
     run_baseline_test(
         "tests/fixtures/duplicate_fragment_fields",
@@ -1346,6 +1349,7 @@ fn test_cli_duplicate_fragment_fields_baselines() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_codegen_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_entrypoint");

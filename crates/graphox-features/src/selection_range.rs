@@ -116,6 +116,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_selection_range_field() {
         let text = r#"query GetUser {
   user {
@@ -147,6 +148,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_selection_range_multiple_positions() {
         let text = r#"query GetUser {
   user {
@@ -172,6 +174,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_selection_range_fragment() {
         let text = r#"fragment UserFields on User {
   id

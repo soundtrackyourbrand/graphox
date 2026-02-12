@@ -1,6 +1,7 @@
 use std::process::Command;
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_check_github_reporter() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_github_reporter_test");
@@ -62,6 +63,7 @@ projects:
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_check_github_reporter_duplicates() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_github_reporter_duplicates");
@@ -125,6 +127,7 @@ rules:
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_cli_check_tsc_reporter() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_tsc_reporter_test");

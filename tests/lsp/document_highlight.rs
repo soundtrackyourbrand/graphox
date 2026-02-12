@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_document_highlight_variable_in_operation() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! name: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -61,6 +62,7 @@ async fn test_document_highlight_variable_in_operation() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_document_highlight_variable_across_fragments_same_file() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! name: String age: Int }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -127,6 +129,7 @@ query GetUser($id: ID!, $skip|Name: Boolean!) { user(id: $id) { ...UserFields } 
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_document_highlight_variable_in_tsx() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! name: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.{graphql,tsx}");

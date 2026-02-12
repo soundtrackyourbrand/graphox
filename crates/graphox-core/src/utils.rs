@@ -644,6 +644,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_get_glob_root() {
         assert_eq!(get_glob_root("src/*.ts"), PathBuf::from("src"));
         assert_eq!(

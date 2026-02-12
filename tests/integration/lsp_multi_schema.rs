@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_lsp_multi_schema_support() {
     let schema_text = "type User { id: ID! name: String } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema_text, "query.graphql");
@@ -96,6 +97,7 @@ async fn test_lsp_multi_schema_support() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_lsp_multi_schema_goto_definition() {
     let schema_text = "type User { id: ID! name: String } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema_text, "query.graphql");

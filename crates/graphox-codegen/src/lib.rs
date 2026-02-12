@@ -836,8 +836,6 @@ pub fn emit_permission_data_content(
         }
     }
 
-    let _dummy_cache = TypeCache::new();
-
     output.push_str("export interface PermissionTypes {\n");
     for (typename, field) in &types_with_permissions {
         let inner_name = field.ty.inner_named_type();

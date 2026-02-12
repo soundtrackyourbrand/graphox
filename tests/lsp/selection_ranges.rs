@@ -13,6 +13,7 @@ fn count_parent_chain(range: &SelectionRange) -> usize {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_field() {
     let text = r#"query GetUser {
   user {
@@ -34,6 +35,7 @@ fn test_selection_range_field() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_multiple_positions() {
     let text = r#"query GetUser {
   user {
@@ -61,6 +63,7 @@ fn test_selection_range_multiple_positions() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_argument() {
     let text = r#"query GetUser($id: ID!) {
   user(id: |$id) {
@@ -83,6 +86,7 @@ fn test_selection_range_argument() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_fragment() {
     let text = r#"fragment UserFields on User {
   id
@@ -107,6 +111,7 @@ fn test_selection_range_fragment() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_nested_selection_sets() {
     let text = r#"query GetUserWithPosts {
   user {
@@ -140,6 +145,7 @@ fn test_selection_range_nested_selection_sets() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_inline_fragment() {
     let text = r#"query GetNode {
   node {
@@ -167,6 +173,7 @@ fn test_selection_range_inline_fragment() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_variable_definitions() {
     let text = r#"query GetUser(
   |$id: ID!
@@ -192,6 +199,7 @@ fn test_selection_range_variable_definitions() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_directive() {
     let text = r#"query GetUser($includeEmail: Boolean!) {
   user {
@@ -212,6 +220,7 @@ fn test_selection_range_directive() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_schema_type() {
     let text = r#"type User {
   id: ID!
@@ -240,6 +249,7 @@ type Post {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_enum() {
     let text = r#"enum Role {
   ADMIN
@@ -262,6 +272,7 @@ fn test_selection_range_enum() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_input_type() {
     let text = r#"input CreateUserInput {
   name: String!
@@ -283,6 +294,7 @@ fn test_selection_range_input_type() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_tsx_embedded() {
     let text = r#"
 const query = gql`
@@ -313,6 +325,7 @@ const query = gql`
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_empty_query() {
     let text = "query EmptyQuery {\n|}";
     let (text, positions) = with_cursors(text);
@@ -325,6 +338,7 @@ fn test_selection_range_empty_query() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_alias() {
     let text = r#"query GetUser {
   user {
@@ -345,6 +359,7 @@ fn test_selection_range_alias() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_extends() {
     let text = r#"type User {
   id: ID!
@@ -373,6 +388,7 @@ extend type User {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_interface() {
     let text = r#"interface Node {
   id: ID!
@@ -394,6 +410,7 @@ type User implements Node {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_union() {
     let text = r#"union SearchResult = User | Post | Comment
 
@@ -414,6 +431,7 @@ type User {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_mutation() {
     let text = r#"mutation CreateUser($input: CreateUserInput!) {
   createUser(input: $input) {
@@ -437,6 +455,7 @@ fn test_selection_range_mutation() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_subscription() {
     let text = r#"subscription OnMessageAdded($roomId: ID!) {
   messageAdded(roomId: $roomId) {
@@ -462,6 +481,7 @@ fn test_selection_range_subscription() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_list_type() {
     let text = r#"type User {
   |posts: [Post!]!
@@ -479,6 +499,7 @@ fn test_selection_range_list_type() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_selection_range_object_argument() {
     let text = r#"query ComplexQuery {
   search(filter: {

@@ -28,6 +28,7 @@ projects:
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_multiple_schemas_loading() {
     let dir = tempdir().unwrap();
 

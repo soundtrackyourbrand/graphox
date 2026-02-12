@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_rename() {
     let (tmpdir, config) = make_temp_project_with_schema(
         "type Query { user: User } type User { id: ID! name: String }",
@@ -62,6 +63,7 @@ async fn test_fragment_rename() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_rename_tsx() {
     let (tmpdir, config) = make_temp_project_with_schema(
         "type Query { user: User } type User { id: ID! name: String }",
@@ -135,6 +137,7 @@ async fn test_fragment_rename_tsx() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_rename_unopened_file() {
     let (tmpdir, config) = make_temp_project_with_schema(
         "type Query { user: User } type User { id: ID! name: String }",

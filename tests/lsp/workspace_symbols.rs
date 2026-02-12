@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_workspace_symbols() {
     let (dir, config) = make_temp_project_with_schema("type Query { me: String }", "**/*.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
@@ -54,6 +55,7 @@ async fn test_workspace_symbols() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_workspace_symbols_filtering() {
     let (dir, config) =
         make_temp_project_with_schema("type Query { me: String user: String }", "**/*.graphql");
@@ -92,6 +94,7 @@ async fn test_workspace_symbols_filtering() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_workspace_symbols_large_workspace() {
     let (dir, config) = make_temp_project_with_schema(
         "type Query { me: String user: String post: String comment: String }",
@@ -131,6 +134,7 @@ async fn test_workspace_symbols_large_workspace() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_workspace_symbols_fragment_only() {
     let (dir, config) = make_temp_project_with_schema("type Query { me: String }", "**/*.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
@@ -158,6 +162,7 @@ async fn test_workspace_symbols_fragment_only() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_workspace_symbols_case_insensitive() {
     let (dir, config) = make_temp_project_with_schema("type Query { me: String }", "**/*.graphql");
     let (mut service, _handle) = create_initialized_lsp_service(config).await;

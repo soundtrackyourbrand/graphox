@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(3000)]
 fn test_codegen_watch_mode() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
@@ -77,7 +77,7 @@ fn test_codegen_watch_mode() {
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(3000)]
 fn test_codegen_watch_schema_changes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();

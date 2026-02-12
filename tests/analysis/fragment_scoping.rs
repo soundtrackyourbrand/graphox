@@ -168,6 +168,7 @@ fn test_cross_project_fragment_usage() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_private_fragment_not_in_completion_other_package() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -192,6 +193,7 @@ async fn test_private_fragment_not_in_completion_other_package() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_public_fragment_in_completion_other_package() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let dir = TempDir::new().expect("failed to create tempdir");

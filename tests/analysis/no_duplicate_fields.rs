@@ -252,6 +252,7 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
 
 // LSP integration test
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_alias_allowed_and_duplicate_code_action_removes_later() {
     let schema_text = "type Query { me: User } type User { id: ID name: String }";
     let (dir, config) = make_temp_project_with_schema(schema_text, "**/*.graphql");

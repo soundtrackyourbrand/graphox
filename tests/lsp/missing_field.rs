@@ -6,6 +6,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_missing_field_diagnostic_with_suggestions() {
     // Use helpers to create temp project, initialize service and open file
     let schema = "type Query { user: User } type User { id: ID! name: String } ";
@@ -60,6 +61,7 @@ async fn test_missing_field_diagnostic_with_suggestions() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_missing_field_code_actions() {
     let schema = "type User { id: ID! name: String! email: String! username: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");

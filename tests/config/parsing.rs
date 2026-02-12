@@ -6,6 +6,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_invalid_yaml() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -16,6 +17,7 @@ fn test_config_invalid_yaml() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_missing_schema() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -31,6 +33,7 @@ fn test_config_missing_schema() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_empty_base_dir() {
     let result = Config::load_from_dir(Path::new("/nonexistent/path"));
     assert!(
@@ -40,6 +43,7 @@ fn test_config_empty_base_dir() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_valid_empty_config() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -59,6 +63,7 @@ fn test_config_valid_empty_config() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_multiple_projects() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -86,6 +91,7 @@ fn test_config_multiple_projects() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_default_values() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -107,6 +113,7 @@ fn test_config_default_values() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_schema_as_list() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -135,6 +142,7 @@ fn test_config_schema_as_list() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_with_exclude_pattern() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("graphox.yaml");
@@ -160,6 +168,7 @@ fn test_config_with_exclude_pattern() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_config_relative_schema_path() {
     let temp_dir = TempDir::new().unwrap();
     let subdir = temp_dir.path().join("subdir");

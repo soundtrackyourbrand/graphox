@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_signature_help() {
     let schema = "type Query { me(id: ID, name: String): String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -36,6 +37,7 @@ async fn test_signature_help() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_signature_help_tsx() {
     let schema = "type Query { me(id: ID, name: String): String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.tsx");

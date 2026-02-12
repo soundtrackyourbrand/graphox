@@ -4,6 +4,7 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_unclosed_arguments() {
     let schema = "type Query { user(id: ID!, name: String): User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -30,6 +31,7 @@ async fn test_completion_unclosed_arguments() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_unclosed_input_object() {
     let schema = "input CreateUserInput { username: String!, email: String } type Mutation { createUser(input: CreateUserInput!): User } type User { id: ID! } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -56,6 +58,7 @@ async fn test_completion_unclosed_input_object() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_argument_names() {
     let schema = "type Query { user(id: ID!, name: String): User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -82,6 +85,7 @@ async fn test_completion_argument_names() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_input_object_fields() {
     let schema = "input CreateUserInput { username: String!, email: String } type Mutation { createUser(input: CreateUserInput!): User } type User { id: ID! } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -108,6 +112,7 @@ async fn test_completion_input_object_fields() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_enum_values() {
     let schema = "enum Role { ADMIN, USER } type Query { users(role: Role): [String] }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -134,6 +139,7 @@ async fn test_completion_enum_values() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_input_value_definition_default() {
     let schema = r#"
       enum Status { ACTIVE, INACTIVE }
@@ -159,6 +165,7 @@ async fn test_completion_input_value_definition_default() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_argument_value_boolean() {
     let schema = r#"
       type Query {

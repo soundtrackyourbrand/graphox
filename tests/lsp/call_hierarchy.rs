@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_call_hierarchy() {
     let schema = "type User { id: ID! name: String } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -88,6 +89,7 @@ async fn test_fragment_call_hierarchy() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_call_hierarchy_tsx() {
     let schema = "type User { id: ID! name: String } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.{graphql,tsx}");

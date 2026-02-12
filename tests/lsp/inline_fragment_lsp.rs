@@ -7,6 +7,7 @@ use std::fs;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_inside_inline_fragment() {
     let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
@@ -77,6 +78,7 @@ async fn test_hover_inside_inline_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_inside_inline_fragment() {
     let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
@@ -121,6 +123,7 @@ async fn test_goto_definition_inside_inline_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_inside_inline_fragment() {
     let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
@@ -160,6 +163,7 @@ async fn test_completion_inside_inline_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_references_inside_inline_fragment() {
     let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
@@ -210,6 +214,7 @@ async fn test_references_inside_inline_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_rename_inside_inline_fragment() {
     let (dir, mut config) = make_temp_project_with_schema(
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
@@ -260,6 +265,7 @@ async fn test_rename_inside_inline_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_field_in_schema() {
     let schema_text = "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ";
     let (dir, mut config) = make_temp_project_with_schema(schema_text, "**/*.graphql");

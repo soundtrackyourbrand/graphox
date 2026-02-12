@@ -6,6 +6,7 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fields() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -35,6 +36,7 @@ async fn test_completion_fields() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_inline_fragment_completion_inserts_braces_when_missing() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -62,6 +64,7 @@ async fn test_inline_fragment_completion_inserts_braces_when_missing() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_inline_fragment_completion_no_braces_when_present() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -89,6 +92,7 @@ async fn test_inline_fragment_completion_no_braces_when_present() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_partial_input() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -105,6 +109,7 @@ async fn test_completion_partial_input() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_inserts_braces_when_missing() {
     let schema = "type Query { user: User } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -140,6 +145,7 @@ async fn test_field_completion_inserts_braces_when_missing() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_no_braces_when_present() {
     let schema = "type Query { user: User } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -167,6 +173,7 @@ async fn test_field_completion_no_braces_when_present() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_no_braces_for_scalar() {
     let schema = "type Query { user: User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -194,6 +201,7 @@ async fn test_field_completion_no_braces_for_scalar() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_nested_indentation() {
     let schema =
         "type Query { user: User } type User { posts: [Post!]! } type Post { title: String! }";
@@ -222,6 +230,7 @@ async fn test_field_completion_nested_indentation() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_interface_return_type() {
     let schema = "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! name: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");

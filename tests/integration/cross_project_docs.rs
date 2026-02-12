@@ -8,6 +8,7 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_cross_project_docs_and_imports() {
     // Build a scenario with two projects (project1 and project2) that share
     // the same schema. Use the LspTestScenario helper to write files and

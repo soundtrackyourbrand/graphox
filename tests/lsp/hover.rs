@@ -8,6 +8,7 @@ use tower_lsp::lsp_types::*;
 // initialize LSP services. This avoids repeating setup boilerplate.
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_fragment_spread() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -55,6 +56,7 @@ async fn test_hover_fragment_spread() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_schema_type() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -83,6 +85,7 @@ async fn test_hover_schema_type() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_graphql_description() {
     let schema = r#"
         "This is a documented type"
@@ -124,6 +127,7 @@ async fn test_hover_graphql_description() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_schema_field() {
     let (dir, mut config) = make_temp_project_with_schema(
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
@@ -161,6 +165,7 @@ async fn test_hover_schema_field() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_variable() {
     let (dir, mut config) = make_temp_project_with_schema(
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
@@ -239,6 +244,7 @@ async fn test_hover_variable() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_argument() {
     let (dir, config) = make_temp_project_with_schema(
         "type Query { user(id: ID!): User } type User { id: ID! username: String! }",
@@ -279,6 +285,7 @@ async fn test_hover_argument() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_input_object_field() {
     let (dir, config) = make_temp_project_with_schema(
         "type Query { createUser(input: CreateUserInput!): User } \
@@ -345,6 +352,7 @@ async fn test_hover_input_object_field() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_builtin_typename() {
     let (dir, mut config) = make_temp_project_with_schema(
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
@@ -384,6 +392,7 @@ async fn test_hover_builtin_typename() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_builtin_schema_fields() {
     let (dir, mut config) = make_temp_project_with_schema(
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
@@ -444,6 +453,7 @@ async fn test_hover_builtin_schema_fields() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_enum_value() {
     let schema = r#"
         enum Status {
@@ -493,6 +503,7 @@ async fn test_hover_enum_value() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_directive_enhanced() {
     let schema = r#"
         directive @custom(arg: String, required: Int!) on FIELD
@@ -532,6 +543,7 @@ async fn test_hover_directive_enhanced() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_inline_fragment_type() {
     let schema = "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! username: String! }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -567,6 +579,7 @@ async fn test_hover_inline_fragment_type() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_enum_value_definition() {
     let schema = r#"
         enum Status {
@@ -608,6 +621,7 @@ async fn test_hover_enum_value_definition() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_operation_name() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -646,6 +660,7 @@ async fn test_hover_operation_name() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_variable_default() {
     let schema = "type Query { user(name: String): User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -685,6 +700,7 @@ async fn test_hover_variable_default() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_scalar_literal() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -724,6 +740,7 @@ async fn test_hover_scalar_literal() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_type_extension() {
     let schema = r#"
         type User { id: ID! }

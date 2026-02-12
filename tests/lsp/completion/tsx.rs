@@ -13,6 +13,7 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_embedded_fragment_spreads_interface_tsx() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");
@@ -117,6 +118,7 @@ async fn test_embedded_fragment_spreads_interface_tsx() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_embedded_fragment_spreads_union_tsx() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");
@@ -221,6 +223,7 @@ async fn test_embedded_fragment_spreads_union_tsx() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_tsx_inserts_braces_when_missing() {
     let schema = "type Query { user: User } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
@@ -258,6 +261,7 @@ async fn test_field_completion_tsx_inserts_braces_when_missing() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_field_completion_tsx_no_braces_when_present() {
     let schema = "type Query { user: User } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");

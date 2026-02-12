@@ -11,6 +11,7 @@ use tower_lsp::lsp_types::*;
 static PROGRESS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Progress reporter for a single operation
+#[derive(Clone)]
 pub struct ProgressReporter {
     client: Client,
     token: NumberOrString,

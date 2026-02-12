@@ -1532,6 +1532,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_position_encoding_utf8() {
         // "😀" is 4 bytes in UTF-8
         let src = "😀\nnext";
@@ -1557,6 +1558,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_position_encoding_utf16() {
         // "😀" is 2 code units in UTF-16 (surrogate pair)
         let src = "😀\nnext";
@@ -1577,6 +1579,7 @@ mod tests {
     }
 
     #[test]
+    #[ntest::timeout(3000)]
     fn test_position_encoding_utf32() {
         // "😀" is 1 code unit in UTF-32
         let src = "😀\nnext";

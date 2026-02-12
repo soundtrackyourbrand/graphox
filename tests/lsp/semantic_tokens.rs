@@ -6,6 +6,7 @@ use crate::support::fixtures::{user_schema, user_with_deprecated_field_schema};
 use graphox::features::semantic_tokens::DocumentSemanticTokens;
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_basic() {
     let text = r#"
         query GetUser($id: ID!) {
@@ -23,6 +24,7 @@ fn test_semantic_tokens_basic() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_tsx() {
     let text = r#"
         const query = gql`
@@ -38,6 +40,7 @@ fn test_semantic_tokens_tsx() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_keywords() {
     let text = r#"
         query GetUser {
@@ -55,6 +58,7 @@ fn test_semantic_tokens_keywords() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_types() {
     let text = r#"
         type User {
@@ -84,6 +88,7 @@ fn test_semantic_tokens_types() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_fields() {
     let text = r#"
         query GetUser {
@@ -101,6 +106,7 @@ fn test_semantic_tokens_fields() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_variables() {
     let text = r#"
         query GetUser($id: ID!, $includeEmail: Boolean!) {
@@ -116,6 +122,7 @@ fn test_semantic_tokens_variables() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_deprecated_modifier() {
     let text = r#"
         query GetUser {
@@ -132,6 +139,7 @@ fn test_semantic_tokens_deprecated_modifier() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_positions() {
     let text = r#"
         query GetUser {
@@ -149,6 +157,7 @@ fn test_semantic_tokens_positions() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_tsx_with_offset() {
     let text = r#"
         const Component = () => {
@@ -170,6 +179,7 @@ fn test_semantic_tokens_tsx_with_offset() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_empty_block() {
     let text = r#"
         query EmptyQuery {
@@ -182,6 +192,7 @@ fn test_semantic_tokens_empty_block() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_semantic_tokens_fragment_spread() {
     let text = r#"
         fragment UserFields on User {

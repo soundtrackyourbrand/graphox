@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
+#[ntest::timeout(3000)]
 #[ignore] // This test is slow and requires node/npm and wasm32-wasip1 target
 fn test_swc_cli_integration() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");

@@ -69,7 +69,7 @@ impl LanguageServer for Backend {
             };
 
         let config = self.config.read().unwrap().clone();
-        let codegen_throttle = self.codegen_throttle.clone();
+        let _codegen_throttle = self.codegen_throttle.clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
             config,
@@ -82,14 +82,12 @@ impl LanguageServer for Backend {
             operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
             codegen_requested_during_scan: self.codegen_requested_during_scan.clone(),
-            trigger_codegen_after_scan: Some(std::sync::Arc::new(move || {
-                if let Some(throttle) = &codegen_throttle {
-                    throttle.request_codegen();
-                }
-            })),
+            trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
+            validated_schemas: self.validated_schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
@@ -291,6 +289,7 @@ mod tests {
     use tower_lsp::LspService;
 
     #[tokio::test]
+    #[ntest::timeout(3000)]
     async fn test_validate_all_documents_performance() {
         let config = Config {
             base_dir: std::env::current_dir().unwrap(),
@@ -317,6 +316,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ntest::timeout(3000)]
     async fn test_get_all_fragments_info_no_deadlock() {
         let config = Config {
             base_dir: std::env::current_dir().unwrap(),

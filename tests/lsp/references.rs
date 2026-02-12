@@ -7,6 +7,7 @@ use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_references() {
     let (dir, config) = make_temp_project_with_schema(
         "type Query { user: User } type User { id: ID! name: String }",
@@ -64,6 +65,7 @@ async fn test_fragment_references() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_references_tsx() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -141,6 +143,7 @@ async fn test_fragment_references_tsx() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_references_exclude_declaration() {
     let schema_text = "type Query { user: User } type User { id: ID! name: String }";
     let (dir, config) = make_temp_project_with_schema(schema_text, "**/*.graphql");

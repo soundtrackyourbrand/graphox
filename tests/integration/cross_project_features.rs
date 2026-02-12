@@ -9,6 +9,7 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_cross_project_references_and_rename() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -186,6 +187,7 @@ async fn test_cross_project_references_and_rename() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_unrelated_projects_rename_isolation() {
     // This test documents that CURRENTLY rename is workspace-wide and NOT isolated by project/package
     // if the fragment names match.

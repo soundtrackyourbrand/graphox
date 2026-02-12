@@ -4,6 +4,7 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_unclosed_variable() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! }";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -25,6 +26,7 @@ async fn test_completion_unclosed_variable() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_variables() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -48,6 +50,7 @@ async fn test_completion_variables() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_variable_default_value() {
     let schema = r#"
       enum Status { ACTIVE, INACTIVE }
@@ -74,6 +77,7 @@ async fn test_completion_variable_default_value() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_variable_default_value_boolean() {
     let schema = r#"
       type Query {
@@ -99,6 +103,7 @@ async fn test_completion_variable_default_value_boolean() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_list_default_value() {
     let schema = r#"
       type Query {
@@ -122,6 +127,7 @@ async fn test_completion_list_default_value() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_non_null_no_null_suggestion() {
     let schema = r#"
       enum Status { ACTIVE, INACTIVE }

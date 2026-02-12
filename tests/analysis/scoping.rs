@@ -7,6 +7,7 @@ use std::path::Path;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_lsp_fragment_scoping() {
     let workspace = crate::support::TestWorkspace::new();
     workspace.copy_from("tests/fixtures/public_test");
@@ -92,6 +93,7 @@ async fn test_lsp_fragment_scoping() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_lsp_package_isolation() {
     let (mut service, _handle) = create_service(Config::new_empty());
     lsp_initialize_sequence(&mut service).await;

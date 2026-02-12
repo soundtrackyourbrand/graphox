@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_directives_on_field() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! } directive @testDirective on FIELD";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -25,6 +26,7 @@ async fn test_completion_directives_on_field() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_directives_on_fragment() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");

@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_cross_file() {
     let (dir, config) = make_temp_project_with_schema(
         "type Query { user: User } type User { id: ID! name: String }",
@@ -57,6 +58,7 @@ async fn test_goto_definition_cross_file() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_types() {
     let schema_text = "scalar CustomScalar\ninput MyInput { id: ID }\ntype User { id: ID! name: String profile: Profile }\ntype Profile { bio: String }\ntype Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema_text, "**/*.graphql");

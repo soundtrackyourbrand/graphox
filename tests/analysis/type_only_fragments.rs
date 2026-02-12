@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_type_only_not_in_completion() {
     let schema = "type User { id: ID! name: String! email: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -29,6 +30,7 @@ async fn test_type_only_not_in_completion() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_type_only_diagnostic_when_used() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -99,6 +101,7 @@ async fn test_type_only_diagnostic_when_used() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_type_only_in_hover() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -133,6 +136,7 @@ async fn test_type_only_in_hover() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_type_only_definition() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -183,6 +187,7 @@ async fn test_type_only_definition() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_regular_fragment_still_in_completion() {
     let schema = "type User { id: ID! name: String! } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -204,6 +209,7 @@ async fn test_regular_fragment_still_in_completion() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_multiple_type_only_fragments() {
     let schema = "type User { id: ID! name: String! email: String } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");

@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_trigger_on_new_empty_line_in_selection() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
@@ -25,6 +26,7 @@ async fn test_completion_trigger_on_new_empty_line_in_selection() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_trigger_after_typing_first_character() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
@@ -49,6 +51,7 @@ async fn test_completion_trigger_after_typing_first_character() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_in_completely_empty_selection_set() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -79,6 +82,7 @@ async fn test_completion_in_completely_empty_selection_set() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_tsx_trigger_on_new_empty_line_in_selection() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
@@ -101,6 +105,7 @@ async fn test_completion_tsx_trigger_on_new_empty_line_in_selection() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_tsx_trigger_after_typing_first_character() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
@@ -127,6 +132,7 @@ async fn test_completion_tsx_trigger_after_typing_first_character() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_tsx_in_completely_empty_selection_set() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
@@ -151,6 +157,7 @@ async fn test_completion_tsx_in_completely_empty_selection_set() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_operation_type_keywords() {
     let schema = "type Query { id: ID }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -170,6 +177,7 @@ async fn test_completion_operation_type_keywords() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_schema_keywords() {
     let schema = "type Query { id: ID }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -188,6 +196,7 @@ async fn test_completion_schema_keywords() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_union_members() {
     let schema = "type A { id: ID } type B { id: ID } type Query { id: ID }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -206,6 +215,7 @@ async fn test_completion_union_members() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_implements_interfaces() {
     let schema = "interface Node { id: ID } type Query { id: ID }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -223,6 +233,7 @@ async fn test_completion_implements_interfaces() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_directive_arguments() {
     let schema = "directive @myDir(arg1: String, arg2: Int) on FIELD type Query { id: ID }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -241,6 +252,7 @@ async fn test_completion_directive_arguments() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_field_alias() {
     let schema = "type User { id: ID name: String } type Query { user: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");

@@ -4,6 +4,7 @@ use crate::support::create_doc;
 use graphox::features::symbols::DocumentSymbols;
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_document_symbols() {
     let text = r#"
         query GetUser($id: ID!) {
@@ -38,6 +39,7 @@ fn test_document_symbols() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_document_symbols_tsx() {
     let text = r#"
         const query = gql`
@@ -62,6 +64,7 @@ fn test_document_symbols_tsx() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_document_symbols_hierarchy() {
     let text = r#"
         query GetUserWithPosts {
@@ -94,6 +97,7 @@ fn test_document_symbols_hierarchy() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_document_symbols_kinds() {
     let text = r#"
         query GetUser {
@@ -130,6 +134,7 @@ fn test_document_symbols_kinds() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_document_symbols_range() {
     let text = r#"
         query GetUser($id: ID!) {
@@ -157,6 +162,7 @@ fn test_document_symbols_range() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_document_symbols_fragment_spreads() {
     let text = r#"
         fragment UserFields on User {

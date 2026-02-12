@@ -18,6 +18,7 @@ use tower_lsp::{Client, jsonrpc::Result, lsp_types::*};
 // Re-export ClientCapabilities for backward compatibility
 pub use super::capabilities::ClientCapabilities;
 
+#[derive(Clone)]
 pub struct Backend {
     pub client: Client,
     pub documents: DocumentsMap,
@@ -435,7 +436,9 @@ impl Backend {
             trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
+            validated_schemas: self.validated_schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
@@ -560,7 +563,9 @@ impl Backend {
             trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
+            validated_schemas: self.validated_schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
@@ -752,13 +757,21 @@ impl Backend {
         let doc_arcs: Vec<Arc<DocumentState>> =
             self.documents.iter().map(|e| e.value().clone()).collect();
 
-        doc_arcs.par_iter().find_map_any(|other_doc| {
-            if self.is_fragment_accessible(other_doc, doc, name) {
-                other_doc.find_definition_in_tree(name)
-            } else {
-                None
-            }
+        let name = name.to_string();
+        let doc = doc.clone();
+        let backend = self.clone();
+
+        tokio::task::spawn_blocking(move || {
+            doc_arcs.par_iter().find_map_any(|other_doc| {
+                if backend.is_fragment_accessible(other_doc, &doc, &name) {
+                    other_doc.find_definition_in_tree(&name)
+                } else {
+                    None
+                }
+            })
         })
+        .await
+        .unwrap()
     }
 
     /// Check if a fragment is accessible from the current document

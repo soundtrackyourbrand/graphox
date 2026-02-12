@@ -25,3 +25,6 @@ regex = { workspace = true }
 once_cell = { workspace = true }
 sonic-rs = { workspace = true }
 tower-lsp = { workspace = true }
+
+[dev-dependencies]
+ntest = "0.9"

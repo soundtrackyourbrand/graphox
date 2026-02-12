@@ -15,6 +15,7 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fragment_spread() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -33,6 +34,7 @@ async fn test_completion_fragment_spread() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_types_in_fragment() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -56,6 +58,7 @@ async fn test_completion_types_in_fragment() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fragment_spread_acceptance() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -84,6 +87,7 @@ async fn test_completion_fragment_spread_acceptance() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_inline_fragment_completion_tsx_inserts_braces_when_missing() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
@@ -119,6 +123,7 @@ async fn test_inline_fragment_completion_tsx_inserts_braces_when_missing() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_inline_fragment_completion_tsx_no_braces_when_present() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
@@ -147,6 +152,7 @@ async fn test_inline_fragment_completion_tsx_no_braces_when_present() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_fragment_spread_type_filtering() {
     let dir = tempdir().unwrap();
     let schema_path = dir.path().join("schema.graphql");

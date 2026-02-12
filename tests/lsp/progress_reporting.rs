@@ -454,3 +454,140 @@ async fn test_progress_messages_contain_percentage() {
         "Progress notifications should include percentage values"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(10000)]
+async fn test_progress_messages_during_validation() {
+    let scenario = crate::support::lsp::LspTestScenario::new();
+    // Create enough files to ensure validation takes some time and progress is reported
+    let scenario = (0..30).fold(
+        scenario.with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! }",
+        ),
+        |s, i| {
+            s.with_file(
+                &format!("query{}.graphql", i),
+                &format!("query GetUser{} {{ user {{ id }} }}", i),
+            )
+        },
+    );
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = Config {
+        projects: vec![ProjectConfig {
+            schema: SchemaSource::Single("schema.graphql".to_string()),
+            include: GlobPattern::Single("*.graphql".to_string()),
+            codegen: Some(false),
+            ..Default::default()
+        }],
+        enable_schema_cache: Some(true),
+        base_dir: base_dir.clone(),
+        lsp_automatic_codegen: Some(false),
+        ..Config::new_empty()
+    };
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+
+    // Track progress notifications
+    let progress_notifications = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let progress_clone = progress_notifications.clone();
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("$/progress") {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                progress_clone.lock().unwrap().push(params);
+            }
+        }
+    });
+
+    // Initialize with progress capability
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            window: Some(WindowClientCapabilities {
+                work_done_progress: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(&init_params).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // Wait for workspace scan to complete (up to 5 seconds)
+    let mut validation_percentages = Vec::new();
+    for _ in 0..500 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let notifications = progress_notifications.lock().unwrap();
+
+        for n in notifications.iter() {
+            if let Some(value) = n.get("value") {
+                let kind = value.get("kind").and_then(|k| k.as_str());
+                let message = value.get("message").and_then(|m| m.as_str());
+                let percentage = value.get("percentage").and_then(|p| p.as_u64());
+
+                if let Some(msg) = message {
+                    if msg.contains("Validating") {
+                        if let Some(p) = percentage {
+                            validation_percentages.push(p);
+                        }
+                    }
+                }
+            }
+        }
+
+        let has_end = notifications.iter().any(|n| {
+            n.get("value")
+                .and_then(|v| v.get("kind"))
+                .and_then(|k| k.as_str())
+                == Some("end")
+        });
+
+        if has_end {
+            if !validation_percentages.is_empty() {
+                break;
+            }
+            // If we have end but no validation progress yet, wait a bit more or log
+            eprintln!(
+                "[DEBUG TEST] got end but no validation progress. total notifications: {}",
+                notifications.len()
+            );
+            for (i, n) in notifications.iter().enumerate() {
+                eprintln!("[DEBUG TEST] notification {}: {:?}", i, n);
+            }
+        }
+    }
+
+    assert!(
+        !validation_percentages.is_empty(),
+        "Should receive progress notifications specifically for validation phase containing 'Validating'"
+    );
+
+    // Check that we got at least one percentage >= 70
+    assert!(
+        validation_percentages.iter().any(|&p| p >= 70),
+        "Should have at least one validation progress report starting at >= 70%"
+    );
+}

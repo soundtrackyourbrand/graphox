@@ -47,6 +47,7 @@ fn format_graphql_from_file(file_content: &str, uri_str: &str) -> Option<String>
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_format_cramped_query() {
     let fixture = load_fixture("cramped_query.ts");
     let expected = load_baseline("cramped_query.expected.graphql");
@@ -62,6 +63,7 @@ fn test_format_cramped_query() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_format_cramped_mutation() {
     let fixture = load_fixture("cramped_mutation.tsx");
     let expected = load_baseline("cramped_mutation.expected.graphql");
@@ -77,6 +79,7 @@ fn test_format_cramped_mutation() {
 }
 
 #[test]
+#[ntest::timeout(3000)]
 fn test_format_fragment_spread() {
     let fixture = load_fixture("fragment_spread.ts");
     let expected_fragment = load_baseline("fragment_spread_fragment.expected.graphql");
@@ -132,6 +135,7 @@ fn test_format_fragment_spread() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_format_code_action_with_baseline() {
     let (dir, config) = crate::support::make_temp_project_with_schema(
         "type User { id: ID name: String email: String } type Query { me: User }",

@@ -31,3 +31,6 @@ env_logger = { workspace = true }
 pathdiff = { workspace = true }
 glob = { workspace = true }
 globset = { workspace = true }
+
+[dev-dependencies]
+ntest = "0.9"

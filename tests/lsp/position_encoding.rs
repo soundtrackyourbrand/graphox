@@ -8,6 +8,7 @@ use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_position_encoding_negotiation_utf8() {
     let schema = "type Query { emoji: String }";
     let (_dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -40,6 +41,7 @@ async fn test_position_encoding_negotiation_utf8() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_position_encoding_negotiation_utf16() {
     let schema = "type Query { emoji: String }";
     let (_dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -72,6 +74,7 @@ async fn test_position_encoding_negotiation_utf16() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_position_encoding_negotiation_utf32() {
     let schema = "type Query { emoji: String }";
     let (_dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -118,6 +121,7 @@ async fn wait_for_workspace_scan(backend: &graphox::Backend) {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_range_with_utf8() {
     let schema = "type Query { field(arg: String): User } type User { emoji: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -167,6 +171,7 @@ async fn test_hover_range_with_utf8() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_range_with_utf16() {
     let schema = "type Query { field(arg: String): User } type User { emoji: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -214,6 +219,7 @@ async fn test_hover_range_with_utf16() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_hover_range_with_utf32() {
     let schema = "type Query { field(arg: String): User } type User { emoji: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");

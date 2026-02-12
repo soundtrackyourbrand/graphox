@@ -5,6 +5,7 @@ use crate::support::{
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_selection_set_type_filtering() {
     let schema = "type Query { users: [User!]! posts: [Post!]! } type User { id: ID! username: String! } type Post { id: ID! title: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -28,6 +29,7 @@ async fn test_completion_selection_set_type_filtering() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_spread_interface_filtering() {
     let schema = "type Query { nodeA: A nodeB: B } interface Node { id: ID! } type A implements Node { id: ID! name: String! } type B implements Node { id: ID! title: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -64,6 +66,7 @@ async fn test_fragment_spread_interface_filtering() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_fragment_spread_union_filtering_extended() {
     let schema = "type Query { itemA: A itemB: B } type A { id: ID! name: String! } type B { id: ID! title: String! } union Item = A | B";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -96,6 +99,7 @@ async fn test_fragment_spread_union_filtering_extended() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_inside_union_type() {
     let schema = "type Query { node: Item } type A { id: ID! name: String! } type B { id: ID! title: String! } union Item = A | B";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");
@@ -133,6 +137,7 @@ async fn test_completion_inside_union_type() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_completion_union_with_inline_fragments() {
     let schema = "type Query { node: Item } type A { id: ID! name: String! } type B { id: ID! title: String! } union Item = A | B";
     let (dir, config) = make_temp_project_with_schema(schema, "test.graphql");

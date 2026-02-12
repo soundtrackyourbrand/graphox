@@ -4,6 +4,7 @@ use tower_lsp::lsp_types::Position;
 use tree_sitter::Parser;
 
 #[test]
+#[ntest::timeout(3000)]
 fn mapping_graphql_in_tsx_template_literal() {
     let src = "const q = graphql(/* GraphQL */ `\nquery {\n  users {\n    ... on \n  }\n}\n`);\n";
     let uri = Url::parse("file:///tmp/test.tsx").unwrap();

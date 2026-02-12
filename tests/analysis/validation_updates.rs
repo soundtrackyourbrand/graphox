@@ -120,6 +120,7 @@ fn test_diagnostics_update_on_fragment_change() {
 }
 
 #[tokio::test]
+#[ntest::timeout(3000)]
 async fn test_backend_schema_reload() {
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
