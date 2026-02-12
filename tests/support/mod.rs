@@ -996,6 +996,211 @@ pub fn measure_memory_usage() -> usize {
     }
 }
 
+/// Create a complex schema A with N types (E-commerce themed).
+pub fn create_complex_schema_a(num_types: usize) -> String {
+    let mut schema =
+        String::from("directive @key(fields: String!) on OBJECT | INTERFACE\n\ntype Query {\n");
+    schema.push_str("    user(id: ID!): User\n");
+    schema.push_str("    product(id: ID!): Product\n");
+    schema.push_str("    order(id: ID!): Order\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Mutation {\n");
+    schema.push_str("    updateUser(id: ID!): User\n");
+    schema.push_str("    updateProduct(id: ID!): Product\n");
+    schema.push_str("    updateOrder(id: ID!): Order\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Subscription {\n");
+    schema.push_str("    UserChanged: User\n");
+    schema.push_str("    ProductChanged: Product\n");
+    schema.push_str("    OrderChanged: Order\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type User @key(fields: \"id\") {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    username: String!\n");
+    schema.push_str("    profile: Profile!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Profile {\n");
+    schema.push_str("    firstName: String\n");
+    schema.push_str("    lastName: String\n");
+    schema.push_str("    avatarUrl: String\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Product @key(fields: \"id\") {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    sku: String!\n");
+    schema.push_str("    price: Int!\n");
+    schema.push_str("    category: Category!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Category {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    name: String!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Order @key(fields: \"id\") {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    items: [OrderItem!]!\n");
+    schema.push_str("    total: Int!\n");
+    schema.push_str("    customer: User!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type OrderItem {\n");
+    schema.push_str("    product: Product!\n");
+    schema.push_str("    quantity: Int!\n");
+    schema.push_str("}\n\n");
+
+    for i in 0..(num_types.saturating_sub(7)) {
+        schema.push_str(&format!("type ExtraTypeA{} {{\n", i));
+        schema.push_str("    id: ID!\n");
+        schema.push_str(&format!("    field: String\n"));
+        schema.push_str("}\n\n");
+    }
+
+    schema
+}
+
+/// Create a complex schema B with N types (Content themed).
+pub fn create_complex_schema_b(num_types: usize) -> String {
+    let mut schema =
+        String::from("directive @key(fields: String!) on OBJECT | INTERFACE\n\ntype Query {\n");
+    schema.push_str("    article(id: ID!): Article\n");
+    schema.push_str("    media(id: ID!): Media\n");
+    schema.push_str("    analytics(id: ID!): Analytics\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Mutation {\n");
+    schema.push_str("    updateArticle(id: ID!): Article\n");
+    schema.push_str("    updateMedia(id: ID!): Media\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Subscription {\n");
+    schema.push_str("    ArticleChanged: Article\n");
+    schema.push_str("    MediaChanged: Media\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Article @key(fields: \"id\") {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    title: String!\n");
+    schema.push_str("    body: String!\n");
+    schema.push_str("    author: Author!\n");
+    schema.push_str("    comments: [Comment!]!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Author @key(fields: \"id\") {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    name: String!\n");
+    schema.push_str("    articles: [Article!]!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Comment {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    text: String!\n");
+    schema.push_str("    article: Article!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Media @key(fields: \"id\") {\n");
+    schema.push_str("    id: ID!\n");
+    schema.push_str("    url: String!\n");
+    schema.push_str("    type: MediaType!\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("enum MediaType {\n");
+    schema.push_str("    IMAGE\n");
+    schema.push_str("    VIDEO\n");
+    schema.push_str("    AUDIO\n");
+    schema.push_str("}\n\n");
+
+    schema.push_str("type Analytics {\n");
+    schema.push_str("    views: Int!\n");
+    schema.push_str("    likes: Int!\n");
+    schema.push_str("}\n\n");
+
+    for i in 0..(num_types.saturating_sub(7)) {
+        schema.push_str(&format!("type ExtraTypeB{} {{\n", i));
+        schema.push_str("    id: ID!\n");
+        schema.push_str(&format!("    field: String\n"));
+        schema.push_str("}\n\n");
+    }
+
+    schema
+}
+
+/// Create a project with fragments and operations.
+pub fn create_project_with_fragments(
+    project_dir: &Path,
+    schema_type: &str, // "A", "B", or "both"
+    project_idx: usize,
+    _total_projects: usize,
+) {
+    fs::create_dir_all(project_dir).unwrap();
+
+    let (type_name, field_name) = match schema_type {
+        "A" => ("User", "username"),
+        "B" => ("Article", "title"),
+        _ => ("User", "username"), // Default to A for "both" in fragments
+    };
+
+    // 100 fragments (30 public, 70 private)
+    let mut fragments_content = String::new();
+    for i in 0..100 {
+        let is_public = i < 30;
+        let frag_name = if is_public {
+            format!("PublicFrag_{}_{}", project_idx, i)
+        } else {
+            format!("PrivateFrag_{}_{}", project_idx, i)
+        };
+
+        fragments_content.push_str(&format!(
+            "fragment {} on {} {{ {} }}\n",
+            frag_name, type_name, field_name
+        ));
+    }
+    fs::write(project_dir.join("fragments.graphql"), fragments_content).unwrap();
+
+    // 300 operations (100 queries, 100 mutations, 100 subscriptions)
+    // 80% are TS/TSX
+    for i in 0..300 {
+        let op_type = match i % 3 {
+            0 => "query",
+            1 => "mutation",
+            _ => "subscription",
+        };
+
+        let op_name = format!("Op_{}_{}_{}", project_idx, op_type, i);
+        let gql_content = match op_type {
+            "query" => format!("query {} {{ {} {{ id }} }}", op_name, field_name),
+            "mutation" => format!(
+                "mutation {} {{ update{}(id: \"1\") {{ id }} }}",
+                op_name, type_name
+            ),
+            _ => format!(
+                "subscription {} {{ {}Changed {{ id }} }}",
+                op_name, type_name
+            ),
+        };
+
+        let is_ts = (i % 10) < 8; // 80%
+        let ext = if is_ts {
+            if i % 2 == 0 { "ts" } else { "tsx" }
+        } else {
+            "graphql"
+        };
+
+        let filename = format!("op_{}.{}", i, ext);
+        let content = if is_ts {
+            format!("const {} = gql`\n  {}\n`;", op_name, gql_content)
+        } else {
+            gql_content
+        };
+
+        fs::write(project_dir.join(filename), content).unwrap();
+    }
+}
+
 /// Time a closure and return (duration, result).
 pub fn timed<T>(f: impl FnOnce() -> T) -> (std::time::Duration, T) {
     let start = std::time::Instant::now();

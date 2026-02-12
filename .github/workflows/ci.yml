@@ -124,3 +124,7 @@ jobs:
       
       - name: Build benchmarks
         run: cargo test --benches --all-features --no-run
+
+      - name: Run memory tests
+        if: runner.os == 'Linux'
+        run: cargo test --test performance_suite -- --nocapture --ignored
