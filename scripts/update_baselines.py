@@ -35,7 +35,7 @@ def update_baselines(fixture_rel, baseline_rel):
         with open(config_path, 'r') as f:
             original_config = f.read()
         # Replace output_dir value
-        modified_config = re.sub(r'(output_dir:\s*)".*"', r'\1"' + temp_out + '"', original_config)
+        modified_config = re.sub(r'(output_dir:\s*)(["\']?)(.*)(\2)', r'\1"' + temp_out + '"', original_config)
         with open(config_path, 'w') as f:
             f.write(modified_config)
     
@@ -55,33 +55,47 @@ def update_baselines(fixture_rel, baseline_rel):
     
     # Copy and rename files
     updated_count = 0
-    for root, dirs, files in os.walk(temp_out):
-        for f in files:
-            if f.endswith(".ts") or f.endswith(".json"):
-                rel_dir = os.path.relpath(root, temp_out)
-                target_dir = os.path.normpath(os.path.join(baseline_dir, rel_dir))
-                if not os.path.exists(target_dir):
-                    os.makedirs(target_dir)
-                
-                if f.endswith(".codegen.ts"):
-                    stem = f.replace(".codegen.ts", "")
-                    baseline_name = stem + ".expected.ts"
-                elif f.endswith(".ts"):
-                    stem = f.replace(".ts", "")
-                    baseline_name = stem + ".expected.ts"
-                elif f.endswith(".json"):
-                    stem = f.replace(".json", "")
-                    baseline_name = stem + ".expected.json"
-                    with open(os.path.join(root, f), 'r') as jf:
-                        json_data = json.load(jf)
-                    with open(os.path.join(target_dir, baseline_name), 'w') as jf:
-                        json.dump(json_data, jf, indent=2, sort_keys=True)
-                    continue
-                else:
-                    baseline_name = f
 
-                shutil.copy(os.path.join(root, f), os.path.join(target_dir, baseline_name))
-                updated_count += 1
+    def process_files(source_root, dest_base):
+        """Process files from source_root to dest_base, renaming .ts/.json files to .expected.*"""
+        nonlocal updated_count
+        for root, dirs, files in os.walk(source_root):
+            for f in files:
+                if f.endswith(".ts") or f.endswith(".json"):
+                    rel_dir = os.path.relpath(root, source_root)
+                    target_dir = os.path.normpath(os.path.join(dest_base, rel_dir))
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir)
+
+                    if f.endswith(".codegen.ts"):
+                        stem = f.replace(".codegen.ts", "")
+                        baseline_name = stem + ".expected.ts"
+                    elif f.endswith(".ts"):
+                        stem = f.replace(".ts", "")
+                        baseline_name = stem + ".expected.ts"
+                    elif f.endswith(".json"):
+                        stem = f.replace(".json", "")
+                        baseline_name = stem + ".expected.json"
+                        with open(os.path.join(root, f), 'r') as jf:
+                            json_data = json.load(jf)
+                        with open(os.path.join(target_dir, baseline_name), 'w') as jf:
+                            json.dump(json_data, jf, indent=2, sort_keys=True)
+                        updated_count += 1
+                        continue
+                    else:
+                        baseline_name = f
+
+                    shutil.copy(os.path.join(root, f), os.path.join(target_dir, baseline_name))
+                    updated_count += 1
+
+    # First try to copy from temp_out
+    if os.path.exists(temp_out) and os.listdir(temp_out):
+        process_files(temp_out, baseline_dir)
+    else:
+        # If temp_out is empty or doesn't exist, copy from fixture directory
+        # This handles configs like possible_types that don't use output_dir
+        print(f"  Note: temp_gen_out empty, checking fixture directory for generated files")
+        process_files(fixture_dir, baseline_dir)
     
     print(f"  Done. Updated {updated_count} baseline files.")
 
@@ -110,12 +124,12 @@ def main():
         ("tests/fixtures/fragment_document_suffix", "tests/baselines/fragment_document_suffix"),
         ("tests/fixtures/multi_schema_import_caching", "tests/baselines/multi_schema_import_caching"),
         ("tests/fixtures/permissions", "tests/baselines/permissions"),
-        ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
         ("tests/fixtures/include_strip", "tests/baselines/include_strip"),
         ("tests/fixtures/multi_project_isolation", "tests/baselines/multi_project_isolation"),
         ("tests/fixtures/emit_extensions_none", "tests/baselines/emit_extensions_none"),
         ("tests/fixtures/emit_extensions_js", "tests/baselines/emit_extensions_js"),
         ("tests/fixtures/emit_extensions_ts", "tests/baselines/emit_extensions_ts"),
+        ("tests/fixtures/possible_types", "tests/baselines/possible_types"),
     ]
 
     for fixture, baseline in tasks:

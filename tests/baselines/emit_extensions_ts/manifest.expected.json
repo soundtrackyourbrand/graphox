@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetMeQueryDocument",
+    "path": "./graphql.codegen",
+    "source": "\n  query GetMe {\n    me {\n      id\n      name\n    }\n  }\n"
+  }
+]
