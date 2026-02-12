@@ -91,7 +91,9 @@ impl Engine {
             if is_local {
                 fragment_to_path.insert(meta.name.clone(), meta.path.clone());
                 if let Some(a) = &meta.import_alias {
-                    fragment_to_import.insert(meta.name.clone(), a.clone());
+                    if a.as_ref() != "." && a.as_ref() != "./" {
+                        fragment_to_import.insert(meta.name.clone(), a.clone());
+                    }
                 }
                 fragment_to_type_only.insert(meta.name.clone(), meta.is_type_only);
                 project_fragments_metadata.push(meta.clone());
