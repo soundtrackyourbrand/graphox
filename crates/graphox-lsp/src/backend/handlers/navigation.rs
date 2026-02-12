@@ -197,23 +197,28 @@ pub async fn handle_rename(
                     });
                 }
 
-                let doc_arcs: Vec<(Url, Arc<DocumentState>)> = backend
-                    .documents
-                    .iter()
-                    .map(|e| (e.key().clone(), e.value().clone()))
-                    .collect();
+                let mut relevant_uris = std::collections::HashSet::new();
 
-                for (other_uri, other_doc) in doc_arcs {
-                    let refs = other_doc.find_references_in_tree(&name, true);
-                    if !refs.is_empty() {
-                        let edits: Vec<TextEdit> = refs
-                            .into_iter()
-                            .map(|loc| TextEdit {
-                                range: loc.range,
-                                new_text: new_name.clone(),
-                            })
-                            .collect();
-                        changes.insert(other_uri.clone(), edits);
+                if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
+                    relevant_uris.extend(def_uris.iter().cloned());
+                }
+                if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
+                    relevant_uris.extend(dep_uris.iter().cloned());
+                }
+
+                for other_uri in relevant_uris {
+                    if let Some(other_doc) = backend.documents.get(&other_uri).map(|r| r.value().clone()) {
+                        let refs = other_doc.find_references_in_tree(&name, true);
+                        if !refs.is_empty() {
+                            let edits: Vec<TextEdit> = refs
+                                .into_iter()
+                                .map(|loc| TextEdit {
+                                    range: loc.range,
+                                    new_text: new_name.clone(),
+                                })
+                                .collect();
+                            changes.insert(other_uri.clone(), edits);
+                        }
                     }
                 }
 
