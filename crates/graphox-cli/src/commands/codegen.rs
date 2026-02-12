@@ -182,6 +182,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
 async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     let mut success = true;
     let mut project_operations: HashMap<usize, Vec<codegen::OperationGenerated>> = HashMap::new();
+    let mut project_fragments: HashMap<usize, Vec<codegen::FragmentGenerated>> = HashMap::new();
 
     let cfg = config;
 
@@ -446,7 +447,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 type_imports: &type_imports,
                 project_context: &project_context,
                 global_metadata,
-                generate_ast_for_fragments: cfg.generate_ast_for_fragments.unwrap_or(false),
+                generate_ast_for_fragments: project
+                    .generate_ast_for_fragments
+                    .or(cfg.generate_ast_for_fragments)
+                    .unwrap_or(false),
                 workspace_documents: &workspace_metadata.documents,
                 emit_permission_data: project.emit_permission_data.unwrap_or(false),
                 document_suffix,
@@ -469,8 +473,9 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         )
         .await
         {
-            Ok(ops) => {
+            Ok((ops, frags)) => {
                 project_operations.insert(project_index, ops);
+                project_fragments.insert(project_index, frags);
             }
             Err(_) => success = false,
         }
@@ -584,17 +589,37 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
     // Generate graphql.ts and manifest.json for each output directory
     if !clean {
-        use std::collections::BTreeMap;
+        use std::collections::{BTreeMap, HashSet};
         let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
-        let mut dir_to_config: HashMap<
+        let mut dir_to_frags: BTreeMap<PathBuf, Vec<codegen::FragmentGenerated>> = BTreeMap::new();
+        let mut dir_to_config: BTreeMap<
             PathBuf,
-            (codegen::FragmentMasking, String, String, EmitExtensions),
-        > = HashMap::new();
+            (
+                codegen::FragmentMasking,
+                String,
+                String,
+                EmitExtensions,
+                bool,
+            ),
+        > = BTreeMap::new();
 
-        for (project_idx, ops) in project_operations.into_iter() {
+        let mut project_indices: HashSet<usize> = project_operations.keys().cloned().collect();
+        project_indices.extend(project_fragments.keys().cloned());
+
+        for project_idx in project_indices {
             let Some(project) = cfg.projects.get(project_idx) else {
                 continue;
             };
+
+            let ops = project_operations
+                .get(&project_idx)
+                .cloned()
+                .unwrap_or_default();
+            let frags = project_fragments
+                .get(&project_idx)
+                .cloned()
+                .unwrap_or_default();
+
             let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
             let out_dir_path = cfg.base_dir.join(out_dir);
             let canon_out_dir_path = out_dir_path
@@ -606,27 +631,36 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 .or_default()
                 .extend(ops);
 
-            if !dir_to_config.contains_key(&canon_out_dir_path) {
+            dir_to_frags
+                .entry(canon_out_dir_path.clone())
+                .or_default()
+                .extend(frags);
+
+            if let std::collections::btree_map::Entry::Vacant(e) =
+                dir_to_config.entry(canon_out_dir_path)
+            {
                 let fragment_masking = codegen::FragmentMasking::from_config(
                     &project
                         .fragment_masking
                         .clone()
                         .or(cfg.fragment_masking.clone()),
                 );
-                dir_to_config.insert(
-                    canon_out_dir_path,
-                    (
-                        fragment_masking,
-                        cfg.document_suffix().to_string(),
-                        cfg.variables_suffix().to_string(),
-                        cfg.get_emit_extensions(project),
-                    ),
-                );
+                e.insert((
+                    fragment_masking,
+                    cfg.document_suffix().to_string(),
+                    cfg.variables_suffix().to_string(),
+                    cfg.get_emit_extensions(project),
+                    project
+                        .generate_ast_for_fragments
+                        .or(cfg.generate_ast_for_fragments)
+                        .unwrap_or(false),
+                ));
             }
         }
 
-        for (out_dir_path, mut ops) in dir_to_ops {
-            let (fragment_masking, doc_suffix, var_suffix, emit_extensions) =
+        for (out_dir_path, mut ops) in dir_to_ops.into_iter() {
+            let mut frags = dir_to_frags.remove(&out_dir_path).unwrap_or_default();
+            let (fragment_masking, doc_suffix, var_suffix, emit_extensions, generate_ast) =
                 dir_to_config.get(&out_dir_path).unwrap();
 
             // Deduplicate operations by name and source
@@ -638,6 +672,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             ops.dedup_by(|a, b| {
                 a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
             });
+
+            // Deduplicate fragments by source
+            frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
+            frags.dedup_by(|a, b| a.source_text == b.source_text);
 
             // Check if path exists but is a file (blocks directory creation)
             if out_dir_path.exists() && out_dir_path.is_file() {
@@ -662,10 +700,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             let content = codegen::generate_entrypoint_content(
                 &out_dir_path,
                 &ops,
+                &frags,
                 doc_suffix,
                 var_suffix,
                 fragment_masking,
                 *emit_extensions,
+                *generate_ast,
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
                 eprintln!(
@@ -780,7 +820,13 @@ async fn execute_project_codegen_entry(
     params: CodegenParams<'_>,
     verbose: bool,
     clean: bool,
-) -> Result<Vec<codegen::OperationGenerated>, ()> {
+) -> Result<
+    (
+        Vec<codegen::OperationGenerated>,
+        Vec<codegen::FragmentGenerated>,
+    ),
+    (),
+> {
     if !clean {
         generate_project_files(params, verbose).await
     } else {
@@ -791,7 +837,13 @@ async fn execute_project_codegen_entry(
 async fn generate_project_files(
     params: CodegenParams<'_>,
     verbose: bool,
-) -> Result<Vec<codegen::OperationGenerated>, ()> {
+) -> Result<
+    (
+        Vec<codegen::OperationGenerated>,
+        Vec<codegen::FragmentGenerated>,
+    ),
+    (),
+> {
     let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source) {
         Ok(v) => v,
         Err(e) => {
@@ -879,6 +931,7 @@ async fn generate_project_files(
                 params.fragment_masking.clone(),
                 masking_import_path,
                 params.emit_extensions,
+                abs_out_path.clone(),
             );
 
             execute_single_file_codegen(
@@ -894,7 +947,7 @@ async fn generate_project_files(
         .collect::<Vec<_>>()
         .into_iter()
         .map(|res| match res {
-            Ok(ops) => Ok(ops),
+            Ok((ops, frags)) => Ok((ops, frags)),
             Err((path, e)) => {
                 if !e.contains("No executable operations") {
                     eprintln!(
@@ -931,17 +984,21 @@ async fn generate_project_files(
                     }
                     Err(())
                 } else {
-                    Ok(Vec::new())
+                    Ok((Vec::new(), Vec::new()))
                 }
             }
         })
         .collect();
 
     let mut all_ops = Vec::new();
+    let mut all_frags = Vec::new();
     let mut success = true;
     for res in results {
         match res {
-            Ok(ops) => all_ops.extend(ops),
+            Ok((ops, frags)) => {
+                all_ops.extend(ops);
+                all_frags.extend(frags);
+            }
             Err(_) => success = false,
         }
     }
@@ -969,13 +1026,23 @@ async fn generate_project_files(
         }
     }
 
-    if success { Ok(all_ops) } else { Err(()) }
+    if success {
+        Ok((all_ops, all_frags))
+    } else {
+        Err(())
+    }
 }
 
 async fn clean_project_files(
     params: CodegenParams<'_>,
     verbose: bool,
-) -> Result<Vec<codegen::OperationGenerated>, ()> {
+) -> Result<
+    (
+        Vec<codegen::OperationGenerated>,
+        Vec<codegen::FragmentGenerated>,
+    ),
+    (),
+> {
     let include_root = utils::get_glob_root(&params.include.as_key());
     let abs_include_root = params.base_dir.join(&include_root);
 
@@ -1045,7 +1112,7 @@ async fn clean_project_files(
         }
     }
 
-    Ok(Vec::new())
+    Ok((Vec::new(), Vec::new()))
 }
 
 fn surgical_clean(dir: &Path, verbose: bool) -> Result<(), ()> {
@@ -1112,8 +1179,14 @@ fn execute_single_file_codegen(
     base_dir: &Path,
     include_prefix: &Path,
     verbose: bool,
-) -> Result<Vec<codegen::OperationGenerated>, String> {
-    let (ts_code, mut ops) = codegen::generate_typescript(doc, ctx)?;
+) -> Result<
+    (
+        Vec<codegen::OperationGenerated>,
+        Vec<codegen::FragmentGenerated>,
+    ),
+    String,
+> {
+    let (ts_code, mut ops, mut frags) = codegen::generate_typescript(doc, ctx)?;
     let out_path_raw = utils::get_output_path(
         doc.uri.to_file_path().unwrap().as_path(),
         base_dir,
@@ -1131,6 +1204,10 @@ fn execute_single_file_codegen(
         op.codegen_path = abs_out_path.clone();
     }
 
+    for frag in &mut frags {
+        frag.codegen_path = abs_out_path.clone();
+    }
+
     if let Some(parent) = abs_out_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -1142,5 +1219,5 @@ fn execute_single_file_codegen(
             abs_out_path.display().to_string().bright_black()
         );
     }
-    Ok(ops)
+    Ok((ops, frags))
 }

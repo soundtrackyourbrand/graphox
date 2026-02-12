@@ -79,6 +79,7 @@ pub struct CodegenContext<'a> {
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
     pub emit_extensions: EmitExtensions,
+    pub codegen_path: PathBuf,
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
@@ -158,6 +159,7 @@ impl<'a> CodegenContext<'a> {
         fragment_masking: FragmentMasking,
         masking_import_path: String,
         emit_extensions: EmitExtensions,
+        codegen_path: PathBuf,
     ) -> Self {
         Self {
             schema,
@@ -183,6 +185,7 @@ impl<'a> CodegenContext<'a> {
             masking_import_path,
             emit_extensions,
             used_schema_types: RefCell::new(HashSet::new()),
+            codegen_path,
         }
     }
 
@@ -192,12 +195,21 @@ impl<'a> CodegenContext<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct OperationGenerated {
     pub name: String,
+    pub operation_type_name: String,
+    pub variables_type_name: String,
     pub source_text: String,
-    pub operation_type_name: String, // e.g. GetMeQuery
-    pub variables_type_name: String, // e.g. GetMeQueryVariables
-    pub codegen_path: PathBuf,       // Path to the .codegen.ts file
+    pub codegen_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct FragmentGenerated {
+    pub name: String,
+    pub source_text: String,
+    pub document_name: String,
+    pub codegen_path: PathBuf,
 }
 
 #[derive(Debug, Default)]
@@ -211,14 +223,22 @@ pub struct CodegenProfile {
 pub fn generate_typescript(
     doc: &DocumentState,
     ctx: &CodegenContext,
-) -> Result<(String, Vec<OperationGenerated>), String> {
-    generate_typescript_with_profile(doc, ctx).map(|(s, ops, _)| (s, ops))
+) -> Result<(String, Vec<OperationGenerated>, Vec<FragmentGenerated>), String> {
+    generate_typescript_with_profile(doc, ctx).map(|(s, ops, frags, _)| (s, ops, frags))
 }
 
 pub fn generate_typescript_with_profile(
     doc: &DocumentState,
     ctx: &CodegenContext,
-) -> Result<(String, Vec<OperationGenerated>, CodegenProfile), String> {
+) -> Result<
+    (
+        String,
+        Vec<OperationGenerated>,
+        Vec<FragmentGenerated>,
+        CodegenProfile,
+    ),
+    String,
+> {
     use std::time::Instant;
     let mut profile = CodegenProfile::default();
 
@@ -228,6 +248,7 @@ pub fn generate_typescript_with_profile(
 
     let mut used_fragments = HashMap::default();
     let mut generated_operations = Vec::new();
+    let mut generated_fragments = Vec::new();
 
     // Pre-allocate bodies string
     let mut bodies = String::with_capacity(2048);
@@ -513,12 +534,21 @@ pub fn generate_typescript_with_profile(
                     bodies.push_str(ctx.document_suffix);
                     bodies.push_str(" = { kind: 'Document', definitions: ");
                     bodies.push_str(&definitions);
-                    bodies.push_str(" } as unknown as DocumentNode<any, any>;\n");
+                    bodies.push_str(" } as unknown as DocumentNode<");
+                    bodies.push_str(&fragment_type_name);
+                    bodies.push_str(", unknown>;\n");
                 }
                 profile.ast_serialization_time += ast_start.elapsed();
             }
 
             bodies.push('\n');
+
+            generated_fragments.push(FragmentGenerated {
+                name: fragment_type_name.clone(),
+                source_text: block_text.clone(),
+                document_name: format!("{}{}", frag.name, ctx.document_suffix),
+                codegen_path: ctx.codegen_path.clone(),
+            });
         }
     }
 
@@ -710,19 +740,22 @@ pub fn generate_typescript_with_profile(
         return Err("No executable operations or fragments found in this file".to_string());
     }
 
-    Ok((output, generated_operations, profile))
+    Ok((output, generated_operations, generated_fragments, profile))
 }
 
 pub fn generate_entrypoint_content(
     output_dir: &Path,
     operations: &[OperationGenerated],
+    fragments: &[FragmentGenerated],
     document_suffix: &str,
     variables_suffix: &str,
     fragment_masking: &FragmentMasking,
     emit_extensions: EmitExtensions,
+    generate_ast_for_fragments: bool,
 ) -> String {
-    // Pre-allocate with estimated capacity based on number of operations
-    let estimated_size = operations.len() * 200 + 500; // ~200 chars per operation + overhead
+    let op_count = operations.len();
+    let frag_count = fragments.len();
+    let estimated_size = (op_count + frag_count) * 200 + 500;
     let mut output = String::with_capacity(estimated_size);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
@@ -787,6 +820,64 @@ pub fn generate_entrypoint_content(
             "  {:?}: {}{},\n",
             op.source_text, op.operation_type_name, document_suffix
         ));
+    }
+
+    let mut unique_frags_by_source = BTreeMap::new();
+    let mut unique_frags_by_name = BTreeMap::new();
+
+    for frag in fragments {
+        unique_frags_by_source
+            .entry(&frag.source_text)
+            .or_insert(frag);
+        unique_frags_by_name.entry(&frag.name).or_insert(frag);
+    }
+
+    for frag in unique_frags_by_name.values() {
+        let rel_codegen_path = pathdiff::diff_paths(&frag.codegen_path, output_dir)
+            .unwrap_or_else(|| frag.codegen_path.clone());
+        let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
+        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+            path_str = format!("./{}", path_str);
+        }
+        let path_no_ext = if path_str.ends_with(".ts") {
+            &path_str[..path_str.len() - 3]
+        } else {
+            &path_str
+        };
+        let final_path = format!("{}{}", path_no_ext, ext);
+
+        if generate_ast_for_fragments {
+            runtime_import_lines.push(format!(
+                "import {{ {} }} from \"{}\";",
+                frag.document_name, final_path
+            ));
+        } else {
+            type_import_lines.push(format!(
+                "import type {{ {} }} from \"{}\";",
+                frag.name, final_path
+            ));
+        }
+    }
+
+    for frag in unique_frags_by_source.values() {
+        if generate_ast_for_fragments {
+            overloads.push_str(&format!(
+                "export function graphql(source: {:?}): typeof {};\n",
+                frag.source_text, frag.document_name
+            ));
+
+            map_entries.push_str(&format!(
+                "  {:?}: {},\n",
+                frag.source_text, frag.document_name
+            ));
+        } else {
+            overloads.push_str(&format!(
+                "export function graphql(source: {:?}): DocumentNode<{}, unknown>;\n",
+                frag.source_text, frag.name
+            ));
+
+            map_entries.push_str(&format!("  {:?}: {{}},\n", frag.source_text));
+        }
     }
 
     let mut all_import_lines: Vec<_> = type_import_lines
@@ -1522,6 +1613,7 @@ pub fn generate_schema_types(
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
         EmitExtensions::None,
+        PathBuf::new(),
     );
 
     // 1. Enums

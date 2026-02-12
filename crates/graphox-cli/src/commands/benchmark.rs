@@ -118,6 +118,8 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         matches.first().and_then(|st| st.import.clone())
                     });
 
+                    let abs_out_path = path.to_path_buf();
+
                     let ctx = codegen::CodegenContext::new(
                         &valid_schema,
                         project_fragment_to_path,
@@ -141,9 +143,10 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         codegen::FragmentMasking::Disabled,
                         "./fragment-masking".to_string(),
                         graphox_core::config::EmitExtensions::None,
+                        abs_out_path.clone(),
                     );
                     let g_start = Instant::now();
-                    if let Ok((_ts_code, _ops, profile)) =
+                    if let Ok((_ts_code, _ops, _frags, profile)) =
                         codegen::generate_typescript_with_profile(doc, &ctx)
                     {
                         let g_time = g_start.elapsed();

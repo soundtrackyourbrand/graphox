@@ -42,6 +42,7 @@ pub async fn run_codegen(
         .count();
     let mut current_project = 0;
     let mut project_operations_list = Vec::new();
+    let mut project_fragments_list = Vec::new();
 
     // Generate types for each project
     for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
@@ -138,6 +139,7 @@ pub async fn run_codegen(
         let total_files = project_files.len();
         let mut current_file = 0;
         let mut project_ops = Vec::new();
+        let mut project_frags: Vec<graphox_codegen::FragmentGenerated> = Vec::new();
 
         for path in project_files {
             current_file += 1;
@@ -157,6 +159,23 @@ pub async fn run_codegen(
                     .as_deref()
                     .or(config.fragment_document_suffix.as_deref())
                     .unwrap_or(fragment_suffix);
+
+                let glob_pattern = project.include.patterns().first().cloned();
+                let include_prefix_path = glob_pattern
+                    .as_ref()
+                    .map(|p| graphox_core::utils::get_glob_root(p));
+                let out_path = graphox_core::utils::get_output_path(
+                    path,
+                    &config.base_dir,
+                    project_output_dir,
+                    include_prefix_path.as_deref(),
+                );
+                let abs_out_path = if out_path.is_absolute() {
+                    out_path
+                } else {
+                    config.base_dir.join(out_path)
+                };
+                let codegen_path = abs_out_path.clone();
 
                 let ctx = graphox_codegen::CodegenContext::new(
                     &valid_schema,
@@ -245,25 +264,12 @@ pub async fn run_codegen(
                         }
                     },
                     config.get_emit_extensions(project),
+                    codegen_path,
                 );
 
-                if let Ok((ts_code, mut ops)) = graphox_codegen::generate_typescript(doc, &ctx) {
-                    let glob_pattern = project.include.patterns().first().cloned();
-                    let include_prefix_path = glob_pattern
-                        .as_ref()
-                        .map(|p| graphox_core::utils::get_glob_root(p));
-                    let out_path = graphox_core::utils::get_output_path(
-                        path,
-                        &config.base_dir,
-                        project_output_dir,
-                        include_prefix_path.as_deref(),
-                    );
-                    let abs_out_path = if out_path.is_absolute() {
-                        out_path
-                    } else {
-                        config.base_dir.join(out_path)
-                    };
-
+                if let Ok((ts_code, mut ops, mut frags)) =
+                    graphox_codegen::generate_typescript(doc, &ctx)
+                {
                     if let Some(parent) = abs_out_path.parent()
                         && let Err(e) = std::fs::create_dir_all(parent)
                     {
@@ -285,7 +291,11 @@ pub async fn run_codegen(
                             for op in &mut ops {
                                 op.codegen_path = abs_out_path.clone();
                             }
+                            for frag in &mut frags {
+                                frag.codegen_path = abs_out_path.clone();
+                            }
                             project_ops.extend(ops);
+                            project_frags.extend(frags);
                         }
                         Err(e) => {
                             client
@@ -320,6 +330,7 @@ pub async fn run_codegen(
             }
         }
         project_operations_list.push(project_ops);
+        project_fragments_list.push(project_frags);
     }
 
     progress
@@ -331,6 +342,10 @@ pub async fn run_codegen(
         PathBuf,
         Vec<graphox_codegen::OperationGenerated>,
     > = std::collections::BTreeMap::new();
+    let mut dir_to_frags: std::collections::BTreeMap<
+        PathBuf,
+        Vec<graphox_codegen::FragmentGenerated>,
+    > = std::collections::BTreeMap::new();
     let mut dir_to_config: std::collections::HashMap<
         PathBuf,
         (
@@ -338,10 +353,16 @@ pub async fn run_codegen(
             String,
             String,
             graphox_core::config::EmitExtensions,
+            bool,
         ),
     > = std::collections::HashMap::new();
 
-    for (project, project_ops) in config.projects.iter().zip(project_operations_list) {
+    for ((project, project_ops), project_frags) in config
+        .projects
+        .iter()
+        .zip(project_operations_list)
+        .zip(project_fragments_list)
+    {
         if !project.codegen_enabled() {
             continue;
         }
@@ -355,6 +376,11 @@ pub async fn run_codegen(
             .entry(canon_out_dir_path.clone())
             .or_default()
             .extend(project_ops);
+
+        dir_to_frags
+            .entry(canon_out_dir_path.clone())
+            .or_default()
+            .extend(project_frags);
 
         if let std::collections::hash_map::Entry::Vacant(e) =
             dir_to_config.entry(canon_out_dir_path)
@@ -381,12 +407,19 @@ pub async fn run_codegen(
                     .unwrap_or("Variables")
                     .to_string(),
                 emit_extensions,
+                project
+                    .generate_ast_for_fragments
+                    .or(config.generate_ast_for_fragments)
+                    .unwrap_or(false),
             ));
         }
     }
 
-    for (out_dir_path, mut ops) in dir_to_ops {
-        let (fragment_masking, doc_suffix, var_suffix, emit_extensions) =
+    for (out_dir_path, mut ops, mut frags) in dir_to_ops
+        .into_iter()
+        .map(|(k, v)| (k.clone(), v, dir_to_frags.remove(&k).unwrap_or_default()))
+    {
+        let (fragment_masking, doc_suffix, var_suffix, emit_extensions, generate_ast) =
             dir_to_config.get(&out_dir_path).unwrap();
 
         // Deduplicate operations by name and source
@@ -399,14 +432,20 @@ pub async fn run_codegen(
             a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
         });
 
+        // Deduplicate fragments by source
+        frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
+        frags.dedup_by(|a, b| a.source_text == b.source_text);
+
         let entrypoint_path = out_dir_path.join("graphql.ts");
         let content = graphox_codegen::generate_entrypoint_content(
             &out_dir_path,
             &ops,
+            &frags,
             doc_suffix,
             var_suffix,
             fragment_masking,
             *emit_extensions,
+            *generate_ast,
         );
         std::fs::create_dir_all(&out_dir_path).ok();
         if let Err(e) = std::fs::write(&entrypoint_path, content) {
