@@ -4,3 +4,15 @@
 
 export type Status = "ACTIVE" | "INACTIVE";
 
+export interface Query {
+  __typename: "Query";
+  me?: User | null;
+}
+
+export interface User {
+  __typename: "User";
+  email?: string | null;
+  id: string;
+  status: Status;
+}
+

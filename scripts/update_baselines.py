@@ -101,6 +101,7 @@ def main():
         ("tests/fixtures/duplicate_fragment_fields", "tests/baselines/duplicate_fragment_fields"),
         ("tests/fixtures/duplicate_type_fields", "tests/baselines/duplicate_type_fields"),
         ("tests/fixtures/fragment_masking", "tests/baselines/fragment_masking"),
+        ("tests/fixtures/fragment_document_suffix", "tests/baselines/fragment_document_suffix"),
         ("tests/fixtures/multi_schema_import_caching", "tests/baselines/multi_schema_import_caching"),
         ("tests/fixtures/permissions", "tests/baselines/permissions"),
         ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),

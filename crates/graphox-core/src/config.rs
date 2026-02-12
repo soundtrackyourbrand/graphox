@@ -90,6 +90,7 @@ pub struct Config {
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
+    pub fragment_document_suffix: Option<String>,
     pub query_suffix: Option<String>,
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
@@ -263,6 +264,7 @@ pub struct ProjectConfig {
     pub document_suffix: Option<String>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
+    pub fragment_document_suffix: Option<String>,
     pub query_suffix: Option<String>,
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
@@ -299,6 +301,7 @@ impl Config {
             document_suffix: None,
             variables_suffix: None,
             fragment_suffix: None,
+            fragment_document_suffix: None,
             query_suffix: None,
             mutation_suffix: None,
             subscription_suffix: None,
@@ -398,6 +401,7 @@ impl Config {
                 let document_suffix = p_node["document_suffix"].as_str().map(String::from);
                 let variables_suffix = p_node["variables_suffix"].as_str().map(String::from);
                 let fragment_suffix = p_node["fragment_suffix"].as_str().map(String::from);
+                let fragment_document_suffix = p_node["fragment_document_suffix"].as_str().map(String::from);
                 let query_suffix = p_node["query_suffix"].as_str().map(String::from);
                 let mutation_suffix = p_node["mutation_suffix"].as_str().map(String::from);
                 let subscription_suffix = p_node["subscription_suffix"].as_str().map(String::from);
@@ -418,6 +422,7 @@ impl Config {
                     document_suffix,
                     variables_suffix,
                     fragment_suffix,
+                    fragment_document_suffix,
                     query_suffix,
                     mutation_suffix,
                     subscription_suffix,
@@ -518,6 +523,7 @@ impl Config {
         config.document_suffix = node["document_suffix"].as_str().map(String::from);
         config.variables_suffix = node["variables_suffix"].as_str().map(String::from);
         config.fragment_suffix = node["fragment_suffix"].as_str().map(String::from);
+        config.fragment_document_suffix = node["fragment_document_suffix"].as_str().map(String::from);
         config.query_suffix = node["query_suffix"].as_str().map(String::from);
         config.mutation_suffix = node["mutation_suffix"].as_str().map(String::from);
         config.subscription_suffix = node["subscription_suffix"].as_str().map(String::from);
@@ -610,6 +616,13 @@ impl Config {
 
     pub fn fragment_suffix(&self) -> &str {
         self.fragment_suffix.as_deref().unwrap_or("")
+    }
+
+    pub fn fragment_document_suffix(&self) -> &str {
+        self.fragment_document_suffix
+            .as_deref()
+            .or(self.fragment_suffix.as_deref())
+            .unwrap_or("")
     }
 
     pub fn query_suffix(&self) -> &str {

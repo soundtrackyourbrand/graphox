@@ -1,7 +1,7 @@
 [
   {
-    "source": "query GetMe {\n  me {\n    id\n    username\n  }\n}\n",
+    "path": "./query.codegen",
     "name": "GetMeQueryDocument",
-    "path": "./query.codegen"
+    "source": "query GetMe {\n  me {\n    id\n    username\n  }\n}\n"
   }
 ]

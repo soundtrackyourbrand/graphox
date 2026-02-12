@@ -134,6 +134,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         "Document",
                         "Variables",
                         "",
+                        "",
                         "Query",
                         "Mutation",
                         "Subscription",

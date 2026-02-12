@@ -4,3 +4,8 @@
 
 export type MyEnum = "A" | "B";
 
+export interface Query {
+  __typename: "Query";
+  test?: string | null;
+}
+

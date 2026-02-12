@@ -27,6 +27,7 @@ pub struct CodegenParams<'a> {
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
+    pub fragment_document_suffix: &'a str,
     pub query_suffix: &'a str,
     pub mutation_suffix: &'a str,
     pub subscription_suffix: &'a str,
@@ -361,6 +362,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             .as_deref()
             .or(cfg.fragment_suffix.as_deref())
             .unwrap_or("");
+        let fragment_document_suffix = project
+            .fragment_document_suffix
+            .as_deref()
+            .or(cfg.fragment_document_suffix.as_deref())
+            .unwrap_or(fragment_suffix);
         let query_suffix = project
             .query_suffix
             .as_deref()
@@ -395,6 +401,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 document_suffix,
                 variables_suffix,
                 fragment_suffix,
+                fragment_document_suffix,
                 query_suffix,
                 mutation_suffix,
                 subscription_suffix,
@@ -759,6 +766,7 @@ async fn generate_project_files(
                 params.document_suffix,
                 params.variables_suffix,
                 params.fragment_suffix,
+                params.fragment_document_suffix,
                 params.query_suffix,
                 params.mutation_suffix,
                 params.subscription_suffix,

@@ -71,6 +71,7 @@ pub struct CodegenContext<'a> {
     pub document_suffix: &'a str,
     pub variables_suffix: &'a str,
     pub fragment_suffix: &'a str,
+    pub fragment_document_suffix: &'a str,
     pub query_suffix: &'a str,
     pub mutation_suffix: &'a str,
     pub subscription_suffix: &'a str,
@@ -149,6 +150,7 @@ impl<'a> CodegenContext<'a> {
         document_suffix: &'a str,
         variables_suffix: &'a str,
         fragment_suffix: &'a str,
+        fragment_document_suffix: &'a str,
         query_suffix: &'a str,
         mutation_suffix: &'a str,
         subscription_suffix: &'a str,
@@ -171,6 +173,7 @@ impl<'a> CodegenContext<'a> {
             document_suffix,
             variables_suffix,
             fragment_suffix,
+            fragment_document_suffix,
             query_suffix,
             mutation_suffix,
             subscription_suffix,
@@ -404,6 +407,7 @@ pub fn generate_typescript_with_profile(
             profile.selection_set_time += sel_start.elapsed();
 
             let fragment_type_name = format!("{}{}", frag.name, ctx.fragment_suffix);
+            let fragment_document_name = format!("{}{}", frag.name, ctx.fragment_document_suffix);
 
             if ctx.fragment_masking.is_enabled() {
                 let type_str = if result.type_str.contains('|') && !result.type_str.starts_with('(')
@@ -422,7 +426,7 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str("' };\n\n");
 
                 bodies.push_str("export declare const ");
-                bodies.push_str(&fragment_type_name);
+                bodies.push_str(&fragment_document_name);
                 bodies.push_str(": {\n");
                 bodies.push_str("  __fragment: ");
                 bodies.push_str(&fragment_type_name);
@@ -1475,6 +1479,7 @@ pub fn generate_schema_types(
         "Document",
         "Variables",
         "",
+        "",
         "Query",
         "Mutation",
         "Subscription",
@@ -1845,6 +1850,8 @@ export type FragmentType<TFragment> = TFragment extends {{ ' $fragmentRefs'?: {{
   ? TFragment
   : TFragment extends {{ ' $fragmentName'?: string }}
   ? TFragment
+  : TFragment extends {{ __fragment: infer T }}
+  ? T
   : never;
 
 export function {}<TFragment>(

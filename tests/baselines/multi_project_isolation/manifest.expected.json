@@ -1,7 +1,7 @@
 [
   {
-    "name": "GetSettingsQueryDocument",
-    "path": "./settings.codegen",
-    "source": "query GetSettings {\n  settings {\n    theme\n    notifications\n  }\n}\n"
+    "source": "query GetUser {\n  user {\n    id\n    name\n    email\n  }\n}\n",
+    "path": "./user.codegen",
+    "name": "GetUserQueryDocument"
   }
 ]

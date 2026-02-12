@@ -5,23 +5,23 @@
     "path": "./mutation.codegen"
   },
   {
-    "name": "DeleteUserMutDocument",
     "source": "mutation CreateUser($name: String!) {\n  createUser(name: $name) {\n    id\n    name\n  }\n}\n\nmutation DeleteUser($id: ID!) {\n  deleteUser(id: $id)\n}\n",
+    "name": "DeleteUserMutDocument",
     "path": "./mutation.codegen"
   },
   {
-    "source": "query GetUsers {\n  users {\n    id\n    name\n  }\n}\n\nquery GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}\n",
     "name": "GetUsersQDocument",
+    "source": "query GetUsers {\n  users {\n    id\n    name\n  }\n}\n\nquery GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}\n",
     "path": "./query.codegen"
   },
   {
     "source": "query GetUsers {\n  users {\n    id\n    name\n  }\n}\n\nquery GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n  }\n}\n",
-    "name": "GetUserQDocument",
-    "path": "./query.codegen"
+    "path": "./query.codegen",
+    "name": "GetUserQDocument"
   },
   {
-    "path": "./subscription.codegen",
     "source": "subscription OnUserCreated {\n  userCreated {\n    id\n    name\n  }\n}\n",
-    "name": "OnUserCreatedSubDocument"
+    "name": "OnUserCreatedSubDocument",
+    "path": "./subscription.codegen"
   }
 ]

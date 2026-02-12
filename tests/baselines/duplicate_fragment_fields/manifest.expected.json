@@ -1,22 +1,22 @@
 [
   {
     "path": "./scenario1_overlapping.codegen",
-    "source": "# Scenario 1: Overlapping fragments - both have 'name' field\n# This should NOT produce duplicate 'name' field in the AST\nquery GetUserWithOverlappingFragments($id: ID!) {\n  user(id: $id) {\n    ...UserBasic\n    ...UserExtended\n  }\n}\n",
-    "name": "GetUserWithOverlappingFragmentsQueryDocument"
+    "name": "GetUserWithOverlappingFragmentsQueryDocument",
+    "source": "# Scenario 1: Overlapping fragments - both have 'name' field\n# This should NOT produce duplicate 'name' field in the AST\nquery GetUserWithOverlappingFragments($id: ID!) {\n  user(id: $id) {\n    ...UserBasic\n    ...UserExtended\n  }\n}\n"
   },
   {
+    "source": "# Scenario 2: Inline field + fragment with same field\n# Inline 'name' + fragment with 'id' - should not duplicate\nquery GetUserWithInlineAndFragment($id: ID!) {\n  user(id: $id) {\n    name\n    ...UserWithId\n  }\n}\n",
     "name": "GetUserWithInlineAndFragmentQueryDocument",
-    "path": "./scenario2_inline.codegen",
-    "source": "# Scenario 2: Inline field + fragment with same field\n# Inline 'name' + fragment with 'id' - should not duplicate\nquery GetUserWithInlineAndFragment($id: ID!) {\n  user(id: $id) {\n    name\n    ...UserWithId\n  }\n}\n"
+    "path": "./scenario2_inline.codegen"
   },
   {
     "name": "GetUsersWithNestedFragmentsQueryDocument",
-    "path": "./scenario3_nested.codegen",
-    "source": "# Scenario 3: Nested fragments with overlapping fields\n# UserNestedA and UserNestedB both include UserFullName (which has 'name')\n# This should NOT produce duplicate 'name' field in the AST\nquery GetUsersWithNestedFragments {\n  users {\n    ...UserNestedA\n    ...UserNestedB\n  }\n}\n"
+    "source": "# Scenario 3: Nested fragments with overlapping fields\n# UserNestedA and UserNestedB both include UserFullName (which has 'name')\n# This should NOT produce duplicate 'name' field in the AST\nquery GetUsersWithNestedFragments {\n  users {\n    ...UserNestedA\n    ...UserNestedB\n  }\n}\n",
+    "path": "./scenario3_nested.codegen"
   },
   {
-    "path": "./scenario4_aliases.codegen",
     "name": "GetUserWithAliasedFragmentsQueryDocument",
+    "path": "./scenario4_aliases.codegen",
     "source": "# Scenario 4: Aliases - different keys, should BOTH appear\n# 'userName' and 'name' are different field names, so both should appear\nquery GetUserWithAliasedFragments($id: ID!) {\n  user(id: $id) {\n    ...UserAliasedName\n    ...UserRealName\n  }\n}\n"
   }
 ]

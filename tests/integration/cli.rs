@@ -1340,6 +1340,16 @@ fn test_cli_fragment_masking_baselines() {
 
 #[test]
 #[ntest::timeout(3000)]
+fn test_cli_fragment_document_suffix_baselines() {
+    run_baseline_test(
+        "tests/fixtures/fragment_document_suffix",
+        "tests/baselines/fragment_document_suffix",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
 fn test_cli_duplicate_type_fields() {
     run_baseline_test(
         "tests/fixtures/duplicate_type_fields",

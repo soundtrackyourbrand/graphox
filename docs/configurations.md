@@ -55,6 +55,7 @@ projects:
     document_suffix: "Document"                  # Suffix for Document constants
     variables_suffix: "Variables"                # Suffix for Variables interfaces
     fragment_suffix: ""                          # Suffix for Fragment interfaces
+    fragment_document_suffix: ""                 # Suffix for Fragment document constants (masking only)
     fragment_masking: disabled                   # Enable/disable fragment masking (default: disabled)
     possible_types: "graphql-introspection.ts"  # Generate possibleTypes for Apollo Client
     type_policies: "type-policies.ts"            # Generate TypePolicies for Apollo Client
@@ -89,6 +90,7 @@ enable_schema_cache: true                         # Enable two-tier schema cache
 document_suffix: "Document"                       # Global suffix for Document constants
 variables_suffix: "Variables"                     # Global suffix for Variables interfaces
 fragment_suffix: ""                               # Global suffix for Fragment interfaces
+fragment_document_suffix: ""                      # Global suffix for Fragment document constants (masking only)
 ```
 
 ### Configuration Notes
@@ -282,36 +284,41 @@ export interface UserFragment {
 }
 
 export declare const UserFragment: {
-  __fragment: {
-    id: string;
-    name: string;
-  };
+  __fragment: UserFragment;
 };
 
 // fragment-masking.ts (generated)
-export type FragmentType<TFragment> = TFragment extends { __fragment: infer T }
+export type FragmentType<TFragment> = TFragment extends { ' $fragmentRefs'?: { [key: string]: any } }
+  ? TFragment
+  : TFragment extends { ' $fragmentName'?: string }
+  ? TFragment
+  : TFragment extends { __fragment: infer T }
   ? T
   : never;
 
-export function getFragmentData<TFragment, TData>(
+export function getFragmentData<TFragment>(
   _fragment: TFragment,
-  data: TData
+  data: FragmentType<TFragment>
 ): FragmentType<TFragment> {
-  return data as FragmentType<TFragment>;
+  return data as any;
 }
 
 // Query - fragment spread becomes FragmentType
 interface GetUserQuery {
-  user: FragmentType<typeof UserFragment> | null;
+  user: ({ __typename: "User" } & { ' $fragmentRefs'?: { 'UserFragment': UserFragment } }) | null;
 }
 
 // Usage - requires unmask function
-import { getFragmentData, FragmentType } from "./fragment-masking";
-import type { UserFragment } from "./UserFragment.codegen";
+import { getFragmentData } from "./fragment-masking";
+import { UserFragment } from "./UserFragment.codegen";
 
-const user: FragmentType<typeof UserFragment> = 
-  getFragmentData(UserFragment, data.user);
+const user = getFragmentData(UserFragment, data.user);
 ```
+
+### Options
+
+- `fragment_suffix`: Suffix for the fragment type (default: `""`).
+- `fragment_document_suffix`: Suffix for the fragment document constant (default: same as `fragment_suffix`). This allows you to name your fragment type `UserFieldsFragment` and your document `UserFieldsDocument` for better clarity.
 
 ### Benefits
 

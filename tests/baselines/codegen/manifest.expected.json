@@ -1,7 +1,7 @@
 [
   {
-    "source": "query GetUsersWithFragment {\n  users {\n    ...UserFields\n    email\n  }\n}\n",
     "name": "GetUsersWithFragmentQueryDocument",
+    "source": "query GetUsersWithFragment {\n  users {\n    ...UserFields\n    email\n  }\n}\n",
     "path": "./fragment_usage.codegen"
   },
   {
@@ -10,13 +10,13 @@
     "source": "query GetNode($id: ID!) {\n  node(id: $id) {\n    id\n    ... on User {\n      username\n    }\n  }\n}\n"
   },
   {
-    "name": "GetUsersQueryDocument",
     "source": "query GetUsers {\n  users {\n    id\n    username\n  }\n}\n",
-    "path": "./simple_query.codegen"
+    "path": "./simple_query.codegen",
+    "name": "GetUsersQueryDocument"
   },
   {
     "source": "query GetNodePolymorphic($id: ID!) {\n  node(id: $id) {\n    __typename\n    ... on User {\n      id\n      username\n    }\n    ... on Post {\n      id\n      title\n    }\n  }\n}\n",
-    "path": "./union_query.codegen",
-    "name": "GetNodePolymorphicQueryDocument"
+    "name": "GetNodePolymorphicQueryDocument",
+    "path": "./union_query.codegen"
   }
 ]

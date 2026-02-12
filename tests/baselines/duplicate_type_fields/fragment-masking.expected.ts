@@ -6,6 +6,8 @@ export type FragmentType<TFragment> = TFragment extends { ' $fragmentRefs'?: { [
   ? TFragment
   : TFragment extends { ' $fragmentName'?: string }
   ? TFragment
+  : TFragment extends { __fragment: infer T }
+  ? T
   : never;
 
 export function getFragmentData<TFragment>(

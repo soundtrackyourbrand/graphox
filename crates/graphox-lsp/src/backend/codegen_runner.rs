@@ -143,41 +143,49 @@ pub async fn run_codegen(
                     continue;
                 }
 
-                let ctx = graphox_codegen::CodegenContext::new(
-                    &valid_schema,
-                    &project_context.fragment_to_path,
-                    &project_context.fragment_to_import,
-                    &project_context.fragment_to_type_only,
-                    &project_context.all_fragments,
-                    path,
-                    &config.scalars,
-                    &schema_import,
-                    &type_imports,
-                    config.generate_ast_for_fragments.unwrap_or(false),
-                    &project_context.fragment_dependencies,
-                    &type_cache, // Use persistent cache from Backend
-                    project
-                        .document_suffix
-                        .as_deref()
-                        .or(config.document_suffix.as_deref())
-                        .unwrap_or("Document"),
-                    project
-                        .variables_suffix
-                        .as_deref()
-                        .or(config.variables_suffix.as_deref())
-                        .unwrap_or("Variables"),
-                    project
+                    let fragment_suffix = project
                         .fragment_suffix
                         .as_deref()
                         .or(config.fragment_suffix.as_deref())
-                        .unwrap_or(""),
-                    project
-                        .query_suffix
+                        .unwrap_or("");
+                    let fragment_document_suffix = project
+                        .fragment_document_suffix
                         .as_deref()
-                        .or(config.query_suffix.as_deref())
-                        .unwrap_or("Query"),
-                    project
-                        .mutation_suffix
+                        .or(config.fragment_document_suffix.as_deref())
+                        .unwrap_or(fragment_suffix);
+
+                    let ctx = graphox_codegen::CodegenContext::new(
+                        &valid_schema,
+                        &project_context.fragment_to_path,
+                        &project_context.fragment_to_import,
+                        &project_context.fragment_to_type_only,
+                        &project_context.all_fragments,
+                        path,
+                        &config.scalars,
+                        &schema_import,
+                        &type_imports,
+                        config.generate_ast_for_fragments.unwrap_or(false),
+                        &project_context.fragment_dependencies,
+                        &type_cache, // Use persistent cache from Backend
+                        project
+                            .document_suffix
+                            .as_deref()
+                            .or(config.document_suffix.as_deref())
+                            .unwrap_or("Document"),
+                        project
+                            .variables_suffix
+                            .as_deref()
+                            .or(config.variables_suffix.as_deref())
+                            .unwrap_or("Variables"),
+                        fragment_suffix,
+                        fragment_document_suffix,
+                        project
+                            .query_suffix
+                            .as_deref()
+                            .or(config.query_suffix.as_deref())
+                            .unwrap_or("Query"),
+                        project
+                            .mutation_suffix
                         .as_deref()
                         .or(config.mutation_suffix.as_deref())
                         .unwrap_or("Mutation"),
