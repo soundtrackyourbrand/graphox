@@ -419,10 +419,10 @@ impl Engine {
                 let mut deps = HashSet::default();
                 for mat in FRAGMENT_SPREAD_RE.find_iter(source) {
                     let potential_name = &mat.as_str()[3..];
-                    if let Some(&idx) = name_to_idx.get(potential_name) {
-                        if idx != name_to_idx[&frag.name] {
-                            deps.insert(idx);
-                        }
+                    if let Some(&idx) = name_to_idx.get(potential_name)
+                        && idx != name_to_idx[&frag.name]
+                    {
+                        deps.insert(idx);
                     }
                 }
 
@@ -456,8 +456,7 @@ impl Engine {
 
                     let mut found_child = false;
                     let children = &direct_deps_idx[v];
-                    for i in (*child_idx)..children.len() {
-                        let w = children[i];
+                    for (i, &w) in children.iter().enumerate().skip(*child_idx) {
                         *child_idx = i + 1;
                         if indices[w] == -1 {
                             call_stack.push((w, 0));
@@ -494,7 +493,7 @@ impl Engine {
         }
 
         // 4. Compute transitive closure on the condensation graph using bitsets
-        let words = (n + 63) / 64;
+        let words = n.div_ceil(64);
         let mut scc_bitsets = vec![0u64; sccs.len() * words];
         let mut node_to_scc = vec![0; n];
         for (scc_idx, scc) in sccs.iter().enumerate() {
@@ -514,9 +513,9 @@ impl Engine {
         }
 
         // Propagate bitsets in reverse topological order (Tarjan's produces it)
-        for scc_idx in 0..sccs.len() {
+        for (scc_idx, scc) in sccs.iter().enumerate() {
             let mut external_scc_deps = HashSet::default();
-            for &node in &sccs[scc_idx] {
+            for &node in scc {
                 for &dep in &direct_deps_idx[node] {
                     let dep_scc_idx = node_to_scc[dep];
                     if dep_scc_idx != scc_idx {

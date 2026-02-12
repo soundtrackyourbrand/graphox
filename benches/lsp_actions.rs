@@ -354,7 +354,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
 
     group.bench_function("Check Workspace (Full Diagnostics)", |b| {
         b.to_async(&rt).iter(|| async {
-            let config = backend.config.read().unwrap();
+            let config_val = backend.config.read().unwrap().clone();
             let all_uris: Vec<Url> = backend.documents.iter().map(|e| e.key().clone()).collect();
             let fragment_defs = backend.fragment_defs.clone();
             let fragment_spreads = backend.fragment_spreads.clone();
@@ -370,7 +370,7 @@ fn bench_lsp_actions(c: &mut Criterion) {
             let params = graphox_lsp::backend::validation::ValidationParams {
                 client: &backend.client,
                 documents: &backend.documents,
-                config: &config,
+                config: &config_val,
                 fragment_defs: &fragment_defs,
                 fragment_spreads: &fragment_spreads,
                 package_roots: &package_roots,

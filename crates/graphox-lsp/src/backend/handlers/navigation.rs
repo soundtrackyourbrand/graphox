@@ -1,12 +1,11 @@
 use crate::backend::state::Backend;
-use graphox_core::DocumentState;
 use graphox_features::definition::DocumentDefinition;
 use graphox_features::document_highlight::DocumentHighlightFeature;
 use graphox_features::folding_range::DocumentFoldingRange;
 use graphox_features::references::DocumentReferences;
 use graphox_features::selection_range::DocumentSelectionRange;
+use rayon::prelude::*;
 
-use std::sync::Arc;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 
@@ -102,18 +101,38 @@ pub async fn handle_references(
                     return Ok(None);
                 }
 
-                let mut all_references = Vec::new();
+                let mut relevant_uris = std::collections::HashSet::new();
 
-                let doc_arcs: Vec<Arc<DocumentState>> = backend
-                    .documents
-                    .iter()
-                    .map(|e| e.value().clone())
-                    .collect();
-
-                for other_doc in doc_arcs {
-                    let refs = other_doc.find_references_in_tree(&name, include_declaration);
-                    all_references.extend(refs);
+                if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
+                    relevant_uris.extend(def_uris.iter().cloned());
                 }
+                if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
+                    relevant_uris.extend(dep_uris.iter().cloned());
+                }
+
+                let all_references: Vec<Location> = if relevant_uris.is_empty() {
+                    // Fallback to full scan if not found in fragment indices (could be a type/field/etc)
+                    backend
+                        .documents
+                        .iter()
+                        .par_bridge()
+                        .flat_map(|entry| {
+                            entry
+                                .value()
+                                .find_references_in_tree(&name, include_declaration)
+                        })
+                        .collect()
+                } else {
+                    relevant_uris
+                        .into_par_iter()
+                        .filter_map(|uri| backend.documents.get(&uri))
+                        .flat_map(|entry| {
+                            entry
+                                .value()
+                                .find_references_in_tree(&name, include_declaration)
+                        })
+                        .collect()
+                };
 
                 if all_references.is_empty() {
                     return Ok(None);
