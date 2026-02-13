@@ -275,6 +275,7 @@ pub async fn run_codegen(
                         emit_aliases: config.emit_ast_aliases.unwrap_or(false),
                         emit_arguments: config.emit_ast_arguments.unwrap_or(false),
                         emit_variable_defaults: config.emit_ast_variable_defaults.unwrap_or(false),
+                        inline_fragments: config.inline_fragments.unwrap_or(false),
                     },
                     codegen_path,
                 );

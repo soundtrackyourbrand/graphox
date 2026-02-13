@@ -481,6 +481,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     project.emit_ast_aliases.or(cfg.emit_ast_aliases),
                     project.emit_ast_arguments.or(cfg.emit_ast_arguments),
                     project.emit_ast_variable_defaults.or(cfg.emit_ast_variable_defaults),
+                    project.inline_fragments.or(cfg.inline_fragments),
                 ),
             },
             verbose,

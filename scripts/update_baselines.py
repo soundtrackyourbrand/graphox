@@ -164,6 +164,7 @@ def main():
         ("tests/fixtures/interface_fragment_typename", "tests/baselines/interface_fragment_typename"),
         ("tests/fixtures/naming_convention", "tests/baselines/naming_convention_pascal_case"),
         ("tests/fixtures/naming_convention_preserve", "tests/baselines/naming_convention_preserve"),
+        ("tests/fixtures/inline_fragments", "tests/baselines/inline_fragments"),
         ("tests/fixtures/typename_strictness", "tests/baselines/typename_strictness"),
     ]
 

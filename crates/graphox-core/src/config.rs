@@ -131,6 +131,7 @@ pub struct Config {
     pub emit_ast_aliases: Option<bool>,
     pub emit_ast_arguments: Option<bool>,
     pub emit_ast_variable_defaults: Option<bool>,
+    pub inline_fragments: Option<bool>,
     pub base_dir: PathBuf,
 }
 
@@ -338,6 +339,7 @@ pub struct ProjectConfig {
     pub emit_ast_aliases: Option<bool>,
     pub emit_ast_arguments: Option<bool>,
     pub emit_ast_variable_defaults: Option<bool>,
+    pub inline_fragments: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -379,6 +381,7 @@ impl Config {
             emit_ast_aliases: None,
             emit_ast_arguments: None,
             emit_ast_variable_defaults: None,
+            inline_fragments: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -514,6 +517,7 @@ impl Config {
                     emit_ast_aliases: p_node["emit_ast_aliases"].as_bool(),
                     emit_ast_arguments: p_node["emit_ast_arguments"].as_bool(),
                     emit_ast_variable_defaults: p_node["emit_ast_variable_defaults"].as_bool(),
+                    inline_fragments: p_node["inline_fragments"].as_bool(),
                 });
             }
         }
@@ -752,6 +756,10 @@ impl Config {
 
     pub fn emit_ast_variable_defaults(&self) -> bool {
         self.emit_ast_variable_defaults.unwrap_or(false)
+    }
+
+    pub fn inline_fragments(&self) -> bool {
+        self.inline_fragments.unwrap_or(false)
     }
 
     pub fn fragment_masking(&self) -> FragmentMaskingConfig {

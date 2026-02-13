@@ -10,6 +10,7 @@ pub struct AstEmitConfig {
     pub emit_aliases: bool,
     pub emit_arguments: bool,
     pub emit_variable_defaults: bool,
+    pub inline_fragments: bool,
 }
 
 impl AstEmitConfig {
@@ -19,6 +20,7 @@ impl AstEmitConfig {
             emit_aliases: true,
             emit_arguments: true,
             emit_variable_defaults: true,
+            inline_fragments: false,
         }
     }
 
@@ -28,6 +30,7 @@ impl AstEmitConfig {
             emit_aliases: false,
             emit_arguments: false,
             emit_variable_defaults: false,
+            inline_fragments: false,
         }
     }
 
@@ -36,12 +39,14 @@ impl AstEmitConfig {
         emit_aliases: Option<bool>,
         emit_arguments: Option<bool>,
         emit_variable_defaults: Option<bool>,
+        inline_fragments: Option<bool>,
     ) -> Self {
         Self {
             emit_directives: emit_directives.unwrap_or(true),
             emit_aliases: emit_aliases.unwrap_or(true),
             emit_arguments: emit_arguments.unwrap_or(true),
             emit_variable_defaults: emit_variable_defaults.unwrap_or(true),
+            inline_fragments: inline_fragments.unwrap_or(false),
         }
     }
 }
@@ -202,50 +207,52 @@ fn convert_selection_set(
                 selections.push(convert_selection(selection, all_fragments, config));
             }
             Selection::FragmentSpread(spread) => {
-                let frag_name = spread.fragment_name.as_str();
-                if let Some(frag) = all_fragments.get(frag_name) {
-                    for frag_selection in &frag.selection_set.selections {
-                        match frag_selection {
-                            Selection::Field(field) => {
-                                let key = field_key(field);
-                                if seen_fields.insert(key) {
-                                    selections
-                                        .push(convert_selection(frag_selection, all_fragments, config));
+                if config.inline_fragments {
+                    let frag_name = spread.fragment_name.as_str();
+                    if let Some(frag) = all_fragments.get(frag_name) {
+                        for frag_selection in &frag.selection_set.selections {
+                            match frag_selection {
+                                Selection::Field(field) => {
+                                    let key = field_key(field);
+                                    if seen_fields.insert(key) {
+                                        selections
+                                            .push(convert_selection(frag_selection, all_fragments, config));
+                                    }
                                 }
-                            }
-                            Selection::InlineFragment(_inline) => {
-                                selections.push(convert_selection(frag_selection, all_fragments, config));
-                            }
-                            Selection::FragmentSpread(nested_spread) => {
-                                let nested_frag_name = nested_spread.fragment_name.as_str();
-                                if let Some(nested_frag) = all_fragments.get(nested_frag_name) {
-                                    for nested_selection in &nested_frag.selection_set.selections {
-                                        match nested_selection {
-                                            Selection::Field(nested_field) => {
-                                                let key = field_key(nested_field);
-                                                if seen_fields.insert(key) {
+                                Selection::InlineFragment(_inline) => {
+                                    selections.push(convert_selection(frag_selection, all_fragments, config));
+                                }
+                                Selection::FragmentSpread(nested_spread) => {
+                                    let nested_frag_name = nested_spread.fragment_name.as_str();
+                                    if let Some(nested_frag) = all_fragments.get(nested_frag_name) {
+                                        for nested_selection in &nested_frag.selection_set.selections {
+                                            match nested_selection {
+                                                Selection::Field(nested_field) => {
+                                                    let key = field_key(nested_field);
+                                                    if seen_fields.insert(key) {
+                                                        selections.push(convert_selection(
+                                                            nested_selection,
+                                                            all_fragments,
+                                                            config,
+                                                        ));
+                                                    }
+                                                }
+                                                Selection::InlineFragment(_nested_inline) => {
                                                     selections.push(convert_selection(
                                                         nested_selection,
                                                         all_fragments,
                                                         config,
                                                     ));
                                                 }
-                                            }
-                                            Selection::InlineFragment(_nested_inline) => {
-                                                selections.push(convert_selection(
-                                                    nested_selection,
-                                                    all_fragments,
-                                                    config,
-                                                ));
-                                            }
-                                            Selection::FragmentSpread(deep_nested) => {
-                                                expand_deep_nested_fragment(
-                                                    all_fragments,
-                                                    deep_nested,
-                                                    &mut selections,
-                                                    &mut seen_fields,
-                                                    config,
-                                                );
+                                                Selection::FragmentSpread(deep_nested) => {
+                                                    expand_deep_nested_fragment(
+                                                        all_fragments,
+                                                        deep_nested,
+                                                        &mut selections,
+                                                        &mut seen_fields,
+                                                        config,
+                                                    );
+                                                }
                                             }
                                         }
                                     }
@@ -253,6 +260,8 @@ fn convert_selection_set(
                             }
                         }
                     }
+                } else {
+                    selections.push(convert_selection(selection, all_fragments, config));
                 }
             }
         }

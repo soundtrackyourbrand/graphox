@@ -1,0 +1,5 @@
+schema: schema.graphql
+documents: "*.graphql"
+naming_convention: pascal_case
+document_suffix: Document
+inline_fragments: true

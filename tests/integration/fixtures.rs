@@ -174,6 +174,16 @@ fn test_cli_naming_convention_preserve_baselines() {
 
 #[test]
 #[ntest::timeout(250)]
+fn test_cli_inline_fragments_baselines() {
+    run_baseline_test(
+        "tests/fixtures/inline_fragments",
+        "tests/baselines/inline_fragments",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
 fn test_cli_output_types_baselines() {
     run_baseline_test(
         "tests/fixtures/output_types",
