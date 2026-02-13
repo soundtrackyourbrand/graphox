@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::apply_naming_convention;
 use crate::context::{CodegenContext, CodegenProfile, FragmentGenerated, OperationGenerated};
 use crate::helpers::{get_fragment_deps_cached, get_operation_deps_cached, gql_type_to_ts};
 use crate::selection_set::generate_selection_set;
@@ -76,11 +77,12 @@ pub fn generate_typescript_with_profile(
         }
 
         for op in exec_doc.operations.iter() {
-            let name = op
+            let raw_name = op
                 .name
                 .as_ref()
                 .map(|n| n.as_str())
                 .unwrap_or("UnnamedOperation");
+            let name = apply_naming_convention(raw_name, &ctx.naming_convention);
             let suffix = match op.operation_type {
                 OperationType::Query => ctx.query_suffix,
                 OperationType::Mutation => ctx.mutation_suffix,
@@ -100,14 +102,14 @@ pub fn generate_typescript_with_profile(
 
             if result.needs_type_declaration {
                 bodies.push_str("export type ");
-                bodies.push_str(name);
+                bodies.push_str(&name);
                 bodies.push_str(suffix);
                 bodies.push_str(" = ");
                 bodies.push_str(&result.type_str);
                 bodies.push_str(";\n\n");
             } else {
                 bodies.push_str("export interface ");
-                bodies.push_str(name);
+                bodies.push_str(&name);
                 bodies.push_str(suffix);
                 bodies.push(' ');
                 bodies.push_str(&result.type_str);
@@ -195,7 +197,7 @@ pub fn generate_typescript_with_profile(
             bodies.push_str(" = ");
             bodies.push_str(&ast_content);
             bodies.push_str(" as unknown as DocumentNode<");
-            bodies.push_str(name);
+            bodies.push_str(&name);
             bodies.push_str(suffix);
             bodies.push_str(", ");
             bodies.push_str(&vars_type);
@@ -223,7 +225,11 @@ pub fn generate_typescript_with_profile(
                 generate_selection_set(&frag.selection_set, type_def, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
-            let fragment_type_name = format!("{}{}", frag.name, ctx.fragment_suffix);
+            let fragment_type_name = format!(
+                "{}{}",
+                apply_naming_convention(frag.name.as_str(), &ctx.naming_convention),
+                ctx.fragment_suffix
+            );
             let fragment_document_name =
                 format!("{}{}", fragment_type_name, ctx.fragment_document_suffix);
 

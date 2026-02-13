@@ -1,4 +1,4 @@
-use super::cli::run_baseline_test;
+use super::fixtures::run_baseline_test;
 
 #[test]
 #[ntest::timeout(3000)]

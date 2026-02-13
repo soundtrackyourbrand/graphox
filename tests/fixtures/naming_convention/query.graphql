@@ -1,0 +1,72 @@
+query get_user_by_id($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    email
+  }
+}
+
+query get_all_posts {
+  posts {
+    id
+    title
+    content
+    author {
+      id
+      name
+    }
+  }
+}
+
+mutation create_post($title: String!, $content: String!) {
+  createPost(title: $title, content: $content) {
+    id
+    title
+    content
+  }
+}
+
+fragment user_fields on User {
+  id
+  name
+  email
+}
+
+# Edge case: acronym at start
+query generateOTP($input: GenerateOTPInput!) {
+  generateOTP(input: $input) {
+    otp
+    expiresAt
+  }
+}
+
+# Edge case: acronym in middle  
+query getSAMLConfig($accountId: ID!) {
+  samlConfig(id: $accountId) {
+    expiresAt
+    slug
+  }
+}
+
+# Edge case: underscore between camelCase segments
+mutation AddTracks_CreateManualPlaylist($input: CreateManualPlaylistInput!) {
+  createManualPlaylist(input: $input) {
+    id
+    permissions
+  }
+}
+
+# Edge case: underscore between uppercase and lowercase segments
+query ChangePlan_account($accountId: ID!) {
+  account(id: $accountId) {
+    id
+    name
+  }
+}
+
+query ChangePlan_prices {
+  prices {
+    id
+    amount
+  }
+}

@@ -140,6 +140,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         "Query",
                         "Mutation",
                         "Subscription",
+                        graphox_core::config::NamingConvention::default(),
                         codegen::FragmentMasking::Disabled,
                         "./fragment-masking".to_string(),
                         graphox_core::config::EmitExtensions::None,

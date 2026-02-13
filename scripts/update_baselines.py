@@ -162,6 +162,8 @@ def main():
         ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
         ("tests/fixtures/output_types", "tests/baselines/output_types"),
         ("tests/fixtures/interface_fragment_typename", "tests/baselines/interface_fragment_typename"),
+        ("tests/fixtures/naming_convention", "tests/baselines/naming_convention_pascal_case"),
+        ("tests/fixtures/naming_convention_preserve", "tests/baselines/naming_convention_preserve"),
         ("tests/fixtures/typename_strictness", "tests/baselines/typename_strictness"),
     ]
 

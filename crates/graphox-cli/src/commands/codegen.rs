@@ -2,7 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::config::{Config, EmitExtensions, GlobPattern, SchemaSource};
+use graphox_core::config::{Config, EmitExtensions, GlobPattern, NamingConvention, SchemaSource};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
 use graphox_core::schema_cache;
@@ -31,6 +31,7 @@ pub struct CodegenParams<'a> {
     pub query_suffix: &'a str,
     pub mutation_suffix: &'a str,
     pub subscription_suffix: &'a str,
+    pub naming_convention: NamingConvention,
     pub fragment_masking: codegen::FragmentMasking,
     pub emit_extensions: graphox_core::config::EmitExtensions,
 }
@@ -433,6 +434,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             .as_deref()
             .or(cfg.subscription_suffix.as_deref())
             .unwrap_or("Subscription");
+        let naming_convention = project
+            .naming_convention
+            .clone()
+            .or_else(|| cfg.naming_convention.clone())
+            .unwrap_or_default();
 
         let emit_extensions = cfg.get_emit_extensions(project);
         match execute_project_codegen_entry(
@@ -460,6 +466,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 query_suffix,
                 mutation_suffix,
                 subscription_suffix,
+                naming_convention,
                 fragment_masking: codegen::FragmentMasking::from_config(
                     &project
                         .fragment_masking
@@ -940,6 +947,7 @@ async fn generate_project_files(
                 params.query_suffix,
                 params.mutation_suffix,
                 params.subscription_suffix,
+                params.naming_convention.clone(),
                 params.fragment_masking.clone(),
                 masking_import_path,
                 params.emit_extensions,

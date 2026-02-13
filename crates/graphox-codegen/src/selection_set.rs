@@ -1,8 +1,9 @@
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use apollo_compiler::Node;
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
-use apollo_compiler::Node;
 
+use crate::apply_naming_convention;
 use crate::context::CodegenContext;
 use crate::helpers::{
     format_union_branches, get_abstract_members, get_typename_value_for_type, gql_type_to_ts,
@@ -236,7 +237,11 @@ fn format_intersection(
         let mut refs: Vec<_> = fragment_spreads
             .iter()
             .map(|s| {
-                let name = format!("{}{}", s.fragment_name.as_str(), ctx.fragment_suffix);
+                let name = format!(
+                    "{}{}",
+                    apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention),
+                    ctx.fragment_suffix
+                );
                 format!("'{}': {}", name, name)
             })
             .collect();
@@ -253,7 +258,13 @@ fn format_intersection(
     } else {
         let mut plain_spreads: Vec<_> = fragment_spreads
             .iter()
-            .map(|s| format!("{}{}", s.fragment_name.as_str(), ctx.fragment_suffix))
+            .map(|s| {
+                format!(
+                    "{}{}",
+                    apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention),
+                    ctx.fragment_suffix
+                )
+            })
             .collect();
         plain_spreads.sort();
         let spreads_str = if plain_spreads.len() > 1 {

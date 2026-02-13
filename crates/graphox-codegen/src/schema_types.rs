@@ -42,6 +42,7 @@ pub fn generate_schema_types(
         "Query",
         "Mutation",
         "Subscription",
+        graphox_core::config::NamingConvention::default(),
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
         EmitExtensions::None,

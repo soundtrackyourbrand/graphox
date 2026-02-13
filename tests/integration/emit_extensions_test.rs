@@ -1,4 +1,4 @@
-use super::cli::run_baseline_test;
+use super::fixtures::run_baseline_test;
 
 #[test]
 fn test_emit_extensions_js() {

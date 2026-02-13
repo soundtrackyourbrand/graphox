@@ -124,6 +124,7 @@ pub struct Config {
     pub query_suffix: Option<String>,
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
+    pub naming_convention: Option<NamingConvention>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
     pub emit_extensions: Option<EmitExtensions>,
     pub base_dir: PathBuf,
@@ -163,6 +164,30 @@ pub enum FragmentMasking {
     Enabled {
         unmask_function_name: Option<String>,
     },
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum NamingConvention {
+    #[default]
+    PascalCase,
+    Preserve,
+}
+
+impl NamingConvention {
+    pub fn from_yaml(node: &Yaml) -> Option<Self> {
+        if node.is_null() || node.is_badvalue() {
+            return None;
+        }
+        if let Some(s) = node.as_str() {
+            match s.to_lowercase().as_str() {
+                "pascal_case" | "pascalcase" | "pascal" => Some(NamingConvention::PascalCase),
+                "preserve" => Some(NamingConvention::Preserve),
+                _ => Some(NamingConvention::PascalCase),
+            }
+        } else {
+            Some(NamingConvention::PascalCase)
+        }
+    }
 }
 
 impl FragmentMasking {
@@ -299,6 +324,7 @@ pub struct ProjectConfig {
     pub query_suffix: Option<String>,
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
+    pub naming_convention: Option<NamingConvention>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
     pub emit_extensions: Option<EmitExtensions>,
     pub possible_types: Option<PathBuf>,
@@ -338,6 +364,7 @@ impl Config {
             query_suffix: None,
             mutation_suffix: None,
             subscription_suffix: None,
+            naming_convention: None,
             fragment_masking: None,
             emit_extensions: None,
             base_dir: PathBuf::from("."),
@@ -448,6 +475,7 @@ impl Config {
                 let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
                 let type_policies = p_node["type_policies"].as_str().map(PathBuf::from);
                 let generate_ast_for_fragments = p_node["generate_ast_for_fragments"].as_bool();
+                let naming_convention = NamingConvention::from_yaml(&p_node["naming_convention"]);
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -464,6 +492,7 @@ impl Config {
                     query_suffix,
                     mutation_suffix,
                     subscription_suffix,
+                    naming_convention,
                     fragment_masking,
                     emit_extensions,
                     possible_types,
@@ -687,6 +716,10 @@ impl Config {
         self.subscription_suffix
             .as_deref()
             .unwrap_or("Subscription")
+    }
+
+    pub fn naming_convention(&self) -> NamingConvention {
+        self.naming_convention.clone().unwrap_or_default()
     }
 
     pub fn fragment_masking(&self) -> FragmentMaskingConfig {

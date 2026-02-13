@@ -46,7 +46,7 @@ pub fn run_baseline_test(
 
     copy_dir_all(&fixture_dir, &temp_dir).expect("Failed to copy fixture to temp");
 
-    let output_dir = output_dir_param.unwrap_or("__generated__");
+    let _output_dir = output_dir_param.unwrap_or("__generated__");
 
     let output = Command::new(bin_path)
         .arg("codegen")

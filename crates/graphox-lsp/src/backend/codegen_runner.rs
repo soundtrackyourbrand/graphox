@@ -217,6 +217,11 @@ pub async fn run_codegen(
                         .as_deref()
                         .or(config.subscription_suffix.as_deref())
                         .unwrap_or("Subscription"),
+                    project
+                        .naming_convention
+                        .clone()
+                        .or_else(|| config.naming_convention.clone())
+                        .unwrap_or_default(),
                     graphox_codegen::FragmentMasking::from_config(
                         &project
                             .fragment_masking

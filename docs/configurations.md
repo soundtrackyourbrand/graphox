@@ -57,6 +57,7 @@ projects:
     fragment_suffix: ""                          # Suffix for Fragment interfaces
     fragment_document_suffix: ""                 # Suffix for Fragment document constants (masking only)
     fragment_masking: disabled                   # Enable/disable fragment masking (default: disabled)
+    naming_convention: "pascal_case"             # Naming convention: "pascal_case" or "preserve"
     possible_types: "graphql-introspection.ts"  # Generate possibleTypes for Apollo Client
     type_policies: "type-policies.ts"            # Generate TypePolicies for Apollo Client
 
@@ -91,6 +92,7 @@ document_suffix: "Document"                       # Global suffix for Document c
 variables_suffix: "Variables"                     # Global suffix for Variables interfaces
 fragment_suffix: ""                               # Global suffix for Fragment interfaces
 fragment_document_suffix: ""                      # Global suffix for Fragment document constants (masking only)
+naming_convention: "pascal_case"                  # Naming convention: "pascal_case" or "preserve"
 ```
 
 ### Configuration Notes

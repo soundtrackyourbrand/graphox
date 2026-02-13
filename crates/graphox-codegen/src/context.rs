@@ -2,7 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::executable;
 use apollo_compiler::{Node, Schema};
 use dashmap::DashMap;
-use graphox_core::config::{EmitExtensions, FragmentMaskingConfig};
+use graphox_core::config::{EmitExtensions, FragmentMaskingConfig, NamingConvention};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -65,6 +65,7 @@ pub struct CodegenContext<'a> {
     pub query_suffix: &'a str,
     pub mutation_suffix: &'a str,
     pub subscription_suffix: &'a str,
+    pub naming_convention: NamingConvention,
     pub fragment_masking: FragmentMasking,
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
@@ -146,6 +147,7 @@ impl<'a> CodegenContext<'a> {
         query_suffix: &'a str,
         mutation_suffix: &'a str,
         subscription_suffix: &'a str,
+        naming_convention: NamingConvention,
         fragment_masking: FragmentMasking,
         masking_import_path: String,
         emit_extensions: EmitExtensions,
@@ -171,6 +173,7 @@ impl<'a> CodegenContext<'a> {
             query_suffix,
             mutation_suffix,
             subscription_suffix,
+            naming_convention,
             fragment_masking,
             masking_import_path,
             emit_extensions,

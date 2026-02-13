@@ -3,6 +3,7 @@ mod cross_project_docs;
 mod cross_project_features;
 mod duplicate_operations;
 mod emit_extensions_test;
+mod fixtures;
 mod github_reporter;
 mod interface_fragment_typename;
 mod lsp_multi_schema;

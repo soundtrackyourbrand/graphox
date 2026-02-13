@@ -1,0 +1,5 @@
+projects:
+  - schema: "schema.graphql"
+    include: "*.graphql"
+    output_dir: "__generated__"
+    naming_convention: "preserve"
