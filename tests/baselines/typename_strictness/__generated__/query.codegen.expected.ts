@@ -16,7 +16,7 @@ export interface TestQueryQuery {
 export type TestQueryQueryVariables = Exact<{
 }>;
 
-export const TestQueryQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"TestQuery"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserIdOnly"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"User"}}}],"kind":"Document"} as unknown as DocumentNode<TestQueryQuery, TestQueryQueryVariables>;
+export const TestQueryQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"TestQuery"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserIdOnly"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"User"}}}],"kind":"Document"} as unknown as DocumentNode<TestQueryQuery, TestQueryQueryVariables>;
 
 export interface UserIdOnly {
   __typename: "User";

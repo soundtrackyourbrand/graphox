@@ -20,5 +20,5 @@ export interface OnUserCreatedSub {
 export type OnUserCreatedSubVariables = Exact<{
 }>;
 
-export const OnUserCreatedSubDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"OnUserCreated"},"operation":"subscription","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"userCreated"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null},{"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":null}]}}]}}],"kind":"Document"} as unknown as DocumentNode<OnUserCreatedSub, OnUserCreatedSubVariables>;
+export const OnUserCreatedSubDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"OnUserCreated"},"operation":"subscription","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"userCreated"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<OnUserCreatedSub, OnUserCreatedSubVariables>;
 

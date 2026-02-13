@@ -13,7 +13,16 @@ pub struct AstEmitConfig {
 }
 
 impl AstEmitConfig {
-    pub fn default_minimal() -> Self {
+    pub fn default() -> Self {
+        Self {
+            emit_directives: true,
+            emit_aliases: true,
+            emit_arguments: true,
+            emit_variable_defaults: true,
+        }
+    }
+
+    pub fn minimal() -> Self {
         Self {
             emit_directives: false,
             emit_aliases: false,
@@ -29,10 +38,10 @@ impl AstEmitConfig {
         emit_variable_defaults: Option<bool>,
     ) -> Self {
         Self {
-            emit_directives: emit_directives.unwrap_or(false),
-            emit_aliases: emit_aliases.unwrap_or(false),
-            emit_arguments: emit_arguments.unwrap_or(false),
-            emit_variable_defaults: emit_variable_defaults.unwrap_or(false),
+            emit_directives: emit_directives.unwrap_or(true),
+            emit_aliases: emit_aliases.unwrap_or(true),
+            emit_arguments: emit_arguments.unwrap_or(true),
+            emit_variable_defaults: emit_variable_defaults.unwrap_or(true),
         }
     }
 }
@@ -305,19 +314,13 @@ fn convert_selection(
         Selection::Field(f) => {
             let mut map = serde_json::Map::new();
             map.insert("kind".to_string(), json!("Field"));
-            if config.emit_aliases {
-                map.insert("alias".to_string(), json!(f.alias.as_ref().map(|a| convert_name(a.as_str()))));
-            }
+            // Skip alias entirely - graphql-codegen doesn't include it
             map.insert("name".to_string(), convert_name(f.name.as_str()));
             if config.emit_arguments && !f.arguments.is_empty() {
                 map.insert("arguments".to_string(), json!(f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>()));
             }
-            if config.emit_directives && !f.directives.is_empty() {
-                map.insert("directives".to_string(), json!(f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
-            }
-            if f.selection_set.selections.is_empty() {
-                map.insert("selectionSet".to_string(), Value::Null);
-            } else {
+            // Skip directives - graphql-codegen doesn't include them
+            if !f.selection_set.selections.is_empty() {
                 map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
             }
             Value::Object(map)
@@ -331,9 +334,6 @@ fn convert_selection(
                     "name": convert_name(t.as_str()),
                 }));
             }
-            if config.emit_directives && !f.directives.is_empty() {
-                map.insert("directives".to_string(), json!(f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
-            }
             map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
             Value::Object(map)
         }
@@ -341,9 +341,6 @@ fn convert_selection(
             let mut map = serde_json::Map::new();
             map.insert("kind".to_string(), json!("FragmentSpread"));
             map.insert("name".to_string(), convert_name(f.fragment_name.as_str()));
-            if config.emit_directives && !f.directives.is_empty() {
-                map.insert("directives".to_string(), json!(f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
-            }
             Value::Object(map)
         }
     }

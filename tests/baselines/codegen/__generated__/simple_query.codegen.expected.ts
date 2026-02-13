@@ -20,5 +20,5 @@ export interface GetUsersQuery {
 export type GetUsersQueryVariables = Exact<{
 }>;
 
-export const GetUsersQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUsers"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"users"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"},"selectionSet":null},{"kind":"Field","name":{"kind":"Name","value":"username"},"selectionSet":null}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetUsersQuery, GetUsersQueryVariables>;
+export const GetUsersQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUsers"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"users"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"username"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetUsersQuery, GetUsersQueryVariables>;
 
