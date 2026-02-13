@@ -1,0 +1,7 @@
+[
+  {
+    "name": "TestQueryQueryDocument",
+    "path": "./query.codegen",
+    "source": "\n  fragment UserIdOnly on User {\n    id\n  }\n\n  query TestQuery {\n    user {\n      ...UserIdOnly\n    }\n  }\n"
+  }
+]

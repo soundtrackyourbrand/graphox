@@ -1,7 +1,7 @@
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
-use apollo_compiler::Node;
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
+use apollo_compiler::Node;
 
 use crate::context::CodegenContext;
 use crate::helpers::{
@@ -88,6 +88,12 @@ fn categorize_selections<'a>(
         fragment_spreads,
         has_explicit_typename,
     }
+}
+
+fn fields_have_explicit_typename(fields: &[&Node<executable::Field>]) -> bool {
+    fields
+        .iter()
+        .any(|f| f.name.as_str() == "__typename" && f.alias.is_none())
 }
 
 /// Generate TypeScript type for object or intersection types (no inline fragments)
@@ -340,12 +346,13 @@ fn generate_union_type(
     for member in all_members {
         if !covered_types.contains(member) {
             let member_type = ctx.schema.types.get(member).unwrap();
+            let member_has_typename = fields_have_explicit_typename(fields);
             let fields_list = generate_field_list(
                 fields,
                 member_type,
                 ctx,
                 indent + 1,
-                has_explicit_typename,
+                member_has_typename,
                 used_fragments,
             );
 
@@ -388,18 +395,24 @@ fn generate_inline_fragment_branch(
 
     // Merge common fields with inline fragment's own fields
     let mut all_fields = common_fields.to_vec();
+    let mut inline_has_explicit_typename = false;
     for selection in &inline.selection_set.selections {
         if let Selection::Field(field) = selection {
+            if field.name.as_str() == "__typename" && field.alias.is_none() {
+                inline_has_explicit_typename = true;
+            }
             all_fields.push(field);
         }
     }
+
+    let inline_typename = has_explicit_typename || inline_has_explicit_typename;
 
     let merged_fields_list = generate_field_list(
         &all_fields,
         target_type,
         ctx,
         indent + 1,
-        has_explicit_typename,
+        inline_typename,
         used_fragments,
     );
 
