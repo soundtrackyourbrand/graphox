@@ -137,7 +137,8 @@ pub fn generate_typescript_with_profile(
 
             let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
-                let op_def = serialize_operation_definition(op, ctx.all_fragments);
+                let op_def =
+                    serialize_operation_definition(op, ctx.all_fragments, &ctx.ast_emit_config);
 
                 // Use cached dependencies when possible to avoid expensive tree traversal
                 let deps = get_operation_deps_cached(op, ctx, doc);
@@ -186,7 +187,12 @@ pub fn generate_typescript_with_profile(
                 result.push_str("] }");
                 result
             } else {
-                graphox_core::apollo_ast::serialize_operation(op, ctx.all_fragments).to_string()
+                graphox_core::apollo_ast::serialize_operation(
+                    op,
+                    ctx.all_fragments,
+                    &ctx.ast_emit_config,
+                )
+                .to_string()
             };
             profile.ast_serialization_time += ast_start.elapsed();
 
@@ -280,7 +286,11 @@ pub fn generate_typescript_with_profile(
 
                 if !is_type_only {
                     has_fragment_asts = true;
-                    let frag_def = serialize_fragment_definition(frag, ctx.all_fragments);
+                    let frag_def = serialize_fragment_definition(
+                        frag,
+                        ctx.all_fragments,
+                        &ctx.ast_emit_config,
+                    );
 
                     // Use cached dependencies to avoid tree traversal
                     let deps = get_fragment_deps_cached(&frag.name, ctx);

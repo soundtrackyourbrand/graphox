@@ -2,6 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
+use graphox_core::apollo_ast::AstEmitConfig;
 use graphox_core::config::{Config, EmitExtensions, GlobPattern, NamingConvention, SchemaSource};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
@@ -34,6 +35,7 @@ pub struct CodegenParams<'a> {
     pub naming_convention: NamingConvention,
     pub fragment_masking: codegen::FragmentMasking,
     pub emit_extensions: graphox_core::config::EmitExtensions,
+    pub ast_emit_config: graphox_core::apollo_ast::AstEmitConfig,
 }
 
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
@@ -474,6 +476,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                         .or(cfg.fragment_masking.clone()),
                 ),
                 emit_extensions,
+                ast_emit_config: AstEmitConfig::from_config(
+                    project.emit_ast_directives.or(cfg.emit_ast_directives),
+                    project.emit_ast_aliases.or(cfg.emit_ast_aliases),
+                    project.emit_ast_arguments.or(cfg.emit_ast_arguments),
+                    project.emit_ast_variable_defaults.or(cfg.emit_ast_variable_defaults),
+                ),
             },
             verbose,
             clean,
@@ -951,6 +959,7 @@ async fn generate_project_files(
                 params.fragment_masking.clone(),
                 masking_import_path,
                 params.emit_extensions,
+                params.ast_emit_config.clone(),
                 abs_out_path.clone(),
             );
 

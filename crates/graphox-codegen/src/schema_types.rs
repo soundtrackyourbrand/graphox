@@ -46,6 +46,7 @@ pub fn generate_schema_types(
         FragmentMasking::Disabled,
         "./fragment-masking".to_string(),
         EmitExtensions::None,
+        graphox_core::apollo_ast::AstEmitConfig::default_minimal(),
         PathBuf::new(),
     );
 

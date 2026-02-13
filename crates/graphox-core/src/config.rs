@@ -127,6 +127,10 @@ pub struct Config {
     pub naming_convention: Option<NamingConvention>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
     pub emit_extensions: Option<EmitExtensions>,
+    pub emit_ast_directives: Option<bool>,
+    pub emit_ast_aliases: Option<bool>,
+    pub emit_ast_arguments: Option<bool>,
+    pub emit_ast_variable_defaults: Option<bool>,
     pub base_dir: PathBuf,
 }
 
@@ -330,6 +334,10 @@ pub struct ProjectConfig {
     pub possible_types: Option<PathBuf>,
     pub type_policies: Option<PathBuf>,
     pub generate_ast_for_fragments: Option<bool>,
+    pub emit_ast_directives: Option<bool>,
+    pub emit_ast_aliases: Option<bool>,
+    pub emit_ast_arguments: Option<bool>,
+    pub emit_ast_variable_defaults: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -367,6 +375,10 @@ impl Config {
             naming_convention: None,
             fragment_masking: None,
             emit_extensions: None,
+            emit_ast_directives: None,
+            emit_ast_aliases: None,
+            emit_ast_arguments: None,
+            emit_ast_variable_defaults: None,
             base_dir: PathBuf::from("."),
         }
     }
@@ -498,6 +510,10 @@ impl Config {
                     possible_types,
                     type_policies,
                     generate_ast_for_fragments,
+                    emit_ast_directives: p_node["emit_ast_directives"].as_bool(),
+                    emit_ast_aliases: p_node["emit_ast_aliases"].as_bool(),
+                    emit_ast_arguments: p_node["emit_ast_arguments"].as_bool(),
+                    emit_ast_variable_defaults: p_node["emit_ast_variable_defaults"].as_bool(),
                 });
             }
         }
@@ -720,6 +736,22 @@ impl Config {
 
     pub fn naming_convention(&self) -> NamingConvention {
         self.naming_convention.clone().unwrap_or_default()
+    }
+
+    pub fn emit_ast_directives(&self) -> bool {
+        self.emit_ast_directives.unwrap_or(false)
+    }
+
+    pub fn emit_ast_aliases(&self) -> bool {
+        self.emit_ast_aliases.unwrap_or(false)
+    }
+
+    pub fn emit_ast_arguments(&self) -> bool {
+        self.emit_ast_arguments.unwrap_or(false)
+    }
+
+    pub fn emit_ast_variable_defaults(&self) -> bool {
+        self.emit_ast_variable_defaults.unwrap_or(false)
     }
 
     pub fn fragment_masking(&self) -> FragmentMaskingConfig {

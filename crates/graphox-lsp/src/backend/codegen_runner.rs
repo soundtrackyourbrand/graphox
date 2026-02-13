@@ -3,6 +3,7 @@
 //! This module handles running the TypeScript code generation process,
 //! processing each project, generating types, and creating the entrypoint file.
 
+use graphox_core::apollo_ast::AstEmitConfig;
 use graphox_core::Config;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -269,6 +270,12 @@ pub async fn run_codegen(
                         }
                     },
                     config.get_emit_extensions(project),
+                    AstEmitConfig {
+                        emit_directives: config.emit_ast_directives.unwrap_or(false),
+                        emit_aliases: config.emit_ast_aliases.unwrap_or(false),
+                        emit_arguments: config.emit_ast_arguments.unwrap_or(false),
+                        emit_variable_defaults: config.emit_ast_variable_defaults.unwrap_or(false),
+                    },
                     codegen_path,
                 );
 

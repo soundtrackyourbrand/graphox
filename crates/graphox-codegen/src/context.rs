@@ -2,11 +2,12 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::executable;
 use apollo_compiler::{Node, Schema};
 use dashmap::DashMap;
+use graphox_core::apollo_ast::AstEmitConfig;
 use graphox_core::config::{EmitExtensions, FragmentMaskingConfig, NamingConvention};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum FragmentMasking {
@@ -70,6 +71,7 @@ pub struct CodegenContext<'a> {
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
     pub emit_extensions: EmitExtensions,
+    pub ast_emit_config: AstEmitConfig,
     pub codegen_path: PathBuf,
 }
 
@@ -151,6 +153,7 @@ impl<'a> CodegenContext<'a> {
         fragment_masking: FragmentMasking,
         masking_import_path: String,
         emit_extensions: EmitExtensions,
+        ast_emit_config: AstEmitConfig,
         codegen_path: PathBuf,
     ) -> Self {
         Self {
@@ -177,6 +180,7 @@ impl<'a> CodegenContext<'a> {
             fragment_masking,
             masking_import_path,
             emit_extensions,
+            ast_emit_config,
             used_schema_types: RefCell::new(HashSet::new()),
             codegen_path,
         }

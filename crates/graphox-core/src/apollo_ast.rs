@@ -4,16 +4,50 @@ use apollo_compiler::ast::{self, OperationType, Type, Value as GqlValue};
 use apollo_compiler::executable::{self, Selection};
 use serde_json::{Value, json};
 
+#[derive(Debug, Clone, Default)]
+pub struct AstEmitConfig {
+    pub emit_directives: bool,
+    pub emit_aliases: bool,
+    pub emit_arguments: bool,
+    pub emit_variable_defaults: bool,
+}
+
+impl AstEmitConfig {
+    pub fn default_minimal() -> Self {
+        Self {
+            emit_directives: false,
+            emit_aliases: false,
+            emit_arguments: false,
+            emit_variable_defaults: false,
+        }
+    }
+
+    pub fn from_config(
+        emit_directives: Option<bool>,
+        emit_aliases: Option<bool>,
+        emit_arguments: Option<bool>,
+        emit_variable_defaults: Option<bool>,
+    ) -> Self {
+        Self {
+            emit_directives: emit_directives.unwrap_or(false),
+            emit_aliases: emit_aliases.unwrap_or(false),
+            emit_arguments: emit_arguments.unwrap_or(false),
+            emit_variable_defaults: emit_variable_defaults.unwrap_or(false),
+        }
+    }
+}
+
 pub fn serialize_operation(
     operation: &executable::Operation,
     fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
     // Pre-allocate definitions vector with estimated capacity
     // Typical operation has 1 op + N fragments where N is usually small
     let mut definitions = Vec::with_capacity(16);
 
     // 1. Add the operation itself
-    definitions.push(convert_operation(operation, fragments));
+    definitions.push(convert_operation(operation, fragments, config));
 
     // 2. Add all transitive fragments
     let mut used_fragments = HashSet::default();
@@ -26,7 +60,7 @@ pub fn serialize_operation(
 
     for frag_name in sorted_fragments {
         if let Some(frag) = fragments.get(&frag_name) {
-            definitions.push(convert_fragment(frag, fragments));
+            definitions.push(convert_fragment(frag, fragments, config));
         }
     }
 
@@ -39,15 +73,17 @@ pub fn serialize_operation(
 pub fn serialize_operation_definition(
     operation: &executable::Operation,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
-    convert_operation(operation, all_fragments)
+    convert_operation(operation, all_fragments, config)
 }
 
 pub fn serialize_fragment_definition(
     fragment: &executable::Fragment,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
-    convert_fragment(fragment, all_fragments)
+    convert_fragment(fragment, all_fragments, config)
 }
 
 pub fn get_operation_fragment_dependencies(
@@ -96,40 +132,51 @@ fn collect_fragments(
 fn convert_operation(
     op: &executable::Operation,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
-    json!({
-        "kind": "OperationDefinition",
-        "operation": match op.operation_type {
-            OperationType::Query => "query",
-            OperationType::Mutation => "mutation",
-            OperationType::Subscription => "subscription",
-        },
-        "name": op.name.as_ref().map(|n| convert_name(n.as_str())),
-        "variableDefinitions": op.variables.iter().map(|v| convert_variable_def(v)).collect::<Vec<_>>(),
-        "directives": op.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-        "selectionSet": convert_selection_set(&op.selection_set, all_fragments),
-    })
+    let mut map = serde_json::Map::new();
+    map.insert("kind".to_string(), json!("OperationDefinition"));
+    map.insert("operation".to_string(), json!(match op.operation_type {
+        OperationType::Query => "query",
+        OperationType::Mutation => "mutation",
+        OperationType::Subscription => "subscription",
+    }));
+    if let Some(n) = &op.name {
+        map.insert("name".to_string(), convert_name(n.as_str()));
+    }
+    if !op.variables.is_empty() {
+        map.insert("variableDefinitions".to_string(), json!(op.variables.iter().map(|v| convert_variable_def(v, config)).collect::<Vec<_>>()));
+    }
+    if config.emit_directives && !op.directives.is_empty() {
+        map.insert("directives".to_string(), json!(op.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+    }
+    map.insert("selectionSet".to_string(), convert_selection_set(&op.selection_set, all_fragments, config));
+    Value::Object(map)
 }
 
 fn convert_fragment(
     frag: &executable::Fragment,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
-    json!({
-        "kind": "FragmentDefinition",
-        "name": convert_name(frag.name.as_str()),
-        "typeCondition": {
-            "kind": "NamedType",
-            "name": convert_name(frag.type_condition().as_str()),
-        },
-        "directives": frag.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-        "selectionSet": convert_selection_set(&frag.selection_set, all_fragments),
-    })
+    let mut map = serde_json::Map::new();
+    map.insert("kind".to_string(), json!("FragmentDefinition"));
+    map.insert("name".to_string(), convert_name(frag.name.as_str()));
+    map.insert("typeCondition".to_string(), json!({
+        "kind": "NamedType",
+        "name": convert_name(frag.type_condition().as_str()),
+    }));
+    if config.emit_directives && !frag.directives.is_empty() {
+        map.insert("directives".to_string(), json!(frag.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+    }
+    map.insert("selectionSet".to_string(), convert_selection_set(&frag.selection_set, all_fragments, config));
+    Value::Object(map)
 }
 
 fn convert_selection_set(
     sel: &executable::SelectionSet,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
     let mut selections = Vec::new();
     let mut seen_fields = HashSet::new();
@@ -139,11 +186,11 @@ fn convert_selection_set(
             Selection::Field(field) => {
                 let key = field_key(field);
                 if seen_fields.insert(key) {
-                    selections.push(convert_selection(selection, all_fragments));
+                    selections.push(convert_selection(selection, all_fragments, config));
                 }
             }
             Selection::InlineFragment(_inline) => {
-                selections.push(convert_selection(selection, all_fragments));
+                selections.push(convert_selection(selection, all_fragments, config));
             }
             Selection::FragmentSpread(spread) => {
                 let frag_name = spread.fragment_name.as_str();
@@ -154,11 +201,11 @@ fn convert_selection_set(
                                 let key = field_key(field);
                                 if seen_fields.insert(key) {
                                     selections
-                                        .push(convert_selection(frag_selection, all_fragments));
+                                        .push(convert_selection(frag_selection, all_fragments, config));
                                 }
                             }
                             Selection::InlineFragment(_inline) => {
-                                selections.push(convert_selection(frag_selection, all_fragments));
+                                selections.push(convert_selection(frag_selection, all_fragments, config));
                             }
                             Selection::FragmentSpread(nested_spread) => {
                                 let nested_frag_name = nested_spread.fragment_name.as_str();
@@ -171,6 +218,7 @@ fn convert_selection_set(
                                                     selections.push(convert_selection(
                                                         nested_selection,
                                                         all_fragments,
+                                                        config,
                                                     ));
                                                 }
                                             }
@@ -178,6 +226,7 @@ fn convert_selection_set(
                                                 selections.push(convert_selection(
                                                     nested_selection,
                                                     all_fragments,
+                                                    config,
                                                 ));
                                             }
                                             Selection::FragmentSpread(deep_nested) => {
@@ -186,6 +235,7 @@ fn convert_selection_set(
                                                     deep_nested,
                                                     &mut selections,
                                                     &mut seen_fields,
+                                                    config,
                                                 );
                                             }
                                         }
@@ -210,6 +260,7 @@ fn expand_deep_nested_fragment(
     spread: &executable::FragmentSpread,
     selections: &mut Vec<Value>,
     seen_fields: &mut HashSet<String>,
+    config: &AstEmitConfig,
 ) {
     let frag_name = spread.fragment_name.as_str();
     if let Some(frag) = all_fragments.get(frag_name) {
@@ -218,11 +269,11 @@ fn expand_deep_nested_fragment(
                 Selection::Field(field) => {
                     let key = field_key(field);
                     if seen_fields.insert(key) {
-                        selections.push(convert_selection(frag_selection, all_fragments));
+                        selections.push(convert_selection(frag_selection, all_fragments, config));
                     }
                 }
                 Selection::InlineFragment(_inline) => {
-                    selections.push(convert_selection(frag_selection, all_fragments));
+                    selections.push(convert_selection(frag_selection, all_fragments, config));
                 }
                 Selection::FragmentSpread(nested_spread) => {
                     expand_deep_nested_fragment(
@@ -230,6 +281,7 @@ fn expand_deep_nested_fragment(
                         nested_spread,
                         selections,
                         seen_fields,
+                        config,
                     );
                 }
             }
@@ -247,30 +299,53 @@ fn field_key(field: &Node<executable::Field>) -> String {
 fn convert_selection(
     sel: &Selection,
     all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    config: &AstEmitConfig,
 ) -> Value {
     match sel {
-        Selection::Field(f) => json!({
-            "kind": "Field",
-            "alias": f.alias.as_ref().map(|a| convert_name(a.as_str())),
-            "name": convert_name(f.name.as_str()),
-            "arguments": f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>(),
-            "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-            "selectionSet": if f.selection_set.selections.is_empty() { Value::Null } else { convert_selection_set(&f.selection_set, all_fragments) },
-        }),
-        Selection::InlineFragment(f) => json!({
-            "kind": "InlineFragment",
-            "typeCondition": f.type_condition.as_ref().map(|t| json!({
-                "kind": "NamedType",
-                "name": convert_name(t.as_str()),
-            })),
-            "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-            "selectionSet": convert_selection_set(&f.selection_set, all_fragments),
-        }),
-        Selection::FragmentSpread(f) => json!({
-            "kind": "FragmentSpread",
-            "name": convert_name(f.fragment_name.as_str()),
-            "directives": f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-        }),
+        Selection::Field(f) => {
+            let mut map = serde_json::Map::new();
+            map.insert("kind".to_string(), json!("Field"));
+            if config.emit_aliases {
+                map.insert("alias".to_string(), json!(f.alias.as_ref().map(|a| convert_name(a.as_str()))));
+            }
+            map.insert("name".to_string(), convert_name(f.name.as_str()));
+            if config.emit_arguments && !f.arguments.is_empty() {
+                map.insert("arguments".to_string(), json!(f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>()));
+            }
+            if config.emit_directives && !f.directives.is_empty() {
+                map.insert("directives".to_string(), json!(f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+            }
+            if f.selection_set.selections.is_empty() {
+                map.insert("selectionSet".to_string(), Value::Null);
+            } else {
+                map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
+            }
+            Value::Object(map)
+        }
+        Selection::InlineFragment(f) => {
+            let mut map = serde_json::Map::new();
+            map.insert("kind".to_string(), json!("InlineFragment"));
+            if let Some(t) = &f.type_condition {
+                map.insert("typeCondition".to_string(), json!({
+                    "kind": "NamedType",
+                    "name": convert_name(t.as_str()),
+                }));
+            }
+            if config.emit_directives && !f.directives.is_empty() {
+                map.insert("directives".to_string(), json!(f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+            }
+            map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
+            Value::Object(map)
+        }
+        Selection::FragmentSpread(f) => {
+            let mut map = serde_json::Map::new();
+            map.insert("kind".to_string(), json!("FragmentSpread"));
+            map.insert("name".to_string(), convert_name(f.fragment_name.as_str()));
+            if config.emit_directives && !f.directives.is_empty() {
+                map.insert("directives".to_string(), json!(f.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+            }
+            Value::Object(map)
+        }
     }
 }
 
@@ -281,17 +356,21 @@ fn convert_name(name: &str) -> Value {
     })
 }
 
-fn convert_variable_def(vd: &ast::VariableDefinition) -> Value {
-    json!({
-        "kind": "VariableDefinition",
-        "variable": {
-            "kind": "Variable",
-            "name": convert_name(vd.name.as_str()),
-        },
-        "type": convert_type(&vd.ty),
-        "defaultValue": vd.default_value.as_ref().map(|v| convert_value(v)),
-        "directives": vd.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>(),
-    })
+fn convert_variable_def(vd: &ast::VariableDefinition, config: &AstEmitConfig) -> Value {
+    let mut map = serde_json::Map::new();
+    map.insert("kind".to_string(), json!("VariableDefinition"));
+    map.insert("variable".to_string(), json!({
+        "kind": "Variable",
+        "name": convert_name(vd.name.as_str()),
+    }));
+    map.insert("type".to_string(), convert_type(&vd.ty));
+    if config.emit_variable_defaults && vd.default_value.is_some() {
+        map.insert("defaultValue".to_string(), json!(vd.default_value.as_ref().map(|v| convert_value(v))));
+    }
+    if config.emit_directives && !vd.directives.is_empty() {
+        map.insert("directives".to_string(), json!(vd.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+    }
+    Value::Object(map)
 }
 
 fn convert_type(ty: &Type) -> Value {

@@ -144,6 +144,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         codegen::FragmentMasking::Disabled,
                         "./fragment-masking".to_string(),
                         graphox_core::config::EmitExtensions::None,
+                        graphox_core::apollo_ast::AstEmitConfig::default_minimal(),
                         abs_out_path.clone(),
                     );
                     let g_start = Instant::now();
