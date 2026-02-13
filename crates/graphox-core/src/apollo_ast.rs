@@ -323,12 +323,18 @@ fn convert_selection(
         Selection::Field(f) => {
             let mut map = serde_json::Map::new();
             map.insert("kind".to_string(), json!("Field"));
-            // Skip alias entirely - graphql-codegen doesn't include it
             map.insert("name".to_string(), convert_name(f.name.as_str()));
+            if config.emit_aliases {
+                if let Some(alias) = &f.alias {
+                    map.insert("alias".to_string(), convert_name(alias.as_str()));
+                }
+            }
             if config.emit_arguments && !f.arguments.is_empty() {
                 map.insert("arguments".to_string(), json!(f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>()));
             }
-            // Skip directives - graphql-codegen doesn't include them
+            if config.emit_directives && !f.directives.is_empty() {
+                map.insert("directives".to_string(), json!(f.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>()));
+            }
             if !f.selection_set.selections.is_empty() {
                 map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
             }
