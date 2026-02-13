@@ -480,7 +480,9 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     project.emit_ast_directives.or(cfg.emit_ast_directives),
                     project.emit_ast_aliases.or(cfg.emit_ast_aliases),
                     project.emit_ast_arguments.or(cfg.emit_ast_arguments),
-                    project.emit_ast_variable_defaults.or(cfg.emit_ast_variable_defaults),
+                    project
+                        .emit_ast_variable_defaults
+                        .or(cfg.emit_ast_variable_defaults),
                     project.inline_fragments.or(cfg.inline_fragments),
                 ),
             },
@@ -616,6 +618,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 String,
                 EmitExtensions,
                 bool,
+                bool,
             ),
         > = BTreeMap::new();
 
@@ -682,14 +685,21 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                         .generate_ast_for_fragments
                         .or(cfg.generate_ast_for_fragments)
                         .unwrap_or(false),
+                    project.re_exports.or(cfg.re_exports).unwrap_or(false),
                 ));
             }
         }
 
         for (out_dir_path, mut ops) in dir_to_ops.into_iter() {
             let mut frags = dir_to_frags.remove(&out_dir_path).unwrap_or_default();
-            let (fragment_masking, doc_suffix, var_suffix, emit_extensions, generate_ast) =
-                dir_to_config.get(&out_dir_path).unwrap();
+            let (
+                fragment_masking,
+                doc_suffix,
+                var_suffix,
+                emit_extensions,
+                generate_ast,
+                re_exports,
+            ) = dir_to_config.get(&out_dir_path).unwrap();
 
             // Deduplicate operations by name and source
             ops.sort_by(|a, b| {
@@ -734,6 +744,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 fragment_masking,
                 *emit_extensions,
                 *generate_ast,
+                *re_exports,
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
                 eprintln!(

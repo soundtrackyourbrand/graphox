@@ -6,8 +6,8 @@ use graphox_core::apollo_ast::AstEmitConfig;
 use graphox_core::config::{EmitExtensions, FragmentMaskingConfig, NamingConvention};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Clone)]
 pub enum FragmentMasking {

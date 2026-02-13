@@ -3,8 +3,8 @@
 //! This module handles running the TypeScript code generation process,
 //! processing each project, generating types, and creating the entrypoint file.
 
-use graphox_core::apollo_ast::AstEmitConfig;
 use graphox_core::Config;
+use graphox_core::apollo_ast::AstEmitConfig;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::Client;
@@ -367,6 +367,7 @@ pub async fn run_codegen(
             String,
             graphox_core::config::EmitExtensions,
             bool,
+            bool,
         ),
     > = std::collections::HashMap::new();
 
@@ -424,6 +425,7 @@ pub async fn run_codegen(
                     .generate_ast_for_fragments
                     .or(config.generate_ast_for_fragments)
                     .unwrap_or(false),
+                project.re_exports.or(config.re_exports).unwrap_or(false),
             ));
         }
     }
@@ -432,7 +434,7 @@ pub async fn run_codegen(
         .into_iter()
         .map(|(k, v)| (k.clone(), v, dir_to_frags.remove(&k).unwrap_or_default()))
     {
-        let (fragment_masking, doc_suffix, var_suffix, emit_extensions, generate_ast) =
+        let (fragment_masking, doc_suffix, var_suffix, emit_extensions, generate_ast, re_exports) =
             dir_to_config.get(&out_dir_path).unwrap();
 
         // Deduplicate operations by name and source
@@ -459,6 +461,7 @@ pub async fn run_codegen(
             fragment_masking,
             *emit_extensions,
             *generate_ast,
+            *re_exports,
         );
         std::fs::create_dir_all(&out_dir_path).ok();
         if let Err(e) = std::fs::write(&entrypoint_path, content) {

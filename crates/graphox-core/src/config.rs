@@ -109,6 +109,7 @@ pub struct Config {
     pub scalars: Option<AHashMap<String, String>>,
     pub ignore_deprecations: Option<Vec<String>>,
     pub generate_ast_for_fragments: Option<bool>,
+    pub re_exports: Option<bool>,
     pub tracing: Option<TracingConfig>,
     pub timeouts: Option<TimeoutConfig>,
     pub watch_all_files: Option<bool>,
@@ -335,6 +336,7 @@ pub struct ProjectConfig {
     pub possible_types: Option<PathBuf>,
     pub type_policies: Option<PathBuf>,
     pub generate_ast_for_fragments: Option<bool>,
+    pub re_exports: Option<bool>,
     pub emit_ast_directives: Option<bool>,
     pub emit_ast_aliases: Option<bool>,
     pub emit_ast_arguments: Option<bool>,
@@ -359,6 +361,7 @@ impl Config {
             scalars: None,
             ignore_deprecations: None,
             generate_ast_for_fragments: None,
+            re_exports: None,
             tracing: None,
             timeouts: None,
             watch_all_files: None,
@@ -513,6 +516,7 @@ impl Config {
                     possible_types,
                     type_policies,
                     generate_ast_for_fragments,
+                    re_exports: p_node["re_exports"].as_bool(),
                     emit_ast_directives: p_node["emit_ast_directives"].as_bool(),
                     emit_ast_aliases: p_node["emit_ast_aliases"].as_bool(),
                     emit_ast_arguments: p_node["emit_ast_arguments"].as_bool(),
@@ -558,6 +562,7 @@ impl Config {
         });
 
         config.generate_ast_for_fragments = node["generate_ast_for_fragments"].as_bool();
+        config.re_exports = node["re_exports"].as_bool();
 
         let tracing_node = &node["tracing"];
         if !tracing_node.is_badvalue() && !tracing_node.is_null() {

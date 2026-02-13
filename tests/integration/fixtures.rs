@@ -154,6 +154,16 @@ fn test_cli_suffixes_baselines() {
 
 #[test]
 #[ntest::timeout(250)]
+fn test_cli_re_exports_baselines() {
+    run_baseline_test(
+        "tests/fixtures/re_exports",
+        "tests/baselines/re_exports",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
 fn test_cli_naming_convention_pascal_case_baselines() {
     run_baseline_test(
         "tests/fixtures/naming_convention",

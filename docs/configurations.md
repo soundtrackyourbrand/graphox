@@ -336,6 +336,48 @@ const user = getFragmentData(UserFragment, data.user);
 
 ---
 
+## Re-exports
+
+Re-export all operation and fragment types/documents from the root `graphql.ts` file for easier imports.
+
+### Configuration
+
+```yaml
+# Root level - applies to all projects
+re_exports: true
+
+# Or per-project
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*"
+    re_exports: true  # Override for this project
+```
+
+### Generated Output
+
+With `re_exports: enabled`, the root `graphql.ts` file will re-export all types and documents:
+
+```typescript
+// graphql.ts
+export type { GetUser, GetUserVariables } from "./query.codegen";
+export { GetUserDocument } from "./query.codegen";
+export type { UserFragment } from "./fragment.codegen";
+```
+
+This allows imports from a single file:
+
+```typescript
+import { GetUserDocument, type GetUserQuery, type UserFragment } from "./__generated__/graphql";
+```
+
+### Benefits
+
+- **Single import point**: Import all types and documents from one file
+- **Simplified imports**: No need to track which file contains which operation
+- **Barrel file pattern**: Follows the common barrel file pattern for cleaner imports
+
+---
+
 ## Custom Scalars
 
 Map GraphQL scalar types to TypeScript types.

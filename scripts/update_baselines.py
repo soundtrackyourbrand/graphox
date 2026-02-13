@@ -145,6 +145,7 @@ def main():
         ("tests/fixtures/entrypoint", "tests/baselines/entrypoint"),
         ("tests/fixtures/aliases", "tests/baselines/aliases"),
         ("tests/fixtures/suffixes", "tests/baselines/suffixes"),
+        ("tests/fixtures/re_exports", "tests/baselines/re_exports"),
         ("tests/fixtures/suffix_consistency", "tests/baselines/suffix_consistency"),
         ("tests/fixtures/operation_suffixes", "tests/baselines/operation_suffixes"),
         ("tests/fixtures/duplicate_fragment_fields", "tests/baselines/duplicate_fragment_fields"),

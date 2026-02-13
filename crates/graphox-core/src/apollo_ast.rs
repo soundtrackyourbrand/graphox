@@ -150,21 +150,44 @@ fn convert_operation(
 ) -> Value {
     let mut map = serde_json::Map::new();
     map.insert("kind".to_string(), json!("OperationDefinition"));
-    map.insert("operation".to_string(), json!(match op.operation_type {
-        OperationType::Query => "query",
-        OperationType::Mutation => "mutation",
-        OperationType::Subscription => "subscription",
-    }));
+    map.insert(
+        "operation".to_string(),
+        json!(match op.operation_type {
+            OperationType::Query => "query",
+            OperationType::Mutation => "mutation",
+            OperationType::Subscription => "subscription",
+        }),
+    );
     if let Some(n) = &op.name {
         map.insert("name".to_string(), convert_name(n.as_str()));
     }
     if !op.variables.is_empty() {
-        map.insert("variableDefinitions".to_string(), json!(op.variables.iter().map(|v| convert_variable_def(v, config)).collect::<Vec<_>>()));
+        map.insert(
+            "variableDefinitions".to_string(),
+            json!(
+                op.variables
+                    .iter()
+                    .map(|v| convert_variable_def(v, config))
+                    .collect::<Vec<_>>()
+            ),
+        );
     }
     if config.emit_directives && !op.directives.is_empty() {
-        map.insert("directives".to_string(), json!(op.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+        map.insert(
+            "directives".to_string(),
+            json!(
+                op.directives
+                    .iter()
+                    .filter(|d| d.name.as_str() != "public")
+                    .map(|d| convert_directive(d))
+                    .collect::<Vec<_>>()
+            ),
+        );
     }
-    map.insert("selectionSet".to_string(), convert_selection_set(&op.selection_set, all_fragments, config));
+    map.insert(
+        "selectionSet".to_string(),
+        convert_selection_set(&op.selection_set, all_fragments, config),
+    );
     Value::Object(map)
 }
 
@@ -176,14 +199,29 @@ fn convert_fragment(
     let mut map = serde_json::Map::new();
     map.insert("kind".to_string(), json!("FragmentDefinition"));
     map.insert("name".to_string(), convert_name(frag.name.as_str()));
-    map.insert("typeCondition".to_string(), json!({
-        "kind": "NamedType",
-        "name": convert_name(frag.type_condition().as_str()),
-    }));
+    map.insert(
+        "typeCondition".to_string(),
+        json!({
+            "kind": "NamedType",
+            "name": convert_name(frag.type_condition().as_str()),
+        }),
+    );
     if config.emit_directives && !frag.directives.is_empty() {
-        map.insert("directives".to_string(), json!(frag.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+        map.insert(
+            "directives".to_string(),
+            json!(
+                frag.directives
+                    .iter()
+                    .filter(|d| d.name.as_str() != "public")
+                    .map(|d| convert_directive(d))
+                    .collect::<Vec<_>>()
+            ),
+        );
     }
-    map.insert("selectionSet".to_string(), convert_selection_set(&frag.selection_set, all_fragments, config));
+    map.insert(
+        "selectionSet".to_string(),
+        convert_selection_set(&frag.selection_set, all_fragments, config),
+    );
     Value::Object(map)
 }
 
@@ -215,17 +253,26 @@ fn convert_selection_set(
                                 Selection::Field(field) => {
                                     let key = field_key(field);
                                     if seen_fields.insert(key) {
-                                        selections
-                                            .push(convert_selection(frag_selection, all_fragments, config));
+                                        selections.push(convert_selection(
+                                            frag_selection,
+                                            all_fragments,
+                                            config,
+                                        ));
                                     }
                                 }
                                 Selection::InlineFragment(_inline) => {
-                                    selections.push(convert_selection(frag_selection, all_fragments, config));
+                                    selections.push(convert_selection(
+                                        frag_selection,
+                                        all_fragments,
+                                        config,
+                                    ));
                                 }
                                 Selection::FragmentSpread(nested_spread) => {
                                     let nested_frag_name = nested_spread.fragment_name.as_str();
                                     if let Some(nested_frag) = all_fragments.get(nested_frag_name) {
-                                        for nested_selection in &nested_frag.selection_set.selections {
+                                        for nested_selection in
+                                            &nested_frag.selection_set.selections
+                                        {
                                             match nested_selection {
                                                 Selection::Field(nested_field) => {
                                                     let key = field_key(nested_field);
@@ -330,13 +377,32 @@ fn convert_selection(
                 }
             }
             if config.emit_arguments && !f.arguments.is_empty() {
-                map.insert("arguments".to_string(), json!(f.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>()));
+                map.insert(
+                    "arguments".to_string(),
+                    json!(
+                        f.arguments
+                            .iter()
+                            .map(|a| convert_argument(a))
+                            .collect::<Vec<_>>()
+                    ),
+                );
             }
             if config.emit_directives && !f.directives.is_empty() {
-                map.insert("directives".to_string(), json!(f.directives.iter().map(|d| convert_directive(d)).collect::<Vec<_>>()));
+                map.insert(
+                    "directives".to_string(),
+                    json!(
+                        f.directives
+                            .iter()
+                            .map(|d| convert_directive(d))
+                            .collect::<Vec<_>>()
+                    ),
+                );
             }
             if !f.selection_set.selections.is_empty() {
-                map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
+                map.insert(
+                    "selectionSet".to_string(),
+                    convert_selection_set(&f.selection_set, all_fragments, config),
+                );
             }
             Value::Object(map)
         }
@@ -344,12 +410,18 @@ fn convert_selection(
             let mut map = serde_json::Map::new();
             map.insert("kind".to_string(), json!("InlineFragment"));
             if let Some(t) = &f.type_condition {
-                map.insert("typeCondition".to_string(), json!({
-                    "kind": "NamedType",
-                    "name": convert_name(t.as_str()),
-                }));
+                map.insert(
+                    "typeCondition".to_string(),
+                    json!({
+                        "kind": "NamedType",
+                        "name": convert_name(t.as_str()),
+                    }),
+                );
             }
-            map.insert("selectionSet".to_string(), convert_selection_set(&f.selection_set, all_fragments, config));
+            map.insert(
+                "selectionSet".to_string(),
+                convert_selection_set(&f.selection_set, all_fragments, config),
+            );
             Value::Object(map)
         }
         Selection::FragmentSpread(f) => {
@@ -371,16 +443,31 @@ fn convert_name(name: &str) -> Value {
 fn convert_variable_def(vd: &ast::VariableDefinition, config: &AstEmitConfig) -> Value {
     let mut map = serde_json::Map::new();
     map.insert("kind".to_string(), json!("VariableDefinition"));
-    map.insert("variable".to_string(), json!({
-        "kind": "Variable",
-        "name": convert_name(vd.name.as_str()),
-    }));
+    map.insert(
+        "variable".to_string(),
+        json!({
+            "kind": "Variable",
+            "name": convert_name(vd.name.as_str()),
+        }),
+    );
     map.insert("type".to_string(), convert_type(&vd.ty));
     if config.emit_variable_defaults && vd.default_value.is_some() {
-        map.insert("defaultValue".to_string(), json!(vd.default_value.as_ref().map(|v| convert_value(v))));
+        map.insert(
+            "defaultValue".to_string(),
+            json!(vd.default_value.as_ref().map(|v| convert_value(v))),
+        );
     }
     if config.emit_directives && !vd.directives.is_empty() {
-        map.insert("directives".to_string(), json!(vd.directives.iter().filter(|d| d.name.as_str() != "public").map(|d| convert_directive(d)).collect::<Vec<_>>()));
+        map.insert(
+            "directives".to_string(),
+            json!(
+                vd.directives
+                    .iter()
+                    .filter(|d| d.name.as_str() != "public")
+                    .map(|d| convert_directive(d))
+                    .collect::<Vec<_>>()
+            ),
+        );
     }
     Value::Object(map)
 }

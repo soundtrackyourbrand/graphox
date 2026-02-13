@@ -34,8 +34,9 @@ fn to_pascal_case(s: &str) -> String {
         if c == '_' || c == '-' || c == ' ' {
             if c == '_' {
                 let input_before_underscore = &chars[..i];
-                let has_uppercase_before = input_before_underscore.iter().any(|ch| ch.is_uppercase());
-                
+                let has_uppercase_before =
+                    input_before_underscore.iter().any(|ch| ch.is_uppercase());
+
                 if has_uppercase_before {
                     result.push('_');
                     i += 1;
@@ -56,16 +57,16 @@ fn to_pascal_case(s: &str) -> String {
 
         if c.is_uppercase() {
             let mut acronym_end = i + 1;
-            while acronym_end < len 
-                && chars[acronym_end].is_uppercase() 
-                && chars[acronym_end].is_alphabetic() 
+            while acronym_end < len
+                && chars[acronym_end].is_uppercase()
+                && chars[acronym_end].is_alphabetic()
             {
                 acronym_end += 1;
             }
 
             if acronym_end > i + 1 {
                 let has_lower_after = acronym_end < len && chars[acronym_end].is_lowercase();
-                
+
                 result.extend(c.to_uppercase());
                 for j in (i + 1)..acronym_end {
                     if has_lower_after && j == acronym_end - 1 {
@@ -118,7 +119,10 @@ mod tests {
 
     #[test]
     fn test_pascal_case_underscore_preservation() {
-        assert_eq!(to_pascal_case("AddTracks_CreateManualPlaylist"), "AddTracks_CreateManualPlaylist");
+        assert_eq!(
+            to_pascal_case("AddTracks_CreateManualPlaylist"),
+            "AddTracks_CreateManualPlaylist"
+        );
         assert_eq!(to_pascal_case("ChangePlan_account"), "ChangePlan_Account");
         assert_eq!(to_pascal_case("ChangePlan_prices"), "ChangePlan_Prices");
     }

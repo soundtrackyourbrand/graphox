@@ -14,6 +14,7 @@ pub fn generate_entrypoint_content(
     fragment_masking: &FragmentMasking,
     emit_extensions: EmitExtensions,
     generate_ast_for_fragments: bool,
+    re_exports: bool,
 ) -> String {
     let op_count = operations.len();
     let frag_count = fragments.len();
@@ -179,6 +180,68 @@ pub fn generate_entrypoint_content(
         "export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n",
     );
     output.push_str("export const gql = graphql;\n");
+
+    if re_exports {
+        output.push_str("\n// Re-exports\n");
+
+        let mut op_export_paths: BTreeMap<String, String> = BTreeMap::new();
+        for op in unique_ops_by_name.values() {
+            let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
+                .unwrap_or_else(|| op.codegen_path.clone());
+            let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
+            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                path_str = format!("./{}", path_str);
+            }
+            let path_no_ext = if path_str.ends_with(".ts") {
+                &path_str[..path_str.len() - 3]
+            } else {
+                &path_str
+            };
+            let final_path = format!("{}{}", path_no_ext, ext);
+            op_export_paths.insert(final_path, op.operation_type_name.clone());
+        }
+
+        for (path, op_name) in &op_export_paths {
+            output.push_str(&format!(
+                "export type {{ {}, {}Variables }} from \"{}\";\n",
+                op_name, op_name, path
+            ));
+            output.push_str(&format!(
+                "export {{ {}Document }} from \"{}\";\n",
+                op_name, path
+            ));
+        }
+
+        let mut frag_export_paths: BTreeMap<String, String> = BTreeMap::new();
+        for frag in unique_frags_by_name.values() {
+            let rel_codegen_path = pathdiff::diff_paths(&frag.codegen_path, output_dir)
+                .unwrap_or_else(|| frag.codegen_path.clone());
+            let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
+            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                path_str = format!("./{}", path_str);
+            }
+            let path_no_ext = if path_str.ends_with(".ts") {
+                &path_str[..path_str.len() - 3]
+            } else {
+                &path_str
+            };
+            let final_path = format!("{}{}", path_no_ext, ext);
+            frag_export_paths.insert(final_path, frag.name.clone());
+        }
+
+        for (path, frag_name) in &frag_export_paths {
+            output.push_str(&format!(
+                "export type {{ {} }} from \"{}\";\n",
+                frag_name, path
+            ));
+            if generate_ast_for_fragments {
+                output.push_str(&format!(
+                    "export {{ {}Doc }} from \"{}\";\n",
+                    frag_name, path
+                ));
+            }
+        }
+    }
 
     output
 }
