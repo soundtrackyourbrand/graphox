@@ -15,8 +15,7 @@ pub fn generate_fragment_masking_file(unmask_function_name: &str) -> String {
 
 import {{ ResultOf, DocumentTypeDecoration, TypedDocumentNode }} from '@graphql-typed-document-node/core';
 import {{ FragmentDefinitionNode }} from 'graphql';
-import {{ Incremental }} from './graphql';
-
+type Incremental<T> = T | {{ [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never }};
 
 export type FragmentType<TDocumentType extends DocumentTypeDecoration<any, any>> = TDocumentType extends DocumentTypeDecoration<
   infer TType,
