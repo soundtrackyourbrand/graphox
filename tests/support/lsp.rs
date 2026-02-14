@@ -105,13 +105,9 @@ impl LspTestScenario {
             );
         }
 
-        graphox::Config {
-            base_dir: base_dir.to_path_buf(),
-            projects,
-            enable_schema_cache: Some(true),
-            lsp_automatic_codegen: Some(false),
-            ..graphox::Config::new_empty()
-        }
+        graphox::Config::new_test(base_dir.to_path_buf(), projects)
+            .with_enable_schema_cache(true)
+            .with_lsp_automatic_codegen(false)
     }
 
     /// Initialize the LSP service and return a helper.

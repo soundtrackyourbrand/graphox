@@ -2,7 +2,7 @@ use crate::support::{self};
 use futures_util::StreamExt;
 use graphox::{
     Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+    config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
@@ -29,18 +29,15 @@ async fn test_progress_on_workspace_scan() {
 
     let base_dir = scenario.write_files().unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("*.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
@@ -149,18 +146,15 @@ async fn test_no_progress_without_capability() {
     );
     let base_dir = scenario.write_files().unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("*.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
@@ -236,19 +230,15 @@ async fn test_progress_on_codegen() {
     let base_dir = scenario.write_files().unwrap();
     let output_dir = "generated";
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            output_dir: Some(output_dir.to_string()),
-            codegen: None, // This test needs codegen enabled
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_output_dir(output_dir.to_string())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
@@ -362,18 +352,15 @@ async fn test_progress_messages_contain_percentage() {
     );
     let base_dir = scenario.write_files().unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("*.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
@@ -474,18 +461,15 @@ async fn test_progress_messages_during_validation() {
     );
     let base_dir = scenario.write_files().unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("*.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 

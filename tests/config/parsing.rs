@@ -87,7 +87,7 @@ fn test_config_multiple_projects() {
 
     let result = Config::load_from_dir(temp_dir.path());
     let config = result.unwrap().unwrap();
-    assert_eq!(config.projects.len(), 2, "Should have two projects");
+    assert_eq!(config.projects().len(), 2, "Should have two projects");
 }
 
 #[test]
@@ -108,8 +108,8 @@ fn test_config_default_values() {
 
     let result = Config::load_from_dir(temp_dir.path());
     let config = result.unwrap().unwrap();
-    assert!(config.enable_schema_cache.is_none() || config.enable_schema_cache == Some(true));
-    assert!(config.lsp_automatic_codegen.is_none() || config.lsp_automatic_codegen == Some(false));
+    assert!(config.enable_schema_cache());
+    assert!(config.lsp_automatic_codegen());
 }
 
 #[test]

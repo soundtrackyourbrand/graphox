@@ -201,24 +201,19 @@ async fn test_public_fragment_in_completion_other_package() {
     fs::write(&schema_path, schema).expect("write schema");
     fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
 
-    let config = Config {
-        base_dir: dir.path().to_path_buf(),
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_a/**/*.graphql".to_string())),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_b/**/*.graphql".to_string())),
         ],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
 

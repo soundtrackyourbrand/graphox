@@ -25,7 +25,7 @@ fn create_100_file_config(base_dir: &PathBuf) -> Config {
             output_dir: None,
             import: None,
             emit_permission_data: None,
-            codegen: Some(false),
+            codegen: Some(CodegenConfig::disabled()),
         }],
         enable_schema_cache: Some(true),
         lsp_automatic_codegen: Some(false),
@@ -43,7 +43,7 @@ fn create_500_file_config(base_dir: &PathBuf) -> Config {
             output_dir: None,
             import: None,
             emit_permission_data: None,
-            codegen: Some(false),
+            codegen: Some(CodegenConfig::disabled()),
         }],
         enable_schema_cache: Some(true),
         lsp_automatic_codegen: Some(false),
@@ -61,7 +61,7 @@ fn create_1000_file_config(base_dir: &PathBuf) -> Config {
             output_dir: None,
             import: None,
             emit_permission_data: None,
-            codegen: Some(false),
+            codegen: Some(CodegenConfig::disabled()),
         }],
         enable_schema_cache: Some(true),
         lsp_automatic_codegen: Some(false),
@@ -79,7 +79,7 @@ fn create_10_project_config(base_dir: &PathBuf) -> Config {
             output_dir: None,
             import: None,
             emit_permission_data: None,
-            codegen: Some(false),
+            codegen: Some(CodegenConfig::disabled()),
         });
     }
     Config {

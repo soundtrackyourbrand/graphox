@@ -28,19 +28,12 @@ fn test_unused_fragment_reported_when_enabled() {
     let frag_path = base.join("unused.graphql");
     fs::write(&frag_path, frag_text).unwrap();
 
-    let config = Config {
-        base_dir: base.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig {
-            no_unused_fragments: Some(true),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(RulesConfig::default().with_no_unused_fragments(true));
 
     let schema_text = fs::read_to_string(base.join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -85,19 +78,12 @@ fn test_unused_fragment_not_reported_when_disabled() {
     let frag_path = base.join("unused.graphql");
     fs::write(&frag_path, frag_text).unwrap();
 
-    let config = Config {
-        base_dir: base.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig {
-            no_unused_fragments: Some(false),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(RulesConfig::default().with_no_unused_fragments(false));
 
     let schema_text = fs::read_to_string(base.join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -137,16 +123,12 @@ fn test_unused_fragment_not_reported_when_not_configured() {
     let frag_path = base.join("unused.graphql");
     fs::write(&frag_path, frag_text).unwrap();
 
-    let config = Config {
-        base_dir: base.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig::default()),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    );
 
     let schema_text = fs::read_to_string(base.join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -190,19 +172,12 @@ fn test_used_fragment_not_reported() {
     let query_path = base.join("query.graphql");
     fs::write(&query_path, query_text).unwrap();
 
-    let config = Config {
-        base_dir: base.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig {
-            no_unused_fragments: Some(true),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(RulesConfig::default().with_no_unused_fragments(true));
 
     let schema_text = fs::read_to_string(base.join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")

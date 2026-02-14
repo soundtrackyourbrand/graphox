@@ -40,8 +40,28 @@ ignore_deprecations:
   - "EXPERIMENTAL"
   - "INTERNAL"
 
-# Generate and reuse AST nodes for fragments (for smaller bundle sizes)
-generate_ast_for_fragments: false
+# Codegen settings (can also be specified per-project)
+codegen:
+  # Generate and reuse AST nodes for fragments (for smaller bundle sizes)
+  generate_ast_for_fragments: false
+  
+  # Type naming
+  document_suffix: "Document"
+  variables_suffix: "Variables"
+  fragment_suffix: ""
+  fragment_document_suffix: ""
+  query_suffix: "Query"
+  mutation_suffix: "Mutation"
+  subscription_suffix: "Subscription"
+  
+  # Naming convention
+  naming_convention: "pascal_case"  # or: "preserve"
+  
+  # Re-export types from graphql.ts
+  re_exports: false
+  
+  # File extensions
+  emit_extensions: "ts"  # or: "js", "tsx"
 
 # Project configurations (required)
 projects:
@@ -51,15 +71,17 @@ projects:
     output_dir: "src/client/__generated__"       # Override global output_dir
     import: "@workspace/project-1"                # How other projects import fragments
     emit_permission_data: true                   # Generate permission metadata
-    codegen: true                                # Enable codegen for this project
-    document_suffix: "Document"                  # Suffix for Document constants
-    variables_suffix: "Variables"                # Suffix for Variables interfaces
-    fragment_suffix: ""                          # Suffix for Fragment interfaces
-    fragment_document_suffix: ""                 # Suffix for Fragment document constants (masking only)
-    fragment_masking: disabled                   # Enable/disable fragment masking (default: disabled)
-    naming_convention: "pascal_case"             # Naming convention: "pascal_case" or "preserve"
-    possible_types: "graphql-introspection.ts"  # Generate possibleTypes for Apollo Client
-    type_policies: "type-policies.ts"            # Generate TypePolicies for Apollo Client
+    
+    # Codegen settings for this project (overrides root)
+    codegen:
+      generate_ast_for_fragments: false
+      document_suffix: "Document"
+      variables_suffix: "Variables"
+      fragment_suffix: ""
+      fragment_masking: disabled
+      naming_convention: "pascal_case"
+      possible_types: "graphql-introspection.ts"
+      type_policies: "type-policies.ts"
 
   - schema:                                      # Multiple schema files
       - "schema/base.graphql"
@@ -88,11 +110,6 @@ tracing:
 # Codegen settings
 codegen_watch_debounce_ms: 200                    # Debounce file changes in watch mode
 enable_schema_cache: true                         # Enable two-tier schema cache
-document_suffix: "Document"                       # Global suffix for Document constants
-variables_suffix: "Variables"                     # Global suffix for Variables interfaces
-fragment_suffix: ""                               # Global suffix for Fragment interfaces
-fragment_document_suffix: ""                      # Global suffix for Fragment document constants (masking only)
-naming_convention: "pascal_case"                  # Naming convention: "pascal_case" or "preserve"
 ```
 
 ### Configuration Notes
@@ -224,11 +241,13 @@ Fragment masking is **disabled by default** for backwards compatibility.
 ```yaml
 # graphox.yaml
 # Global setting (disabled by default)
-fragment_masking: enabled
+codegen:
+  fragment_masking: enabled
 
 # Or with custom function name
-fragment_masking:
-  unmask_function_name: "getFragmentData"
+codegen:
+  fragment_masking:
+    unmask_function_name: "getFragmentData"
 
 projects:
   - schema: "schema.graphql"
@@ -242,7 +261,8 @@ Override fragment masking per project:
 
 ```yaml
 # graphox.yaml
-fragment_masking: enabled  # Global default
+codegen:
+  fragment_masking: enabled  # Global default
 
 projects:
   # Uses global (enabled)
@@ -252,7 +272,8 @@ projects:
   # Overrides to disabled
   - schema: "schema.graphql"
     include: "src/admin/**/*"
-    fragment_masking: disabled
+    codegen:
+      fragment_masking: disabled
 ```
 
 ### Generated Output
@@ -330,7 +351,7 @@ const user = getFragmentData(UserFragment, data.user);
 
 ### Migration from Disabled to Enabled
 
-1. Enable fragment masking in config: `fragment_masking: enabled`
+1. Enable fragment masking in config: `codegen.fragment_masking: enabled`
 2. Update components to use `FragmentType<>` props
 3. Replace direct field access with `getFragmentData()` calls
 
@@ -344,13 +365,15 @@ Re-export all operation and fragment types/documents from the root `graphql.ts` 
 
 ```yaml
 # Root level - applies to all projects
-re_exports: true
+codegen:
+  re_exports: true
 
 # Or per-project
 projects:
   - schema: "schema.graphql"
     include: "src/**/*"
-    re_exports: true  # Override for this project
+    codegen:
+      re_exports: true  # Override for this project
 ```
 
 ### Generated Output

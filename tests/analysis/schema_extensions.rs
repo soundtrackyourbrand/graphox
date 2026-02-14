@@ -20,8 +20,8 @@ projects:
     .unwrap();
 
     let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-    assert_eq!(config.projects.len(), 1);
-    let files = config.projects[0].schema.files();
+    assert_eq!(config.projects().len(), 1);
+    let files = config.projects()[0].schema().files();
     assert_eq!(files.len(), 2);
     assert_eq!(files[0], "base.graphql");
     assert_eq!(files[1], "extension.graphql");
@@ -65,5 +65,5 @@ projects:
     // Check if the backend loaded the merged schema via the backend instance
     let backend = service.inner();
     let config_read = backend.config.read().unwrap();
-    assert_eq!(config_read.projects[0].schema.files().len(), 2);
+    assert_eq!(config_read.projects()[0].schema().files().len(), 2);
 }

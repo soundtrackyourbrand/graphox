@@ -125,7 +125,8 @@ async fn wait_for_workspace_scan(backend: &graphox::Backend) {
 async fn test_hover_range_with_utf8() {
     let schema = "type Query { field(arg: String): User } type User { emoji: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = std::fs::canonicalize(&config.base_dir).unwrap();
+    let base_dir = std::fs::canonicalize(config.base_dir()).unwrap();
+    config = config.with_base_dir(base_dir);
     let (mut service, _messages) = create_lsp_service_with_socket(config);
 
     // 1. Initialize with UTF-8
@@ -175,7 +176,8 @@ async fn test_hover_range_with_utf8() {
 async fn test_hover_range_with_utf16() {
     let schema = "type Query { field(arg: String): User } type User { emoji: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = std::fs::canonicalize(&config.base_dir).unwrap();
+    let base_dir = std::fs::canonicalize(config.base_dir()).unwrap();
+    config = config.with_base_dir(base_dir);
     let (mut service, _messages) = create_lsp_service_with_socket(config);
 
     // 1. Initialize with UTF-16
@@ -223,7 +225,8 @@ async fn test_hover_range_with_utf16() {
 async fn test_hover_range_with_utf32() {
     let schema = "type Query { field(arg: String): User } type User { emoji: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = std::fs::canonicalize(&config.base_dir).unwrap();
+    let base_dir = std::fs::canonicalize(config.base_dir()).unwrap();
+    config = config.with_base_dir(base_dir);
     let (mut service, _messages) = create_lsp_service_with_socket(config);
 
     // 1. Initialize with UTF-32

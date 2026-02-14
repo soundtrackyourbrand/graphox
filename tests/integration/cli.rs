@@ -557,7 +557,8 @@ fn test_cli_fragment_ast_generation() {
     std::fs::write(
         &config_file,
         r#"
-generate_ast_for_fragments: true
+codegen:
+  generate_ast_for_fragments: true
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
@@ -657,10 +658,8 @@ projects:
     println!("--- ENTRYPOINT CONTENT ---\n{}", content);
 
     // Check for imports - now split into type-only and runtime imports
-    assert!(
-        content
-            .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";")
-    );
+    assert!(content
+        .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";"));
     assert!(content.contains("import { GetMeQueryDocument } from \"./query.codegen\";"));
 
     // Check for graphql function overloads - now uses generic signature
@@ -1079,7 +1078,8 @@ projects:
     std::fs::write(
         &config_file,
         r#"
-generate_ast_for_fragments: true
+codegen:
+  generate_ast_for_fragments: true
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"

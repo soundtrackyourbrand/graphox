@@ -1,1 +1,2 @@
-generate_ast_for_fragments: true
+codegen:
+  generate_ast_for_fragments: true

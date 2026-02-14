@@ -52,19 +52,12 @@ fn test_duplicate_operation_names_same_file() {
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
-    let config = Config {
-        base_dir: dir.path().to_path_buf(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig {
-            unique_operation_name: Some(true),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -107,19 +100,12 @@ fn test_unique_operation_names_no_error() {
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
-    let config = Config {
-        base_dir: dir.path().to_path_buf(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig {
-            unique_operation_name: Some(true),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -165,19 +151,12 @@ fn test_duplicate_operation_rule_disabled() {
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
-    let config = Config {
-        base_dir: dir.path().to_path_buf(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(RulesConfig {
-            unique_operation_name: Some(false),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(RulesConfig::default().with_unique_operation_name(false));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -222,16 +201,12 @@ fn test_duplicate_operation_no_rules_config() {
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
-    let config = Config {
-        base_dir: dir.path().to_path_buf(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: None,
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    );
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 

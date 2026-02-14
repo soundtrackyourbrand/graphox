@@ -24,18 +24,16 @@ pub async fn reload_schema(
     let mut sources_to_reload = Vec::new();
 
     // Check if any project schemas contain this file
-    for project in &config.projects {
-        if schema_contains_file(&project.schema, changed_path, &config.base_dir) {
-            sources_to_reload.push(project.schema.clone());
+    for project in config.projects() {
+        if schema_contains_file(project.schema(), changed_path, config.base_dir()) {
+            sources_to_reload.push(project.schema().clone());
         }
     }
 
     // Check schema_types
-    if let Some(schema_types) = &config.schema_types {
-        for st in schema_types {
-            if schema_contains_file(&st.schema, changed_path, &config.base_dir) {
-                sources_to_reload.push(st.schema.clone());
-            }
+    for st in config.schema_types() {
+        if schema_contains_file(st.schema(), changed_path, config.base_dir()) {
+            sources_to_reload.push(st.schema().clone());
         }
     }
 
@@ -64,7 +62,7 @@ pub async fn reload_schema(
             )
             .await;
 
-        let new_schema = graphox_core::schema::load_schema_arc(&config.base_dir, &source);
+        let new_schema = graphox_core::schema::load_schema_arc(config.base_dir(), &source);
 
         match new_schema {
             Some(new_schema) => {
@@ -118,10 +116,10 @@ pub async fn clear_cache(
     validated_schemas.clear();
 
     // Reload project schemas from config
-    for project in &config.projects {
-        let key = project.schema.as_key();
+    for project in config.projects() {
+        let key = project.schema().as_key();
         if !schemas.contains_key(&key) {
-            match graphox_core::schema::load_schema_arc(&config.base_dir, &project.schema) {
+            match graphox_core::schema::load_schema_arc(config.base_dir(), project.schema()) {
                 Some(schema) => {
                     if let Ok(valid) =
                         <apollo_compiler::Schema as Clone>::clone(&*schema).validate()

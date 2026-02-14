@@ -9,7 +9,7 @@ use tower_lsp::lsp_types::*;
 async fn test_completion_selection_set_type_filtering() {
     let schema = "type Query { users: [User!]! posts: [Post!]! } type User { id: ID! username: String! } type Post { id: ID! title: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -33,7 +33,7 @@ async fn test_completion_selection_set_type_filtering() {
 async fn test_fragment_spread_interface_filtering() {
     let schema = "type Query { nodeA: A nodeB: B } interface Node { id: ID! } type A implements Node { id: ID! name: String! } type B implements Node { id: ID! title: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -70,7 +70,7 @@ async fn test_fragment_spread_interface_filtering() {
 async fn test_fragment_spread_union_filtering_extended() {
     let schema = "type Query { itemA: A itemB: B } type A { id: ID! name: String! } type B { id: ID! title: String! } union Item = A | B";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

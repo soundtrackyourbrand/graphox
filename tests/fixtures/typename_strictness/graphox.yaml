@@ -2,8 +2,9 @@ projects:
   - schema: "schema.graphql"
     include: "**/*.ts"
     output_dir: "__generated__"
-    emit_ast_directives: false
-    emit_ast_aliases: false
-    emit_ast_arguments: false
-    emit_ast_variable_defaults: false
-    inline_fragments: false
+    codegen:
+      emit_ast_directives: false
+      emit_ast_aliases: false
+      emit_ast_arguments: false
+      emit_ast_variable_defaults: false
+      inline_fragments: false

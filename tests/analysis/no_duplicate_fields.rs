@@ -28,22 +28,14 @@ fn test_shallow_duplicate_fields_check() {
     let q_path = base.join("q.graphql");
     fs::write(&q_path, query_text).unwrap();
 
-    let config = Config {
-        base_dir: base.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(Default::default()),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
-    // Enable the rule
-    let mut cfg = config;
-    if let Some(rules) = &mut cfg.rules {
-        rules.no_duplicate_fields = Some(true);
-    }
+    let cfg = config;
 
     let schema_text = fs::read_to_string(base.join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -84,22 +76,14 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
     let q_path = base.join("q.graphql");
     fs::write(&q_path, query_text).unwrap();
 
-    let config = Config {
-        base_dir: base.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            ..Default::default()
-        }],
-        rules: Some(Default::default()),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+    ).with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
-    // Enable the rule
-    let mut cfg = config;
-    if let Some(rules) = &mut cfg.rules {
-        rules.no_duplicate_fields = Some(true);
-    }
+    let cfg = config;
 
     let schema_text = fs::read_to_string(base.join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -130,10 +114,7 @@ fn test_duplicate_fields_with_alias_handling() {
         "**/*.graphql",
     );
 
-    cfg.rules = Some(Default::default());
-    if let Some(rules) = &mut cfg.rules {
-        rules.no_duplicate_fields = Some(true);
-    }
+    cfg = cfg.with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
     let schema_text = fs::read_to_string(dir.path().join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -170,10 +151,7 @@ fn test_alias_collision_triggers_duplicate() {
         "**/*.graphql",
     );
 
-    cfg.rules = Some(Default::default());
-    if let Some(rules) = &mut cfg.rules {
-        rules.no_duplicate_fields = Some(true);
-    }
+    cfg = cfg.with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
     let schema_text = fs::read_to_string(dir.path().join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")
@@ -205,10 +183,7 @@ fn test_duplicate_fields_with_fragments_and_inline_fragments() {
         "**/*.graphql",
     );
 
-    cfg.rules = Some(Default::default());
-    if let Some(rules) = &mut cfg.rules {
-        rules.no_duplicate_fields = Some(true);
-    }
+    cfg = cfg.with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
     let schema_text = fs::read_to_string(dir.path().join("schema.graphql")).unwrap();
     let schema = apollo_compiler::Schema::parse(&schema_text, "schema.graphql")

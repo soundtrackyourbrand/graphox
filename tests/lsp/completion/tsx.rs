@@ -1,4 +1,4 @@
-use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use graphox::{Backend, Config};
 use std::fs;
 use tempfile::tempdir;
@@ -23,20 +23,15 @@ async fn test_embedded_fragment_spreads_interface_tsx() {
     )
     .unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("test.tsx".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("test.tsx".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
     let init_params = InitializeParams {
@@ -128,20 +123,15 @@ async fn test_embedded_fragment_spreads_union_tsx() {
     )
     .unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("test.tsx".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: dir.path().to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("test.tsx".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _) = LspService::new(|client| Backend::new(client, config));
     let init_params = InitializeParams {
@@ -227,7 +217,7 @@ async fn test_embedded_fragment_spreads_union_tsx() {
 async fn test_field_completion_tsx_inserts_braces_when_missing() {
     let schema = "type Query { user: User } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -265,7 +255,7 @@ async fn test_field_completion_tsx_inserts_braces_when_missing() {
 async fn test_field_completion_tsx_no_braces_when_present() {
     let schema = "type Query { user: User } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

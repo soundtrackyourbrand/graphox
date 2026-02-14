@@ -12,7 +12,7 @@ pub async fn handle_diagnostic(
     // Get timeout duration
     let timeout_ms = {
         let config = backend.config.read().unwrap();
-        config.get_timeouts().lsp_request_ms
+        config.get_timeouts().lsp_request_ms()
     };
 
     // Apply timeout
@@ -128,14 +128,13 @@ pub async fn handle_diagnostic(
     };
 
     // Extract tracing config
-    let should_log = {
+    let (enabled, threshold_ms) = {
         let config = backend.config.read().unwrap();
-        config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+        let t = config.tracing();
+        (t.enabled(), t.threshold_ms())
     };
 
-    if let Some((enabled, threshold_ms)) = should_log
-        && enabled
-    {
+    if enabled {
         let elapsed = start.elapsed();
         if elapsed.as_millis() >= threshold_ms as u128 {
             backend
@@ -159,7 +158,7 @@ pub async fn handle_workspace_diagnostic(
     // Get timeout duration
     let timeout_ms = {
         let config = backend.config.read().unwrap();
-        config.get_timeouts().lsp_request_ms
+        config.get_timeouts().lsp_request_ms()
     };
 
     // Apply timeout
@@ -237,14 +236,13 @@ pub async fn handle_workspace_diagnostic(
     };
 
     // Extract tracing config
-    let should_log = {
+    let (enabled, threshold_ms) = {
         let config = backend.config.read().unwrap();
-        config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+        let t = config.tracing();
+        (t.enabled(), t.threshold_ms())
     };
 
-    if let Some((enabled, threshold_ms)) = should_log
-        && enabled
-    {
+    if enabled {
         let elapsed = start.elapsed();
         if elapsed.as_millis() >= threshold_ms as u128 {
             backend

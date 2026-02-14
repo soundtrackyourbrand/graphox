@@ -65,19 +65,20 @@ fn generate_workspace_with_schemas(
             fs::write(file_path, content).unwrap();
         }
 
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Single(format!("project_{}/schema.graphql", i)),
-            include: GlobPattern::Single(format!("project_{}/**/*.graphql", i)),
-            ..Default::default()
-        });
+        projects.push(
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single(format!(
+                    "project_{}/schema.graphql",
+                    i
+                )))
+                .with_include(GlobPattern::Single(format!("project_{}/**/*.graphql", i))),
+        );
     }
 
-    Config {
-        projects,
-        base_dir: base_dir.to_path_buf(),
-        enable_schema_cache: Some(true),
-        ..Default::default()
-    }
+    Config::new_empty()
+        .with_projects(projects)
+        .with_base_dir(base_dir.to_path_buf())
+        .with_enable_schema_cache(true)
 }
 
 fn bench_workspace_scan(c: &mut Criterion) {
@@ -231,18 +232,14 @@ fn generate_fragment_heavy_workspace(
         fs::write(file_path, content).unwrap();
     }
 
-    let projects = vec![ProjectConfig {
-        schema: SchemaSource::Single("project_0/schema.graphql".to_string()),
-        include: GlobPattern::Single("project_0/**/*.graphql".to_string()),
-        ..Default::default()
-    }];
+    let projects = vec![ProjectConfig::default()
+        .with_schema(SchemaSource::Single("project_0/schema.graphql".to_string()))
+        .with_include(GlobPattern::Single("project_0/**/*.graphql".to_string()))];
 
-    Config {
-        projects,
-        base_dir: base_dir.to_path_buf(),
-        enable_schema_cache: Some(true),
-        ..Default::default()
-    }
+    Config::new_empty()
+        .with_projects(projects)
+        .with_base_dir(base_dir.to_path_buf())
+        .with_enable_schema_cache(true)
 }
 
 fn bench_fragment_heavy(c: &mut Criterion) {
@@ -356,18 +353,14 @@ fn generate_cross_referencing_workspace(
     );
     fs::write(query_path, query_content).unwrap();
 
-    let projects = vec![ProjectConfig {
-        schema: SchemaSource::Single("project_0/schema.graphql".to_string()),
-        include: GlobPattern::Single("project_0/**/*.graphql".to_string()),
-        ..Default::default()
-    }];
+    let projects = vec![ProjectConfig::default()
+        .with_schema(SchemaSource::Single("project_0/schema.graphql".to_string()))
+        .with_include(GlobPattern::Single("project_0/**/*.graphql".to_string()))];
 
-    Config {
-        projects,
-        base_dir: base_dir.to_path_buf(),
-        enable_schema_cache: Some(true),
-        ..Default::default()
-    }
+    Config::new_empty()
+        .with_projects(projects)
+        .with_base_dir(base_dir.to_path_buf())
+        .with_enable_schema_cache(true)
 }
 
 fn bench_cross_references(c: &mut Criterion) {

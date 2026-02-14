@@ -140,8 +140,7 @@ pub(super) fn validate_field(
         // Check for duplicate field names in the same selection set (shallow check)
         // This rule is configurable via config.rules.no_duplicate_fields
         if let Some(cfg) = ctx.config
-            && let Some(rules) = &cfg.rules
-            && let Some(true) = rules.no_duplicate_fields
+            && cfg.rules().no_duplicate_fields()
         {
             // Only consider shallow duplicates within the same selection set level
             if depth >= 1 {

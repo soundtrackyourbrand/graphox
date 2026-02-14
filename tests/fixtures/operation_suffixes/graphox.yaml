@@ -1,6 +1,8 @@
-query_suffix: "Q"
-mutation_suffix: "Mut"
-subscription_suffix: "Sub"
+codegen:
+  query_suffix: "Q"
+  mutation_suffix: "Mut"
+  subscription_suffix: "Sub"
+
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"

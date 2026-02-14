@@ -13,7 +13,7 @@ async fn test_hover_inside_inline_fragment() {
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -84,7 +84,7 @@ async fn test_goto_definition_inside_inline_fragment() {
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -129,7 +129,7 @@ async fn test_completion_inside_inline_fragment() {
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -169,7 +169,7 @@ async fn test_references_inside_inline_fragment() {
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -220,7 +220,7 @@ async fn test_rename_inside_inline_fragment() {
         "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -269,7 +269,7 @@ async fn test_rename_inside_inline_fragment() {
 async fn test_goto_definition_field_in_schema() {
     let schema_text = "\n        type Query { search: [SearchResult!]! }\n        union SearchResult = User | Post\n        type User { id: ID!, username: String! }\n        type Post { id: ID!, title: String! }\n        ";
     let (dir, mut config) = make_temp_project_with_schema(schema_text, "**/*.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     // Open schema first so it's in documents

@@ -17,9 +17,9 @@ use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 
 fn is_output_file(path: &Path, config: &Config) -> bool {
-    for project in &config.projects {
-        if let Some(ref output_dir) = project.output_dir {
-            let abs_output = config.base_dir.join(output_dir);
+    for project in config.projects() {
+        if let Some(output_dir) = project.output_dir() {
+            let abs_output = config.base_dir().join(output_dir);
             if path_starts_with(path, &abs_output) {
                 return true;
             }
@@ -322,8 +322,8 @@ pub fn process_file_deleted(
 
 /// Checks if a path is the config file
 fn is_config_file(path: &std::path::Path, config: &Config) -> bool {
-    let config_yaml = config.base_dir.join("graphox.yaml");
-    let config_yml = config.base_dir.join("graphox.yml");
+    let config_yaml = config.base_dir().join("graphox.yaml");
+    let config_yml = config.base_dir().join("graphox.yml");
 
     path == config_yaml
         || path == config_yml
@@ -333,9 +333,9 @@ fn is_config_file(path: &std::path::Path, config: &Config) -> bool {
 
 /// Checks if a path is a schema file
 fn is_schema_file(path_str: &str, config: &Config) -> bool {
-    for project in &config.projects {
-        if project.schema.files().iter().any(|f| {
-            let abs = config.base_dir.join(f);
+    for project in config.projects() {
+        if project.schema().files().iter().any(|f| {
+            let abs = config.base_dir().join(f);
             abs.to_string_lossy() == path_str
                 || abs
                     .canonicalize()
@@ -347,19 +347,17 @@ fn is_schema_file(path_str: &str, config: &Config) -> bool {
         }
     }
 
-    if let Some(schema_types) = &config.schema_types {
-        for st in schema_types {
-            if st.schema.files().iter().any(|f| {
-                let abs = config.base_dir.join(f);
-                abs.to_string_lossy() == path_str
-                    || abs
-                        .canonicalize()
-                        .ok()
-                        .map(|p| p.to_string_lossy().to_string())
-                        == Some(path_str.to_string())
-            }) {
-                return true;
-            }
+    for st in config.schema_types() {
+        if st.schema().files().iter().any(|f| {
+            let abs = config.base_dir().join(f);
+            abs.to_string_lossy() == path_str
+                || abs
+                    .canonicalize()
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string())
+                    == Some(path_str.to_string())
+        }) {
+            return true;
         }
     }
 

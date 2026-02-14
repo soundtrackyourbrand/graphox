@@ -51,8 +51,7 @@ pub(super) fn validate_fragment(
         let no_unused_fragments_enabled = ctx
             .config
             .as_ref()
-            .and_then(|c| c.rules.as_ref())
-            .and_then(|r| r.no_unused_fragments)
+            .map(|c| c.rules().no_unused_fragments())
             .unwrap_or(false);
 
         if !is_used && ctx.workspace_loaded && !is_type_only && no_unused_fragments_enabled {

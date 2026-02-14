@@ -37,7 +37,7 @@ pub fn collect_fragment_metadata(
             let (import_path, package_root) = if let Ok(p) = uri.to_file_path() {
                 let project = config.get_project_for_path(&p);
                 (
-                    project.and_then(|proj| proj.import.clone()),
+                    project.and_then(|proj| proj.import().map(|s| s.to_string())),
                     package_roots.get(uri).and_then(|r| r.value().clone()),
                 )
             } else {
@@ -50,7 +50,7 @@ pub fn collect_fragment_metadata(
                     name: frag.name.clone(),
                     type_condition: frag.type_condition.clone(),
                     description: frag.description.clone(),
-                    import_path: import_path.as_deref().map(|s| s.into()),
+                    import_path: import_path.as_deref().map(|s: &str| s.into()),
                     is_public: frag.is_public,
                     is_type_only: frag.is_type_only,
                     uri: uri.clone(),
@@ -87,8 +87,8 @@ pub fn collect_fragment_metadata_with_schema(
             let (import_path, schema_key) = if let Ok(p) = uri.to_file_path() {
                 let project = config.get_project_for_path(&p);
                 (
-                    project.and_then(|proj| proj.import.as_deref().map(Arc::from)),
-                    project.map(|proj| Arc::from(proj.schema.as_key())),
+                    project.and_then(|proj| proj.import().map(Arc::from)),
+                    project.map(|proj| Arc::from(proj.schema().as_key())),
                 )
             } else {
                 (None, None)

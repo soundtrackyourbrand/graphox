@@ -10,7 +10,7 @@ async fn test_completion_trigger_on_new_empty_line_in_selection() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = "query {\n  users {\n    id\n    |\n  }\n}\n";
@@ -31,7 +31,7 @@ async fn test_completion_trigger_after_typing_first_character() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = "query {\n  users {\n    id\n    u|\n  }\n}\n";
@@ -55,7 +55,7 @@ async fn test_completion_trigger_after_typing_first_character() {
 async fn test_completion_in_completely_empty_selection_set() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = "query { users { | } }";
@@ -87,7 +87,7 @@ async fn test_completion_tsx_trigger_on_new_empty_line_in_selection() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -110,7 +110,7 @@ async fn test_completion_tsx_trigger_after_typing_first_character() {
     let schema =
         "type Query { users: [User!]! } type User { id: ID! username: String! email: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -136,7 +136,7 @@ async fn test_completion_tsx_trigger_after_typing_first_character() {
 async fn test_completion_tsx_in_completely_empty_selection_set() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.tsx");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

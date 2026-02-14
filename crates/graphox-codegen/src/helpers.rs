@@ -12,7 +12,7 @@ use crate::context::CodegenContext;
 pub fn gql_type_to_ts(
     ty: &Type,
     schema: &Schema,
-    scalars: &Option<HashMap<String, String>>,
+    scalars: &HashMap<String, String>,
     ctx: &CodegenContext,
 ) -> String {
     gql_type_to_ts_internal(ty, schema, false, scalars, ctx)
@@ -21,7 +21,7 @@ pub fn gql_type_to_ts(
 pub fn gql_type_to_ts_with_names(
     ty: &Type,
     schema: &Schema,
-    scalars: &Option<HashMap<String, String>>,
+    scalars: &HashMap<String, String>,
     ctx: &CodegenContext,
 ) -> String {
     gql_type_to_ts_internal(ty, schema, true, scalars, ctx)
@@ -31,7 +31,7 @@ fn gql_type_to_ts_internal(
     ty: &Type,
     schema: &Schema,
     use_names: bool,
-    scalars: &Option<HashMap<String, String>>,
+    scalars: &HashMap<String, String>,
     ctx: &CodegenContext,
 ) -> String {
     let inner_name = ty.inner_named_type();
@@ -65,9 +65,7 @@ fn gql_type_to_ts_internal(
         "Int" | "Float" => "number".to_string(),
         "Boolean" => "boolean".to_string(),
         other => ctx.get_cached_type(other, || {
-            if let Some(config_scalars) = scalars
-                && let Some(mapped) = config_scalars.get(other)
-            {
+            if let Some(mapped) = scalars.get(other) {
                 mapped.to_string()
             } else if let Some(t) = schema.types.get(other) {
                 match t {

@@ -2,12 +2,11 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::executable;
 use apollo_compiler::{Node, Schema};
 use dashmap::DashMap;
-use graphox_core::apollo_ast::AstEmitConfig;
-use graphox_core::config::{EmitExtensions, FragmentMaskingConfig, NamingConvention};
+use graphox_core::config::{CodegenConfig, EmitExtensions, NamingConvention};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum FragmentMasking {
@@ -16,18 +15,15 @@ pub enum FragmentMasking {
 }
 
 impl FragmentMasking {
-    pub fn from_config(config: &Option<FragmentMaskingConfig>) -> Self {
-        match config {
-            None => FragmentMasking::Disabled,
-            Some(c) => match &c.mode {
-                graphox_core::config::FragmentMasking::Disabled => FragmentMasking::Disabled,
-                graphox_core::config::FragmentMasking::Enabled {
-                    unmask_function_name,
-                } => FragmentMasking::Enabled {
-                    unmask_function_name: unmask_function_name
-                        .clone()
-                        .unwrap_or_else(|| "getFragmentData".to_string()),
-                },
+    pub fn from_core_config(config: &graphox_core::config::FragmentMaskingConfig) -> Self {
+        match config.mode() {
+            graphox_core::config::FragmentMasking::Disabled => FragmentMasking::Disabled,
+            graphox_core::config::FragmentMasking::Enabled {
+                unmask_function_name,
+            } => FragmentMasking::Enabled {
+                unmask_function_name: unmask_function_name
+                    .clone()
+                    .unwrap_or_else(|| "getFragmentData".to_string()),
             },
         }
     }
@@ -53,33 +49,111 @@ pub struct CodegenContext<'a> {
     pub fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
     pub all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
     pub current_file_path: &'a Path,
-    pub scalars: &'a Option<HashMap<String, String>>,
+    pub scalars: &'a HashMap<String, String>,
     pub schema_import: &'a Option<String>,
     pub type_imports: &'a HashMap<String, String>,
     pub generate_ast_for_fragments: bool,
     pub fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
     pub type_cache: &'a TypeCache,
-    pub document_suffix: &'a str,
-    pub variables_suffix: &'a str,
-    pub fragment_suffix: &'a str,
-    pub fragment_document_suffix: &'a str,
-    pub query_suffix: &'a str,
-    pub mutation_suffix: &'a str,
-    pub subscription_suffix: &'a str,
-    pub naming_convention: NamingConvention,
-    pub fragment_masking: FragmentMasking,
+    pub config: &'a CodegenConfig,
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
-    pub emit_extensions: EmitExtensions,
-    pub ast_emit_config: AstEmitConfig,
     pub codegen_path: PathBuf,
+}
+
+impl<'a> CodegenContext<'a> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        schema: &'a apollo_compiler::validation::Valid<Schema>,
+        fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
+        fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
+        fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
+        all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
+        current_file_path: &'a Path,
+        scalars: &'a HashMap<String, String>,
+        schema_import: &'a Option<String>,
+        type_imports: &'a HashMap<String, String>,
+        generate_ast_for_fragments: bool,
+        fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
+        type_cache: &'a TypeCache,
+        config: &'a CodegenConfig,
+        masking_import_path: String,
+        codegen_path: PathBuf,
+    ) -> Self {
+        Self {
+            schema,
+            fragment_to_path,
+            fragment_to_import,
+            fragment_to_type_only,
+            all_fragments,
+            current_file_path,
+            scalars,
+            schema_import,
+            type_imports,
+            generate_ast_for_fragments,
+            fragment_dependencies,
+            type_cache,
+            config,
+            masking_import_path,
+            used_schema_types: RefCell::new(HashSet::new()),
+            codegen_path,
+        }
+    }
+
+    pub fn document_suffix(&self) -> &str {
+        self.config.document_suffix()
+    }
+
+    pub fn variables_suffix(&self) -> &str {
+        self.config.variables_suffix()
+    }
+
+    pub fn fragment_suffix(&self) -> &str {
+        self.config.fragment_suffix()
+    }
+
+    pub fn fragment_document_suffix(&self) -> &str {
+        self.config.fragment_document_suffix()
+    }
+
+    pub fn query_suffix(&self) -> &str {
+        self.config.query_suffix()
+    }
+
+    pub fn mutation_suffix(&self) -> &str {
+        self.config.mutation_suffix()
+    }
+
+    pub fn subscription_suffix(&self) -> &str {
+        self.config.subscription_suffix()
+    }
+
+    pub fn naming_convention(&self) -> NamingConvention {
+        self.config.naming_convention()
+    }
+
+    pub fn fragment_masking(&self) -> FragmentMasking {
+        FragmentMasking::from_core_config(&self.config.fragment_masking())
+    }
+
+    pub fn emit_extensions(&self) -> EmitExtensions {
+        self.config.emit_extensions()
+    }
+
+    pub fn re_exports(&self) -> bool {
+        self.config.re_exports()
+    }
+
+    /// Get cached type conversion or compute and cache it
+    pub fn get_cached_type(&self, type_name: &str, compute: impl FnOnce() -> String) -> String {
+        self.type_cache.get_or_insert(type_name, compute)
+    }
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
 /// Shared across all files in a project since they use the same schema
 pub struct TypeCache {
     cache: DashMap<String, String>,
-    // Optional metrics for benchmarking
     hits: AtomicUsize,
     misses: AtomicUsize,
 }
@@ -124,71 +198,6 @@ impl TypeCache {
 
     pub fn is_empty(&self) -> bool {
         self.cache.is_empty()
-    }
-}
-
-impl<'a> CodegenContext<'a> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        schema: &'a apollo_compiler::validation::Valid<Schema>,
-        fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
-        fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
-        fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
-        all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
-        current_file_path: &'a Path,
-        scalars: &'a Option<HashMap<String, String>>,
-        schema_import: &'a Option<String>,
-        type_imports: &'a HashMap<String, String>,
-        generate_ast_for_fragments: bool,
-        fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
-        type_cache: &'a TypeCache,
-        document_suffix: &'a str,
-        variables_suffix: &'a str,
-        fragment_suffix: &'a str,
-        fragment_document_suffix: &'a str,
-        query_suffix: &'a str,
-        mutation_suffix: &'a str,
-        subscription_suffix: &'a str,
-        naming_convention: NamingConvention,
-        fragment_masking: FragmentMasking,
-        masking_import_path: String,
-        emit_extensions: EmitExtensions,
-        ast_emit_config: AstEmitConfig,
-        codegen_path: PathBuf,
-    ) -> Self {
-        Self {
-            schema,
-            fragment_to_path,
-            fragment_to_import,
-            fragment_to_type_only,
-            all_fragments,
-            current_file_path,
-            scalars,
-            schema_import,
-            type_imports,
-            generate_ast_for_fragments,
-            fragment_dependencies,
-            type_cache,
-            document_suffix,
-            variables_suffix,
-            fragment_suffix,
-            fragment_document_suffix,
-            query_suffix,
-            mutation_suffix,
-            subscription_suffix,
-            naming_convention,
-            fragment_masking,
-            masking_import_path,
-            emit_extensions,
-            ast_emit_config,
-            used_schema_types: RefCell::new(HashSet::new()),
-            codegen_path,
-        }
-    }
-
-    /// Get cached type conversion or compute and cache it
-    pub fn get_cached_type(&self, type_name: &str, compute: impl FnOnce() -> String) -> String {
-        self.type_cache.get_or_insert(type_name, compute)
     }
 }
 

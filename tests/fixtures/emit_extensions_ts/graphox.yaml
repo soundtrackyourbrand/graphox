@@ -3,4 +3,5 @@ projects:
     schema: schema.graphql
     include: "**/*.ts"
     output_dir: generated
-    emit_extensions: ts
+    codegen:
+      emit_extensions: ts

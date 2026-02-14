@@ -60,7 +60,7 @@ projects:
 
     // Check for Document constant export
     assert!(
-        content.contains("export const GetUserQueryDocument = {\"definitions\":["),
+        content.contains("export const GetUserQueryDocument = {\"kind\":\"Document\",\"definitions\":[") || content.contains("export const GetUserQueryDocument = {\"definitions\":["),
         "Missing GetUserQueryDocument constant export. Content:\n{}",
         content
     );

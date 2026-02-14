@@ -3,7 +3,7 @@
 use apollo_compiler::Schema;
 use futures_util::StreamExt;
 use graphox::Backend as LspBackend;
-use graphox::{DocumentLanguage, DocumentState};
+use graphox::{CodegenConfig, DocumentLanguage, DocumentState};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -313,18 +313,15 @@ pub fn make_temp_project_with_schema(
     fs::write(&schema_path, schema_text).expect("write schema");
     fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
 
-    let config = Config {
-        base_dir: dir.path().to_path_buf(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single(include_pattern.to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single(include_pattern.to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     (dir, config)
 }

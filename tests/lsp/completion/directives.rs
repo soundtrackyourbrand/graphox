@@ -9,7 +9,7 @@ use tower_lsp::lsp_types::*;
 async fn test_completion_directives_on_field() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! } directive @testDirective on FIELD";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let (text, position) = with_cursor("query { users { id @| } }");
@@ -30,7 +30,7 @@ async fn test_completion_directives_on_field() {
 async fn test_completion_directives_on_fragment() {
     let schema = "type Query { users: [User!]! } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let (text, position) = with_cursor("fragment MyFrag on User @| { id }");

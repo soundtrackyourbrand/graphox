@@ -82,11 +82,11 @@ pub fn generate_typescript_with_profile(
                 .as_ref()
                 .map(|n| n.as_str())
                 .unwrap_or("UnnamedOperation");
-            let name = apply_naming_convention(raw_name, &ctx.naming_convention);
+            let name = apply_naming_convention(raw_name, &ctx.naming_convention());
             let suffix = match op.operation_type {
-                OperationType::Query => ctx.query_suffix,
-                OperationType::Mutation => ctx.mutation_suffix,
-                OperationType::Subscription => ctx.subscription_suffix,
+                OperationType::Query => ctx.query_suffix(),
+                OperationType::Mutation => ctx.mutation_suffix(),
+                OperationType::Subscription => ctx.subscription_suffix(),
             };
 
             let root_type = ctx
@@ -116,7 +116,7 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str("\n\n");
             }
 
-            let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix);
+            let v_name = format!("{}{}{}", name, suffix, ctx.variables_suffix());
             bodies.push_str("export type ");
             bodies.push_str(&v_name);
             bodies.push_str(" = Exact<{\n");
@@ -138,7 +138,7 @@ pub fn generate_typescript_with_profile(
             let ast_start = Instant::now();
             let ast_content = if ctx.generate_ast_for_fragments {
                 let op_def =
-                    serialize_operation_definition(op, ctx.all_fragments, &ctx.ast_emit_config);
+                    serialize_operation_definition(op, ctx.all_fragments, ctx.config);
 
                 // Use cached dependencies when possible to avoid expensive tree traversal
                 let deps = get_operation_deps_cached(op, ctx, doc);
@@ -171,7 +171,7 @@ pub fn generate_typescript_with_profile(
                         let mut spread = String::with_capacity(dep.len() + 23); // "...Document.definitions"
                         spread.push_str("...");
                         spread.push_str(&dep);
-                        spread.push_str(ctx.document_suffix);
+                        spread.push_str(ctx.document_suffix());
                         spread.push_str(".definitions");
                         definitions_parts.push(spread);
                     }
@@ -190,7 +190,7 @@ pub fn generate_typescript_with_profile(
                 graphox_core::apollo_ast::serialize_operation(
                     op,
                     ctx.all_fragments,
-                    &ctx.ast_emit_config,
+                    ctx.config,
                 )
                 .to_string()
             };
@@ -199,7 +199,7 @@ pub fn generate_typescript_with_profile(
             let doc_name = format!("{}{}", name, suffix);
             bodies.push_str("export const ");
             bodies.push_str(&doc_name);
-            bodies.push_str(ctx.document_suffix);
+            bodies.push_str(ctx.document_suffix());
             bodies.push_str(" = ");
             bodies.push_str(&ast_content);
             bodies.push_str(" as unknown as DocumentNode<");
@@ -233,13 +233,13 @@ pub fn generate_typescript_with_profile(
 
             let fragment_type_name = format!(
                 "{}{}",
-                apply_naming_convention(frag.name.as_str(), &ctx.naming_convention),
-                ctx.fragment_suffix
+                apply_naming_convention(frag.name.as_str(), &ctx.naming_convention()),
+                ctx.fragment_suffix()
             );
             let fragment_document_name =
-                format!("{}{}", fragment_type_name, ctx.fragment_document_suffix);
+                format!("{}{}", fragment_type_name, ctx.fragment_document_suffix());
 
-            if ctx.fragment_masking.is_enabled() {
+            if ctx.fragment_masking().is_enabled() {
                 let type_str = if result.type_str.contains('|') && !result.type_str.starts_with('(')
                 {
                     format!("({})", result.type_str.trim())
@@ -289,7 +289,7 @@ pub fn generate_typescript_with_profile(
                     let frag_def = serialize_fragment_definition(
                         frag,
                         ctx.all_fragments,
-                        &ctx.ast_emit_config,
+                        ctx.config,
                     );
 
                     // Use cached dependencies to avoid tree traversal
@@ -323,7 +323,7 @@ pub fn generate_typescript_with_profile(
                             let mut spread = String::with_capacity(dep.len() + 23);
                             spread.push_str("...");
                             spread.push_str(&dep);
-                            spread.push_str(ctx.document_suffix);
+                            spread.push_str(ctx.document_suffix());
                             spread.push_str(".definitions");
                             definitions_parts.push(spread);
                         }
@@ -465,16 +465,16 @@ pub fn generate_typescript_with_profile(
                 final_path_str.insert_str(0, "./");
             }
             final_path_str.push_str(".codegen");
-            final_path_str.push_str(ctx.emit_extensions.as_str());
+            final_path_str.push_str(ctx.emit_extensions().as_str());
             final_path_str
         };
 
         let suffixed_names: Vec<_> = names
             .iter()
-            .map(|n| format!("{}{}", n, ctx.fragment_suffix))
+            .map(|n| format!("{}{}", n, ctx.fragment_suffix()))
             .collect();
 
-        if ctx.fragment_masking.is_enabled() {
+        if ctx.fragment_masking().is_enabled() {
             import_section.push_str("import { ");
         } else {
             import_section.push_str("import type { ");
@@ -501,9 +501,9 @@ pub fn generate_typescript_with_profile(
 
                 if !is_type_only {
                     let mut doc_name =
-                        String::with_capacity(name.len() + ctx.document_suffix.len());
+                        String::with_capacity(name.len() + ctx.document_suffix().len());
                     doc_name.push_str(name);
-                    doc_name.push_str(ctx.document_suffix);
+                    doc_name.push_str(ctx.document_suffix());
                     doc_names.push(doc_name);
                 }
             }
@@ -522,7 +522,7 @@ pub fn generate_typescript_with_profile(
         output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
     }
 
-    if ctx.fragment_masking.is_enabled() {
+    if ctx.fragment_masking().is_enabled() {
         output.push_str(&format!(
             "import type {{ FragmentType }} from \"{}\";\n",
             ctx.masking_import_path

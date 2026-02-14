@@ -1,6 +1,6 @@
 use graphox::{
     Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+    config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use tower_lsp::jsonrpc::Request;
@@ -40,28 +40,23 @@ async fn test_cross_project_docs_and_imports() {
     fs::create_dir_all(&p1_dir).unwrap();
     fs::create_dir_all(&p2_dir).unwrap();
 
-    let config = Config {
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("project1/**/*.graphql".to_string()),
-                import: Some("@my/project1".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("project2/**/*.graphql".to_string()),
-                import: Some("@my/project2".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("project1/**/*.graphql".to_string()))
+                .with_import("@my/project1".to_string())
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("project2/**/*.graphql".to_string()))
+                .with_import("@my/project2".to_string())
+                .with_codegen(CodegenConfig::disabled()),
         ],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _) = crate::support::create_service(config);
 

@@ -132,10 +132,11 @@ pub(super) fn check_required_fields(
     ctx: &mut ValidationContext,
 ) {
     if let Some(config) = ctx.config
-        && let Some(rules) = &config.rules
-        && let Some(required_fields) = &rules.required_fields
         && let Some(operation_type) = &ctx.current_operation_type
     {
+        let rules = config.rules();
+        let required_fields = rules.required_fields();
+
         // Find the name node of the operation for the diagnostic range
         let mut cursor = node.walk();
         let name_node = node.children(&mut cursor).find(|c| c.kind() == "name");

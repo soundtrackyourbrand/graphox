@@ -9,6 +9,7 @@ pub use graphox_core::types;
 pub use graphox_core::utils;
 pub use graphox_features as features;
 
+pub use graphox_core::CodegenConfig;
 pub use graphox_core::Config;
 pub use graphox_core::DocumentState;
 pub use graphox_core::document::DocumentLanguage;

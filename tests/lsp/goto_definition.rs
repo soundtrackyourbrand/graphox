@@ -11,7 +11,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
     let schema = "type Query { user: User }\ntype User { id: ID! }\ntype Displayable { id: ID! }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
     // keep base_dir consistent
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
     let schema_path = tmpdir.path().join("schema.graphql");
     let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
@@ -114,7 +114,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
 async fn test_goto_definition_directive() {
     let schema = "directive @customDirective(arg: String) on FIELD\ntype Query { id: ID }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
@@ -160,7 +160,7 @@ async fn test_goto_definition_directive() {
 async fn test_goto_definition_enum_value() {
     let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ntype Query { users(status: OrderStatus): [User] }\ntype User { id: ID }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
@@ -209,7 +209,7 @@ async fn test_goto_definition_variable_in_argument() {
         "type Query { user(id: ID!): User }\ntype User { id: ID! name: String }",
         "**/*.graphql",
     );
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
     let schema_path = tmpdir.path().join("schema.graphql");
     let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
@@ -287,7 +287,7 @@ async fn test_goto_definition_variable_in_argument() {
 async fn test_goto_definition_inline_fragment_type() {
     let schema = "type Query { user: User }\ntype User { id: ID! name: String }\ntype Admin { id: ID! privileges: [String] }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
@@ -337,7 +337,7 @@ async fn test_goto_definition_inline_fragment_type() {
 async fn test_goto_definition_input_object_field() {
     let schema = "input CreateUserInput { id: ID! name: String }\ntype Mutation { createUser(input: CreateUserInput): ID }\ntype Query { dummy: String }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
@@ -378,7 +378,7 @@ async fn test_goto_definition_input_object_field() {
 async fn test_goto_definition_nested_enum_value() {
     let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ninput OrderFilter { status: OrderStatus }\ntype Query { orders(filter: OrderFilter): [ID] }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");

@@ -73,16 +73,13 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     .validate()
     .unwrap();
 
-    let config = graphox::Config {
-        projects: vec![graphox::config::ProjectConfig {
-            schema: graphox::config::SchemaSource::Single("schema.graphql".to_string()),
-            include: graphox::config::GlobPattern::Single("**/*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        base_dir: base.clone(),
-        ..graphox::Config::new_empty()
-    };
+    let config = graphox::Config::new_test(
+        base.clone(),
+        vec![graphox::config::ProjectConfig::default()
+            .with_schema(graphox::config::SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(graphox::config::GlobPattern::Single("**/*.graphql".to_string()))
+            .with_codegen(graphox::config::CodegenConfig::disabled())],
+    );
 
     let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
         .with_uri(Url::from_file_path(&frag_b_path).unwrap())

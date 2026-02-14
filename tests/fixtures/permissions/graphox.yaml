@@ -1,8 +1,9 @@
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
-    emit_permission_data: true
     output_dir: "__generated__"
+    codegen:
+      emit_permission_data: true
 schema_types:
   - schema: "schema.graphql"
     output: "schema.types.ts"

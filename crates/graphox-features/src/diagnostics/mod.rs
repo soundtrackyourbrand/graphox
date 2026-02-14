@@ -192,8 +192,7 @@ impl DocumentDiagnostics for DocumentState {
 
         // After validating tree nodes, optionally run cross-operation checks within this document.
         if let Some(cfg) = config
-            && let Some(rules) = &cfg.rules
-            && let Some(true) = rules.unique_operation_name
+            && cfg.rules().unique_operation_name()
         {
             // Detect duplicate operation names within this document and report diagnostics.
             use std::collections::HashMap;
@@ -244,9 +243,8 @@ impl DocumentDiagnostics for DocumentState {
     }
 
     fn is_deprecation_ignored(&self, reason: &str, config: Option<&Config>) -> bool {
-        if let Some(cfg) = config
-            && let Some(patterns) = &cfg.ignore_deprecations
-        {
+        if let Some(cfg) = config {
+            let patterns = cfg.ignore_deprecations();
             for p in patterns {
                 if let Ok(re) = regex::Regex::new(p)
                     && re.is_match(reason)

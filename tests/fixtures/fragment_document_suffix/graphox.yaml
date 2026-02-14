@@ -1,6 +1,7 @@
-fragment_masking: enabled
-fragment_suffix: "Frag"
-fragment_document_suffix: "Doc"
+codegen:
+  fragment_masking: enabled
+  fragment_suffix: "Frag"
+  fragment_document_suffix: "Doc"
 
 projects:
   - schema: "schema.graphql"

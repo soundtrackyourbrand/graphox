@@ -57,12 +57,7 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(client: Client, mut config: Config) -> Self {
-        // Canonicalize base_dir to ensure consistency on macOS
-        if let Ok(canon) = std::fs::canonicalize(&config.base_dir) {
-            config.base_dir = canon;
-        }
-
+    pub fn new(client: Client, config: Config) -> Self {
         let schemas = DashMap::with_hasher(ahash::RandomState::default());
         let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
         let documents: DashMap<Url, Arc<DocumentState>, ahash::RandomState> =
@@ -94,10 +89,10 @@ impl Backend {
         }));
 
         // Load project schemas from config
-        for project in &config.projects {
-            let key = project.schema.as_key();
+        for project in config.projects() {
+            let key = project.schema().as_key();
             if !schemas.contains_key(&key) {
-                match Self::load_schema_source(&config.base_dir, &project.schema) {
+                match Self::load_schema_source(config.base_dir(), project.schema()) {
                     Some(schema) => {
                         if let Ok(valid) = (*schema).clone().validate() {
                             validated_schemas.insert(key.clone(), Arc::new(valid));
@@ -119,7 +114,7 @@ impl Backend {
             }
         }
 
-        let gitignore = Arc::new(graphox_core::utils::get_gitignore_matcher(&config.base_dir));
+        let gitignore = Arc::new(graphox_core::utils::get_gitignore_matcher(config.base_dir()));
 
         let config_arc = Arc::new(std::sync::RwLock::new(config));
         let type_caches = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
@@ -339,12 +334,13 @@ impl Backend {
     {
         let timeout_ms = {
             let config = self.config.read().unwrap();
-            config.get_timeouts().lsp_request_ms
+            config.get_timeouts().lsp_request_ms()
         };
 
         let tracing_config = {
             let config = self.config.read().unwrap();
-            config.tracing.as_ref().map(|t| (t.enabled, t.threshold_ms))
+            let t = config.tracing();
+            Some((t.enabled(), t.threshold_ms()))
         };
 
         super::helpers::with_tracing(&self.client, name, timeout_ms, tracing_config, fut).await
@@ -486,7 +482,7 @@ impl Backend {
         graphox_core::config::clear_globset_cache();
 
         // Get the base directory from current config
-        let base_dir = self.config.read().unwrap().base_dir.clone();
+        let base_dir = self.config.read().unwrap().base_dir().to_path_buf();
 
         // Try to load new config
         let new_config = match Config::load_from_dir(&base_dir) {
@@ -696,8 +692,8 @@ impl Backend {
         if let Ok(path) = uri.to_file_path() {
             let config = self.config.read().unwrap();
             if let Some(project) = config.get_project_for_path(&path) {
-                for schema_file in project.schema.files() {
-                    let schema_path = config.base_dir.join(schema_file);
+                for schema_file in project.schema().files() {
+                    let schema_path = config.base_dir().join(schema_file);
                     if let Ok(schema_uri) = Url::from_file_path(schema_path) {
                         preferred_uris.push(schema_uri);
                     }

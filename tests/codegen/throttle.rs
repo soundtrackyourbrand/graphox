@@ -27,19 +27,16 @@ async fn test_codegen_throttle() {
     let output_dir = base_dir.join("generated");
     fs::create_dir(&output_dir).unwrap();
 
-    let config = Config {
-        base_dir: base_dir.to_path_buf(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            output_dir: Some("generated".to_string()),
-            ..Default::default()
-        }],
-        lsp_automatic_codegen: Some(true),
-        lsp_codegen_throttle_ms: Some(200), // Short throttle for tests
-        enable_schema_cache: Some(false),
-        ..Default::default()
-    };
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_output_dir("generated".to_string())],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(200)
+    .with_enable_schema_cache(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

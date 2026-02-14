@@ -2,9 +2,10 @@ projects:
   - schema: "schema.graphql"
     include: "*.graphql"
     output_dir: "__generated__"
-    document_suffix: "Doc"
-    mutation_suffix: ""
-    query_suffix: "Query"
-    fragment_suffix: "Frag"
-    fragment_document_suffix: "FragmentDoc"
-    generate_ast_for_fragments: true
+    codegen:
+      document_suffix: "Doc"
+      mutation_suffix: ""
+      query_suffix: "Query"
+      fragment_suffix: "Frag"
+      fragment_document_suffix: "FragmentDoc"
+      generate_ast_for_fragments: true

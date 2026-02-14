@@ -1,6 +1,6 @@
 use graphox::{
     Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+    config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use tempfile::tempdir;
@@ -29,29 +29,21 @@ async fn test_cross_project_references_and_rename() {
     )
     .unwrap();
 
-    let config = Config {
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("../schema.graphql".to_string()),
-                include: GlobPattern::Single("**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("../schema.graphql".to_string()),
-                include: GlobPattern::Single("**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("../schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("../schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
         ],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        ..Config::new_empty()
-    };
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _) = crate::support::create_service(config);
 
@@ -209,29 +201,21 @@ async fn test_unrelated_projects_rename_isolation() {
     )
     .unwrap();
 
-    let config = Config {
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("../schema.graphql".to_string()),
-                include: GlobPattern::Single("project1/**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("../schema.graphql".to_string()),
-                include: GlobPattern::Single("project2/**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("../schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("project1/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("../schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("project2/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
         ],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: Some(false),
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        timeouts: None,
-        ..Config::new_empty()
-    };
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _) = crate::support::create_service(config);
 

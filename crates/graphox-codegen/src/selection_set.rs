@@ -233,14 +233,14 @@ fn format_intersection(
         return format!("{{ {} }}", fields.join(", "));
     }
 
-    let result = if ctx.fragment_masking.is_enabled() {
+    let result = if ctx.fragment_masking().is_enabled() {
         let mut refs: Vec<_> = fragment_spreads
             .iter()
             .map(|s| {
                 let name = format!(
                     "{}{}",
-                    apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention),
-                    ctx.fragment_suffix
+                    apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention()),
+                    ctx.fragment_suffix()
                 );
                 format!("'{}': {}", name, name)
             })
@@ -261,8 +261,8 @@ fn format_intersection(
             .map(|s| {
                 format!(
                     "{}{}",
-                    apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention),
-                    ctx.fragment_suffix
+                    apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention()),
+                    ctx.fragment_suffix()
                 )
             })
             .collect();
@@ -282,7 +282,7 @@ fn format_intersection(
     };
 
     // Wrap intersection types with Identity<> for better TypeScript inference
-    if fragment_spreads.len() > 1 || (ctx.fragment_masking.is_enabled() && !fields.is_empty()) {
+    if fragment_spreads.len() > 1 || (ctx.fragment_masking().is_enabled() && !fields.is_empty()) {
         format!("Identity<{}>", result)
     } else {
         result

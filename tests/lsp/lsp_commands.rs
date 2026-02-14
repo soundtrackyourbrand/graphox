@@ -1,6 +1,6 @@
 use crate::support::{self, create_initialized_lsp_service, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphox::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
+use graphox::{Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::{Duration, sleep};
@@ -16,18 +16,15 @@ async fn test_lsp_command_clear_cache() {
 
     let base_dir = scenario.write_files().unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
 
@@ -117,19 +114,15 @@ async fn test_lsp_command_run_codegen() {
     let base_dir = scenario.write_files().unwrap();
     let output_dir = "generated";
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            output_dir: Some(output_dir.to_string()),
-            codegen: None, // This test needs codegen enabled
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_output_dir(output_dir.to_string())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

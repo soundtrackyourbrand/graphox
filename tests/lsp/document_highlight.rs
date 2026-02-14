@@ -10,8 +10,8 @@ async fn test_document_highlight_variable_in_operation() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! name: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
     // Ensure options match previous test
-    config.enable_schema_cache = Some(true);
-    config.lsp_automatic_codegen = Some(false);
+    config = config.with_enable_schema_cache(true);
+    config = config.with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -66,8 +66,8 @@ async fn test_document_highlight_variable_in_operation() {
 async fn test_document_highlight_variable_across_fragments_same_file() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! name: String age: Int }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.enable_schema_cache = Some(true);
-    config.lsp_automatic_codegen = Some(false);
+    config = config.with_enable_schema_cache(true);
+    config = config.with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -133,8 +133,8 @@ query GetUser($id: ID!, $skip|Name: Boolean!) { user(id: $id) { ...UserFields } 
 async fn test_document_highlight_variable_in_tsx() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! name: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.{graphql,tsx}");
-    config.enable_schema_cache = Some(true);
-    config.lsp_automatic_codegen = Some(false);
+    config = config.with_enable_schema_cache(true);
+    config = config.with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

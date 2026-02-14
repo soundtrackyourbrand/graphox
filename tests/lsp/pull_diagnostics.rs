@@ -4,7 +4,7 @@ use crate::support::{
 use futures_util::StreamExt;
 use graphox::{
     Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+    config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
@@ -25,17 +25,14 @@ async fn test_pull_diagnostics_basic() {
     let _schema_path = base_dir.join("schema.graphql");
     let query_path = base_dir.join("query.graphql");
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = create_lsp_service_with_socket(config);
 
@@ -133,18 +130,15 @@ async fn test_pull_diagnostics_unchanged() {
     let _schema_path = base_dir.join("schema.graphql");
     let query_path = base_dir.join("query.graphql");
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_service(config);
 
@@ -235,17 +229,14 @@ async fn test_workspace_diagnostics() {
     let query1_path = base_dir.join("query1.graphql");
     let query2_path = base_dir.join("query2.graphql");
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("*.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_service(config);
 
@@ -339,18 +330,15 @@ async fn test_fallback_to_push_diagnostics() {
     let _schema_path = base_dir.join("schema.graphql");
     let query_path = base_dir.join("query.graphql");
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = create_lsp_service_with_socket(config);
 

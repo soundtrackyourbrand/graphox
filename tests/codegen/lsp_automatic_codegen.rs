@@ -1,6 +1,6 @@
 use crate::support;
 use futures_util::StreamExt;
-use graphox::{Config, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
+use graphox::{Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
@@ -24,18 +24,15 @@ async fn test_lsp_automatic_codegen() {
     let query_text = "query GetMe { me { id } }";
     fs::write(&query_path, query_text).unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            ..Default::default()
-        }],
-        lsp_automatic_codegen: Some(true),
-        lsp_codegen_throttle_ms: Some(50),
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
@@ -214,27 +211,22 @@ async fn test_lsp_automatic_codegen_disabled() {
     let disabled_query_text = "query GetUsers { users { id name } }";
     fs::write(&disabled_query_path, disabled_query_text).unwrap();
 
-    let config = Config {
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("enabled.graphql".to_string()),
-                codegen: Some(true), // Explicitly enabled
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("disabled.graphql".to_string()),
-                codegen: Some(false), // Disabled
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("enabled.graphql".to_string()))
+                .with_codegen(CodegenConfig::enabled()), // Explicitly enabled
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("disabled.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()), // Disabled
         ],
-        lsp_automatic_codegen: Some(true),
-        lsp_codegen_throttle_ms: Some(50),
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        ..Config::new_empty()
-    };
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
@@ -428,19 +420,16 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
     let query_text = "query GetMe { me { id } }";
     fs::write(&query_path, query_text).unwrap();
 
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("query.graphql".to_string()),
-            output_dir: Some("gen".to_string()),
-            ..Default::default()
-        }],
-        lsp_automatic_codegen: Some(true),
-        lsp_codegen_throttle_ms: Some(50),
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.to_path_buf(),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("query.graphql".to_string()))
+            .with_output_dir("gen".to_string())],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

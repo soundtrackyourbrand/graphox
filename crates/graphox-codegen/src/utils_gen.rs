@@ -282,7 +282,7 @@ pub fn generate_type_policies(schema: &apollo_compiler::validation::Valid<Schema
 
 pub fn emit_permission_data_content(
     schema: &apollo_compiler::validation::Valid<Schema>,
-    _scalars: &Option<HashMap<String, String>>,
+    _scalars: &HashMap<String, String>,
     schema_import: &Option<String>,
 ) -> String {
     let mut output = String::with_capacity(2048);

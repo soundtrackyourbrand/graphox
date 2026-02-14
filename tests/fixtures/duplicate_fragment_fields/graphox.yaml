@@ -1,4 +1,5 @@
-fragment_masking: enabled
+codegen:
+  fragment_masking: enabled
 
 projects:
   - schema: "schema.graphql"

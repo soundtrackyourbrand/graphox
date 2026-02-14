@@ -105,19 +105,20 @@ fn generate_workspace(base_dir: &Path, projects_count: usize, files_per_project:
             fs::write(file_path, content).unwrap();
         }
 
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Single(format!("project_{}/schema.graphql", i)),
-            include: GlobPattern::Single(format!("project_{}/**/*.graphql", i)),
-            ..Default::default()
-        });
+        projects.push(
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single(format!(
+                    "project_{}/schema.graphql",
+                    i
+                )))
+                .with_include(GlobPattern::Single(format!("project_{}/**/*.graphql", i))),
+        );
     }
 
-    Config {
-        projects,
-        base_dir: base_dir.to_path_buf(),
-        enable_schema_cache: Some(true),
-        ..Default::default()
-    }
+    Config::new_empty()
+        .with_projects(projects)
+        .with_base_dir(base_dir.to_path_buf())
+        .with_enable_schema_cache(true)
 }
 
 fn generate_nested_query(nesting: usize, _max_nesting: usize) -> String {

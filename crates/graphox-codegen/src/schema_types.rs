@@ -1,15 +1,15 @@
 use ahash::AHashMap as HashMap;
 use apollo_compiler::Schema;
 use apollo_compiler::schema::ExtendedType;
-use graphox_core::config::EmitExtensions;
+use graphox_core::config::CodegenConfig;
 use std::path::{Path, PathBuf};
 
-use crate::context::{CodegenContext, FragmentMasking, TypeCache};
+use crate::context::{CodegenContext, TypeCache};
 use crate::helpers::{format_jsdoc, get_interface_implementors, gql_type_to_ts_with_names};
 
 pub fn generate_schema_types(
     schema: &apollo_compiler::validation::Valid<Schema>,
-    scalars: &Option<HashMap<String, String>>,
+    scalars: &HashMap<String, String>,
 ) -> String {
     // Pre-allocate with larger capacity for schema types
     let mut output = String::with_capacity(8192);
@@ -22,6 +22,7 @@ pub fn generate_schema_types(
     let empty_type_only_map = HashMap::default();
     let dummy_cache = TypeCache::new();
     let empty_type_imports = HashMap::default();
+    let dummy_config = CodegenConfig::default();
     let dummy_ctx = CodegenContext::new(
         schema,
         &empty_path_map,
@@ -35,18 +36,8 @@ pub fn generate_schema_types(
         false,
         &empty_deps,
         &dummy_cache,
-        "Document",
-        "Variables",
-        "",
-        "",
-        "Query",
-        "Mutation",
-        "Subscription",
-        graphox_core::config::NamingConvention::default(),
-        FragmentMasking::Disabled,
+        &dummy_config,
         "./fragment-masking".to_string(),
-        EmitExtensions::None,
-        graphox_core::apollo_ast::AstEmitConfig::minimal(),
         PathBuf::new(),
     );
 
@@ -256,9 +247,7 @@ pub fn generate_schema_types(
                     });
                     output.push_str(&format_jsdoc(scalar.description.as_deref(), deprecation, 0));
 
-                    let ts_type = if let Some(config_scalars) = scalars
-                        && let Some(mapped) = config_scalars.get(name.as_str())
-                    {
+                    let ts_type = if let Some(mapped) = scalars.get(name.as_str()) {
                         mapped.to_string()
                     } else {
                         "any".to_string()

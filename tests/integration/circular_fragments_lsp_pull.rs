@@ -31,7 +31,7 @@ async fn test_lsp_pull_circular_fragments() {
             output_dir: None,
             import: None,
             emit_permission_data: None,
-            codegen: Some(false),
+            codegen: Some(CodegenConfig::disabled()),
         }],
         base_dir: base_dir.clone(),
         lsp_automatic_codegen: Some(false),

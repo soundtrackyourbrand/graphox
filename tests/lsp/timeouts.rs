@@ -25,11 +25,10 @@ async fn test_lsp_request_timeout() {
     let (dir, mut config) = make_temp_project_with_schema(&schema_content, "*.graphql");
 
     // Configure with a very short timeout (10ms) to ensure we hit it
-    config.timeouts = Some(TimeoutConfig {
-        workspace_scan_ms: 60000, // Keep workspace scan long
-        lsp_request_ms: 10,       // Very short timeout for LSP requests
-    });
-    config.enable_schema_cache = Some(false); // Disable cache to ensure slower operations
+    config = config.with_timeouts(TimeoutConfig::default()
+        .with_workspace_scan_ms(60000) // Keep workspace scan long
+        .with_lsp_request_ms(10));       // Very short timeout for LSP requests
+    config = config.with_enable_schema_cache(false); // Disable cache to ensure slower operations
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -77,11 +76,10 @@ async fn test_workspace_scan_timeout() {
     }
 
     // Configure with a very short workspace scan timeout (5ms) to ensure we hit it
-    config.timeouts = Some(TimeoutConfig {
-        workspace_scan_ms: 5, // Very short timeout to trigger timeout
-        lsp_request_ms: 1000,
-    });
-    config.enable_schema_cache = Some(false);
+    config = config.with_timeouts(TimeoutConfig::default()
+        .with_workspace_scan_ms(5) // Very short timeout to trigger timeout
+        .with_lsp_request_ms(1000));
+    config = config.with_enable_schema_cache(false);
 
     let (mut service, _) = create_service(config);
 

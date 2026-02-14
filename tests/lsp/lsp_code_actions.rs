@@ -9,8 +9,8 @@ use tower_lsp::lsp_types::*;
 async fn test_lsp_smart_extract_fragment() {
     let schema = "type User { id: ID! name: String } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "query.graphql");
-    config.enable_schema_cache = Some(true);
-    config.lsp_automatic_codegen = Some(false);
+    config = config.with_enable_schema_cache(true);
+    config = config.with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -56,8 +56,8 @@ async fn test_lsp_smart_extract_fragment() {
 async fn test_lsp_smart_extract_field() {
     let schema = "type User { id: ID! name: String } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "query.graphql");
-    config.enable_schema_cache = Some(true);
-    config.lsp_automatic_codegen = Some(false);
+    config = config.with_enable_schema_cache(true);
+    config = config.with_lsp_automatic_codegen(false);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -108,10 +108,7 @@ async fn test_lsp_required_field_code_action() {
 
     let schema = "type User { id: ID! name: String } type Query { me: User requestId: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "query.graphql");
-    config.rules = Some(RulesConfig {
-        required_fields: Some(required_fields),
-        ..RulesConfig::default()
-    });
+    config = config.with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

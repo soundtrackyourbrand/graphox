@@ -30,13 +30,7 @@ fn test_required_field_always_true() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -71,13 +65,7 @@ fn test_required_field_missing_always_true() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -114,13 +102,7 @@ fn test_required_field_always_false() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(false));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -156,13 +138,7 @@ fn test_required_field_specific_operation_query() {
         RequiredFieldRule::Operations(vec!["query".to_string()]),
     );
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -208,13 +184,7 @@ fn test_required_field_specific_operation_mutation_not_required() {
         RequiredFieldRule::Operations(vec!["query".to_string()]),
     );
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
     assert_no_diagnostics(&diagnostics);
@@ -234,13 +204,7 @@ fn test_no_required_fields_config() {
     let doc = create_doc("file:///test.graphql", text);
 
     // Create config with NO required field rule
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: None,
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default());
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -276,13 +240,7 @@ fn test_required_field_case_sensitive() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("USERS".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -318,13 +276,7 @@ fn test_multiple_required_fields() {
     required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
     required_fields.insert("posts".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -382,13 +334,7 @@ fn test_required_field_subscription() {
         RequiredFieldRule::Operations(vec!["subscription".to_string()]),
     );
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
     assert_no_diagnostics(&diagnostics);
@@ -419,13 +365,7 @@ fn test_required_field_multiple_operations_missing() {
         RequiredFieldRule::Operations(vec!["mutation".to_string()]),
     );
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -456,13 +396,7 @@ fn test_required_field_not_in_schema() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("nonexistent".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     // Should not report required field diagnostic since the field doesn't exist in schema
     // (User can't select a field that doesn't exist - they'd get a schema error instead)
@@ -489,13 +423,7 @@ fn test_required_field_partial_selection_with_alias() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -547,13 +475,7 @@ fn test_required_field_inline_fragment() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -602,13 +524,7 @@ fn test_required_field_inline_fragment_partial_coverage() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -654,13 +570,7 @@ fn test_required_field_nested_with_inline_fragment() {
     let mut required_fields = AHashMap::default();
     required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
 
-    let config = Config {
-        rules: Some(RulesConfig {
-            required_fields: Some(required_fields),
-            ..RulesConfig::default()
-        }),
-        ..Default::default()
-    };
+    let config = Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 

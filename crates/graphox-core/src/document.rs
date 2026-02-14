@@ -1129,7 +1129,7 @@ impl DocumentState {
                                         .cloned();
                                 }
                             }
-                            "inline_fragment" => {
+                            "inline_fragment" | "fragment_definition" => {
                                 if let Some(type_name) =
                                     self.get_fragment_type_condition(parent, offset)
                                 {
@@ -1140,18 +1140,16 @@ impl DocumentState {
                         }
                     }
                 }
-                "selection" => {
-                    let mut walker = node.walk();
-                    for child in node.children(&mut walker) {
-                        if child.kind() == "inline_fragment"
-                            && let Some(type_name) = self.get_fragment_type_condition(child, offset)
-                        {
-                            current_type = schema.types.get(type_name.as_str()).cloned();
-                        }
-                    }
-                }
-                "inline_fragment" => {
-                    if let Some(type_name) = self.get_fragment_type_condition(node, offset) {
+                "selection" | "inline_fragment" => {
+                    let target_node = if kind == "selection" {
+                        self.find_child_by_kind(node, "inline_fragment")
+                    } else {
+                        Some(node)
+                    };
+
+                    if let Some(inline) = target_node
+                        && let Some(type_name) = self.get_fragment_type_condition(inline, offset)
+                    {
                         current_type = schema.types.get(type_name.as_str()).cloned();
                     }
                 }

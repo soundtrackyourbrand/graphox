@@ -45,11 +45,11 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let mut project_timings = Vec::new();
     let mut schema_type_timings = Vec::new();
 
-    for (project, project_meta) in config.projects.iter().zip(&workspace_metadata.projects) {
+    for (project, project_meta) in config.projects().iter().zip(&workspace_metadata.projects) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
-        let valid_schema = match schema::load_and_validate_schema(&config.base_dir, &project.schema)
+        let valid_schema = match schema::load_and_validate_schema(config.base_dir(), project.schema())
         {
             Ok(v) => v,
             Err(e) => {
@@ -91,34 +91,38 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                 if let Some(doc) = doc_opt {
                     let mut type_imports = ahash::AHashMap::default();
                     let project_schema_files: ahash::AHashSet<_> =
-                        project.schema.files().into_iter().collect();
+                        project.schema().files().into_iter().collect();
 
-                    let schema_import = config.schema_types.as_ref().and_then(|sts| {
-                        let mut matches: Vec<_> = sts
+                    let schema_types = config.schema_types();
+                    let schema_import = if !schema_types.is_empty() {
+                        let mut matches: Vec<_> = schema_types
                             .iter()
                             .filter(|st| {
-                                let st_files = st.schema.files();
+                                let st_files = st.schema().files();
                                 st_files.iter().all(|f| project_schema_files.contains(f))
                             })
                             .collect();
 
-                        matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
+                        matches.sort_by_key(|st| std::cmp::Reverse(st.schema().files().len()));
 
                         for st in matches.iter().rev() {
-                            if let Some(import_path) = &st.import
+                            if let Some(import_path) = st.import()
                                 && let Ok(st_schema) =
-                                    graphox_core::schema::load_schema(&config.base_dir, &st.schema)
+                                    graphox_core::schema::load_schema(config.base_dir(), st.schema())
                             {
                                 for type_name in st_schema.types.keys() {
-                                    type_imports.insert(type_name.to_string(), import_path.clone());
+                                    type_imports.insert(type_name.to_string(), import_path.to_string());
                                 }
                             }
                         }
 
-                        matches.first().and_then(|st| st.import.clone())
-                    });
+                        matches.first().and_then(|st| st.import().map(String::from))
+                    } else {
+                        None
+                    };
 
                     let abs_out_path = path.to_path_buf();
+                    let codegen_config = graphox_core::config::CodegenConfig::default();
 
                     let ctx = codegen::CodegenContext::new(
                         &valid_schema,
@@ -127,24 +131,14 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         &project_context.fragment_to_type_only,
                         all_fragments,
                         path,
-                        &config.scalars,
+                        config.scalars(),
                         &schema_import,
                         &type_imports,
-                        config.generate_ast_for_fragments.unwrap_or(false),
+                        codegen_config.generate_ast_for_fragments(),
                         &project_context.fragment_dependencies,
                         &shared_type_cache,
-                        "Document",
-                        "Variables",
-                        "",
-                        "",
-                        "Query",
-                        "Mutation",
-                        "Subscription",
-                        graphox_core::config::NamingConvention::default(),
-                        codegen::FragmentMasking::Disabled,
+                        &codegen_config,
                         "./fragment-masking".to_string(),
-                        graphox_core::config::EmitExtensions::None,
-                        graphox_core::apollo_ast::AstEmitConfig::minimal(),
                         abs_out_path.clone(),
                     );
                     let g_start = Instant::now();
@@ -209,7 +203,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let (cache_hits, cache_misses) = shared_type_cache.stats();
         let cache_size = shared_type_cache.len();
 
-        project_timings.push((project.include.as_key(), project_total_start.elapsed()));
+        project_timings.push((project.include().as_key(), project_total_start.elapsed()));
 
         if cache_hits + cache_misses > 0 {
             let hit_rate = if cache_hits + cache_misses > 0 {
@@ -227,16 +221,17 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         }
     }
 
-    if let Some(schema_types) = &config.schema_types {
+    let schema_types = config.schema_types();
+    if !schema_types.is_empty() {
         for st in schema_types {
             let st_start = Instant::now();
-            if let Ok(valid_schema) = schema::load_and_validate_schema(&config.base_dir, &st.schema)
+            if let Ok(valid_schema) = schema::load_and_validate_schema(config.base_dir(), st.schema())
             {
                 let g_start = Instant::now();
-                let _ts_code = codegen::generate_schema_types(&valid_schema, &config.scalars);
+                let _ts_code = codegen::generate_schema_types(&valid_schema, config.scalars());
                 ts_gen_time += g_start.elapsed();
             }
-            schema_type_timings.push((st.output.clone(), st_start.elapsed()));
+            schema_type_timings.push((st.output().to_string(), st_start.elapsed()));
         }
     }
 

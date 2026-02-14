@@ -2,8 +2,9 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::apollo_ast::AstEmitConfig;
-use graphox_core::config::{Config, EmitExtensions, GlobPattern, NamingConvention, SchemaSource};
+use graphox_core::config::{
+    CodegenConfig, Config, EmitExtensions, GlobPattern, SchemaSource,
+};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
 use graphox_core::schema_cache;
@@ -17,25 +18,15 @@ pub struct CodegenParams<'a> {
     pub include: &'a GlobPattern,
     pub project_files: &'a [PathBuf],
     pub output_dir: Option<&'a Path>,
-    pub scalars: &'a Option<HashMap<String, String>>,
+    pub scalars: &'a HashMap<String, String>,
     pub schema_import: &'a Option<String>,
     pub type_imports: &'a HashMap<String, String>,
     pub project_context: &'a ProjectContext,
     pub global_metadata: &'a [FragmentMetadata],
     pub generate_ast_for_fragments: bool,
     pub workspace_documents: &'a HashMap<PathBuf, DocumentState>,
-    pub emit_permission_data: bool,
-    pub document_suffix: &'a str,
-    pub variables_suffix: &'a str,
-    pub fragment_suffix: &'a str,
-    pub fragment_document_suffix: &'a str,
-    pub query_suffix: &'a str,
-    pub mutation_suffix: &'a str,
-    pub subscription_suffix: &'a str,
-    pub naming_convention: NamingConvention,
-    pub fragment_masking: codegen::FragmentMasking,
+    pub codegen_config: &'a CodegenConfig,
     pub emit_extensions: graphox_core::config::EmitExtensions,
-    pub ast_emit_config: graphox_core::apollo_ast::AstEmitConfig,
 }
 
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
@@ -53,11 +44,11 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
 
-        let gitignore = utils::get_gitignore_matcher(&config.base_dir);
+        let gitignore = utils::get_gitignore_matcher(&config.base_dir());
         let mut output_dirs = Vec::new();
-        for p in &config.projects {
-            if let Some(out) = &p.output_dir {
-                let out_dir = config.base_dir.join(out);
+        for p in config.projects() {
+            if let Some(out) = p.output_dir() {
+                let out_dir = config.base_dir().join(out);
                 if let Ok(canon) = out_dir.canonicalize() {
                     output_dirs.push(canon);
                 } else {
@@ -67,7 +58,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
         }
 
         let config_tx_clone = config_tx.clone();
-        let base_dir_for_watcher = config.base_dir.clone();
+        let base_dir_for_watcher = config.base_dir();
         let debounce_ms = config.codegen_watch_debounce_ms();
         let mut debouncer = notify_debouncer_mini::new_debouncer(
             std::time::Duration::from_millis(debounce_ms),
@@ -122,9 +113,9 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                 .ok();
         }
 
-        for project in &config.projects {
-            for pattern in project.include.patterns() {
-                let watch_path = config.base_dir.join(utils::get_glob_root(&pattern));
+        for project in config.projects() {
+            for pattern in project.include().patterns() {
+                let watch_path = config.base_dir().join(utils::get_glob_root(&pattern));
                 debouncer
                     .watcher()
                     .watch(&watch_path, notify::RecursiveMode::Recursive)
@@ -132,24 +123,25 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
             }
         }
 
-        for project in &config.projects {
-            for file in project.schema.files() {
+        for project in config.projects() {
+            for file in project.schema().files() {
                 debouncer
                     .watcher()
                     .watch(
-                        &config.base_dir.join(file),
+                        &config.base_dir().join(file),
                         notify::RecursiveMode::NonRecursive,
                     )
                     .ok();
             }
         }
-        if let Some(schema_types) = &config.schema_types {
+        let schema_types = config.schema_types();
+        if !schema_types.is_empty() {
             for st in schema_types {
-                for file in st.schema.files() {
+                for file in st.schema().files() {
                     debouncer
                         .watcher()
                         .watch(
-                            &config.base_dir.join(file),
+                            &config.base_dir().join(file),
                             notify::RecursiveMode::NonRecursive,
                         )
                         .ok();
@@ -162,7 +154,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                 _ = config_rx.recv() => {
                     println!("{}", "\nConfiguration file changed, reloading...".bright_yellow());
 
-                    if let Ok(Some(new_config)) = Config::load_from_dir(&config.base_dir) {
+                    if let Ok(Some(new_config)) = Config::load_from_dir(&config.base_dir()) {
                         println!("{}", "Configuration reloaded successfully".bright_green());
                         config = new_config;
                         continue 'watch_loop;
@@ -203,7 +195,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     let global_metadata = &workspace_metadata.fragments;
 
     for (project_index, (project, project_meta)) in cfg
-        .projects
+        .projects()
         .iter()
         .zip(&workspace_metadata.projects)
         .enumerate()
@@ -215,45 +207,46 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         let project_files: Vec<PathBuf> = project_meta
             .files
             .iter()
-            .map(|p| cfg.base_dir.join(p))
+            .map(|p| cfg.base_dir().join(p))
             .collect();
 
         if project_files.is_empty() {
             continue;
         }
 
-        let project_schema_files: HashSet<_> = project.schema.files().into_iter().collect();
+        let project_schema_files: HashSet<_> = project.schema().files().into_iter().collect();
 
-        let project_output_dir = project.output_dir.as_deref().map(Path::new);
+        let project_output_dir = project.output_dir().map(Path::new);
 
         let mut type_imports = HashMap::default();
-        let mut schema_import = project.import.clone();
+        let mut schema_import = project.import().map(String::from);
 
-        if let Some(schema_types) = &cfg.schema_types {
+        let schema_types = cfg.schema_types();
+        if !schema_types.is_empty() {
             let mut matches: Vec<_> = schema_types
                 .iter()
                 .filter(|st| {
-                    let st_files = st.schema.files();
+                    let st_files = st.schema().files();
                     st_files.iter().all(|f| project_schema_files.contains(f))
                 })
                 .collect();
 
-            matches.sort_by_key(|st| std::cmp::Reverse(st.schema.files().len()));
+            matches.sort_by_key(|st| std::cmp::Reverse(st.schema().files().len()));
 
-            let project_abs_out_dir = project_output_dir.map(|d| cfg.base_dir.join(d));
+            let project_abs_out_dir = project_output_dir.map(|d| cfg.base_dir().join(d));
 
             // 2. Build the type_imports map
             for st in matches.iter().rev() {
-                if let Some(import_path) = &st.import
+                if let Some(import_path) = st.import()
                     && let Ok(st_schema) =
-                        schema::load_and_validate_schema(&cfg.base_dir, &st.schema)
+                        schema::load_and_validate_schema(cfg.base_dir(), st.schema())
                 {
-                    let mut final_import_path = import_path.clone();
+                    let mut final_import_path = import_path.to_string();
 
                     if (final_import_path == "." || final_import_path == "./")
                         && let Some(abs_out_dir) = &project_abs_out_dir
                     {
-                        let abs_st_output = cfg.base_dir.join(&st.output);
+                        let abs_st_output = cfg.base_dir().join(st.output());
                         if abs_st_output.parent() == Some(abs_out_dir) {
                             let rel = pathdiff::diff_paths(&abs_st_output, abs_out_dir)
                                 .unwrap_or_else(|| {
@@ -280,12 +273,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             if schema_import.is_none()
                 && let Some(st) = matches.first()
             {
-                let mut final_import_path = st.import.clone();
+                let mut final_import_path = st.import().map(String::from);
                 if let Some(import_path) = &final_import_path
                     && (import_path == "." || import_path == "./")
                     && let Some(abs_out_dir) = &project_abs_out_dir
                 {
-                    let abs_st_output = cfg.base_dir.join(&st.output);
+                    let abs_st_output = cfg.base_dir().join(st.output());
                     if abs_st_output.parent() == Some(abs_out_dir) {
                         let rel = pathdiff::diff_paths(&abs_st_output, abs_out_dir)
                             .unwrap_or_else(|| PathBuf::from(abs_st_output.file_name().unwrap()));
@@ -303,7 +296,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
         }
 
-        let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir, &project.schema) {
+        let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir(), &project.schema()) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{}", e.to_string().red());
@@ -315,9 +308,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         let project_context =
             Engine::resolve_project_context(&valid_schema, global_metadata, &project_files);
 
-        if !clean && project.emit_permission_data.unwrap_or(false) {
+        let project_codegen = cfg.get_codegen_config(Some(project));
+        if !clean && project_codegen.emit_permission_data() {
             if let Some(out_dir) = project_output_dir {
-                let out_dir_path = cfg.base_dir.join(out_dir);
+                let out_dir_path = cfg.base_dir().join(out_dir);
                 std::fs::create_dir_all(&out_dir_path).ok();
                 let permissions_path = out_dir_path.join("permissions.ts");
                 if verbose {
@@ -329,7 +323,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 }
                 let content = codegen::emit_permission_data_content(
                     &valid_schema,
-                    &cfg.scalars,
+                    cfg.scalars(),
                     &schema_import,
                 );
                 if let Err(e) = std::fs::write(&permissions_path, content) {
@@ -344,11 +338,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
         }
 
-        let pt_output = project.possible_types.as_ref();
-        let tp_output = project.type_policies.as_ref();
+        let pt_output = project.possible_types();
+        let tp_output = project.type_policies();
 
-        let pt_path = pt_output.map(|p| cfg.base_dir.join(p));
-        let tp_path = tp_output.map(|p| cfg.base_dir.join(p));
+        let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
+        let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
 
         match (&pt_path, &tp_path) {
             (Some(pt), Some(tp)) if pt == tp => {
@@ -401,90 +395,25 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
         }
 
-        let document_suffix = project
-            .document_suffix
-            .as_deref()
-            .or(cfg.document_suffix.as_deref())
-            .unwrap_or("Document");
-        let variables_suffix = project
-            .variables_suffix
-            .as_deref()
-            .or(cfg.variables_suffix.as_deref())
-            .unwrap_or("Variables");
-        let fragment_suffix = project
-            .fragment_suffix
-            .as_deref()
-            .or(cfg.fragment_suffix.as_deref())
-            .unwrap_or("");
-        let fragment_document_suffix = project
-            .fragment_document_suffix
-            .as_deref()
-            .or(cfg.fragment_document_suffix.as_deref())
-            .unwrap_or(document_suffix);
-        let query_suffix = project
-            .query_suffix
-            .as_deref()
-            .or(cfg.query_suffix.as_deref())
-            .unwrap_or("Query");
-        let mutation_suffix = project
-            .mutation_suffix
-            .as_deref()
-            .or(cfg.mutation_suffix.as_deref())
-            .unwrap_or("Mutation");
-        let subscription_suffix = project
-            .subscription_suffix
-            .as_deref()
-            .or(cfg.subscription_suffix.as_deref())
-            .unwrap_or("Subscription");
-        let naming_convention = project
-            .naming_convention
-            .clone()
-            .or_else(|| cfg.naming_convention.clone())
-            .unwrap_or_default();
+        let codegen_config = cfg.get_codegen_config(Some(project));
 
         let emit_extensions = cfg.get_emit_extensions(project);
         match execute_project_codegen_entry(
             CodegenParams {
-                base_dir: &cfg.base_dir,
-                source: &project.schema,
-                include: &project.include,
+                base_dir: cfg.base_dir(),
+                source: project.schema(),
+                include: project.include(),
                 project_files: &project_files,
                 output_dir: project_output_dir,
-                scalars: &cfg.scalars,
+                scalars: cfg.scalars(),
                 schema_import: &schema_import,
                 type_imports: &type_imports,
                 project_context: &project_context,
                 global_metadata,
-                generate_ast_for_fragments: project
-                    .generate_ast_for_fragments
-                    .or(cfg.generate_ast_for_fragments)
-                    .unwrap_or(false),
+                generate_ast_for_fragments: codegen_config.generate_ast_for_fragments(),
                 workspace_documents: &workspace_metadata.documents,
-                emit_permission_data: project.emit_permission_data.unwrap_or(false),
-                document_suffix,
-                variables_suffix,
-                fragment_suffix,
-                fragment_document_suffix,
-                query_suffix,
-                mutation_suffix,
-                subscription_suffix,
-                naming_convention,
-                fragment_masking: codegen::FragmentMasking::from_config(
-                    &project
-                        .fragment_masking
-                        .clone()
-                        .or(cfg.fragment_masking.clone()),
-                ),
+                codegen_config: &codegen_config,
                 emit_extensions,
-                ast_emit_config: AstEmitConfig::from_config(
-                    project.emit_ast_directives.or(cfg.emit_ast_directives),
-                    project.emit_ast_aliases.or(cfg.emit_ast_aliases),
-                    project.emit_ast_arguments.or(cfg.emit_ast_arguments),
-                    project
-                        .emit_ast_variable_defaults
-                        .or(cfg.emit_ast_variable_defaults),
-                    project.inline_fragments.or(cfg.inline_fragments),
-                ),
             },
             verbose,
             clean,
@@ -499,9 +428,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         }
     }
 
-    if let Some(schema_types) = &cfg.schema_types {
+    let schema_types = cfg.schema_types();
+    if !schema_types.is_empty() {
         for st in schema_types {
-            let abs_output = cfg.base_dir.join(&st.output);
+            let abs_output = cfg.base_dir().join(st.output());
             if clean {
                 if abs_output.exists() {
                     if let Err(e) = std::fs::remove_file(&abs_output) {
@@ -521,12 +451,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     }
                 }
             } else {
-                println!("Generating types for schema: {}", st.output.blue());
+                println!("Generating types for schema: {}", st.output().blue());
                 if !execute_schema_codegen(
-                    &cfg.base_dir,
-                    &st.schema,
+                    cfg.base_dir(),
+                    st.schema(),
                     &abs_output.to_string_lossy(),
-                    &cfg.scalars,
+                    cfg.scalars(),
                     verbose,
                 )
                 .await
@@ -534,12 +464,12 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     success = false;
                 }
 
-                if let Ok(schema) = schema::load_and_validate_schema(&cfg.base_dir, &st.schema) {
-                    let pt_output = st.possible_types.as_ref();
-                    let tp_output = st.type_policies.as_ref();
+                if let Ok(schema) = schema::load_and_validate_schema(&cfg.base_dir(), &st.schema()) {
+                    let pt_output = st.possible_types();
+                    let tp_output = st.type_policies();
 
-                    let pt_path = pt_output.map(|p| cfg.base_dir.join(p));
-                    let tp_path = tp_output.map(|p| cfg.base_dir.join(p));
+                    let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
+                    let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
 
                     match (&pt_path, &tp_path) {
                         (Some(pt), Some(tp)) if pt == tp => {
@@ -626,7 +556,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         project_indices.extend(project_fragments.keys().cloned());
 
         for project_idx in project_indices {
-            let Some(project) = cfg.projects.get(project_idx) else {
+            let Some(project) = cfg.projects().get(project_idx) else {
                 continue;
             };
 
@@ -639,8 +569,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 .cloned()
                 .unwrap_or_default();
 
-            let out_dir = project.output_dir.as_deref().unwrap_or("__generated__");
-            let out_dir_path = cfg.base_dir.join(out_dir);
+            let out_dir = project.output_dir().unwrap_or("__generated__");
+            let out_dir_path = cfg.base_dir().join(out_dir);
             let canon_out_dir_path = out_dir_path
                 .canonicalize()
                 .unwrap_or_else(|_| out_dir_path.clone());
@@ -658,34 +588,19 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             if let std::collections::btree_map::Entry::Vacant(e) =
                 dir_to_config.entry(canon_out_dir_path)
             {
-                let fragment_masking = codegen::FragmentMasking::from_config(
-                    &project
-                        .fragment_masking
-                        .clone()
-                        .or(cfg.fragment_masking.clone()),
+                let project_codegen_config = cfg.get_codegen_config(Some(project));
+                let fragment_masking = codegen::FragmentMasking::from_core_config(
+                    &project_codegen_config.fragment_masking(),
                 );
-                let document_suffix = project
-                    .document_suffix
-                    .as_deref()
-                    .or(cfg.document_suffix.as_deref())
-                    .unwrap_or("Document")
-                    .to_string();
-                let variables_suffix = project
-                    .variables_suffix
-                    .as_deref()
-                    .or(cfg.variables_suffix.as_deref())
-                    .unwrap_or("Variables")
-                    .to_string();
+                let document_suffix = project_codegen_config.document_suffix().to_string();
+                let variables_suffix = project_codegen_config.variables_suffix().to_string();
                 e.insert((
                     fragment_masking,
                     document_suffix,
                     variables_suffix,
                     cfg.get_emit_extensions(project),
-                    project
-                        .generate_ast_for_fragments
-                        .or(cfg.generate_ast_for_fragments)
-                        .unwrap_or(false),
-                    project.re_exports.or(cfg.re_exports).unwrap_or(false),
+                    project_codegen_config.generate_ast_for_fragments(),
+                    project_codegen_config.re_exports(),
                 ));
             }
         }
@@ -693,13 +608,23 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         for (out_dir_path, mut ops) in dir_to_ops.into_iter() {
             let mut frags = dir_to_frags.remove(&out_dir_path).unwrap_or_default();
             let (
-                fragment_masking,
+                _fragment_masking,
                 doc_suffix,
                 var_suffix,
                 emit_extensions,
                 generate_ast,
                 re_exports,
             ) = dir_to_config.get(&out_dir_path).unwrap();
+
+            let project_codegen_config = cfg.get_codegen_config(None);
+            let codegen_config = CodegenConfig::enabled()
+                .with_document_suffix(doc_suffix.clone())
+                .with_variables_suffix(var_suffix.clone())
+                .with_fragment_masking(project_codegen_config.fragment_masking().clone())
+                .with_emit_extensions(*emit_extensions)
+                .with_generate_ast_for_fragments(*generate_ast)
+                .with_re_exports(*re_exports)
+                .with_emit_permission_data(project_codegen_config.emit_permission_data());
 
             // Deduplicate operations by name and source
             ops.sort_by(|a, b| {
@@ -739,12 +664,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 &out_dir_path,
                 &ops,
                 &frags,
-                doc_suffix,
-                var_suffix,
-                fragment_masking,
-                *emit_extensions,
-                *generate_ast,
-                *re_exports,
+                &codegen_config,
+                codegen_config.re_exports(),
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
                 eprintln!(
@@ -819,7 +740,7 @@ async fn execute_schema_codegen(
     base_dir: &Path,
     source: &SchemaSource,
     output_path: &str,
-    scalars: &Option<HashMap<String, String>>,
+    scalars: &HashMap<String, String>,
     verbose: bool,
 ) -> bool {
     let valid_schema = match schema::load_and_validate_schema(base_dir, source) {
@@ -957,21 +878,11 @@ async fn generate_project_files(
                 params.scalars,
                 params.schema_import,
                 params.type_imports,
-                params.generate_ast_for_fragments,
+                params.codegen_config.generate_ast_for_fragments(),
                 &params.project_context.fragment_dependencies,
                 &shared_type_cache,
-                params.document_suffix,
-                params.variables_suffix,
-                params.fragment_suffix,
-                params.fragment_document_suffix,
-                params.query_suffix,
-                params.mutation_suffix,
-                params.subscription_suffix,
-                params.naming_convention.clone(),
-                params.fragment_masking.clone(),
+                params.codegen_config,
                 masking_import_path,
-                params.emit_extensions,
-                params.ast_emit_config.clone(),
                 abs_out_path.clone(),
             );
 
@@ -1047,11 +958,15 @@ async fn generate_project_files(
     if success && let Some(out_dir) = params.output_dir {
         let out_dir_path = params.base_dir.join(out_dir);
         std::fs::create_dir_all(&out_dir_path).ok();
-        if params.fragment_masking.is_enabled() {
+        let fragment_masking = codegen::FragmentMasking::from_core_config(
+            &params
+                .codegen_config
+                .fragment_masking(),
+        );
+        if fragment_masking.is_enabled() {
             let masking_path = out_dir_path.join("fragment-masking.ts");
-            let masking_content = codegen::generate_fragment_masking_file(
-                params.fragment_masking.unmask_function_name(),
-            );
+            let masking_content =
+                codegen::generate_fragment_masking_file(fragment_masking.unmask_function_name());
             if let Err(e) = std::fs::write(&masking_path, masking_content) {
                 eprintln!("{}: {}", "Failed to write fragment-masking".red(), e);
                 success = false;
@@ -1060,7 +975,7 @@ async fn generate_project_files(
 
         let index_path = out_dir_path.join("index.ts");
         let index_content =
-            codegen::generate_index_content(&params.fragment_masking, params.emit_extensions);
+            codegen::generate_index_content(&fragment_masking, params.emit_extensions);
         if let Err(e) = std::fs::write(&index_path, index_content) {
             eprintln!("{}: {}", "Failed to write index.ts".red(), e);
             success = false;

@@ -59,7 +59,7 @@ pub struct WorkspaceScanParams {
 /// It runs in a separate tokio task to avoid blocking the LSP during initialization.
 pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
     tokio::spawn(async move {
-        let timeout_ms = params.config.get_timeouts().workspace_scan_ms;
+        let timeout_ms = params.config.get_timeouts().workspace_scan_ms();
         let start = std::time::Instant::now();
         let client = params.client.clone();
 

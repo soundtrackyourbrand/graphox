@@ -52,8 +52,8 @@ fn create_test_config(dir: &std::path::Path) -> Config {
         "#;
 
     let (_, mut config) = make_temp_project_with_schema(schema_text, "**/*.graphql");
-    config.base_dir = dir.to_path_buf();
-    config.enable_schema_cache = Some(false);
+    config = config.with_base_dir(dir.to_path_buf());
+    config = config.with_enable_schema_cache(false);
     config
 }
 

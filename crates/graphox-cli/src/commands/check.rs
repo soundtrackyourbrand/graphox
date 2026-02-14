@@ -35,7 +35,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
         let package_root = doc.package_root.clone();
         let project_import = cfg
             .get_project_for_path(&doc.uri.to_file_path().unwrap_or_default())
-            .and_then(|p| p.import.as_deref().map(Arc::from));
+            .and_then(|p| p.import().map(Arc::from));
 
         for frag in doc.fragments() {
             if frag.is_public {
@@ -56,12 +56,12 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
         }
     }
 
-    for (project_config, project_meta) in cfg.projects.iter().zip(&workspace_metadata.projects) {
-        reporter.report_project_start(&project_config.include.as_key());
+    for (project_config, project_meta) in cfg.projects().iter().zip(&workspace_metadata.projects) {
+        reporter.report_project_start(&project_config.include().as_key());
 
         if !execute_project_check(
-            &cfg.base_dir,
-            &project_config.schema,
+            cfg.base_dir(),
+            project_config.schema(),
             &project_meta.files,
             &workspace_metadata.documents,
             &global_used_fragments,
@@ -77,25 +77,23 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
     }
 
     // Check for duplicate operation names across all projects if the rule is enabled
-    if let Some(rules) = &config.rules
-        && let Some(true) = rules.unique_operation_name
-    {
+    if config.rules().unique_operation_name() {
         for (op_name, projects_map) in &workspace_metadata.operation_names_by_project {
             for (project_idx, paths) in projects_map {
                 if paths.len() > 1 {
                     success = false;
-                    let project_name = &cfg.projects[*project_idx].include.as_key();
+                    let project_name = cfg.projects()[*project_idx].include().as_key();
                     let display_paths: Vec<PathBuf> = paths
                         .iter()
                         .map(|path| {
-                            path.strip_prefix(&cfg.base_dir)
+                            path.strip_prefix(cfg.base_dir())
                                 .unwrap_or(path)
                                 .to_path_buf()
                         })
                         .collect();
                     let path_refs: Vec<&std::path::Path> =
                         display_paths.iter().map(|p| p.as_path()).collect();
-                    reporter.report_duplicate_operation(op_name, project_name, &path_refs);
+                    reporter.report_duplicate_operation(op_name, &project_name, &path_refs);
                 }
             }
         }

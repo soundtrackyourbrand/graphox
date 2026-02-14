@@ -133,7 +133,7 @@ async fn test_hover_schema_field() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -171,7 +171,7 @@ async fn test_hover_variable() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // 1. Open file with variable
@@ -358,7 +358,7 @@ async fn test_hover_builtin_typename() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = r#"
@@ -398,7 +398,7 @@ async fn test_hover_builtin_schema_fields() {
         "type Query { users: [User!]! } type User { id: ID! username: String! }",
         "**/*.graphql",
     );
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(dir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let text = r#"

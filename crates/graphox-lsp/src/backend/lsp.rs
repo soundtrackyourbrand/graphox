@@ -44,16 +44,15 @@ impl LanguageServer for Backend {
         // Check tracing configuration and log if enabled
         let tracing_msg = {
             let config = self.config.read().unwrap();
-            config.tracing.as_ref().and_then(|tracing| {
-                if tracing.enabled {
-                    Some(format!(
-                        "Performance tracing enabled (threshold: {}ms)",
-                        tracing.threshold_ms
-                    ))
-                } else {
-                    None
-                }
-            })
+            let tracing = config.tracing();
+            if tracing.enabled() {
+                Some(format!(
+                    "Performance tracing enabled (threshold: {}ms)",
+                    tracing.threshold_ms()
+                ))
+            } else {
+                None
+            }
         };
 
         if let Some(msg) = tracing_msg {
@@ -298,15 +297,12 @@ mod tests {
     #[tokio::test]
     #[ntest::timeout(3000)]
     async fn test_validate_all_documents_performance() {
-        let config = Config {
-            base_dir: std::env::current_dir().unwrap(),
-            projects: vec![ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GqlGlobPattern::Single("**/*.graphql".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
+        let config = Config::new_test(
+            std::env::current_dir().unwrap(),
+            vec![ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GqlGlobPattern::Single("**/*.graphql".to_string()))],
+        );
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
 
@@ -325,11 +321,7 @@ mod tests {
     #[tokio::test]
     #[ntest::timeout(3000)]
     async fn test_get_all_fragments_info_no_deadlock() {
-        let config = Config {
-            base_dir: std::env::current_dir().unwrap(),
-            projects: vec![],
-            ..Default::default()
-        };
+        let config = Config::new_test(std::env::current_dir().unwrap(), vec![]);
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));
         let backend = service.inner();

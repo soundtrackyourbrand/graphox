@@ -30,7 +30,7 @@ async fn test_completion_unclosed_variable() {
 async fn test_completion_variables() {
     let schema = "type Query { user(id: ID!): User } type User { id: ID! username: String! }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "test.graphql");
-    config.base_dir = dir.path().to_path_buf();
+    config = config.with_base_dir(dir.path().to_path_buf());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 

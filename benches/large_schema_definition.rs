@@ -47,21 +47,22 @@ fn generate_complex_workspace(
             fs::write(file_path, content).unwrap();
         }
 
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Single(format!("project_{}/schema.graphql", i)),
-            include: GlobPattern::Multiple(vec![format!("project_{}/**/*.graphql", i)]),
-            ..Default::default()
-        });
+        projects.push(
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single(format!(
+                    "project_{}/schema.graphql",
+                    i
+                )))
+                .with_include(GlobPattern::Multiple(vec![format!(
+                    "project_{}/**/*.graphql",
+                    i
+                )])),
+        );
     }
 
-    Config {
-        projects,
-        base_dir: base_dir.to_path_buf(),
-        lsp_automatic_codegen: None,
-        lsp_codegen_throttle_ms: None,
-        codegen_watch_debounce_ms: None,
-        ..Config::new_empty()
-    }
+    Config::new_empty()
+        .with_projects(projects)
+        .with_base_dir(base_dir.to_path_buf())
 }
 
 fn bench_complex_workspace_definition(c: &mut Criterion) {

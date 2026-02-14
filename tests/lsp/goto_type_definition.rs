@@ -10,7 +10,7 @@ use tower_lsp::lsp_types::*;
 async fn test_goto_type_definition_operation() {
     let schema = "type Query { user: User }\ntype User { id: ID! name: String }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
 
     // Enable automatic codegen mock (we'll manually create the codegen file for the test)
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
@@ -56,7 +56,7 @@ async fn test_goto_type_definition_operation() {
 async fn test_goto_type_definition_fragment_spread() {
     let schema = "type Query { user: User }\ntype User { id: ID! name: String }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
-    config.base_dir = tmpdir.path().to_path_buf();
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
@@ -64,8 +64,8 @@ async fn test_goto_type_definition_fragment_spread() {
     let frag_text = "fragment UserFields on User { id name }";
     let frag_uri = write_project_file(&tmpdir, "fragment.graphql", frag_text);
 
-    // Create fragment codegen
-    let frag_codegen_text = "export type UserFieldsFragment = { id: string, name: string };";
+    // Create fragment codegen - matching current default (no suffix)
+    let frag_codegen_text = "export type UserFields = { id: string, name: string };";
     let frag_codegen_path = tmpdir.path().join("fragment.graphql.codegen.ts");
     fs::write(&frag_codegen_path, frag_codegen_text).unwrap();
     let frag_codegen_uri =

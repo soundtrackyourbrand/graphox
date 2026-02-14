@@ -88,7 +88,7 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                             if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path() {
                                 let config = backend.config.read().unwrap();
                                 if let Some(proj) = config.get_project_for_path(&other_p)
-                                    && let Some(import) = &proj.import
+                                    && let Some(import) = proj.import()
                                 {
                                     value.push_str(
                                         "

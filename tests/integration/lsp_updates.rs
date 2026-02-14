@@ -2,7 +2,7 @@ use crate::support::{self, lsp_did_open, lsp_initialize_sequence, lsp_send_notif
 use futures_util::StreamExt;
 use graphox::{
     Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
+    config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
@@ -45,26 +45,21 @@ async fn test_lsp_fragment_collisions() {
     let base_dir = scenario.write_files().unwrap();
 
     // Use an explicit two-project config to match previous test semantics
-    let config = Config {
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("schema.graphql".to_string()),
-                include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_a/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_b/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
         ],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(
@@ -326,18 +321,15 @@ async fn test_lsp_fragment_rename_same_project() {
     let base_dir = scenario.write_files().unwrap();
 
     // Use an explicit config that includes all graphql files
-    let config = Config {
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+            .with_codegen(CodegenConfig::disabled())],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -502,26 +494,21 @@ async fn test_lsp_fragment_rename_cross_project() {
     let base_dir = scenario.write_files().unwrap();
 
     // Explicit two-project config like the original test
-    let config = Config {
-        projects: vec![
-            ProjectConfig {
-                schema: SchemaSource::Single("pkg_a/schema.graphql".to_string()),
-                include: GlobPattern::Single("pkg_a/**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
-            ProjectConfig {
-                schema: SchemaSource::Single("pkg_a/schema.graphql".to_string()),
-                include: GlobPattern::Single("pkg_b/**/*.graphql".to_string()),
-                codegen: Some(false),
-                ..Default::default()
-            },
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("pkg_a/schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_a/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("pkg_a/schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_b/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
         ],
-        enable_schema_cache: Some(true),
-        base_dir: base_dir.clone(),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    };
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));

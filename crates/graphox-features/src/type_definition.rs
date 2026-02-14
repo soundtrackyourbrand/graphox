@@ -60,7 +60,7 @@ pub fn resolve_codegen_location(
 ) -> Option<Location> {
     let source_path = doc.uri.to_file_path().ok()?;
     let codegen_path = get_codegen_path(&source_path, project_config, config)?;
-    let type_name = get_codegen_type_name(&symbol, project_config)?;
+    let type_name = get_codegen_type_name(&symbol, project_config, config)?;
 
     let content = std::fs::read_to_string(&codegen_path).ok()?;
     let range = find_type_in_content(&content, &type_name)?;
@@ -79,12 +79,12 @@ pub fn get_codegen_path(
     let file_name = source_path.file_name()?.to_str()?;
     let codegen_file_name = format!("{}.codegen.ts", file_name);
 
-    if let Some(output_dir) = &project_config.output_dir {
-        let mut path = config.base_dir.clone();
+    if let Some(output_dir) = project_config.output_dir() {
+        let mut path = config.base_dir().to_path_buf();
         path.push(output_dir);
 
         // Calculate relative path from project root if source_path is inside base_dir
-        if let Ok(rel_path) = source_path.strip_prefix(&config.base_dir)
+        if let Ok(rel_path) = source_path.strip_prefix(config.base_dir())
             && let Some(parent) = rel_path.parent()
         {
             path.push(parent);
@@ -102,29 +102,23 @@ pub fn get_codegen_path(
 pub fn get_codegen_type_name(
     symbol: &SemanticSymbol,
     project_config: &ProjectConfig,
+    config: &Config,
 ) -> Option<String> {
+    let codegen_config = config.get_codegen_config(Some(project_config));
+
     match symbol {
         SemanticSymbol::Operation { op_type, name, .. } => {
             let name = name.as_ref()?;
             let suffix = match op_type.as_str() {
-                "query" => project_config.query_suffix.as_deref().unwrap_or("Query"),
-                "mutation" => project_config
-                    .mutation_suffix
-                    .as_deref()
-                    .unwrap_or("Mutation"),
-                "subscription" => project_config
-                    .subscription_suffix
-                    .as_deref()
-                    .unwrap_or("Subscription"),
+                "query" => codegen_config.query_suffix(),
+                "mutation" => codegen_config.mutation_suffix(),
+                "subscription" => codegen_config.subscription_suffix(),
                 _ => return None,
             };
             Some(format!("{}{}", name, suffix))
         }
         SemanticSymbol::Fragment { name, .. } => {
-            let suffix = project_config
-                .fragment_suffix
-                .as_deref()
-                .unwrap_or("Fragment");
+            let suffix = codegen_config.fragment_suffix();
             Some(format!("{}{}", name, suffix))
         }
         _ => None,

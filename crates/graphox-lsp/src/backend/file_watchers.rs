@@ -17,8 +17,8 @@ pub fn register_file_watchers(client: Client, config: &Config) {
     let mut schema_files = AHashSet::default();
 
     // Watch the config file itself (graphox.yaml or graphox.yml)
-    let config_yaml = config.base_dir.join("graphox.yaml");
-    let config_yml = config.base_dir.join("graphox.yml");
+    let config_yaml = config.base_dir().join("graphox.yaml");
+    let config_yml = config.base_dir().join("graphox.yml");
 
     if config_yaml.exists() {
         watchers.push(FileSystemWatcher {
@@ -33,18 +33,16 @@ pub fn register_file_watchers(client: Client, config: &Config) {
     }
 
     // Collect all schema files from projects
-    for project in &config.projects {
-        for file in project.schema.files() {
+    for project in config.projects() {
+        for file in project.schema().files() {
             schema_files.insert(file);
         }
     }
 
     // Collect schema files from schema_types
-    if let Some(schema_types) = &config.schema_types {
-        for st in schema_types {
-            for file in st.schema.files() {
-                schema_files.insert(file);
-            }
+    for st in config.schema_types() {
+        for file in st.schema().files() {
+            schema_files.insert(file);
         }
     }
 

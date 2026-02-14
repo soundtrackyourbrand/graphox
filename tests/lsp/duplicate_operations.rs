@@ -15,12 +15,7 @@ async fn test_duplicate_operation_names_cross_file() {
 
     // Enable the unique operation name rule for this test so duplicate
     // operation diagnostics are produced during validation.
-    config.rules = Some(RulesConfig {
-        required_fields: None,
-        unique_operation_name: Some(true),
-        no_duplicate_fields: None,
-        no_unused_fragments: None,
-    });
+    config = config.with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     // Create service and capture server->client messages so we can assert push diagnostics
     let (mut service, mut messages) = create_lsp_service_with_socket(config);

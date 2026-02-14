@@ -171,27 +171,26 @@ impl Engine {
         // 1. Glob Resolution
         let start_glob = Instant::now();
         let project_info: Vec<_> = config
-            .projects
+            .projects()
             .par_iter()
             .map(|p| {
                 let abs_includes: Vec<String> = p
-                    .include
+                    .include()
                     .patterns()
                     .iter()
-                    .map(|p_inc| config.base_dir.join(p_inc).to_string_lossy().to_string())
+                    .map(|p_inc| config.base_dir().join(p_inc).to_string_lossy().to_string())
                     .collect();
                 let abs_excludes: Vec<String> = p
-                    .exclude
-                    .as_ref()
-                    .map(|e| e.patterns())
+                    .exclude()
+                    .map(|e: &crate::config::GlobPattern| e.patterns())
                     .unwrap_or_default()
                     .iter()
-                    .map(|p_exc| config.base_dir.join(p_exc).to_string_lossy().to_string())
+                    .map(|p_exc| config.base_dir().join(p_exc).to_string_lossy().to_string())
                     .collect();
-                let output_dir = p.output_dir.as_deref();
+                let output_dir = p.output_dir();
                 (
-                    get_project_files(&abs_includes, &abs_excludes, &config.base_dir, output_dir),
-                    p.import.clone(),
+                    get_project_files(&abs_includes, &abs_excludes, &config.base_dir(), output_dir),
+                    p.import().map(String::from),
                 )
             })
             .collect();
@@ -215,7 +214,7 @@ impl Engine {
                     return None;
                 }
 
-                let full_path = config.base_dir.join(p);
+                let full_path = config.base_dir().join(p);
 
                 // Incremental optimization: check if file has changed
                 if let Some(prev) = previous_metadata
@@ -234,7 +233,7 @@ impl Engine {
                     full_path.clone()
                 } else {
                     config
-                        .base_dir
+                        .base_dir()
                         .join(&full_path)
                         .canonicalize()
                         .unwrap_or_else(|_| full_path.clone())
@@ -345,9 +344,9 @@ impl Engine {
             operations: all_operations,
             projects: project_info
                 .into_iter()
-                .zip(&config.projects)
+                .zip(config.projects())
                 .map(|((files, _), p)| ProjectMetadata {
-                    include_key: p.include.as_key(),
+                    include_key: p.include().as_key(),
                     files,
                 })
                 .collect(),

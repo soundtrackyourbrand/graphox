@@ -1,4 +1,4 @@
-use graphox_core::config::EmitExtensions;
+use graphox_core::config::CodegenConfig;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -9,13 +9,14 @@ pub fn generate_entrypoint_content(
     output_dir: &Path,
     operations: &[OperationGenerated],
     fragments: &[FragmentGenerated],
-    document_suffix: &str,
-    variables_suffix: &str,
-    fragment_masking: &FragmentMasking,
-    emit_extensions: EmitExtensions,
-    generate_ast_for_fragments: bool,
+    codegen_config: &CodegenConfig,
     re_exports: bool,
 ) -> String {
+    let document_suffix = codegen_config.document_suffix();
+    let variables_suffix = codegen_config.variables_suffix();
+    let fragment_masking = FragmentMasking::from_core_config(&codegen_config.fragment_masking());
+    let emit_extensions = codegen_config.emit_extensions();
+    let generate_ast_for_fragments = codegen_config.generate_ast_for_fragments();
     let op_count = operations.len();
     let frag_count = fragments.len();
     let estimated_size = (op_count + frag_count) * 200 + 500;

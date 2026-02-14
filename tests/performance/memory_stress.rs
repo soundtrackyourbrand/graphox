@@ -3,7 +3,7 @@
 
 use crate::support::{create_large_schema, measure_memory_usage};
 use graphox::Config;
-use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -19,56 +19,46 @@ fn create_multi_project_config(base_dir: &Path) -> Config {
 
     // Projects using Schema A only (3 projects)
     for i in 0..3 {
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Single("schemas/schema_a.graphql".to_string()),
-            include: GlobPattern::Multiple(vec![
+        projects.push(ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schemas/schema_a.graphql".to_string()))
+            .with_include(GlobPattern::Multiple(vec![
                 format!("project_{}/**/*.graphql", i),
                 format!("project_{}/**/*.ts", i),
                 format!("project_{}/**/*.tsx", i),
-            ]),
-            codegen: Some(false),
-            ..Default::default()
-        });
+            ]))
+            .with_codegen(CodegenConfig::disabled()));
     }
 
     // Projects using Schema B only (3 projects)
     for i in 3..6 {
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Single("schemas/schema_b.graphql".to_string()),
-            include: GlobPattern::Multiple(vec![
+        projects.push(ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schemas/schema_b.graphql".to_string()))
+            .with_include(GlobPattern::Multiple(vec![
                 format!("project_{}/**/*.graphql", i),
                 format!("project_{}/**/*.ts", i),
                 format!("project_{}/**/*.tsx", i),
-            ]),
-            codegen: Some(false),
-            ..Default::default()
-        });
+            ]))
+            .with_codegen(CodegenConfig::disabled()));
     }
 
     // Projects using both schemas (4 projects)
     for i in 6..10 {
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Multiple(vec![
+        projects.push(ProjectConfig::default()
+            .with_schema(SchemaSource::Multiple(vec![
                 "schemas/schema_a.graphql".to_string(),
                 "schemas/schema_b.graphql".to_string(),
-            ]),
-            include: GlobPattern::Multiple(vec![
+            ]))
+            .with_include(GlobPattern::Multiple(vec![
                 format!("project_{}/**/*.graphql", i),
                 format!("project_{}/**/*.ts", i),
                 format!("project_{}/**/*.tsx", i),
-            ]),
-            codegen: Some(false),
-            ..Default::default()
-        });
+            ]))
+            .with_codegen(CodegenConfig::disabled()));
     }
 
-    Config {
-        base_dir: base_dir.to_owned(),
-        projects,
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(base_dir.to_owned(), projects)
+        .with_enable_schema_cache(true)
+        .with_lsp_automatic_codegen(false)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -129,60 +119,30 @@ async fn test_memory_complex_monorepo_workspace_scan() {
 }
 
 fn create_100_file_config(base_dir: &Path) -> Config {
-    Config {
-        base_dir: base_dir.to_owned(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(base_dir.to_owned(), vec![ProjectConfig::default()
+        .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+        .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+        .with_codegen(CodegenConfig::disabled())])
+        .with_enable_schema_cache(true)
+        .with_lsp_automatic_codegen(false)
 }
 
 fn create_1000_file_config(base_dir: &Path) -> Config {
-    Config {
-        base_dir: base_dir.to_owned(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(base_dir.to_owned(), vec![ProjectConfig::default()
+        .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+        .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+        .with_codegen(CodegenConfig::disabled())])
+        .with_enable_schema_cache(true)
+        .with_lsp_automatic_codegen(false)
 }
 
 fn create_10_schema_config(base_dir: &Path) -> Config {
-    Config {
-        base_dir: base_dir.to_owned(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(false),
-            ..Default::default()
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(base_dir.to_owned(), vec![ProjectConfig::default()
+        .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+        .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+        .with_codegen(CodegenConfig::disabled())])
+        .with_enable_schema_cache(true)
+        .with_lsp_automatic_codegen(false)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

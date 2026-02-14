@@ -135,8 +135,7 @@ pub async fn validate_uris(
             );
 
             // Add duplicate operation name diagnostics if enabled
-            if let Some(rules) = &params.config.rules
-                && let Some(true) = rules.unique_operation_name
+            if params.config.rules().unique_operation_name()
                 && let Ok(path) = uri.to_file_path()
                 && let Some(schema_key) = params.config.get_schema_for_path(&path)
             {

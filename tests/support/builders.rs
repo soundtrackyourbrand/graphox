@@ -1,7 +1,7 @@
 //! Builders for creating complex test objects with less boilerplate.
 
+use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use graphox::Config;
-use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
 use std::path::{Path, PathBuf};
 
 // =============================================================================
@@ -57,13 +57,17 @@ impl ConfigBuilder {
 
     /// Build the Config object.
     pub fn build(self) -> Config {
-        Config {
-            base_dir: self.base_dir,
-            projects: self.projects.into_iter().map(|p| p.build()).collect(),
-            enable_schema_cache: self.enable_schema_cache,
-            lsp_automatic_codegen: self.lsp_automatic_codegen,
-            ..Config::new_empty()
+        let mut config = Config::new_test(
+            self.base_dir,
+            self.projects.into_iter().map(|p| p.build()).collect(),
+        );
+        if let Some(enabled) = self.enable_schema_cache {
+            config = config.with_enable_schema_cache(enabled);
         }
+        if let Some(enabled) = self.lsp_automatic_codegen {
+            config = config.with_lsp_automatic_codegen(enabled);
+        }
+        config
     }
 }
 
@@ -87,7 +91,7 @@ pub struct ProjectConfigBuilder {
     schema: SchemaSource,
     include: GlobPattern,
     exclude: Option<GlobPattern>,
-    codegen: Option<bool>,
+    codegen: Option<CodegenConfig>,
 }
 
 impl ProjectConfigBuilder {
@@ -97,7 +101,7 @@ impl ProjectConfigBuilder {
             schema: SchemaSource::Single("schema.graphql".to_string()),
             include: GlobPattern::Single("**/*.graphql".to_string()),
             exclude: None,
-            codegen: Some(false),
+            codegen: Some(CodegenConfig::disabled()),
         }
     }
 
@@ -127,19 +131,26 @@ impl ProjectConfigBuilder {
 
     /// Enable or disable codegen.
     pub fn codegen(mut self, enabled: bool) -> Self {
-        self.codegen = Some(enabled);
+        self.codegen = if enabled {
+            Some(CodegenConfig::enabled())
+        } else {
+            Some(CodegenConfig::disabled())
+        };
         self
     }
 
     /// Build the ProjectConfig object.
     pub fn build(self) -> ProjectConfig {
-        ProjectConfig {
-            schema: self.schema,
-            include: self.include,
-            exclude: self.exclude,
-            codegen: self.codegen,
-            ..Default::default()
+        let mut project = ProjectConfig::default()
+            .with_schema(self.schema)
+            .with_include(self.include);
+        if let Some(exclude) = self.exclude {
+            project = project.with_exclude(exclude);
         }
+        if let Some(codegen) = self.codegen {
+            project = project.with_codegen(codegen);
+        }
+        project
     }
 }
 

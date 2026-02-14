@@ -1,6 +1,8 @@
-document_suffix: "GQL"
-variables_suffix: "Vars"
-fragment_suffix: "Frag"
+codegen:
+  document_suffix: "GQL"
+  variables_suffix: "Vars"
+  fragment_suffix: "Frag"
+
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"

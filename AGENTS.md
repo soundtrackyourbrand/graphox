@@ -148,6 +148,7 @@ This pattern prevents tests from breaking when new optional config fields are ad
 - **Test Coverage:** High test coverage is mandatory. Every new feature or bug fix must include corresponding tests.
 - **Integration Tests:** Use `tests/fixtures/` for realistic scenarios. Integration tests should cover LSP interactions, CLI commands, and complex fragment resolution.
 - **Codegen Baselines:** Always verify codegen output against baselines. If changes are expected, run `make update-baselines`.
+- **Fixture-Based Tests:** When adding new fixture-based tests, use `tests/integration/fixtures.rs` with the `run_baseline_test()` helper. Add the fixture/baseline pair to `scripts/update_baselines.py`, then run `make update-baselines` followed by `python3 scripts/verify_baselines.py` to validate generated TypeScript.
 - **Performance Benchmarks:** Performance is a first-class citizen. Use `make benchmark` and `criterion` benchmarks to ensure no regressions, especially for large schemas and many-file workspaces.
 - **LSP Reliability:** Use `tower-lsp`'s testing utilities. Avoid `sleep` in tests; use proper synchronization or wait for specific states.
 
