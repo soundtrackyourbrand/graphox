@@ -6,7 +6,9 @@ use log::warn;
 
 use crate::apply_naming_convention;
 use crate::context::CodegenContext;
-use crate::helpers::{format_union_branches, gql_type_to_ts, wrap_in_list_and_nullability};
+use crate::helpers::{
+    format_jsdoc, format_union_branches, gql_type_to_ts, wrap_in_list_and_nullability,
+};
 
 #[derive(Debug, Clone)]
 pub struct SelectionSetType {
@@ -165,6 +167,23 @@ fn generate_field_list(
         };
 
         if let Some(fd) = field_def {
+            let local_deprecation = field.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", ctx.schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+
+            let schema_deprecation = fd.directives.get("deprecated").map(|d| {
+                d.argument_by_name("reason", ctx.schema)
+                    .ok()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No reason provided")
+            });
+
+            let deprecation = local_deprecation.or(schema_deprecation);
+            let jsdoc = format_jsdoc(fd.description.as_deref(), deprecation, indent + 1);
+
             let ts_type = if field.selection_set.selections.is_empty() {
                 gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx)
             } else {
@@ -190,7 +209,13 @@ fn generate_field_list(
                 wrap_in_list_and_nullability(&ts_type, &fd.ty)
             };
 
-            local_fields_list.push(format!("{}: {}", name, wrapped_type));
+            let field_line = if jsdoc.is_empty() {
+                format!("{}: {}", name, wrapped_type)
+            } else {
+                let inner_pad = "  ".repeat(indent + 1);
+                format!("{}{}{}: {}", jsdoc, inner_pad, name, wrapped_type)
+            };
+            local_fields_list.push(field_line);
         }
     }
 
@@ -207,7 +232,9 @@ fn format_multiline_object(fields: &[String], indent: usize) -> String {
 
     for f in fields {
         result.push('\n');
-        result.push_str(&inner_pad);
+        if !f.starts_with(&inner_pad) {
+            result.push_str(&inner_pad);
+        }
         result.push_str(f);
         result.push(';');
     }

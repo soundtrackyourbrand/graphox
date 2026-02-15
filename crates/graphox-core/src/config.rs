@@ -163,6 +163,7 @@ pub struct CodegenConfig {
     emit_ast_arguments: Option<bool>,
     emit_ast_variable_defaults: Option<bool>,
     inline_fragments: Option<bool>,
+    default_scalar_type: Option<String>,
 }
 
 impl CodegenConfig {
@@ -300,7 +301,12 @@ impl CodegenConfig {
             emit_ast_arguments: node["emit_ast_arguments"].as_bool(),
             emit_ast_variable_defaults: node["emit_ast_variable_defaults"].as_bool(),
             inline_fragments: node["inline_fragments"].as_bool(),
+            default_scalar_type: node["default_scalar_type"].as_str().map(String::from),
         })
+    }
+
+    pub fn default_scalar_type(&self) -> &str {
+        self.default_scalar_type.as_deref().unwrap_or("any")
     }
 
     pub fn document_suffix(&self) -> &str {

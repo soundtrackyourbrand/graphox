@@ -91,7 +91,7 @@ fn gql_type_to_ts_internal(
                         {
                             other.to_string()
                         } else {
-                            "any".to_string()
+                            ctx.config.default_scalar_type().to_string()
                         }
                     }
                     ExtendedType::Object(_)
@@ -103,12 +103,12 @@ fn gql_type_to_ts_internal(
                         {
                             other.to_string()
                         } else {
-                            "any".to_string()
+                            ctx.config.default_scalar_type().to_string()
                         }
                     }
                 }
             } else {
-                "any".to_string()
+                ctx.config.default_scalar_type().to_string()
             }
         }),
     };
