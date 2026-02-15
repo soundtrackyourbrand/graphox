@@ -299,9 +299,11 @@ mod tests {
     async fn test_validate_all_documents_performance() {
         let config = Config::new_test(
             std::env::current_dir().unwrap(),
-            vec![ProjectConfig::default()
-                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-                .with_include(GqlGlobPattern::Single("**/*.graphql".to_string()))],
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GqlGlobPattern::Single("**/*.graphql".to_string())),
+            ],
         );
 
         let (service, _) = LspService::new(|client| Backend::new(client, config));

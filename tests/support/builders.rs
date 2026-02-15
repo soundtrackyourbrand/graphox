@@ -1,7 +1,7 @@
 //! Builders for creating complex test objects with less boilerplate.
 
-use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use graphox::Config;
+use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use std::path::{Path, PathBuf};
 
 // =============================================================================

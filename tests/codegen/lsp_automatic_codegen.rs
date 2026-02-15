@@ -1,6 +1,8 @@
 use crate::support;
 use futures_util::StreamExt;
-use graphox::{Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
+use graphox::{
+    Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+};
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
@@ -26,9 +28,11 @@ async fn test_lsp_automatic_codegen() {
 
     let config = Config::new_test(
         base_dir.to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string())),
+        ],
     )
     .with_lsp_automatic_codegen(true)
     .with_lsp_codegen_throttle_ms(50)
@@ -422,10 +426,12 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
 
     let config = Config::new_test(
         base_dir.to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_output_dir("gen".to_string())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
     )
     .with_lsp_automatic_codegen(true)
     .with_lsp_codegen_throttle_ms(50)

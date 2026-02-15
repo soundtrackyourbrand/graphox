@@ -658,8 +658,10 @@ projects:
     println!("--- ENTRYPOINT CONTENT ---\n{}", content);
 
     // Check for imports - now split into type-only and runtime imports
-    assert!(content
-        .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";"));
+    assert!(
+        content
+            .contains("import type { GetMeQuery, GetMeQueryVariables } from \"./query.codegen\";")
+    );
     assert!(content.contains("import { GetMeQueryDocument } from \"./query.codegen\";"));
 
     // Check for graphql function overloads - now uses generic signature

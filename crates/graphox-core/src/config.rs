@@ -646,8 +646,12 @@ impl ProjectConfig {
     }
 
     pub fn codegen_enabled(&self) -> bool {
-        self.codegen_enabled
-            .unwrap_or_else(|| self.codegen.as_ref().map(|c| c.is_enabled()).unwrap_or(true))
+        self.codegen_enabled.unwrap_or_else(|| {
+            self.codegen
+                .as_ref()
+                .map(|c| c.is_enabled())
+                .unwrap_or(true)
+        })
     }
 
     pub fn codegen(&self) -> &CodegenConfig {
@@ -772,9 +776,10 @@ impl Config {
     }
 
     pub fn tracing(&self) -> TracingConfig {
-        self.tracing
-            .clone()
-            .unwrap_or(TracingConfig { enabled: false, threshold_ms: 20 })
+        self.tracing.clone().unwrap_or(TracingConfig {
+            enabled: false,
+            threshold_ms: 20,
+        })
     }
 
     pub fn rules(&self) -> RulesConfig {
@@ -822,7 +827,7 @@ impl Config {
                 result.fragment_masking = project_codegen.fragment_masking.clone();
             }
             if project_codegen.emit_extensions.is_some() {
-                result.emit_extensions = project_codegen.emit_extensions.clone();
+                result.emit_extensions = project_codegen.emit_extensions;
             }
             if project_codegen.generate_ast_for_fragments.is_some() {
                 result.generate_ast_for_fragments = project_codegen.generate_ast_for_fragments;
@@ -1501,7 +1506,9 @@ projects:
             FragmentMasking::Enabled { .. }
         ));
         assert!(matches!(
-            config.get_codegen_config(Some(&config.projects()[1])).fragment_masking_mode(),
+            config
+                .get_codegen_config(Some(&config.projects()[1]))
+                .fragment_masking_mode(),
             FragmentMasking::Disabled
         ));
     }

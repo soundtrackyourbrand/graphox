@@ -64,7 +64,7 @@ pub struct ProjectContext {
     pub fragment_to_path: HashMap<Arc<str>, Arc<str>>,
     pub fragment_to_import: HashMap<Arc<str>, Arc<str>>,
     pub fragment_to_type_only: HashMap<Arc<str>, bool>,
-    pub all_fragments: HashMap<String, Node<executable::Fragment>>,
+    pub all_fragments: HashMap<Arc<str>, Node<executable::Fragment>>,
     /// Cached fragment dependencies: fragment name -> list of transitive dependencies
     pub fragment_dependencies: HashMap<Arc<str>, Vec<Arc<str>>>,
 }
@@ -189,7 +189,7 @@ impl Engine {
                     .collect();
                 let output_dir = p.output_dir();
                 (
-                    get_project_files(&abs_includes, &abs_excludes, &config.base_dir(), output_dir),
+                    get_project_files(&abs_includes, &abs_excludes, config.base_dir(), output_dir),
                     p.import().map(String::from),
                 )
             })
@@ -360,7 +360,7 @@ impl Engine {
     pub fn resolve_fragments(
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         fragments: &[FragmentMetadata],
-    ) -> HashMap<String, apollo_compiler::Node<executable::Fragment>> {
+    ) -> HashMap<Arc<str>, apollo_compiler::Node<executable::Fragment>> {
         // Pre-allocate with estimated capacity to reduce reallocations
         let estimated_size: usize = fragments.iter().map(|f| f.masked_source.len() + 1).sum();
         let mut combined_source = String::with_capacity(estimated_size);
@@ -383,11 +383,11 @@ impl Engine {
             Err(with_errors) => with_errors.partial,
         };
 
-        // Pre-allocate HashMap with known capacity
-        let mut all_fragments =
+        // Pre-allocate HashMap with known capacity - use Arc<str> to avoid string allocations
+        let mut all_fragments: HashMap<Arc<str>, Node<executable::Fragment>> =
             HashMap::with_capacity_and_hasher(exec_doc.fragments.len(), Default::default());
         for (name, frag) in exec_doc.fragments {
-            all_fragments.insert(name.as_str().to_string(), frag.clone());
+            all_fragments.insert(Arc::from(name.as_str()), frag);
         }
         all_fragments
     }

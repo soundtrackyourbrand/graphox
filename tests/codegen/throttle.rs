@@ -29,10 +29,12 @@ async fn test_codegen_throttle() {
 
     let config = Config::new_test(
         base_dir.to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_output_dir("generated".to_string())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_output_dir("generated".to_string()),
+        ],
     )
     .with_lsp_automatic_codegen(true)
     .with_lsp_codegen_throttle_ms(200)

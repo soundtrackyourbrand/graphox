@@ -5,8 +5,8 @@ use dashmap::DashMap;
 use graphox_core::config::{CodegenConfig, EmitExtensions, NamingConvention};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Clone)]
 pub enum FragmentMasking {
@@ -47,7 +47,7 @@ pub struct CodegenContext<'a> {
     pub fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
     pub fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
     pub fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
-    pub all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
+    pub all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
     pub current_file_path: &'a Path,
     pub scalars: &'a HashMap<String, String>,
     pub schema_import: &'a Option<String>,
@@ -68,7 +68,7 @@ impl<'a> CodegenContext<'a> {
         fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
         fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
         fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
-        all_fragments: &'a HashMap<String, Node<executable::Fragment>>,
+        all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
         current_file_path: &'a Path,
         scalars: &'a HashMap<String, String>,
         schema_import: &'a Option<String>,

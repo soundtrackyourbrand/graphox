@@ -49,14 +49,14 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
-        let valid_schema = match schema::load_and_validate_schema(config.base_dir(), project.schema(), true)
-        {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                continue;
-            }
-        };
+        let valid_schema =
+            match schema::load_and_validate_schema(config.base_dir(), project.schema(), true) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{}", e.to_string().red());
+                    continue;
+                }
+            };
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
@@ -107,11 +107,14 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
 
                         for st in matches.iter().rev() {
                             if let Some(import_path) = st.import()
-                                && let Ok(st_schema) =
-                                    graphox_core::schema::load_schema(config.base_dir(), st.schema())
+                                && let Ok(st_schema) = graphox_core::schema::load_schema(
+                                    config.base_dir(),
+                                    st.schema(),
+                                )
                             {
                                 for type_name in st_schema.types.keys() {
-                                    type_imports.insert(type_name.to_string(), import_path.to_string());
+                                    type_imports
+                                        .insert(type_name.to_string(), import_path.to_string());
                                 }
                             }
                         }
@@ -225,7 +228,8 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     if !schema_types.is_empty() {
         for st in schema_types {
             let st_start = Instant::now();
-            if let Ok(valid_schema) = schema::load_and_validate_schema(config.base_dir(), st.schema(), true)
+            if let Ok(valid_schema) =
+                schema::load_and_validate_schema(config.base_dir(), st.schema(), true)
             {
                 let g_start = Instant::now();
                 let _ts_code = codegen::generate_schema_types(&valid_schema, config.scalars());

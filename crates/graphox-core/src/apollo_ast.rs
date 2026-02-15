@@ -1,13 +1,14 @@
+use crate::CodegenConfig;
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::Node;
 use apollo_compiler::ast::{self, OperationType, Type, Value as GqlValue};
 use apollo_compiler::executable::{self, Selection};
-use sonic_rs::{Value, JsonValueMutTrait, json};
-use crate::CodegenConfig;
+use sonic_rs::{JsonValueMutTrait, Value, json};
+use std::sync::Arc;
 
 pub fn serialize_operation(
     operation: &executable::Operation,
-    fragments: &HashMap<String, Node<executable::Fragment>>,
+    fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     // Pre-allocate definitions vector with estimated capacity
@@ -18,7 +19,7 @@ pub fn serialize_operation(
     definitions.push(convert_operation(operation, fragments, config));
 
     // 2. Add all transitive fragments
-    let mut used_fragments = HashSet::default();
+    let mut used_fragments: HashSet<Arc<str>> = HashSet::default();
     collect_fragments(&operation.selection_set, fragments, &mut used_fragments);
 
     // Pre-allocate sorted_fragments with known size to avoid reallocation
@@ -40,7 +41,7 @@ pub fn serialize_operation(
 
 pub fn serialize_operation_definition(
     operation: &executable::Operation,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     convert_operation(operation, all_fragments, config)
@@ -48,7 +49,7 @@ pub fn serialize_operation_definition(
 
 pub fn serialize_fragment_definition(
     fragment: &executable::Fragment,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     convert_fragment(fragment, all_fragments, config)
@@ -56,26 +57,26 @@ pub fn serialize_fragment_definition(
 
 pub fn get_operation_fragment_dependencies(
     operation: &executable::Operation,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
-) -> HashSet<String> {
-    let mut used = HashSet::default();
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
+) -> HashSet<Arc<str>> {
+    let mut used: HashSet<Arc<str>> = HashSet::default();
     collect_fragments(&operation.selection_set, all_fragments, &mut used);
     used
 }
 
 pub fn get_fragment_fragment_dependencies(
     fragment: &executable::Fragment,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
-) -> HashSet<String> {
-    let mut used = HashSet::default();
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
+) -> HashSet<Arc<str>> {
+    let mut used: HashSet<Arc<str>> = HashSet::default();
     collect_fragments(&fragment.selection_set, all_fragments, &mut used);
     used
 }
 
 fn collect_fragments(
     selection_set: &executable::SelectionSet,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
-    used: &mut HashSet<String>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
+    used: &mut HashSet<Arc<str>>,
 ) {
     for selection in &selection_set.selections {
         match selection {
@@ -86,7 +87,7 @@ fn collect_fragments(
                 collect_fragments(&inline.selection_set, all_fragments, used);
             }
             Selection::FragmentSpread(spread) => {
-                let name = spread.fragment_name.as_str().to_string();
+                let name: Arc<str> = Arc::from(spread.fragment_name.as_str());
                 if used.insert(name.clone())
                     && let Some(frag) = all_fragments.get(&name)
                 {
@@ -99,7 +100,7 @@ fn collect_fragments(
 
 fn convert_operation(
     op: &executable::Operation,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     let mut map_val = json!({});
@@ -150,7 +151,7 @@ fn convert_operation(
 
 fn convert_fragment(
     frag: &executable::Fragment,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     let mut map_val = json!({});
@@ -187,7 +188,7 @@ fn convert_fragment(
 
 fn convert_selection_set(
     sel: &executable::SelectionSet,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     let mut selections = Vec::new();
@@ -281,7 +282,7 @@ fn convert_selection_set(
 }
 
 fn expand_deep_nested_fragment(
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     spread: &executable::FragmentSpread,
     selections: &mut Vec<Value>,
     seen_fields: &mut HashSet<String>,
@@ -323,7 +324,7 @@ fn field_key(field: &Node<executable::Field>) -> String {
 
 fn convert_selection(
     sel: &Selection,
-    all_fragments: &HashMap<String, Node<executable::Fragment>>,
+    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
     match sel {
@@ -339,10 +340,10 @@ fn convert_selection(
                         convert_selection_set(&f.selection_set, all_fragments, config),
                     );
                 }
-                if let Some(alias) = &f.alias {
-                    if config.emit_ast_aliases() {
-                        map.insert("alias", convert_name(alias.as_str()));
-                    }
+                if let Some(alias) = &f.alias
+                    && config.emit_ast_aliases()
+                {
+                    map.insert("alias", convert_name(alias.as_str()));
                 }
                 if config.emit_ast_arguments() && !f.arguments.is_empty() {
                     map.insert(
@@ -499,15 +500,20 @@ fn convert_directive(d: &ast::Directive, config: &CodegenConfig) -> Value {
         let map = map_val.as_object_mut().unwrap();
         map.insert("kind", json!("Directive"));
         map.insert("name", convert_name(d.name.as_str()));
-        
+
         if config.emit_ast_arguments() && !d.arguments.is_empty() {
             map.insert(
                 "arguments",
-                json!(d.arguments.iter().map(|a| convert_argument(a)).collect::<Vec<_>>()),
+                json!(
+                    d.arguments
+                        .iter()
+                        .map(|a| convert_argument(a))
+                        .collect::<Vec<_>>()
+                ),
             );
         }
     }
-    
+
     map_val
 }
 

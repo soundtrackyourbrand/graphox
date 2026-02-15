@@ -25,10 +25,12 @@ async fn test_embedded_fragment_spreads_interface_tsx() {
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("test.tsx".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("test.tsx".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -125,10 +127,12 @@ async fn test_embedded_fragment_spreads_union_tsx() {
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("test.tsx".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("test.tsx".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);

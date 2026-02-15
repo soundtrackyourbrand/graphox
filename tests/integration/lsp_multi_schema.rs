@@ -15,10 +15,12 @@ async fn test_lsp_multi_schema_support() {
 
     // 4. Update Config
     let mut projects = config.projects().to_vec();
-    projects[0] = projects[0].clone().with_schema(graphox::config::SchemaSource::Multiple(vec![
-        "schema.graphql".to_string(),
-        "ext.graphql".to_string(),
-    ]));
+    projects[0] = projects[0]
+        .clone()
+        .with_schema(graphox::config::SchemaSource::Multiple(vec![
+            "schema.graphql".to_string(),
+            "ext.graphql".to_string(),
+        ]));
     config = config.with_projects(projects);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
@@ -114,11 +116,13 @@ async fn test_lsp_multi_schema_goto_definition() {
 
     // Update Config with multiple schema files
     let mut projects = config.projects().to_vec();
-    projects[0] = projects[0].clone().with_schema(graphox::config::SchemaSource::Multiple(vec![
-        "schema.graphql".to_string(),
-        "user.graphql".to_string(),
-        "ext.graphql".to_string(),
-    ]));
+    projects[0] = projects[0]
+        .clone()
+        .with_schema(graphox::config::SchemaSource::Multiple(vec![
+            "schema.graphql".to_string(),
+            "user.graphql".to_string(),
+            "ext.graphql".to_string(),
+        ]));
     config = config.with_projects(projects);
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;

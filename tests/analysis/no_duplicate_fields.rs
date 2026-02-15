@@ -30,10 +30,13 @@ fn test_shallow_duplicate_fields_check() {
 
     let config = Config::new_test(
         base.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
     let cfg = config;
 
@@ -78,10 +81,13 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
 
     let config = Config::new_test(
         base.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
 
     let cfg = config;
 

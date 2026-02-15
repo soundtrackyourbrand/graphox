@@ -323,10 +323,12 @@ async fn test_lsp_fragment_rename_same_project() {
     // Use an explicit config that includes all graphql files
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);

@@ -75,10 +75,16 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
 
     let config = graphox::Config::new_test(
         base.clone(),
-        vec![graphox::config::ProjectConfig::default()
-            .with_schema(graphox::config::SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(graphox::config::GlobPattern::Single("**/*.graphql".to_string()))
-            .with_codegen(graphox::config::CodegenConfig::disabled())],
+        vec![
+            graphox::config::ProjectConfig::default()
+                .with_schema(graphox::config::SchemaSource::Single(
+                    "schema.graphql".to_string(),
+                ))
+                .with_include(graphox::config::GlobPattern::Single(
+                    "**/*.graphql".to_string(),
+                ))
+                .with_codegen(graphox::config::CodegenConfig::disabled()),
+        ],
     );
 
     let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")

@@ -31,10 +31,12 @@ async fn test_progress_on_workspace_scan() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("*.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -148,10 +150,12 @@ async fn test_no_progress_without_capability() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("*.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -232,10 +236,12 @@ async fn test_progress_on_codegen() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_output_dir(output_dir.to_string())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_output_dir(output_dir.to_string()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -354,10 +360,12 @@ async fn test_progress_messages_contain_percentage() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("*.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -463,10 +471,12 @@ async fn test_progress_messages_during_validation() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("*.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);

@@ -90,10 +90,10 @@ pub fn load_and_validate_schema(
     use_cache: bool,
 ) -> Result<Arc<apollo_compiler::validation::Valid<Schema>>, String> {
     // Try memory cache first (L1) - fastest path, if caching enabled
-    if use_cache {
-        if let Some(cached) = crate::schema_cache::try_load_parsed_from_memory(base_dir, source) {
-            return Ok(cached);
-        }
+    if use_cache
+        && let Some(cached) = crate::schema_cache::try_load_parsed_from_memory(base_dir, source)
+    {
+        return Ok(cached);
     }
 
     #[cfg(debug_assertions)]

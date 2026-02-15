@@ -232,9 +232,11 @@ fn generate_fragment_heavy_workspace(
         fs::write(file_path, content).unwrap();
     }
 
-    let projects = vec![ProjectConfig::default()
-        .with_schema(SchemaSource::Single("project_0/schema.graphql".to_string()))
-        .with_include(GlobPattern::Single("project_0/**/*.graphql".to_string()))];
+    let projects = vec![
+        ProjectConfig::default()
+            .with_schema(SchemaSource::Single("project_0/schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("project_0/**/*.graphql".to_string())),
+    ];
 
     Config::new_empty()
         .with_projects(projects)
@@ -353,9 +355,11 @@ fn generate_cross_referencing_workspace(
     );
     fs::write(query_path, query_content).unwrap();
 
-    let projects = vec![ProjectConfig::default()
-        .with_schema(SchemaSource::Single("project_0/schema.graphql".to_string()))
-        .with_include(GlobPattern::Single("project_0/**/*.graphql".to_string()))];
+    let projects = vec![
+        ProjectConfig::default()
+            .with_schema(SchemaSource::Single("project_0/schema.graphql".to_string()))
+            .with_include(GlobPattern::Single("project_0/**/*.graphql".to_string())),
+    ];
 
     Config::new_empty()
         .with_projects(projects)

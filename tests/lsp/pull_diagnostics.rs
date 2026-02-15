@@ -27,10 +27,12 @@ async fn test_pull_diagnostics_basic() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_lsp_automatic_codegen(false);
 
@@ -132,10 +134,12 @@ async fn test_pull_diagnostics_unchanged() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -231,10 +235,12 @@ async fn test_workspace_diagnostics() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("*.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_lsp_automatic_codegen(false);
 
@@ -332,10 +338,12 @@ async fn test_fallback_to_push_diagnostics() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);

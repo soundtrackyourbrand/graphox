@@ -10,11 +10,11 @@ async fn test_code_action_remove_unused_fragment() {
     let schema = "type Query { me: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
     // tweak config for timeouts/watch behavior used in test
-    config = config
-        .with_watch_all_files(false)
-        .with_timeouts(graphox::config::TimeoutConfig::default()
+    config = config.with_watch_all_files(false).with_timeouts(
+        graphox::config::TimeoutConfig::default()
             .with_workspace_scan_ms(50)
-            .with_lsp_request_ms(50));
+            .with_lsp_request_ms(50),
+    );
 
     let (mut service, _backend) = create_initialized_lsp_service(config).await;
 

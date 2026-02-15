@@ -89,7 +89,8 @@ fn test_no_duplicate_fields_object() {
         .unwrap();
     let query = "query { users { id id } }";
     let doc = create_doc("file:///test.graphql", query);
-    let config = Config::default().with_rules(RulesConfig::default().with_no_duplicate_fields(true));
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_no_duplicate_fields(true));
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
     assert_diagnostics_count(&diags, 1);
     assert_diagnostic_with_message(&diags, "Duplicate field 'id'");
@@ -104,7 +105,8 @@ fn test_no_duplicate_fields_args() {
         .unwrap();
     let query = "query { posts { title title } }";
     let doc = create_doc("file:///test.graphql", query);
-    let config = Config::default().with_rules(RulesConfig::default().with_no_duplicate_fields(true));
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_no_duplicate_fields(true));
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
     assert_diagnostics_count(&diags, 1);
     assert_diagnostic_with_message(&diags, "Duplicate field 'title'");

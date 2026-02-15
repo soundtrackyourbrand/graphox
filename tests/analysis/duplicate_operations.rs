@@ -54,10 +54,13 @@ fn test_duplicate_operation_names_same_file() {
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(RulesConfig::default().with_unique_operation_name(true));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -102,10 +105,13 @@ fn test_unique_operation_names_no_error() {
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(RulesConfig::default().with_unique_operation_name(true));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -153,10 +159,13 @@ fn test_duplicate_operation_rule_disabled() {
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(RulesConfig::default().with_unique_operation_name(false));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_unique_operation_name(false));
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
@@ -203,9 +212,11 @@ fn test_duplicate_operation_no_rules_config() {
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
     );
 
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);

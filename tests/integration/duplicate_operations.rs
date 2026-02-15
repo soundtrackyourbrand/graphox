@@ -44,10 +44,13 @@ async fn test_check_command_duplicate_operations() {
 
     let config = Config::new_test(
         base_dir.to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(RulesConfig::default().with_unique_operation_name(true));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     // Scan workspace to build operation index
     let workspace_metadata = Engine::scan_workspace(
@@ -93,10 +96,13 @@ async fn test_check_command_unique_operations() {
 
     let config = Config::new_test(
         base_dir.to_path_buf(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("**/*.graphql".to_string()))],
-    ).with_rules(RulesConfig::default().with_unique_operation_name(true));
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_unique_operation_name(true));
 
     let workspace_metadata = Engine::scan_workspace(
         &config,

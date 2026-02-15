@@ -2,9 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::config::{
-    CodegenConfig, Config, EmitExtensions, GlobPattern, SchemaSource,
-};
+use graphox_core::config::{CodegenConfig, Config, EmitExtensions, GlobPattern, SchemaSource};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
 use graphox_core::schema_cache;
@@ -45,7 +43,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
 
-        let gitignore = utils::get_gitignore_matcher(&config.base_dir());
+        let gitignore = utils::get_gitignore_matcher(config.base_dir());
         let mut output_dirs = Vec::new();
         for p in config.projects() {
             if let Some(out) = p.output_dir() {
@@ -155,7 +153,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                 _ = config_rx.recv() => {
                     println!("{}", "\nConfiguration file changed, reloading...".bright_yellow());
 
-                    if let Ok(Some(new_config)) = Config::load_from_dir(&config.base_dir()) {
+                    if let Ok(Some(new_config)) = Config::load_from_dir(config.base_dir()) {
                         println!("{}", "Configuration reloaded successfully".bright_green());
                         config = new_config;
                         continue 'watch_loop;
@@ -239,8 +237,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             // 2. Build the type_imports map
             for st in matches.iter().rev() {
                 if let Some(import_path) = st.import()
-                    && let Ok(st_schema) =
-                        schema::load_and_validate_schema(cfg.base_dir(), st.schema(), cfg.enable_schema_cache())
+                    && let Ok(st_schema) = schema::load_and_validate_schema(
+                        cfg.base_dir(),
+                        st.schema(),
+                        cfg.enable_schema_cache(),
+                    )
                 {
                     let mut final_import_path = import_path.to_string();
 
@@ -297,7 +298,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
         }
 
-        let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir(), &project.schema(), cfg.enable_schema_cache()) {
+        let valid_schema = match schema::load_and_validate_schema(
+            cfg.base_dir(),
+            project.schema(),
+            cfg.enable_schema_cache(),
+        ) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{}", e.to_string().red());
@@ -467,7 +472,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     success = false;
                 }
 
-                if let Ok(schema) = schema::load_and_validate_schema(&cfg.base_dir(), &st.schema(), cfg.enable_schema_cache()) {
+                if let Ok(schema) = schema::load_and_validate_schema(
+                    cfg.base_dir(),
+                    st.schema(),
+                    cfg.enable_schema_cache(),
+                ) {
                     let pt_output = st.possible_types();
                     let tp_output = st.type_policies();
 
@@ -808,13 +817,14 @@ async fn generate_project_files(
     ),
     (),
 > {
-    let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source, params.use_cache) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{}", e.to_string().red());
-            return Err(());
-        }
-    };
+    let valid_schema =
+        match schema::load_and_validate_schema(params.base_dir, params.source, params.use_cache) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{}", e.to_string().red());
+                return Err(());
+            }
+        };
 
     let shared_type_cache = codegen::TypeCache::new();
 
@@ -962,11 +972,8 @@ async fn generate_project_files(
     if success && let Some(out_dir) = params.output_dir {
         let out_dir_path = params.base_dir.join(out_dir);
         std::fs::create_dir_all(&out_dir_path).ok();
-        let fragment_masking = codegen::FragmentMasking::from_core_config(
-            &params
-                .codegen_config
-                .fragment_masking(),
-        );
+        let fragment_masking =
+            codegen::FragmentMasking::from_core_config(&params.codegen_config.fragment_masking());
         if fragment_masking.is_enabled() {
             let masking_path = out_dir_path.join("fragment-masking.ts");
             let masking_content =

@@ -114,7 +114,9 @@ impl Backend {
             }
         }
 
-        let gitignore = Arc::new(graphox_core::utils::get_gitignore_matcher(config.base_dir()));
+        let gitignore = Arc::new(graphox_core::utils::get_gitignore_matcher(
+            config.base_dir(),
+        ));
 
         let config_arc = Arc::new(std::sync::RwLock::new(config));
         let type_caches = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));

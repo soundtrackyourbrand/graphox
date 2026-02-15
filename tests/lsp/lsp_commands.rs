@@ -1,6 +1,8 @@
 use crate::support::{self, create_initialized_lsp_service, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
-use graphox::{Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource};
+use graphox::{
+    Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+};
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::{Duration, sleep};
@@ -18,10 +20,12 @@ async fn test_lsp_command_clear_cache() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_codegen(CodegenConfig::disabled())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
@@ -116,10 +120,12 @@ async fn test_lsp_command_run_codegen() {
 
     let config = Config::new_test(
         base_dir.clone(),
-        vec![ProjectConfig::default()
-            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-            .with_include(GlobPattern::Single("query.graphql".to_string()))
-            .with_output_dir(output_dir.to_string())],
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_output_dir(output_dir.to_string()),
+        ],
     )
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);

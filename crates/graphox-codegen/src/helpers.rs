@@ -4,7 +4,6 @@ use apollo_compiler::ast::Type;
 use apollo_compiler::executable::{self, Selection};
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::apollo_ast::get_fragment_fragment_dependencies;
-use graphox_core::document::DocumentState;
 use std::sync::Arc;
 
 use crate::context::CodegenContext;
@@ -243,7 +242,6 @@ pub fn format_union_branches(branches: &[String], pad: &str) -> String {
 pub fn get_operation_deps_cached(
     operation: &executable::Operation,
     ctx: &CodegenContext,
-    doc: &DocumentState,
 ) -> HashSet<Arc<str>> {
     let mut all_deps = HashSet::default();
     collect_direct_fragment_spreads(&operation.selection_set, &mut all_deps);
@@ -255,14 +253,9 @@ pub fn get_operation_deps_cached(
     for frag_name in &all_deps {
         if let Some(cached_transitive) = ctx.fragment_dependencies.get(&frag_name[..]) {
             transitive_deps.extend(cached_transitive.iter().cloned());
-        } else if let Some(local_frag) = doc
-            .fragments()
-            .iter()
-            .find(|f| f.name.as_ref() == frag_name.as_ref())
-            && let Some(parsed_frag) = ctx.all_fragments.get(local_frag.name.as_ref())
-        {
+        } else if let Some(parsed_frag) = ctx.all_fragments.get(frag_name.as_ref()) {
             let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
-            transitive_deps.extend(frag_deps.into_iter().map(|s| s.into()));
+            transitive_deps.extend(frag_deps.into_iter().map(|s| s));
         }
     }
 
