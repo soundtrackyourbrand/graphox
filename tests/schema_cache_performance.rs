@@ -62,12 +62,12 @@ fn test_memory_cache_performance() {
 
     // First load - should be slow (no cache)
     let start = Instant::now();
-    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let first_load_time = start.elapsed();
 
     // Second load - should be MUCH faster (memory cache hit)
     let start = Instant::now();
-    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let second_load_time = start.elapsed();
 
     // Verify they're the same Arc (pointer equality)
@@ -96,7 +96,7 @@ fn test_memory_cache_performance() {
 
     // Third load - should use disk cache (slower than memory, faster than first load)
     let start = Instant::now();
-    let _schema3 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let _schema3 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let third_load_time = start.elapsed();
 
     println!("Third load (disk cache): {:?}", third_load_time);
@@ -126,7 +126,7 @@ fn test_cache_invalidation_on_file_change() {
     let _ = schema_cache::clear_cache();
 
     // Load and cache
-    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
 
     // Sleep to ensure mtime changes
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -135,7 +135,7 @@ fn test_cache_invalidation_on_file_change() {
     std::fs::write(&schema_path, "type Query { world: String }").unwrap();
 
     // Load again - should invalidate cache and return new schema
-    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
 
     // They should NOT be the same Arc (different schemas)
     assert!(
@@ -157,7 +157,7 @@ fn test_cache_corruption_handling() {
 
     let _ = schema_cache::clear_cache();
 
-    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let query1 = schema1.types.get("Query");
     assert_eq!(
         query1
@@ -176,7 +176,7 @@ fn test_cache_corruption_handling() {
 
     std::fs::write(&schema_path, "type Query { hello: String world: String }").unwrap();
 
-    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let query2 = schema2.types.get("Query");
     assert_eq!(
         query2
@@ -219,11 +219,11 @@ fn test_cache_memory_pressure() {
     let _ = schema_cache::clear_cache();
 
     let start = std::time::Instant::now();
-    let schema1 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema1 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let first_load = start.elapsed();
 
     let start = std::time::Instant::now();
-    let schema2 = schema::load_and_validate_schema(dir.path(), &source).unwrap();
+    let schema2 = schema::load_and_validate_schema(dir.path(), &source, true).unwrap();
     let cached_load = start.elapsed();
 
     println!("Large schema first load: {:?}", first_load);

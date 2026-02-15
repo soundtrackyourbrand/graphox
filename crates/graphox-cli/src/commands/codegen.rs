@@ -27,6 +27,7 @@ pub struct CodegenParams<'a> {
     pub workspace_documents: &'a HashMap<PathBuf, DocumentState>,
     pub codegen_config: &'a CodegenConfig,
     pub emit_extensions: graphox_core::config::EmitExtensions,
+    pub use_cache: bool,
 }
 
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
@@ -239,7 +240,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             for st in matches.iter().rev() {
                 if let Some(import_path) = st.import()
                     && let Ok(st_schema) =
-                        schema::load_and_validate_schema(cfg.base_dir(), st.schema())
+                        schema::load_and_validate_schema(cfg.base_dir(), st.schema(), cfg.enable_schema_cache())
                 {
                     let mut final_import_path = import_path.to_string();
 
@@ -296,7 +297,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
         }
 
-        let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir(), &project.schema()) {
+        let valid_schema = match schema::load_and_validate_schema(&cfg.base_dir(), &project.schema(), cfg.enable_schema_cache()) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{}", e.to_string().red());
@@ -414,6 +415,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 workspace_documents: &workspace_metadata.documents,
                 codegen_config: &codegen_config,
                 emit_extensions,
+                use_cache: cfg.enable_schema_cache(),
             },
             verbose,
             clean,
@@ -458,13 +460,14 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     &abs_output.to_string_lossy(),
                     cfg.scalars(),
                     verbose,
+                    cfg.enable_schema_cache(),
                 )
                 .await
                 {
                     success = false;
                 }
 
-                if let Ok(schema) = schema::load_and_validate_schema(&cfg.base_dir(), &st.schema()) {
+                if let Ok(schema) = schema::load_and_validate_schema(&cfg.base_dir(), &st.schema(), cfg.enable_schema_cache()) {
                     let pt_output = st.possible_types();
                     let tp_output = st.type_policies();
 
@@ -742,8 +745,9 @@ async fn execute_schema_codegen(
     output_path: &str,
     scalars: &HashMap<String, String>,
     verbose: bool,
+    use_cache: bool,
 ) -> bool {
-    let valid_schema = match schema::load_and_validate_schema(base_dir, source) {
+    let valid_schema = match schema::load_and_validate_schema(base_dir, source, use_cache) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{}", e.to_string().red());
@@ -804,7 +808,7 @@ async fn generate_project_files(
     ),
     (),
 > {
-    let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source) {
+    let valid_schema = match schema::load_and_validate_schema(params.base_dir, params.source, params.use_cache) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{}", e.to_string().red());

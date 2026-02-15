@@ -49,7 +49,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
-        let valid_schema = match schema::load_and_validate_schema(config.base_dir(), project.schema())
+        let valid_schema = match schema::load_and_validate_schema(config.base_dir(), project.schema(), true)
         {
             Ok(v) => v,
             Err(e) => {
@@ -225,7 +225,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     if !schema_types.is_empty() {
         for st in schema_types {
             let st_start = Instant::now();
-            if let Ok(valid_schema) = schema::load_and_validate_schema(config.base_dir(), st.schema())
+            if let Ok(valid_schema) = schema::load_and_validate_schema(config.base_dir(), st.schema(), true)
             {
                 let g_start = Instant::now();
                 let _ts_code = codegen::generate_schema_types(&valid_schema, config.scalars());
