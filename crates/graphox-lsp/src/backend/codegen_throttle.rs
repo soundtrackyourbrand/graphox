@@ -21,7 +21,11 @@ impl CodegenThrottle {
         client: Client,
         config: Arc<std::sync::RwLock<Config>>,
         type_caches: Arc<
-            dashmap::DashMap<String, Arc<graphox_codegen::TypeCache>, ahash::RandomState>,
+            dashmap::DashMap<
+                String,
+                Arc<graphox_codegen::SchemaAnalysisCaches>,
+                ahash::RandomState,
+            >,
         >,
     ) -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel::<()>();

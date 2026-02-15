@@ -45,6 +45,8 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     let mut project_timings = Vec::new();
     let mut schema_type_timings = Vec::new();
 
+    let shared_caches = codegen::SchemaAnalysisCaches::new();
+
     for (project, project_meta) in config.projects().iter().zip(&workspace_metadata.projects) {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
@@ -71,8 +73,6 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_fragment_to_import = &project_context.fragment_to_import;
         let all_fragments = &project_context.all_fragments;
         metadata_mapping_time += mm_start.elapsed();
-
-        let shared_type_cache = codegen::TypeCache::new();
 
         let (
             p_graphql_files,
@@ -139,7 +139,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         &type_imports,
                         codegen_config.generate_ast_for_fragments(),
                         &project_context.fragment_dependencies,
-                        &shared_type_cache,
+                        &shared_caches,
                         &codegen_config,
                         "./fragment-masking".to_string(),
                         abs_out_path.clone(),
@@ -204,8 +204,8 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         codegen_profile.ast_serialization_time += p_profile.ast_serialization_time;
         codegen_profile.import_generation_time += p_profile.import_generation_time;
 
-        let (cache_hits, cache_misses) = shared_type_cache.stats();
-        let cache_size = shared_type_cache.len();
+        let (cache_hits, cache_misses) = shared_caches.type_cache.stats();
+        let cache_size = shared_caches.type_cache.len();
 
         project_timings.push((project.include().as_key(), project_total_start.elapsed()));
 

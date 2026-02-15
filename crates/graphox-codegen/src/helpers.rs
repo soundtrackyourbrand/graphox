@@ -63,7 +63,7 @@ fn gql_type_to_ts_internal(
         "String" | "ID" => "string".to_string(),
         "Int" | "Float" => "number".to_string(),
         "Boolean" => "boolean".to_string(),
-        other => ctx.get_cached_type(other, || {
+        other => ctx.get_cached_type_with_context(other, use_names, || {
             if let Some(mapped) = scalars.get(other) {
                 mapped.to_string()
             } else if let Some(t) = schema.types.get(other) {
@@ -208,6 +208,24 @@ pub fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<
             }
         })
         .collect()
+}
+
+/// Compute interface implementors - called by cache
+pub fn compute_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<String> {
+    get_interface_implementors(interface_name, schema)
+}
+
+/// Compute abstract members - called by cache
+pub fn compute_abstract_members(type_name: &str, schema: &Schema) -> Vec<String> {
+    if let Some(ty) = schema.types.get(type_name) {
+        match ty {
+            ExtendedType::Union(union) => union.members.iter().map(|m| m.to_string()).collect(),
+            ExtendedType::Interface(_) => get_interface_implementors(type_name, schema),
+            _ => vec![type_name.to_string()],
+        }
+    } else {
+        vec![type_name.to_string()]
+    }
 }
 
 pub fn get_typename_value_for_type(parent_type: &ExtendedType, schema: &Schema) -> String {

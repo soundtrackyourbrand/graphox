@@ -26,6 +26,7 @@ pub struct CodegenParams<'a> {
     pub codegen_config: &'a CodegenConfig,
     pub emit_extensions: graphox_core::config::EmitExtensions,
     pub use_cache: bool,
+    pub type_cache: &'a codegen::TypeCache,
 }
 
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
@@ -192,6 +193,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     let workspace_metadata =
         Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
     let global_metadata = &workspace_metadata.fragments;
+
+    let shared_caches = codegen::TypeCache::new();
 
     for (project_index, (project, project_meta)) in cfg
         .projects()
@@ -421,6 +424,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 codegen_config: &codegen_config,
                 emit_extensions,
                 use_cache: cfg.enable_schema_cache(),
+                type_cache: &shared_caches,
             },
             verbose,
             clean,
@@ -786,7 +790,7 @@ async fn generate_project_files(
             }
         };
 
-    let shared_type_cache = codegen::TypeCache::new();
+    let shared_caches = codegen::SchemaAnalysisCaches::new();
 
     let results: Vec<_> = params
         .project_files
@@ -854,7 +858,7 @@ async fn generate_project_files(
                 params.type_imports,
                 params.codegen_config.generate_ast_for_fragments(),
                 &params.project_context.fragment_dependencies,
-                &shared_type_cache,
+                &shared_caches,
                 params.codegen_config,
                 masking_import_path,
                 abs_out_path.clone(),

@@ -14,7 +14,9 @@ use tower_lsp::lsp_types::MessageType;
 pub async fn run_codegen(
     client: Client,
     config: Config,
-    type_caches: Arc<dashmap::DashMap<String, Arc<graphox_codegen::TypeCache>, ahash::RandomState>>,
+    type_caches: Arc<
+        dashmap::DashMap<String, Arc<graphox_codegen::SchemaAnalysisCaches>, ahash::RandomState>,
+    >,
     supports_progress: bool,
 ) {
     // Create progress reporter
@@ -138,7 +140,7 @@ pub async fn run_codegen(
         let schema_key = project.schema().as_key();
         let type_cache = type_caches
             .entry(schema_key.clone())
-            .or_insert_with(|| Arc::new(graphox_codegen::TypeCache::new()))
+            .or_insert_with(|| Arc::new(graphox_codegen::SchemaAnalysisCaches::new()))
             .clone();
 
         let _total_files = project_files.len();

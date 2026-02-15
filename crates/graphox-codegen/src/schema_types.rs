@@ -4,7 +4,7 @@ use apollo_compiler::schema::ExtendedType;
 use graphox_core::config::CodegenConfig;
 use std::path::{Path, PathBuf};
 
-use crate::context::{CodegenContext, TypeCache};
+use crate::context::{CodegenContext, SchemaAnalysisCaches};
 use crate::helpers::{format_jsdoc, get_interface_implementors, gql_type_to_ts_with_names};
 
 pub fn generate_schema_types(
@@ -20,7 +20,7 @@ pub fn generate_schema_types(
     let empty_path_map = HashMap::default();
     let empty_import_map = HashMap::default();
     let empty_type_only_map = HashMap::default();
-    let dummy_cache = TypeCache::new();
+    let dummy_cache = SchemaAnalysisCaches::new();
     let empty_type_imports = HashMap::default();
     let dummy_config = CodegenConfig::default();
     let dummy_ctx = CodegenContext::new(

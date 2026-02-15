@@ -1,5 +1,6 @@
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::executable;
+use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
 use dashmap::DashMap;
 use graphox_core::config::{CodegenConfig, EmitExtensions, NamingConvention};
@@ -54,7 +55,7 @@ pub struct CodegenContext<'a> {
     pub type_imports: &'a HashMap<String, String>,
     pub generate_ast_for_fragments: bool,
     pub fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
-    pub type_cache: &'a TypeCache,
+    pub type_cache: &'a SchemaAnalysisCaches,
     pub config: &'a CodegenConfig,
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
@@ -75,7 +76,7 @@ impl<'a> CodegenContext<'a> {
         type_imports: &'a HashMap<String, String>,
         generate_ast_for_fragments: bool,
         fragment_dependencies: &'a HashMap<Arc<str>, Vec<Arc<str>>>,
-        type_cache: &'a TypeCache,
+        type_cache: &'a SchemaAnalysisCaches,
         config: &'a CodegenConfig,
         masking_import_path: String,
         codegen_path: PathBuf,
@@ -145,15 +146,100 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Get cached type conversion or compute and cache it
+    /// Uses tuple-based key with default context for backward compatibility
     pub fn get_cached_type(&self, type_name: &str, compute: impl FnOnce() -> String) -> String {
-        self.type_cache.get_or_insert(type_name, compute)
+        let key = TypeCacheKey {
+            type_name: type_name.to_string(),
+            use_names: false,
+            schema_import_key: None,
+            type_import_keys: Vec::new(),
+        };
+        self.type_cache.type_cache.get_or_insert_tuple(key, compute)
+    }
+
+    /// Get cached type with full context key (tuple-based)
+    /// This ensures correctness when context settings vary between calls
+    pub fn get_cached_type_with_context(
+        &self,
+        type_name: &str,
+        use_names: bool,
+        compute: impl FnOnce() -> String,
+    ) -> String {
+        let key =
+            TypeCacheKey::from_context(type_name, use_names, self.schema_import, self.type_imports);
+        self.type_cache.type_cache.get_or_insert_tuple(key, compute)
+    }
+
+    /// Get cached interface implementors
+    pub fn get_interface_implementors(&self, interface_name: &str) -> Vec<String> {
+        self.type_cache.interface_implementors.get_or_insert(
+            self.schema_import,
+            interface_name,
+            || crate::helpers::compute_interface_implementors(interface_name, self.schema),
+        )
+    }
+
+    /// Get cached abstract members (for unions/interfaces)
+    pub fn get_abstract_members(&self, type_name: &str) -> Vec<String> {
+        self.type_cache
+            .abstract_members
+            .get_or_insert(self.schema_import, type_name, || {
+                crate::helpers::compute_abstract_members(type_name, self.schema)
+            })
+    }
+
+    /// Get typename value for a type (uses cached interface implementors)
+    /// Note: __typename is a GraphQL string field, so non-interface types need quotes
+    /// Only Interface types use implementors; Union types fall through to default
+    pub fn get_typename_value_for_type(&self, parent_type: &ExtendedType) -> String {
+        match parent_type {
+            ExtendedType::Interface(_) => {
+                let implementors = self.get_interface_implementors(parent_type.name());
+                if implementors.is_empty() {
+                    "string".to_string()
+                } else {
+                    implementors.join(" | ")
+                }
+            }
+            _ => format!("\"{}\"", parent_type.name()),
+        }
+    }
+}
+
+/// Cache key that includes context settings affecting type conversion
+/// Using tuple-based struct for type safety and clarity
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+pub struct TypeCacheKey {
+    pub type_name: String,
+    pub use_names: bool,
+    pub schema_import_key: Option<String>,
+    pub type_import_keys: Vec<String>,
+}
+
+impl TypeCacheKey {
+    /// Create a fingerprint from context settings
+    pub fn from_context(
+        type_name: &str,
+        use_names: bool,
+        schema_import: &Option<String>,
+        type_imports: &HashMap<String, String>,
+    ) -> Self {
+        let mut keys: Vec<_> = type_imports.keys().cloned().collect();
+        keys.sort();
+        Self {
+            type_name: type_name.to_string(),
+            use_names,
+            schema_import_key: schema_import.clone(),
+            type_import_keys: keys,
+        }
     }
 }
 
 /// Thread-safe cache for GraphQL type to TypeScript type conversions
 /// Shared across all files in a project since they use the same schema
+#[derive(Debug)]
 pub struct TypeCache {
-    cache: DashMap<String, String>,
+    cache: DashMap<TypeCacheKey, String>,
     hits: AtomicUsize,
     misses: AtomicUsize,
 }
@@ -173,15 +259,20 @@ impl TypeCache {
         }
     }
 
-    pub fn get_or_insert(&self, key: &str, compute: impl FnOnce() -> String) -> String {
-        if let Some(cached) = self.cache.get(key) {
+    /// Get or insert using a tuple-based key for type-safe context-aware caching
+    pub fn get_or_insert_tuple(
+        &self,
+        key: TypeCacheKey,
+        compute: impl FnOnce() -> String,
+    ) -> String {
+        if let Some(cached) = self.cache.get(&key) {
             self.hits.fetch_add(1, Ordering::Relaxed);
             return cached.clone();
         }
 
         self.misses.fetch_add(1, Ordering::Relaxed);
         let result = compute();
-        self.cache.insert(key.to_string(), result.clone());
+        self.cache.insert(key, result.clone());
         result
     }
 
@@ -198,6 +289,92 @@ impl TypeCache {
 
     pub fn is_empty(&self) -> bool {
         self.cache.is_empty()
+    }
+}
+
+/// Cache for interface → implementors mapping
+/// Key: (schema_import, interface name), Value: list of implementor type names
+#[derive(Debug, Default)]
+pub struct InterfaceImplementorsCache {
+    cache: DashMap<(Option<String>, String), Vec<String>>,
+}
+
+impl InterfaceImplementorsCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_or_insert(
+        &self,
+        schema_import: &Option<String>,
+        interface_name: &str,
+        compute: impl FnOnce() -> Vec<String>,
+    ) -> Vec<String> {
+        let key = (schema_import.clone(), interface_name.to_string());
+        if let Some(cached) = self.cache.get(&key) {
+            return cached.clone();
+        }
+        let result = compute();
+        self.cache.insert(key, result.clone());
+        result
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+}
+
+/// Cache for abstract type (union/interface) → members mapping
+/// Key: (schema_import, type name), Value: list of member type names
+#[derive(Debug, Default)]
+pub struct AbstractMembersCache {
+    cache: DashMap<(Option<String>, String), Vec<String>>,
+}
+
+impl AbstractMembersCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_or_insert(
+        &self,
+        schema_import: &Option<String>,
+        type_name: &str,
+        compute: impl FnOnce() -> Vec<String>,
+    ) -> Vec<String> {
+        let key = (schema_import.clone(), type_name.to_string());
+        if let Some(cached) = self.cache.get(&key) {
+            return cached.clone();
+        }
+        let result = compute();
+        self.cache.insert(key, result.clone());
+        result
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+}
+
+/// Unified caches for schema analysis, shared at workspace level
+#[derive(Debug, Default)]
+pub struct SchemaAnalysisCaches {
+    pub type_cache: TypeCache,
+    pub interface_implementors: InterfaceImplementorsCache,
+    pub abstract_members: AbstractMembersCache,
+}
+
+impl SchemaAnalysisCaches {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

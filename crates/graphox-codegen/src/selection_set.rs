@@ -2,13 +2,11 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::Node;
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
+use log::warn;
 
 use crate::apply_naming_convention;
 use crate::context::CodegenContext;
-use crate::helpers::{
-    format_union_branches, get_abstract_members, get_typename_value_for_type, gql_type_to_ts,
-    wrap_in_list_and_nullability,
-};
+use crate::helpers::{format_union_branches, gql_type_to_ts, wrap_in_list_and_nullability};
 
 #[derive(Debug, Clone)]
 pub struct SelectionSetType {
@@ -142,7 +140,7 @@ fn generate_field_list(
     let mut seen_fields: HashSet<String> = HashSet::with_capacity(fields.len() + 1);
 
     if !has_explicit_typename {
-        let typename_value = get_typename_value_for_type(parent_type, ctx.schema);
+        let typename_value = ctx.get_typename_value_for_type(parent_type);
         local_fields_list.push(format!("__typename: {}", typename_value));
         seen_fields.insert("__typename".to_string());
     }
@@ -155,7 +153,7 @@ fn generate_field_list(
         }
 
         if field.name.as_str() == "__typename" {
-            let typename_value = get_typename_value_for_type(parent_type, ctx.schema);
+            let typename_value = ctx.get_typename_value_for_type(parent_type);
             local_fields_list.push(format!("{}: {}", name, typename_value));
             continue;
         }
@@ -313,16 +311,16 @@ fn generate_union_type(
     }
 
     // Get all possible concrete types for this abstract type
-    let all_members = get_abstract_members(parent_type, ctx.schema);
+    let all_members = ctx.get_abstract_members(parent_type.name());
 
     // Map each member to the fragment spreads that apply to it
-    let mut member_to_spreads: HashMap<&str, Vec<&Node<executable::FragmentSpread>>> =
+    let mut member_to_spreads: HashMap<String, Vec<&Node<executable::FragmentSpread>>> =
         HashMap::default();
     for spread in fragment_spreads {
         if let Some(frag_def) = ctx.all_fragments.get(spread.fragment_name.as_str()) {
             let frag_type_name = frag_def.type_condition().as_str();
             if let Some(frag_type) = ctx.schema.types.get(frag_type_name) {
-                let frag_members = get_abstract_members(frag_type, ctx.schema);
+                let frag_members = ctx.get_abstract_members(frag_type.name());
                 for member in frag_members {
                     member_to_spreads.entry(member).or_default().push(spread);
                 }
@@ -354,9 +352,17 @@ fn generate_union_type(
         branches.push(branch);
     }
 
-    for member in all_members {
-        if !covered_types.contains(member) {
-            let member_type = ctx.schema.types.get(member).unwrap();
+    for member in &all_members {
+        // member is quoted (e.g., "ManuallyQueuedOrigin"), strip quotes for schema lookup
+        let member_name = member.trim_matches('"');
+        if !covered_types.contains(member_name) {
+            let Some(member_type) = ctx.schema.types.get(member_name) else {
+                warn!(
+                    "Union/interface member type '{}' not found in schema (referenced in: {:?})",
+                    member_name, ctx.codegen_path
+                );
+                continue;
+            };
             let member_has_typename = fields_have_explicit_typename(fields);
             let fields_list = generate_field_list(
                 fields,

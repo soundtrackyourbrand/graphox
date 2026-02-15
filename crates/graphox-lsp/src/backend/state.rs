@@ -45,7 +45,8 @@ pub struct Backend {
     pub gitignore: Arc<ignore::gitignore::Gitignore>,
     /// Persistent type cache per schema (keyed by schema key)
     /// Shared across all codegen runs for the same schema to maximize cache hits
-    pub type_caches: Arc<DashMap<String, Arc<graphox_codegen::TypeCache>, ahash::RandomState>>,
+    pub type_caches:
+        Arc<DashMap<String, Arc<graphox_codegen::SchemaAnalysisCaches>, ahash::RandomState>>,
     /// Client capabilities for conditional feature enablement
     pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
     /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
