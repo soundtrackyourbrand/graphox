@@ -277,66 +277,149 @@ impl Engine {
 
         // 4. Metadata Extraction & Project Association
         let start_metadata = Instant::now();
-        let mut all_fragments = Vec::new();
-        let mut all_operations = Vec::new();
 
-        for (paths, import_alias) in &project_info {
-            let import_alias_arc = import_alias.as_deref().map(Arc::from);
-            for path in paths {
-                if let Some(doc) = path_to_doc.get(path) {
-                    let path_str: Arc<str> = path.to_string_lossy().to_string().into();
+        let mut prev_fragments_by_path: HashMap<Arc<str>, Vec<FragmentMetadata>> =
+            HashMap::default();
+        let mut prev_operations_by_path: HashMap<Arc<str>, Vec<OperationMetadata>> =
+            HashMap::default();
 
-                    for frag in doc.fragments() {
-                        all_fragments.push(FragmentMetadata {
-                            name: frag.name.clone(),
-                            path: path_str.clone(),
-                            import_alias: import_alias_arc.clone(),
-                            is_public: frag.is_public,
-                            is_type_only: frag.is_type_only,
-                            masked_source: doc.masked_source.clone(),
-                            direct_deps: frag.used_fragments.clone(),
-                            transitive_deps: Vec::new(), // Will be populated after all fragments are collected
-                        });
-                    }
-
-                    for op in doc.operations() {
-                        all_operations.push(OperationMetadata {
-                            name: op.name.clone(),
-                            path: path_str.clone(),
-                            source_text: op.source_text.clone(),
-                            operation_type: op.operation_type.clone(),
-                        });
-                    }
-                }
+        if let Some(prev) = previous_metadata {
+            for frag in &prev.fragments {
+                prev_fragments_by_path
+                    .entry(frag.path.clone())
+                    .or_default()
+                    .push(frag.clone());
+            }
+            for op in &prev.operations {
+                prev_operations_by_path
+                    .entry(op.path.clone())
+                    .or_default()
+                    .push(op.clone());
             }
         }
+
+        let path_to_doc_ref = &path_to_doc;
+        let prev_metadata_ref = previous_metadata;
+        let prev_frags_ref = &prev_fragments_by_path;
+        let prev_ops_ref = &prev_operations_by_path;
+
+        let (mut all_fragments, all_operations, reused_fragments_count): (Vec<_>, Vec<_>, usize) =
+            project_info
+                .par_iter()
+                .map(|(paths, import_alias)| {
+                    let import_alias_arc = import_alias.as_deref().map(Arc::from);
+                    let mut fragments = Vec::new();
+                    let mut operations = Vec::new();
+                    let mut reused_count = 0;
+
+                    for path in paths {
+                        if let Some(doc) = path_to_doc_ref.get(path) {
+                            let path_str: Arc<str> = path.to_string_lossy().to_string().into();
+
+                            let mut reused = false;
+                            if let Some(prev) = prev_metadata_ref
+                                && let Some(prev_doc) = prev.documents.get(path)
+                                && prev_doc.mtime == doc.mtime
+                                && prev_doc.mtime.is_some()
+                                && prev_frags_ref.get(&path_str).is_none_or(|frags| {
+                                    frags.iter().all(|f| f.import_alias == import_alias_arc)
+                                })
+                            {
+                                if let Some(prev_frags) = prev_frags_ref.get(&path_str) {
+                                    reused_count += prev_frags.len();
+                                    fragments.extend(prev_frags.iter().cloned());
+                                }
+                                if let Some(prev_ops) = prev_ops_ref.get(&path_str) {
+                                    operations.extend(prev_ops.iter().cloned());
+                                }
+                                reused = true;
+                            }
+
+                            if !reused {
+                                for frag in doc.fragments() {
+                                    fragments.push(FragmentMetadata {
+                                        name: frag.name.clone(),
+                                        path: path_str.clone(),
+                                        import_alias: import_alias_arc.clone(),
+                                        is_public: frag.is_public,
+                                        is_type_only: frag.is_type_only,
+                                        masked_source: doc.masked_source.clone(),
+                                        direct_deps: frag.used_fragments.clone(),
+                                        transitive_deps: Vec::new(),
+                                    });
+                                }
+
+                                for op in doc.operations() {
+                                    operations.push(OperationMetadata {
+                                        name: op.name.clone(),
+                                        path: path_str.clone(),
+                                        source_text: op.source_text.clone(),
+                                        operation_type: op.operation_type.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    (fragments, operations, reused_count)
+                })
+                .reduce(
+                    || (Vec::new(), Vec::new(), 0),
+                    |mut acc, (f, o, r)| {
+                        acc.0.extend(f);
+                        acc.1.extend(o);
+                        acc.2 += r;
+                        acc
+                    },
+                );
+
         timings.metadata_extraction = start_metadata.elapsed();
 
         // 5. Compute transitive fragment dependencies
         // This is done once during workspace scan to avoid repeated computation during codegen
         let start_deps = Instant::now();
-        Self::compute_fragment_dependencies(&mut all_fragments);
+        if let Some(prev) = previous_metadata
+            && reused_fragments_count == all_fragments.len()
+            && all_fragments.len() == prev.fragments.len()
+        {
+            // Optimization: All fragments were reused and no fragments were added or removed.
+            // Transitive dependencies are already populated and correct.
+        } else {
+            Self::compute_fragment_dependencies(&mut all_fragments);
+        }
         timings.fragment_deps_computation = start_deps.elapsed();
 
         // 6. Build operation name index for duplicate detection
-        let mut operation_names_by_project: HashMap<Arc<str>, HashMap<usize, Vec<PathBuf>>> =
-            HashMap::default();
-        for (project_idx, (paths, _)) in project_info.iter().enumerate() {
-            for path in paths {
-                if let Some(doc) = path_to_doc.get(path) {
-                    for op in doc.operations() {
-                        if let Some(name) = &op.name {
-                            operation_names_by_project
-                                .entry(name.clone())
-                                .or_default()
-                                .entry(project_idx)
-                                .or_default()
-                                .push(path.clone());
+        let operation_names_by_project = project_info
+            .par_iter()
+            .enumerate()
+            .map(|(project_idx, (paths, _))| {
+                let mut local_map: HashMap<Arc<str>, HashMap<usize, Vec<PathBuf>>> =
+                    HashMap::default();
+                for path in paths {
+                    if let Some(doc) = path_to_doc_ref.get(path) {
+                        for op in doc.operations() {
+                            if let Some(name) = &op.name {
+                                local_map
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .entry(project_idx)
+                                    .or_default()
+                                    .push(path.clone());
+                            }
                         }
                     }
                 }
-            }
-        }
+                local_map
+            })
+            .reduce(HashMap::default, |mut acc, local_map| {
+                for (name, project_map) in local_map {
+                    let entry = acc.entry(name).or_default();
+                    for (project_idx, paths) in project_map {
+                        entry.entry(project_idx).or_default().extend(paths);
+                    }
+                }
+                acc
+            });
 
         WorkspaceMetadata {
             fragments: all_fragments,

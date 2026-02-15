@@ -113,17 +113,13 @@ impl DocumentDiagnostics for DocumentState {
             let block_text = self.get_node_text(block.tree.root_node(), offset);
             let masked = mask_interpolations(&block_text);
 
-            let doc_res = apollo_compiler::executable::ExecutableDocument::parse(
-                valid_schema,
-                &masked,
-                self.uri.as_str(),
-            );
+            let doc_res = self.get_executable_doc(valid_schema, offset, &masked);
 
             let apollo_diagnostics: Vec<(
                 String,
                 Option<std::ops::Range<apollo_compiler::parser::LineColumn>>,
             )> = match doc_res {
-                Ok(doc) => match doc.validate(valid_schema) {
+                Ok((doc, _errors)) => match (*doc).clone().validate(valid_schema) {
                     Ok(_) => Vec::new(),
                     Err(errs) => errs
                         .errors
@@ -131,14 +127,12 @@ impl DocumentDiagnostics for DocumentState {
                         .map(|e| (e.to_string(), e.line_column_range()))
                         .collect(),
                 },
-                Err(errs) => errs
-                    .errors
-                    .iter()
-                    .map(|e| (e.to_string(), e.line_column_range()))
-                    .collect(),
+                Err(e) if e == "SCHEMA_DEFINITION" => Vec::new(),
+                Err(e) => vec![(e, None)],
             };
 
             for (err_str, range_opt) in apollo_diagnostics {
+                let err_str: String = err_str;
                 // Suppress apollo-compiler diagnostics that we handle ourselves
                 // or that are redundant/confusing in our multi-file context.
                 let is_duplicate = err_str.contains("defined multiple times")

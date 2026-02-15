@@ -1,7 +1,6 @@
 use ahash::AHashMap as HashMap;
 use ahash::AHashSet as HashSet;
 use apollo_compiler::ast::OperationType;
-use apollo_compiler::executable;
 use graphox_core::apollo_ast::{serialize_fragment_definition, serialize_operation_definition};
 use graphox_core::document::DocumentState;
 use std::collections::BTreeMap;
@@ -65,17 +64,21 @@ pub fn generate_typescript_with_profile(
         );
 
         let parse_start = Instant::now();
-        let exec_doc =
-            match executable::ExecutableDocument::parse(ctx.schema, &block_text, "doc.graphql") {
-                Ok(d) => d,
-                Err(e) => {
-                    let error_str = e.to_string();
-                    if error_str.contains("must not contain") {
-                        continue;
-                    }
-                    return Err(format!("Failed to parse GraphQL block: {}", e));
-                }
-            };
+        let (exec_doc, errors) = match doc.get_executable_doc(ctx.schema, block.offset, &block_text)
+        {
+            Ok(d) => d,
+            Err(e) if e == "SCHEMA_DEFINITION" => continue,
+            Err(e) => return Err(e),
+        };
+
+        if let Some(errors) = errors {
+            return Err(format!(
+                "GraphQL validation errors in file {}:\n{}",
+                doc.uri.path(),
+                errors.join("\n")
+            ));
+        }
+
         profile.parse_time += parse_start.elapsed();
 
         for op in exec_doc.operations.iter() {
@@ -83,7 +86,7 @@ pub fn generate_typescript_with_profile(
             let raw_name = op
                 .name
                 .as_ref()
-                .map(|n| n.as_str())
+                .map(|n: &apollo_compiler::Name| n.as_str())
                 .unwrap_or("UnnamedOperation");
             let name = apply_naming_convention(raw_name, &ctx.naming_convention());
             let suffix = match op.operation_type {

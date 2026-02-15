@@ -418,7 +418,7 @@ async fn validate_all_documents_cancellable(
     let public_fragment_indices_clone = public_fragment_indices.clone();
     let cancelled_clone = cancelled.clone();
 
-    let to_publish: Vec<(Url, Vec<Diagnostic>)> = tokio::task::spawn_blocking(move || {
+    let to_publish: Vec<(Url, Vec<Diagnostic>)> = match tokio::task::spawn_blocking(move || {
         docs_to_validate
             .into_par_iter()
             .enumerate()
@@ -516,7 +516,13 @@ async fn validate_all_documents_cancellable(
             .collect()
     })
     .await
-    .unwrap();
+    {
+        Ok(res) => res,
+        Err(_) => {
+            // Task was cancelled or panicked
+            return;
+        }
+    };
 
     // Abort the progress task once validation is done
     progress_task.abort();

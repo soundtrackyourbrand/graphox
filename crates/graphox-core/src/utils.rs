@@ -426,7 +426,7 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                         }
 
                         if is_scalar && !has_directives {
-                            // Just remove duplicate scalar with no directives as "extend scalar Name" is invalid without directives
+                            // Just remove duplicate scalar with no directives as \"extend scalar Name\" is invalid without directives
                             modifications.push((
                                 container_node.start_byte(),
                                 container_node.end_byte(),
@@ -446,7 +446,7 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                                 }
                             }
 
-                            // We replace the range from container start to keyword start with "extend "
+                            // We replace the range from container start to keyword start with \"extend \"
                             // This effectively strips the description from the extension.
                             modifications.push((
                                 container_node.start_byte(),
@@ -477,7 +477,11 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
 
 /// Simple interpolation masker for template strings.
 /// Replaces ${...} with spaces of the same length to preserve offsets.
-pub fn mask_interpolations(text: &str) -> String {
+pub fn mask_interpolations(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains("${") {
+        return std::borrow::Cow::Borrowed(text);
+    }
+
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
 
@@ -508,7 +512,7 @@ pub fn mask_interpolations(text: &str) -> String {
             result.push(c);
         }
     }
-    result
+    std::borrow::Cow::Owned(result)
 }
 
 /// Finds the range of an operation definition by name

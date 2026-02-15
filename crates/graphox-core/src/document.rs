@@ -1,7 +1,8 @@
 use crate::queries::*;
 use crate::utils::{find_package_root, mask_interpolations};
-use apollo_compiler::Schema;
 use apollo_compiler::schema::ExtendedType;
+use apollo_compiler::{ExecutableDocument, Schema};
+use dashmap::DashMap;
 use lsp_types::*;
 use ropey::Rope;
 use std::fmt;
@@ -51,6 +52,10 @@ impl DocumentLanguage {
 pub struct GraphQLBlock {
     pub tree: Arc<Tree>,
     pub offset: usize,
+    pub hash: u64,
+    pub fragments: Vec<FragmentDef>,
+    pub operations: Vec<OperationDef>,
+    pub spreads: Vec<Arc<str>>,
 }
 
 impl fmt::Debug for GraphQLBlock {
@@ -106,6 +111,8 @@ pub struct NamedValueComponents<'a> {
     pub value: Option<Node<'a>>,
 }
 
+pub type CachedExecutableDocument = (Arc<ExecutableDocument>, Option<Arc<Vec<String>>>);
+
 #[derive(Debug, Clone)]
 pub struct DocumentState {
     pub uri: Url,
@@ -121,6 +128,7 @@ pub struct DocumentState {
     pub version: i32,
     pub mtime: Option<std::time::SystemTime>,
     pub position_encoding: PositionEncodingKind,
+    pub executable_docs: Arc<DashMap<u64, CachedExecutableDocument>>,
 }
 
 impl DocumentState {
@@ -155,6 +163,7 @@ impl DocumentState {
             version: 0,
             mtime,
             position_encoding,
+            executable_docs: Arc::new(DashMap::default()),
         };
 
         this.graphql_trees = this.reparse_graphql_trees();
@@ -172,17 +181,96 @@ impl DocumentState {
         this
     }
 
+    pub fn get_executable_doc(
+        &self,
+        schema: &apollo_compiler::validation::Valid<Schema>,
+        _offset: usize,
+        text: &str,
+    ) -> Result<CachedExecutableDocument, String> {
+        let mut hasher = ahash::AHasher::default();
+        use std::hash::Hasher;
+        hasher.write(text.as_bytes());
+        let hash = hasher.finish();
+
+        if let Some(entry) = self.executable_docs.get(&hash) {
+            let (doc, errors) = entry.value();
+            return Ok((doc.clone(), errors.clone()));
+        }
+
+        let doc_res = ExecutableDocument::parse(schema, text, "embedded.graphql");
+
+        // Check if it's a schema definition
+        if text.trim().starts_with("schema ")
+            || text.trim().starts_with("type Query")
+            || text.trim().starts_with("type Mutation")
+        {
+            return Err("SCHEMA_DEFINITION".to_string());
+        }
+
+        let mut errors = Vec::new();
+        let arc_doc = match doc_res {
+            Ok(d) => Arc::new(d),
+            Err(e) => {
+                for err in e.errors.iter() {
+                    let err_str = err.to_string();
+                    // Filter out structural errors that we tolerate for codegen (e.g. schemas in executable docs)
+                    if !err_str.contains("must not contain an object type definition")
+                        && !err_str.contains("must not contain an enum type definition")
+                        && !err_str.contains("must not contain a scalar type definition")
+                        && !err_str.contains("must not contain an interface type definition")
+                        && !err_str.contains("must not contain a union type definition")
+                        && !err_str.contains("must not contain an input object type definition")
+                        && !err_str.contains("must not contain a schema definition")
+                        && !err_str.contains("must not contain a directive definition")
+                    {
+                        errors.push(err_str);
+                    }
+                }
+                Arc::new(e.partial)
+            }
+        };
+
+        let arc_errors = if errors.is_empty() {
+            None
+        } else {
+            Some(Arc::new(errors))
+        };
+        self.executable_docs
+            .insert(hash, (arc_doc.clone(), arc_errors.clone()));
+        Ok((arc_doc, arc_errors))
+    }
+
     pub fn reparse_graphql_trees(&self) -> Vec<GraphQLBlock> {
         if self.language == DocumentLanguage::GraphQL {
+            let mut hasher = ahash::AHasher::default();
+            use std::hash::Hasher;
+            for chunk in self.rope.chunks() {
+                hasher.write(chunk.as_bytes());
+            }
+            let hash = hasher.finish();
+
+            let (fragments, operations, spreads) = self.extract_symbols_for_block(&self.tree, 0);
+
             return vec![GraphQLBlock {
                 tree: self.tree.clone(),
                 offset: 0,
+                hash,
+                fragments,
+                operations,
+                spreads,
             }];
         }
 
         if !self.has_graphql_candidates() {
             return vec![];
         }
+
+        let old_blocks_by_hash: ahash::AHashMap<u64, GraphQLBlock> = self
+            .graphql_trees
+            .iter()
+            .cloned()
+            .map(|b| (b.hash, b))
+            .collect();
 
         let query = match self.language {
             DocumentLanguage::TSX => TSX_QUERY_CACHE.get_or_init(|| {
@@ -286,13 +374,39 @@ impl DocumentState {
                     continue;
                 }
 
+                let mut hasher = ahash::AHasher::default();
+                use std::hash::Hasher;
+                for chunk in self.rope.byte_slice(start_byte..end_byte).chunks() {
+                    hasher.write(chunk.as_bytes());
+                }
+                let hash = hasher.finish();
+
+                if let Some(old) = old_blocks_by_hash.get(&hash) {
+                    gql_blocks.push(GraphQLBlock {
+                        tree: old.tree.clone(),
+                        offset: start_byte,
+                        hash,
+                        fragments: old.fragments.clone(),
+                        operations: old.operations.clone(),
+                        spreads: old.spreads.clone(),
+                    });
+                    continue;
+                }
+
                 let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
                 let masked_gql = mask_interpolations(&raw_gql);
 
-                if let Some(gql_tree) = gql_parser.parse(&masked_gql, None) {
+                if let Some(gql_tree) = gql_parser.parse(masked_gql.as_bytes(), None) {
+                    let (fragments, operations, spreads) =
+                        self.extract_symbols_for_block(&gql_tree, start_byte);
+
                     gql_blocks.push(GraphQLBlock {
                         tree: Arc::new(gql_tree),
                         offset: start_byte,
+                        hash,
+                        fragments,
+                        operations,
+                        spreads,
                     });
                 }
             }
@@ -562,7 +676,11 @@ impl DocumentState {
         &self.operations
     }
 
-    pub fn extract_symbols(&self) -> (Vec<FragmentDef>, Vec<OperationDef>, Vec<Arc<str>>) {
+    pub fn extract_symbols_for_block(
+        &self,
+        block_tree: &Tree,
+        offset: usize,
+    ) -> (Vec<FragmentDef>, Vec<OperationDef>, Vec<Arc<str>>) {
         let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
@@ -577,7 +695,6 @@ impl DocumentState {
         let mut operations = Vec::new();
         let mut all_fragment_spreads = Vec::new();
 
-        // Temporary storage for fragments to be enriched with references later
         struct PartialFragment {
             def: FragmentDef,
             start: usize,
@@ -585,200 +702,186 @@ impl DocumentState {
         }
         let mut partial_fragments = Vec::new();
 
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let mut matches = cursor.matches(symbol_query, block.tree.root_node(), |node: Node| {
-                let start = node.start_byte();
-                let end = node.end_byte();
-                self.rope
-                    .byte_slice((start + offset)..(end + offset))
-                    .chunks()
-            });
+        let mut matches = cursor.matches(symbol_query, block_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+            self.rope
+                .byte_slice((start + offset)..(end + offset))
+                .chunks()
+        });
 
-            while let Some(m) = matches.next() {
-                let mut name = None;
-                let mut type_condition = None;
-                let mut is_fragment = false;
-                let mut is_operation = false;
-                let mut is_public = false;
-                let mut is_type_only = false;
-                let mut description = None;
-                let mut container_node = None;
-                let mut op_type: Arc<str> = "query".into();
+        while let Some(m) = matches.next() {
+            let mut name = None;
+            let mut type_condition = None;
+            let mut is_fragment = false;
+            let mut is_operation = false;
+            let mut is_public = false;
+            let mut is_type_only = false;
+            let mut description = None;
+            let mut container_node = None;
+            let mut op_type: Arc<str> = "query".into();
 
-                for cap in m.captures {
-                    let cap_name = symbol_query.capture_names()[cap.index as usize];
-                    match cap_name {
-                        "symbol.name" => {
-                            name = Some(self.get_node_text(cap.node, offset));
-                        }
-                        "symbol.type_condition" => {
-                            type_condition = Some(self.get_node_text(cap.node, offset));
-                        }
-                        "symbol.container" => {
-                            container_node = Some(cap.node);
-                            match cap.node.kind() {
-                                "fragment_definition" => is_fragment = true,
-                                "operation_definition" => {
-                                    is_operation = true;
-                                    if let Some(ot_node) =
-                                        self.find_child_by_kind(cap.node, "operation_type")
-                                    {
-                                        op_type = self.get_node_text(ot_node, offset).into();
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        "symbol.directives" => {
-                            let directives_text = self.get_node_text(cap.node, offset);
-                            if directives_text.contains("@public") {
-                                is_public = true;
-                            }
-                            if directives_text.contains("@type_only") {
-                                is_type_only = true;
-                            }
-                        }
-                        _ => {}
+            for cap in m.captures {
+                let cap_name = symbol_query.capture_names()[cap.index as usize];
+                match cap_name {
+                    "symbol.name" => {
+                        name = Some(self.get_node_text(cap.node, offset));
                     }
+                    "symbol.type_condition" => {
+                        type_condition = Some(self.get_node_text(cap.node, offset));
+                    }
+                    "symbol.container" => {
+                        container_node = Some(cap.node);
+                        match cap.node.kind() {
+                            "fragment_definition" => is_fragment = true,
+                            "operation_definition" => {
+                                is_operation = true;
+                                if let Some(ot_node) =
+                                    self.find_child_by_kind(cap.node, "operation_type")
+                                {
+                                    op_type = self.get_node_text(ot_node, offset).into();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    "symbol.directives" => {
+                        let directives_text = self.get_node_text(cap.node, offset);
+                        if directives_text.contains("@public") {
+                            is_public = true;
+                        }
+                        if directives_text.contains("@type_only") {
+                            is_type_only = true;
+                        }
+                    }
+                    _ => {}
                 }
+            }
 
-                if let Some(container) = container_node {
-                    if is_fragment && let Some(n) = name {
-                        let source_hash = self.hash_node_text(container, offset);
+            if let Some(container) = container_node {
+                if is_fragment && let Some(n) = name {
+                    let source_hash = self.hash_node_text(container, offset);
 
-                        let mut walker = container.walk();
-                        for child in container.children(&mut walker) {
-                            if child.kind() == "description" {
-                                if let Some(sv) = child.child_by_field_name("content") {
-                                    description = Some(
-                                        self.get_node_text(sv, offset).trim_matches('"').into(),
-                                    );
-                                } else if let Some(sv) = child.child(0) {
-                                    description = Some(
-                                        self.get_node_text(sv, offset).trim_matches('"').into(),
-                                    );
-                                }
+                    let mut walker = container.walk();
+                    for child in container.children(&mut walker) {
+                        if child.kind() == "description" {
+                            if let Some(sv) = child.child_by_field_name("content") {
+                                description =
+                                    Some(self.get_node_text(sv, offset).trim_matches('"').into());
+                            } else if let Some(sv) = child.child(0) {
+                                description =
+                                    Some(self.get_node_text(sv, offset).trim_matches('"').into());
                             }
                         }
-
-                        if description.is_none() {
-                            let range = self.translate_to_file_range(container, offset);
-                            if range.start.line > 0 {
-                                let prev_line_num = range.start.line - 1;
-                                let line_start = self.rope.line_to_char(prev_line_num as usize);
-                                let line_end = self.rope.line_to_char(range.start.line as usize);
-                                let line_text = self.rope.slice(line_start..line_end).to_string();
-                                let trimmed = line_text.trim();
-                                if trimmed.starts_with('#') {
-                                    description =
-                                        Some(trimmed.trim_start_matches('#').trim().into());
-                                }
-                            }
-                        }
-
-                        partial_fragments.push(PartialFragment {
-                            def: FragmentDef {
-                                name: n.into(),
-                                type_condition: type_condition.unwrap_or_default().into(),
-                                is_public,
-                                is_type_only,
-                                description,
-                                source_hash,
-                                used_variables: Vec::new(),
-                                used_fragments: Vec::new(),
-                            },
-                            start: container.start_byte() + offset,
-                            end: container.end_byte() + offset,
-                        });
-                    } else if is_operation {
-                        let source_text = self.get_node_text(container, offset).into();
-                        operations.push(OperationDef {
-                            name: name.map(|n| n.into()),
-                            operation_type: op_type,
-                            source_text,
-                        });
                     }
+
+                    if description.is_none() {
+                        let range = self.translate_to_file_range(container, offset);
+                        if range.start.line > 0 {
+                            let prev_line_num = range.start.line - 1;
+                            let line_start = self.rope.line_to_char(prev_line_num as usize);
+                            let line_end = self.rope.line_to_char(range.start.line as usize);
+                            let line_text = self.rope.slice(line_start..line_end).to_string();
+                            let trimmed = line_text.trim();
+                            if trimmed.starts_with('#') {
+                                description = Some(trimmed.trim_start_matches('#').trim().into());
+                            }
+                        }
+                    }
+
+                    partial_fragments.push(PartialFragment {
+                        def: FragmentDef {
+                            name: n.into(),
+                            type_condition: type_condition.unwrap_or_default().into(),
+                            is_public,
+                            is_type_only,
+                            description,
+                            source_hash,
+                            used_variables: Vec::new(),
+                            used_fragments: Vec::new(),
+                        },
+                        start: container.start_byte() + offset,
+                        end: container.end_byte() + offset,
+                    });
+                } else if is_operation {
+                    let source_text = self.get_node_text(container, offset).into();
+                    operations.push(OperationDef {
+                        name: name.map(|n| n.into()),
+                        operation_type: op_type,
+                        source_text,
+                    });
                 }
             }
         }
 
-        // Second pass: Extract all references once and attribute them to fragments
-        for block in self.get_graphql_trees() {
-            let offset = block.offset;
-            let mut ref_matches =
-                cursor.matches(ref_query, block.tree.root_node(), |node: Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
-                    self.rope
-                        .byte_slice((start + offset)..(end + offset))
-                        .chunks()
-                });
+        let mut ref_matches = cursor.matches(ref_query, block_tree.root_node(), |node: Node| {
+            let start = node.start_byte();
+            let end = node.end_byte();
+            self.rope
+                .byte_slice((start + offset)..(end + offset))
+                .chunks()
+        });
 
-            let reference_idx = ref_query.capture_index_for_name("reference").unwrap();
-            let name_idx = ref_query.capture_index_for_name("name").unwrap();
+        let reference_idx = ref_query.capture_index_for_name("reference").unwrap();
+        let name_idx = ref_query.capture_index_for_name("name").unwrap();
 
-            let mut current_pf_idx = 0;
+        let mut current_pf_idx = 0;
 
-            while let Some(rm) = ref_matches.next() {
-                let mut is_reference = false;
-                let mut name_node = None;
+        while let Some(rm) = ref_matches.next() {
+            let mut is_reference = false;
+            let mut name_node = None;
 
-                for cap in rm.captures {
-                    if cap.index == reference_idx {
-                        is_reference = true;
-                    } else if cap.index == name_idx {
-                        name_node = Some(cap.node);
-                    }
+            for cap in rm.captures {
+                if cap.index == reference_idx {
+                    is_reference = true;
+                } else if cap.index == name_idx {
+                    name_node = Some(cap.node);
+                }
+            }
+
+            if is_reference && let Some(nn) = name_node {
+                let abs_start = nn.start_byte() + offset;
+
+                let is_variable = self
+                    .rope
+                    .get_char(self.rope.byte_to_char(abs_start))
+                    .is_some_and(|c| c == '$');
+
+                let mut is_fragment_spread = false;
+                let mut node_text_cache: Option<Arc<str>> = None;
+
+                if !is_variable
+                    && let Some(parent) = nn.parent()
+                    && parent.kind() == "fragment_name"
+                {
+                    let text: Arc<str> = self.get_node_text(nn, offset).into();
+                    all_fragment_spreads.push(text.clone());
+                    node_text_cache = Some(text);
+                    is_fragment_spread = true;
                 }
 
-                if is_reference && let Some(nn) = name_node {
-                    let abs_start = nn.start_byte() + offset;
+                while current_pf_idx < partial_fragments.len()
+                    && abs_start >= partial_fragments[current_pf_idx].end
+                {
+                    current_pf_idx += 1;
+                }
 
-                    let is_variable = self
-                        .rope
-                        .get_char(self.rope.byte_to_char(abs_start))
-                        .is_some_and(|c| c == '$');
-
-                    let mut is_fragment_spread = false;
-                    let mut node_text_cache: Option<Arc<str>> = None;
-
-                    if !is_variable
-                        && let Some(parent) = nn.parent()
-                        && parent.kind() == "fragment_name"
-                    {
-                        let text: Arc<str> = self.get_node_text(nn, offset).into();
-                        all_fragment_spreads.push(text.clone());
-                        node_text_cache = Some(text);
-                        is_fragment_spread = true;
-                    }
-
-                    // Attribute to fragment if it's inside one.
-                    // Since both matches and partial_fragments are sorted by position,
-                    // we can efficiently find the containing fragment.
-                    while current_pf_idx < partial_fragments.len()
-                        && abs_start >= partial_fragments[current_pf_idx].end
-                    {
-                        current_pf_idx += 1;
-                    }
-
-                    if current_pf_idx < partial_fragments.len() {
-                        let pf = &mut partial_fragments[current_pf_idx];
-                        if abs_start >= pf.start && abs_start < pf.end {
-                            if is_variable {
-                                let mut v_cursor = nn.walk();
-                                for v_child in nn.children(&mut v_cursor) {
-                                    if v_child.kind() == "name" {
-                                        pf.def
-                                            .used_variables
-                                            .push(self.get_node_text(v_child, offset).into());
-                                    }
+                if current_pf_idx < partial_fragments.len() {
+                    let pf = &mut partial_fragments[current_pf_idx];
+                    if abs_start >= pf.start && abs_start < pf.end {
+                        if is_variable {
+                            let mut v_cursor = nn.walk();
+                            for v_child in nn.children(&mut v_cursor) {
+                                if v_child.kind() == "name" {
+                                    pf.def
+                                        .used_variables
+                                        .push(self.get_node_text(v_child, offset).into());
                                 }
-                            } else if is_fragment_spread {
-                                let text = node_text_cache
-                                    .get_or_insert_with(|| self.get_node_text(nn, offset).into());
-                                pf.def.used_fragments.push(text.clone());
                             }
+                        } else if is_fragment_spread {
+                            let text = node_text_cache
+                                .get_or_insert_with(|| self.get_node_text(nn, offset).into());
+                            pf.def.used_fragments.push(text.clone());
                         }
                     }
                 }
@@ -788,6 +891,20 @@ impl DocumentState {
         let fragments = partial_fragments.into_iter().map(|pf| pf.def).collect();
 
         (fragments, operations, all_fragment_spreads)
+    }
+
+    pub fn extract_symbols(&self) -> (Vec<FragmentDef>, Vec<OperationDef>, Vec<Arc<str>>) {
+        let mut fragments = Vec::new();
+        let mut operations = Vec::new();
+        let mut spreads = Vec::new();
+
+        for block in self.get_graphql_trees() {
+            fragments.extend(block.fragments.iter().cloned());
+            operations.extend(block.operations.iter().cloned());
+            spreads.extend(block.spreads.iter().cloned());
+        }
+
+        (fragments, operations, spreads)
     }
 
     pub fn get_fragment_spreads_in_node(&self, node: Node, offset: usize) -> Vec<Arc<str>> {

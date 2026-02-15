@@ -222,16 +222,16 @@ fn test_validation_fragment() {
 #[test]
 #[ntest::timeout(100)]
 fn test_validation_inline_fragment() {
-    let doc = create_doc(
-        "file:///inline.graphql",
-        r#"
-            query {
+    let text = r#"
+        query {
+            user {
                 ... on User {
                     nonExistentOnUser
                 }
             }
-        "#,
-    );
+        }
+    "#;
+    let doc = create_doc("file:///inline.graphql", text);
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_schema().clone().validate().unwrap(),
         &[],
@@ -245,17 +245,7 @@ fn test_validation_inline_fragment() {
     let error = assert_diagnostic_with_message(&diagnostics, "not found on type");
     assert_diag_range_equals(
         error,
-        &crate::support::range_for_token(
-            &doc,
-            r#"
-            query {
-                ... on User {
-                    nonExistentOnUser
-                }
-            }
-        "#,
-            "nonExistentOnUser",
-        ),
+        &crate::support::range_for_token(&doc, text, "nonExistentOnUser"),
     );
 }
 

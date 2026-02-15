@@ -104,7 +104,6 @@ fn to_pascal_case(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::context::TypeCacheKey;
-    use apollo_compiler::Schema;
 
     #[test]
     fn test_pascal_case_basic() {
