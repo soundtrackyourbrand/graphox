@@ -94,12 +94,11 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
                 let path = base_dir.join(format!("project_{}/file_{}.graphql", i, j));
                 let uri = Url::from_file_path(fs::canonicalize(&path).unwrap()).unwrap();
                 let content = fs::read_to_string(&path).unwrap();
-                let mut parser = tree_sitter::Parser::new();
-                parser
-                    .set_language(&tree_sitter_graphql::LANGUAGE.into())
-                    .unwrap();
-                let doc =
-                    DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+                let doc = DocumentState::new_from_thread_local(
+                    uri.clone(),
+                    &content,
+                    PositionEncodingKind::UTF8,
+                );
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }

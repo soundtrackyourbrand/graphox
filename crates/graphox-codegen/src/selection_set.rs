@@ -3,6 +3,7 @@ use apollo_compiler::Node;
 use apollo_compiler::executable::{self, Selection, SelectionSet};
 use apollo_compiler::schema::ExtendedType;
 use log::warn;
+use std::sync::Arc;
 
 use crate::apply_naming_convention;
 use crate::context::CodegenContext;
@@ -21,7 +22,7 @@ pub fn generate_selection_set(
     parent_type: &ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
-    used_fragments: &mut HashMap<String, String>,
+    used_fragments: &mut HashSet<Arc<str>>,
 ) -> SelectionSetType {
     let categorized = categorize_selections(selection_set, used_fragments);
 
@@ -58,7 +59,7 @@ struct CategorizedSelections<'a> {
 /// Categorize selections into fields, inline fragments, and fragment spreads
 fn categorize_selections<'a>(
     selection_set: &'a SelectionSet,
-    used_fragments: &mut HashMap<String, String>,
+    used_fragments: &mut HashSet<Arc<str>>,
 ) -> CategorizedSelections<'a> {
     let mut fields = Vec::new();
     let mut inline_fragments = Vec::new();
@@ -78,7 +79,7 @@ fn categorize_selections<'a>(
             }
             Selection::FragmentSpread(spread) => {
                 fragment_spreads.push(spread);
-                used_fragments.insert(spread.fragment_name.to_string(), String::new());
+                used_fragments.insert(spread.fragment_name.as_str().into());
             }
         }
     }
@@ -103,7 +104,7 @@ fn generate_object_or_intersection(
     parent_type: &ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
-    used_fragments: &mut HashMap<String, String>,
+    used_fragments: &mut HashSet<Arc<str>>,
 ) -> SelectionSetType {
     let local_fields_list = generate_field_list(
         &categorized.fields,
@@ -136,21 +137,21 @@ fn generate_field_list(
     ctx: &CodegenContext,
     indent: usize,
     has_explicit_typename: bool,
-    used_fragments: &mut HashMap<String, String>,
+    used_fragments: &mut HashSet<Arc<str>>,
 ) -> Vec<String> {
     let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
-    let mut seen_fields: HashSet<String> = HashSet::with_capacity(fields.len() + 1);
+    let mut seen_fields: HashSet<&str> = HashSet::with_capacity(fields.len() + 1);
 
     if !has_explicit_typename {
         let typename_value = ctx.get_typename_value_for_type(parent_type);
         local_fields_list.push(format!("__typename: {}", typename_value));
-        seen_fields.insert("__typename".to_string());
+        seen_fields.insert("__typename");
     }
 
     for field in fields {
         let name = field.alias.as_ref().unwrap_or(&field.name);
 
-        if !seen_fields.insert(name.to_string()) {
+        if !seen_fields.insert(name.as_str()) {
             continue;
         }
 
@@ -324,7 +325,7 @@ fn generate_union_type(
     parent_type: &ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
-    used_fragments: &mut HashMap<String, String>,
+    used_fragments: &mut HashSet<Arc<str>>,
 ) -> SelectionSetType {
     let pad = "  ".repeat(indent);
     let mut branches = Vec::with_capacity(inline_fragments.len() + 1);
@@ -341,7 +342,7 @@ fn generate_union_type(
     let all_members = ctx.get_abstract_members(parent_type.name());
 
     // Map each member to the fragment spreads that apply to it
-    let mut member_to_spreads: HashMap<String, Vec<&Node<executable::FragmentSpread>>> =
+    let mut member_to_spreads: HashMap<Arc<str>, Vec<&Node<executable::FragmentSpread>>> =
         HashMap::default();
     for spread in fragment_spreads {
         if let Some(frag_def) = ctx.all_fragments.get(spread.fragment_name.as_str()) {
@@ -403,7 +404,7 @@ fn generate_union_type(
             let mut type_str = format_multiline_object(&fields_list, indent + 1);
 
             // Add fragment spreads that apply to this member
-            if let Some(spreads) = member_to_spreads.get(member) {
+            if let Some(spreads) = member_to_spreads.get(member.as_ref()) {
                 let spread_str = format_intersection(&[], spreads, ctx);
                 type_str = format!("({} & {})", type_str, spread_str);
             }
@@ -428,7 +429,7 @@ fn generate_inline_fragment_branch(
     parent_type: &ExtendedType,
     ctx: &CodegenContext,
     indent: usize,
-    used_fragments: &mut HashMap<String, String>,
+    used_fragments: &mut HashSet<Arc<str>>,
 ) -> String {
     let type_name = inline
         .type_condition
@@ -467,7 +468,7 @@ fn generate_inline_fragment_branch(
     for selection in &inline.selection_set.selections {
         if let Selection::FragmentSpread(spread) = selection {
             all_fragment_spreads.push(spread);
-            used_fragments.insert(spread.fragment_name.to_string(), String::new());
+            used_fragments.insert(spread.fragment_name.as_str().into());
         }
     }
 

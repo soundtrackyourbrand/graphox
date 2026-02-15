@@ -86,9 +86,9 @@ fn collect_fragments(
                 collect_fragments(&inline.selection_set, all_fragments, used);
             }
             Selection::FragmentSpread(spread) => {
-                let name: Arc<str> = Arc::from(spread.fragment_name.as_str());
-                if used.insert(name.clone())
-                    && let Some(frag) = all_fragments.get(&name)
+                let name = spread.fragment_name.as_str();
+                if used.insert(Arc::from(name))
+                    && let Some(frag) = all_fragments.get(name)
                 {
                     collect_fragments(&frag.selection_set, all_fragments, used);
                 }
@@ -186,7 +186,7 @@ fn convert_selection_set(
     all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
-    let mut selections = Vec::new();
+    let mut selections = Vec::with_capacity(sel.selections.len());
 
     for selection in &sel.selections {
         match selection {
@@ -245,6 +245,13 @@ fn convert_selection_set(
         "selections": selections,
     })
 }
+
+// The helper functions for deep nested fragment expansion and field key
+// extraction were removed because they were not referenced by the current
+// selection conversion logic. Keeping unused helpers produced warnings and
+// added maintenance burden. If deep expansion/deduplication is required in
+// the future, reintroduce the helpers with a clear call-site in
+// `convert_selection_set`.
 
 fn convert_selection(
     sel: &Selection,

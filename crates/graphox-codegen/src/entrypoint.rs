@@ -22,6 +22,17 @@ pub fn generate_entrypoint_content(
     let mut output = String::with_capacity(estimated_size);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
+    let mut path_cache: std::collections::HashMap<std::path::PathBuf, std::path::PathBuf> =
+        std::collections::HashMap::new();
+    let mut get_relative_path = |path: &Path| -> std::path::PathBuf {
+        if let Some(cached) = path_cache.get(path) {
+            return cached.clone();
+        }
+        let res = pathdiff::diff_paths(path, output_dir).unwrap_or_else(|| path.to_path_buf());
+        path_cache.insert(path.to_path_buf(), res.clone());
+        res
+    };
+
     let ext = emit_extensions.as_str();
     if fragment_masking.is_enabled() {
         output.push_str(&format!(
@@ -55,8 +66,7 @@ pub fn generate_entrypoint_content(
     }
 
     for op in unique_ops_by_name.values() {
-        let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
-            .unwrap_or_else(|| op.codegen_path.clone());
+        let rel_codegen_path = get_relative_path(&op.codegen_path);
         let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
         if !path_str.starts_with('.') && !path_str.starts_with('/') {
             path_str = format!("./{}", path_str);
@@ -102,8 +112,7 @@ pub fn generate_entrypoint_content(
     let mut added_source_texts: Vec<&String> = unique_ops_by_source.keys().cloned().collect();
 
     for frag in unique_frags_by_name.values() {
-        let rel_codegen_path = pathdiff::diff_paths(&frag.codegen_path, output_dir)
-            .unwrap_or_else(|| frag.codegen_path.clone());
+        let rel_codegen_path = get_relative_path(&frag.codegen_path);
         let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
         if !path_str.starts_with('.') && !path_str.starts_with('/') {
             path_str = format!("./{}", path_str);
@@ -183,8 +192,7 @@ pub fn generate_entrypoint_content(
 
         let mut path_to_ops: BTreeMap<String, Vec<&OperationGenerated>> = BTreeMap::new();
         for op in unique_ops_by_name.values() {
-            let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
-                .unwrap_or_else(|| op.codegen_path.clone());
+            let rel_codegen_path = get_relative_path(&op.codegen_path);
             let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
             if !path_str.starts_with('.') && !path_str.starts_with('/') {
                 path_str = format!("./{}", path_str);
@@ -220,8 +228,7 @@ pub fn generate_entrypoint_content(
 
         let mut path_to_frags: BTreeMap<String, Vec<&FragmentGenerated>> = BTreeMap::new();
         for frag in unique_frags_by_name.values() {
-            let rel_codegen_path = pathdiff::diff_paths(&frag.codegen_path, output_dir)
-                .unwrap_or_else(|| frag.codegen_path.clone());
+            let rel_codegen_path = get_relative_path(&frag.codegen_path);
             let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
             if !path_str.starts_with('.') && !path_str.starts_with('/') {
                 path_str = format!("./{}", path_str);

@@ -52,8 +52,8 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let sp_start = Instant::now();
 
         let valid_schema =
-            match schema::load_and_validate_schema(config.base_dir(), project.schema(), true) {
-                Ok(v) => v,
+            match schema::load_schema_with_cache(config.base_dir(), project.schema(), true) {
+                Ok(v) => v.validate().expect("Schema should be valid"),
                 Err(e) => {
                     eprintln!("{}", e.to_string().red());
                     continue;
@@ -72,6 +72,42 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         let project_fragment_to_path = &project_context.fragment_to_path;
         let project_fragment_to_import = &project_context.fragment_to_import;
         let all_fragments = &project_context.all_fragments;
+
+        // Pre-calculate schema imports and type imports for the project
+        let mut type_imports = ahash::AHashMap::default();
+        let project_schema_files: ahash::AHashSet<_> =
+            project.schema().files().into_iter().collect();
+
+        let schema_types = config.schema_types();
+        let schema_import = if !schema_types.is_empty() {
+            let mut matches: Vec<_> = schema_types
+                .iter()
+                .filter(|st| {
+                    let st_files = st.schema().files();
+                    st_files.iter().all(|f| project_schema_files.contains(f))
+                })
+                .collect();
+
+            matches.sort_by_key(|st| std::cmp::Reverse(st.schema().files().len()));
+
+            for st in matches.iter().rev() {
+                if let Some(import_path) = st.import()
+                    && let Ok(st_schema) = graphox_core::schema::load_schema_with_cache(
+                        config.base_dir(),
+                        st.schema(),
+                        true,
+                    )
+                {
+                    for type_name in st_schema.types.keys() {
+                        type_imports.insert(type_name.to_string(), import_path.to_string());
+                    }
+                }
+            }
+
+            matches.first().and_then(|st| st.import().map(String::from))
+        } else {
+            None
+        };
         metadata_mapping_time += mm_start.elapsed();
 
         let (
@@ -89,41 +125,6 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                 let d_time = dp_start.elapsed();
 
                 if let Some(doc) = doc_opt {
-                    let mut type_imports = ahash::AHashMap::default();
-                    let project_schema_files: ahash::AHashSet<_> =
-                        project.schema().files().into_iter().collect();
-
-                    let schema_types = config.schema_types();
-                    let schema_import = if !schema_types.is_empty() {
-                        let mut matches: Vec<_> = schema_types
-                            .iter()
-                            .filter(|st| {
-                                let st_files = st.schema().files();
-                                st_files.iter().all(|f| project_schema_files.contains(f))
-                            })
-                            .collect();
-
-                        matches.sort_by_key(|st| std::cmp::Reverse(st.schema().files().len()));
-
-                        for st in matches.iter().rev() {
-                            if let Some(import_path) = st.import()
-                                && let Ok(st_schema) = graphox_core::schema::load_schema(
-                                    config.base_dir(),
-                                    st.schema(),
-                                )
-                            {
-                                for type_name in st_schema.types.keys() {
-                                    type_imports
-                                        .insert(type_name.to_string(), import_path.to_string());
-                                }
-                            }
-                        }
-
-                        matches.first().and_then(|st| st.import().map(String::from))
-                    } else {
-                        None
-                    };
-
                     let abs_out_path = path.to_path_buf();
                     let codegen_config = graphox_core::config::CodegenConfig::default();
 
@@ -145,9 +146,9 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         abs_out_path.clone(),
                     );
                     let g_start = Instant::now();
-                    let mut profile = codegen::CodegenProfile::default();
+                    let mut local_profile = codegen::CodegenProfile::default();
                     if let Ok((_ts_code, _ops, _frags, _)) =
-                        codegen::generate_typescript_with_profile(doc, &ctx, &mut profile)
+                        codegen::generate_typescript_with_profile(doc, &ctx, &mut local_profile)
                     {
                         let g_time = g_start.elapsed();
                         return (
@@ -156,7 +157,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                             doc.fragments().len(),
                             d_time,
                             g_time,
-                            profile,
+                            local_profile,
                         );
                     }
                     (1, 0, 0, d_time, Duration::ZERO, Default::default())
@@ -198,7 +199,16 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         total_operations += p_operations;
         total_fragments_processed += p_fragments_processed;
         doc_parse_time += p_doc_parse_time;
-        ts_gen_time += p_ts_gen_time;
+
+        // Subtract sub-timings from TS Generation to avoid double counting
+        let total_gen_time = p_ts_gen_time;
+        let ts_gen_only = total_gen_time
+            .saturating_sub(p_profile.parse_time)
+            .saturating_sub(p_profile.selection_set_time)
+            .saturating_sub(p_profile.ast_serialization_time)
+            .saturating_sub(p_profile.import_generation_time);
+
+        ts_gen_time += ts_gen_only;
         codegen_profile.parse_time += p_profile.parse_time;
         codegen_profile.selection_set_time += p_profile.selection_set_time;
         codegen_profile.ast_serialization_time += p_profile.ast_serialization_time;
@@ -321,13 +331,16 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
     );
     println!(
         "  {:<26} {:>10?}",
-        "TS Generation:".bright_black(),
+        "TS Generation (misc):".bright_black(),
         ts_gen_time
     );
 
-    if ts_gen_time > Duration::ZERO {
+    if codegen_profile.parse_time > Duration::ZERO {
         println!();
-        println!("{}", "Codegen Breakdown:".bold());
+        println!(
+            "{}",
+            "Codegen Breakdown (Cumulative Across Threads):".bold()
+        );
         println!(
             "  {:<26} {:>10?}",
             "  GraphQL Parsing:".bright_black(),

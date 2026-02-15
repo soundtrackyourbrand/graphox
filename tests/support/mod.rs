@@ -882,7 +882,7 @@ pub fn create_doc(uri_str: &str, text: &str) -> DocumentState {
     DocumentState::new(
         uri,
         text,
-        parser,
+        &mut parser,
         tower_lsp::lsp_types::PositionEncodingKind::UTF16,
     )
 }

@@ -22,15 +22,9 @@ fn bench_single_insert(c: &mut Criterion) {
     let base_content = generate_base_document();
     let uri = Url::parse("file:///test.graphql").unwrap();
 
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(
+    let doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &base_content,
-        parser,
         PositionEncodingKind::UTF8,
     );
 
@@ -62,15 +56,9 @@ fn bench_multiline_insert(c: &mut Criterion) {
     let base_content = generate_base_document();
     let uri = Url::parse("file:///test.graphql").unwrap();
 
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(
+    let doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &base_content,
-        parser,
         PositionEncodingKind::UTF8,
     );
 
@@ -102,15 +90,9 @@ fn bench_fragment_spread_add(c: &mut Criterion) {
     let base_content = generate_base_document();
     let uri = Url::parse("file:///test.graphql").unwrap();
 
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(
+    let doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &base_content,
-        parser,
         PositionEncodingKind::UTF8,
     );
 
@@ -142,15 +124,9 @@ fn bench_type_annotation_add(c: &mut Criterion) {
     let base_content = generate_base_document();
     let uri = Url::parse("file:///test.graphql").unwrap();
 
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_graphql::LANGUAGE.into())
-        .unwrap();
-
-    let doc = DocumentState::new(
+    let doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &base_content,
-        parser,
         PositionEncodingKind::UTF8,
     );
 
@@ -207,7 +183,7 @@ fn bench_large_document_edit(c: &mut Criterion) {
     let doc = DocumentState::new(
         uri.clone(),
         &large_content,
-        parser,
+        &mut parser,
         PositionEncodingKind::UTF8,
     );
 

@@ -292,9 +292,8 @@ fn get_cache_path(base_dir: &Path, source: &SchemaSource) -> PathBuf {
     let cache_dir = get_cache_dir();
     let key = make_cache_key(base_dir, source);
     let hash = {
-        use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = ahash::AHasher::default();
         key.hash(&mut hasher);
         hasher.finish()
     };

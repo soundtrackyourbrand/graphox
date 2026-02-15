@@ -291,8 +291,8 @@ pub async fn run_codegen(
         PathBuf,
         Vec<graphox_codegen::FragmentGenerated>,
     > = std::collections::BTreeMap::new();
-    let mut dir_to_config: std::collections::HashMap<PathBuf, graphox_core::config::CodegenConfig> =
-        std::collections::HashMap::new();
+    let mut dir_to_config: ahash::AHashMap<PathBuf, graphox_core::config::CodegenConfig> =
+        ahash::AHashMap::new();
 
     for ((project, project_ops), project_frags) in config
         .projects()

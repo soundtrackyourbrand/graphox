@@ -105,10 +105,14 @@ pub async fn handle_references(
                 let mut relevant_uris = std::collections::HashSet::new();
 
                 if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
-                    relevant_uris.extend(def_uris.iter().cloned());
+                    for uri in def_uris.iter() {
+                        relevant_uris.insert(uri.clone());
+                    }
                 }
                 if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
-                    relevant_uris.extend(dep_uris.iter().cloned());
+                    for uri in dep_uris.iter() {
+                        relevant_uris.insert(uri.clone());
+                    }
                 }
 
                 let all_references: Vec<Location> = if relevant_uris.is_empty() {
@@ -125,8 +129,9 @@ pub async fn handle_references(
                         .collect()
                 } else {
                     relevant_uris
-                        .into_par_iter()
-                        .filter_map(|uri| backend.documents.get(&uri))
+                        .iter()
+                        .par_bridge()
+                        .filter_map(|uri| backend.documents.get(uri))
                         .flat_map(|entry| {
                             entry
                                 .value()
@@ -220,10 +225,14 @@ pub async fn handle_rename(
                 let mut relevant_uris = std::collections::HashSet::new();
 
                 if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
-                    relevant_uris.extend(def_uris.iter().cloned());
+                    for uri in def_uris.iter() {
+                        relevant_uris.insert(uri.clone());
+                    }
                 }
                 if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
-                    relevant_uris.extend(dep_uris.iter().cloned());
+                    for uri in dep_uris.iter() {
+                        relevant_uris.insert(uri.clone());
+                    }
                 }
 
                 for other_uri in relevant_uris {

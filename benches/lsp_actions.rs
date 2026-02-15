@@ -172,12 +172,11 @@ fn bench_lsp_actions(c: &mut Criterion) {
                 let abs_path = fs::canonicalize(&file_path).unwrap();
                 let uri = Url::from_file_path(&abs_path).unwrap();
                 let content = fs::read_to_string(&file_path).unwrap();
-                let mut parser = tree_sitter::Parser::new();
-                parser
-                    .set_language(&tree_sitter_graphql::LANGUAGE.into())
-                    .unwrap();
-                let doc =
-                    DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+                let doc = DocumentState::new_from_thread_local(
+                    uri.clone(),
+                    &content,
+                    PositionEncodingKind::UTF8,
+                );
                 backend.documents.insert(uri, std::sync::Arc::new(doc));
             }
         }

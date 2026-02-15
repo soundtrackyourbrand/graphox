@@ -5,10 +5,15 @@ use apollo_compiler::{ExecutableDocument, Schema};
 use dashmap::DashMap;
 use lsp_types::*;
 use ropey::Rope;
+use std::cell::RefCell;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tree_sitter::{InputEdit, Node, Parser, Point, StreamingIterator, Tree};
+
+thread_local! {
+    static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentLanguage {
@@ -132,13 +137,28 @@ pub struct DocumentState {
 }
 
 impl DocumentState {
+    pub fn new_from_thread_local(
+        uri: Url,
+        content: &str,
+        position_encoding: PositionEncodingKind,
+    ) -> Self {
+        PARSER.with(|p| {
+            let mut parser = p.borrow_mut();
+            Self::new(uri, content, &mut parser, position_encoding)
+        })
+    }
+
     pub fn new(
         uri: Url,
         content: &str,
-        mut parser: Parser,
+        parser: &mut Parser,
         position_encoding: PositionEncodingKind,
     ) -> Self {
         let language = DocumentLanguage::from_uri(&uri);
+        parser
+            .set_language(&language.get_parser_language())
+            .expect("Failed to set tree-sitter language");
+
         let rope = Rope::from_str(content);
         let tree = Arc::new(parser.parse(content, None).unwrap());
         let (package_root, mtime) = if let Ok(path) = uri.to_file_path() {
@@ -166,7 +186,7 @@ impl DocumentState {
             executable_docs: Arc::new(DashMap::default()),
         };
 
-        this.graphql_trees = this.reparse_graphql_trees();
+        this.graphql_trees = this.reparse_graphql_trees(parser);
         if language.is_host_language() {
             this.masked_source = mask_interpolations(content).into();
         } else {
@@ -240,7 +260,7 @@ impl DocumentState {
         Ok((arc_doc, arc_errors))
     }
 
-    pub fn reparse_graphql_trees(&self) -> Vec<GraphQLBlock> {
+    pub fn reparse_graphql_trees(&self, parser: &mut Parser) -> Vec<GraphQLBlock> {
         if self.language == DocumentLanguage::GraphQL {
             let mut hasher = ahash::AHasher::default();
             use std::hash::Hasher;
@@ -298,8 +318,7 @@ impl DocumentState {
         let mut gql_blocks = vec![];
         let mut seen_nodes = ahash::AHashSet::default();
 
-        let mut gql_parser = Parser::new();
-        gql_parser
+        parser
             .set_language(&tree_sitter_graphql::LANGUAGE.into())
             .unwrap();
 
@@ -396,7 +415,7 @@ impl DocumentState {
                 let raw_gql = self.rope.byte_slice(start_byte..end_byte).to_string();
                 let masked_gql = mask_interpolations(&raw_gql);
 
-                if let Some(gql_tree) = gql_parser.parse(masked_gql.as_bytes(), None) {
+                if let Some(gql_tree) = parser.parse(masked_gql.as_bytes(), None) {
                     let (fragments, operations, spreads) =
                         self.extract_symbols_for_block(&gql_tree, start_byte);
 
@@ -998,6 +1017,17 @@ impl DocumentState {
         None
     }
 
+    pub fn apply_change_from_thread_local(
+        &mut self,
+        change: &TextDocumentContentChangeEvent,
+        version: i32,
+    ) {
+        PARSER.with(|p| {
+            let mut parser = p.borrow_mut();
+            self.apply_change(change, &mut parser, version);
+        })
+    }
+
     pub fn apply_change(
         &mut self,
         change: &TextDocumentContentChangeEvent,
@@ -1006,6 +1036,12 @@ impl DocumentState {
     ) {
         // Update version
         self.version = version;
+
+        // Ensure parser is configured for this document's language
+        // (important when parser is reused from thread-local storage)
+        parser
+            .set_language(&self.language.get_parser_language())
+            .expect("Failed to set tree-sitter language");
 
         if let Some(range) = change.range {
             let start_byte = self.position_to_byte(range.start);
@@ -1044,31 +1080,48 @@ impl DocumentState {
 
             if let Some(tree) = Arc::get_mut(&mut self.tree) {
                 tree.edit(&edit);
-                self.tree = Arc::new(
-                    parser
-                        .parse_with_options(
-                            &mut |byte, _| {
-                                if byte >= self.rope.len_bytes() {
-                                    return "";
-                                }
-                                let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
-                                &chunk[byte - chunk_byte..]
-                            },
-                            Some(&self.tree),
-                            None,
-                        )
-                        .unwrap(),
+                let new_tree = parser.parse_with_options(
+                    &mut |byte, _| {
+                        if byte >= self.rope.len_bytes() {
+                            return "";
+                        }
+                        let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
+                        &chunk[byte - chunk_byte..]
+                    },
+                    Some(&self.tree),
+                    None,
                 );
+
+                if let Some(t) = new_tree {
+                    self.tree = Arc::new(t);
+                } else {
+                    // Fallback to full parse if incremental fails (e.g. timeout/cancellation)
+                    let full_text = self.rope.to_string();
+                    if let Some(t) = parser.parse(&full_text, None) {
+                        self.tree = Arc::new(t);
+                    } else if let Some(t) = parser.parse("", None) {
+                        self.tree = Arc::new(t);
+                    }
+                    // If all fails, we keep the stale tree to avoid crashing
+                }
             } else {
                 let full_text = self.rope.to_string();
-                self.tree = Arc::new(parser.parse(&full_text, None).unwrap());
+                if let Some(t) = parser.parse(&full_text, None) {
+                    self.tree = Arc::new(t);
+                } else if let Some(t) = parser.parse("", None) {
+                    self.tree = Arc::new(t);
+                }
             }
         } else {
             self.rope = Rope::from_str(&change.text);
-            self.tree = Arc::new(parser.parse(&change.text, None).unwrap());
+            if let Some(t) = parser.parse(&change.text, None) {
+                self.tree = Arc::new(t);
+            } else if let Some(t) = parser.parse("", None) {
+                self.tree = Arc::new(t);
+            }
         }
 
-        self.graphql_trees = self.reparse_graphql_trees();
+        self.graphql_trees = self.reparse_graphql_trees(parser);
         let (fragments, operations, spreads) = self.extract_symbols();
         self.fragments = fragments;
         self.operations = operations;
@@ -1635,14 +1688,9 @@ pub enum CompletionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tree_sitter::Parser;
-
     fn create_doc(src: &str, encoding: PositionEncodingKind) -> DocumentState {
         let uri = Url::parse("file:///tmp/test.tsx").unwrap();
-        let mut parser = Parser::new();
-        let lang: tree_sitter::Language = tree_sitter_typescript::LANGUAGE_TSX.into();
-        parser.set_language(&lang).unwrap();
-        DocumentState::new(uri, src, parser, encoding)
+        DocumentState::new_from_thread_local(uri, src, encoding)
     }
 
     #[test]

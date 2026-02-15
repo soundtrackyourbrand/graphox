@@ -4,11 +4,12 @@ use apollo_compiler::Schema;
 use colored::*;
 use graphox_core::config::SchemaSource;
 use graphox_core::engine::Engine;
-use graphox_core::utils;
+use graphox_core::schema;
 use graphox_core::{Config, DocumentState};
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
-use std::path::PathBuf;
+use rayon::prelude::*;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
@@ -56,13 +57,20 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
         }
     }
 
+    let _shared_schema_cache: ahash::AHashMap<
+        String,
+        Arc<apollo_compiler::validation::Valid<Schema>>,
+    > = ahash::AHashMap::new();
+
     for (project_config, project_meta) in cfg.projects().iter().zip(&workspace_metadata.projects) {
         reporter.report_project_start(&project_config.include().as_key());
+
+        let project_files = &project_meta.files;
 
         if !execute_project_check(
             cfg.base_dir(),
             project_config.schema(),
-            &project_meta.files,
+            project_files,
             &workspace_metadata.documents,
             &global_used_fragments,
             &global_public_fragments,
@@ -109,7 +117,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
 
 #[allow(clippy::too_many_arguments)]
 async fn execute_project_check(
-    base_dir: &std::path::Path,
+    base_dir: &Path,
     source: &SchemaSource,
     project_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
@@ -119,43 +127,16 @@ async fn execute_project_check(
     verbose: bool,
     reporter: &dyn Reporter,
 ) -> bool {
-    let mut texts = Vec::new();
-    for file in source.files() {
-        match std::fs::read_to_string(base_dir.join(file)) {
-            Ok(t) => {
-                texts.push(t);
-            }
+    let valid_schema =
+        match schema::load_schema_with_cache(base_dir, source, config.enable_schema_cache()) {
+            Ok(s) => Arc::new(s.validate().expect("Schema should be valid")),
             Err(e) => {
-                reporter.report_error(&format!("Failed to read schema {}: {}", source.as_key(), e));
+                reporter.report_error(&format!("Failed to load schema {}: {}", source.as_key(), e));
                 return false;
             }
-        }
-    }
-    let combined_text = utils::merge_schema_texts(&texts);
-    let schema = match Schema::parse(&combined_text, source.as_key()) {
-        Ok(s) => s,
-        Err(e) => {
-            reporter.report_error(&format!(
-                "Failed to parse schema {}: {}",
-                source.as_key(),
-                e
-            ));
-            return false;
-        }
-    };
-    let valid_schema = match schema.validate() {
-        Ok(v) => v,
-        Err(e) => {
-            reporter.report_error(&format!(
-                "Schema validation failed {}: {}",
-                source.as_key(),
-                e
-            ));
-            return false;
-        }
-    };
+        };
 
-    let mut found_any = false;
+    let found_any = std::sync::atomic::AtomicBool::new(false);
 
     let mut project_fragments = Vec::new();
     for path in project_files {
@@ -178,10 +159,10 @@ async fn execute_project_check(
         }
     }
 
-    for (path, doc) in project_files
-        .iter()
-        .zip(project_files.iter().filter_map(|p| all_documents.get(p)))
-    {
+    project_files.par_iter().for_each(|path| {
+        let Some(doc) = all_documents.get(path) else {
+            return;
+        };
         let mut available_fragments = project_fragments.clone();
 
         for pub_frag in global_public_fragments {
@@ -224,13 +205,13 @@ async fn execute_project_check(
 
                 if is_issue || verbose {
                     if is_issue {
-                        found_any = true;
+                        found_any.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                     reporter.report_diagnostic(display_path, &d, verbose);
                 }
             }
         }
-    }
+    });
 
-    !found_any
+    !found_any.load(std::sync::atomic::Ordering::Relaxed)
 }

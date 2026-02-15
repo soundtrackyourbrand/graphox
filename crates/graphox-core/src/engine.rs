@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState};
-use crate::utils::{get_project_files, is_relevant_file};
+use crate::utils::{get_project_files, has_generated_header, is_relevant_file};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
 use lsp_types::Url;
@@ -78,7 +78,7 @@ impl Engine {
         global_metadata: &[FragmentMetadata],
         project_files: &[PathBuf],
     ) -> ProjectContext {
-        let project_files_set: std::collections::HashSet<Arc<str>> = project_files
+        let project_files_set: HashSet<Arc<str>> = project_files
             .iter()
             .map(|p| Arc::from(p.to_string_lossy().to_string()))
             .collect();
@@ -221,6 +221,11 @@ impl Engine {
                 }
 
                 let content = std::fs::read_to_string(&full_path).ok()?;
+
+                if has_generated_header(&content) {
+                    return None;
+                }
+
                 let abs_path = if full_path.is_absolute() {
                     full_path.clone()
                 } else {
@@ -242,9 +247,8 @@ impl Engine {
                     }
                 }
 
-                let mut parser = tree_sitter::Parser::new();
-                parser.set_language(&language.get_parser_language()).ok()?;
-                let doc = DocumentState::new(uri, &content, parser, position_encoding.clone());
+                let doc =
+                    DocumentState::new_from_thread_local(uri, &content, position_encoding.clone());
 
                 Some((p.clone(), doc))
             })
@@ -649,9 +653,7 @@ impl Engine {
             }
         }
 
-        let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&language.get_parser_language()).ok()?;
-        let doc = DocumentState::new(uri, &content, parser, position_encoding);
+        let doc = DocumentState::new_from_thread_local(uri, &content, position_encoding);
 
         Some(doc)
     }

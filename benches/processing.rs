@@ -64,7 +64,12 @@ fn bench_document_processing(c: &mut Criterion) {
             parser
                 .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
                 .unwrap();
-            DocumentState::new(uri.clone(), &ts_content, parser, PositionEncodingKind::UTF8)
+            DocumentState::new(
+                uri.clone(),
+                &ts_content,
+                &mut parser,
+                PositionEncodingKind::UTF8,
+            )
         })
     });
 
@@ -72,7 +77,12 @@ fn bench_document_processing(c: &mut Criterion) {
     parser
         .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
         .unwrap();
-    let doc = DocumentState::new(uri.clone(), &ts_content, parser, PositionEncodingKind::UTF8);
+    let doc = DocumentState::new(
+        uri.clone(),
+        &ts_content,
+        &mut parser,
+        PositionEncodingKind::UTF8,
+    );
 
     group.bench_function("Get Semantic Tokens", |b| {
         b.iter(|| doc.get_semantic_tokens())
@@ -102,8 +112,12 @@ fn bench_multi_file_update(c: &mut Criterion) {
                     parser
                         .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
                         .unwrap();
-                    let doc =
-                        DocumentState::new(uri, &base_content, parser, PositionEncodingKind::UTF8);
+                    let doc = DocumentState::new(
+                        uri,
+                        &base_content,
+                        &mut parser,
+                        PositionEncodingKind::UTF8,
+                    );
                     documents.push(doc);
                 }
                 documents
@@ -124,7 +138,8 @@ fn bench_multi_file_update(c: &mut Criterion) {
             .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
             .unwrap();
         let uri = Url::parse("file:///doc_50.ts").unwrap();
-        let mut doc = DocumentState::new(uri, &base_content, parser, PositionEncodingKind::UTF8);
+        let mut doc =
+            DocumentState::new(uri, &base_content, &mut parser, PositionEncodingKind::UTF8);
         let mut update_parser = tree_sitter::Parser::new();
         update_parser
             .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
@@ -169,7 +184,7 @@ fn bench_large_file_simulation(c: &mut Criterion) {
             DocumentState::new(
                 uri.clone(),
                 &large_content,
-                parser,
+                &mut parser,
                 PositionEncodingKind::UTF8,
             )
         })
@@ -182,7 +197,7 @@ fn bench_large_file_simulation(c: &mut Criterion) {
     let doc = DocumentState::new(
         uri.clone(),
         &large_content,
-        parser,
+        &mut parser,
         PositionEncodingKind::UTF8,
     );
 
@@ -218,7 +233,7 @@ fn bench_fragment_heavy_document(c: &mut Criterion) {
             parser
                 .set_language(&tree_sitter_graphql::LANGUAGE.into())
                 .unwrap();
-            DocumentState::new(uri.clone(), &text, parser, PositionEncodingKind::UTF8)
+            DocumentState::new(uri.clone(), &text, &mut parser, PositionEncodingKind::UTF8)
         })
     });
 
@@ -226,7 +241,7 @@ fn bench_fragment_heavy_document(c: &mut Criterion) {
     parser
         .set_language(&tree_sitter_graphql::LANGUAGE.into())
         .unwrap();
-    let doc = DocumentState::new(uri.clone(), &text, parser, PositionEncodingKind::UTF8);
+    let doc = DocumentState::new(uri.clone(), &text, &mut parser, PositionEncodingKind::UTF8);
 
     group.bench_function("Get Fragments Info", |b| b.iter(|| doc.fragments()));
 

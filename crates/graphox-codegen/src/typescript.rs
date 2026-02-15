@@ -48,10 +48,9 @@ pub fn generate_typescript_with_profile(
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\ntype Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;\n\n");
     let mut generated_operations = Vec::new();
     let mut generated_fragments = Vec::new();
-    let _import_start = std::time::Instant::now();
 
     let mut bodies = String::with_capacity(2048);
-    let mut used_fragments = HashMap::default();
+    let mut used_fragments = HashSet::default();
     let mut document_asts: Vec<DocumentAstInfo> = Vec::new();
     let mut has_fragment_asts = false;
     let mut has_operations = false;
@@ -204,7 +203,7 @@ pub fn generate_typescript_with_profile(
                     }
                 }
 
-                let mut result = String::new();
+                let mut result = String::with_capacity(definitions_parts.len() * 100 + 40);
                 result.push_str("{ kind: 'Document', definitions: [");
                 result.push_str(&definitions_parts.join(", "));
                 result.push_str("] }");
@@ -262,7 +261,7 @@ pub fn generate_typescript_with_profile(
                 .copied()
                 .unwrap_or(false);
 
-            let mut used_fragments_inner = HashMap::default();
+            let mut used_fragments_inner = HashSet::default();
             let root_type = ctx
                 .schema
                 .types
@@ -322,69 +321,71 @@ pub fn generate_typescript_with_profile(
             if ctx.generate_ast_for_fragments && !is_type_only {
                 has_fragment_asts = true;
                 let ast_start = Instant::now();
-                let frag_def = serialize_fragment_definition(frag, ctx.all_fragments, ctx.config);
 
-                let deps = if ctx.config.inline_fragments() {
-                    HashSet::default()
+                let ast_content = if let Some(cached) = ctx.get_fragment_ast(&Arc::from(raw_name)) {
+                    cached.to_string()
                 } else {
-                    let mut direct = HashSet::default();
-                    crate::helpers::collect_direct_fragment_spreads(
-                        &frag.selection_set,
-                        &mut direct,
-                    );
-                    direct
-                };
+                    let frag_def =
+                        serialize_fragment_definition(frag, ctx.all_fragments, ctx.config);
 
-                doc_deps = if ctx.config.inline_fragments() {
-                    HashSet::default()
-                } else {
-                    get_fragment_deps_cached(&frag.name, ctx)
-                };
+                    let mut deps = get_fragment_deps_cached(&frag.name, ctx);
+                    if deps.is_empty() {
+                        deps = graphox_core::apollo_ast::get_fragment_fragment_dependencies(
+                            frag,
+                            ctx.all_fragments,
+                        );
+                    }
+                    doc_deps = deps.clone();
 
-                let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
-                definitions_parts.push(frag_def.to_string());
+                    let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
+                    definitions_parts.push(frag_def.to_string());
 
-                let mut deps_list: Vec<_> = deps.iter().collect();
-                deps_list.sort_unstable();
+                    let mut deps_list: Vec<_> = deps.iter().collect();
+                    deps_list.sort_unstable();
 
-                for dep in deps_list {
-                    if dep.as_ref() == raw_name {
-                        continue;
+                    for dep in deps_list {
+                        if dep.as_ref() == raw_name {
+                            continue;
+                        }
+
+                        let is_dep_type_only = ctx
+                            .fragment_to_type_only
+                            .get(dep.as_ref())
+                            .copied()
+                            .unwrap_or_else(|| {
+                                ctx.all_fragments
+                                    .get(dep.as_ref())
+                                    .map(|f| {
+                                        ctx.fragment_to_type_only
+                                            .get(f.name.as_str())
+                                            .copied()
+                                            .unwrap_or(false)
+                                    })
+                                    .unwrap_or(false)
+                            });
+
+                        if !is_dep_type_only {
+                            let mut spread = String::with_capacity(dep.len() + 23);
+                            spread.push_str("...");
+                            let dep_name =
+                                apply_naming_convention(dep.as_ref(), &ctx.naming_convention());
+                            spread.push_str(&dep_name);
+                            spread.push_str(ctx.fragment_suffix());
+                            spread.push_str(ctx.fragment_document_suffix());
+                            spread.push_str(".definitions");
+                            definitions_parts.push(spread);
+                        }
                     }
 
-                    let is_dep_type_only = ctx
-                        .fragment_to_type_only
-                        .get(dep.as_ref())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            ctx.all_fragments
-                                .get(dep.as_ref())
-                                .map(|f| {
-                                    ctx.fragment_to_type_only
-                                        .get(f.name.as_str())
-                                        .copied()
-                                        .unwrap_or(false)
-                                })
-                                .unwrap_or(false)
-                        });
+                    let mut content = String::with_capacity(definitions_parts.len() * 100 + 40);
+                    content.push_str("{ kind: 'Document', definitions: [");
+                    content.push_str(&definitions_parts.join(", "));
+                    content.push_str("] }");
 
-                    if !is_dep_type_only {
-                        let mut spread = String::with_capacity(dep.len() + 23);
-                        spread.push_str("...");
-                        let dep_name =
-                            apply_naming_convention(dep.as_ref(), &ctx.naming_convention());
-                        spread.push_str(&dep_name);
-                        spread.push_str(ctx.fragment_suffix());
-                        spread.push_str(ctx.fragment_document_suffix());
-                        spread.push_str(".definitions");
-                        definitions_parts.push(spread);
-                    }
-                }
-
-                let mut ast_content = String::new();
-                ast_content.push_str("{ kind: 'Document', definitions: [");
-                ast_content.push_str(&definitions_parts.join(", "));
-                ast_content.push_str("] }");
+                    let content_arc: Arc<str> = content.into();
+                    ctx.insert_fragment_ast(Arc::from(raw_name), content_arc.clone());
+                    content_arc.to_string()
+                };
 
                 if ctx.fragment_masking().is_enabled() {
                     doc_export.push_str("export const ");
@@ -441,40 +442,43 @@ pub fn generate_typescript_with_profile(
         }
     }
 
+    let import_start = Instant::now();
     let mut import_section = String::new();
     if has_operations || has_fragment_asts || ctx.fragment_masking().is_enabled() {
         import_section.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
     }
 
     if ctx.fragment_masking().is_enabled() {
-        import_section.push_str(&format!(
-            "import type {{ FragmentType }} from \"{}\";\n",
-            ctx.masking_import_path
-        ));
+        import_section.push_str("import type { FragmentType } from \"");
+        import_section.push_str(&ctx.masking_import_path);
+        import_section.push_str("\";\n");
     }
 
-    let mut used_frag_names: Vec<_> = used_fragments.keys().cloned().collect();
+    let mut used_frag_names: Vec<_> = used_fragments.iter().cloned().collect();
     used_frag_names.sort_unstable();
 
     let mut imports: BTreeMap<Arc<str>, Vec<Arc<str>>> = BTreeMap::new();
-    let current_path = doc.uri.path();
+    let current_path = doc
+        .uri
+        .to_file_path()
+        .unwrap_or_else(|_| PathBuf::from(doc.uri.path()));
+    let current_canonical = ctx.canonicalize_path(&current_path);
+
     for frag_name in used_frag_names {
         if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name[..]) {
             imports
                 .entry(import_alias.clone())
                 .or_default()
-                .push(frag_name.clone().into());
+                .push(frag_name);
         } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name[..]) {
-            let other_path_buf = PathBuf::from(other_path.as_ref());
-            let current_path_buf = PathBuf::from(current_path);
-            let other_canonical = std::fs::canonicalize(&other_path_buf).unwrap_or(other_path_buf);
-            let current_canonical =
-                std::fs::canonicalize(&current_path_buf).unwrap_or(current_path_buf);
+            let other_path_buf = Path::new(other_path.as_ref());
+            let other_canonical = ctx.canonicalize_path(other_path_buf);
+
             if other_canonical != current_canonical {
                 imports
                     .entry(other_path.clone())
                     .or_default()
-                    .push(frag_name.clone().into());
+                    .push(frag_name);
             }
         }
     }
@@ -483,33 +487,13 @@ pub fn generate_typescript_with_profile(
         let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
             path.to_string()
         } else {
-            let rel_path =
-                pathdiff::diff_paths(path.as_ref(), ctx.current_file_path.parent().unwrap())
-                    .unwrap_or_else(|| Path::new(path.as_ref()).to_path_buf());
-            let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-            if !path_str.starts_with('.') {
-                path_str.insert_str(0, "./");
-            }
-            let p = Path::new(&path_str);
-            let stem = p.file_stem().unwrap().to_str().unwrap();
-            let parent = p.parent().unwrap();
-            let final_p = parent.join(stem);
-            let mut final_path_str = graphox_core::utils::to_posix_path(&final_p);
-            if !final_path_str.starts_with('.') && !final_path_str.starts_with('/') {
-                final_path_str.insert_str(0, "./");
-            }
-            final_path_str.push_str(".codegen");
-            final_path_str.push_str(ctx.emit_extensions().as_str());
-            final_path_str
+            ctx.get_final_import_path(path, ctx.current_file_path.parent().unwrap())
         };
 
-        let mut names_to_import = names.clone();
-        names_to_import.sort_unstable();
+        let mut type_imports = Vec::with_capacity(names.len());
+        let mut doc_imports = Vec::with_capacity(names.len());
 
-        let mut type_imports = Vec::new();
-        let mut doc_imports = Vec::new();
-
-        for n in names_to_import {
+        for n in names {
             let is_type_only = ctx
                 .fragment_to_type_only
                 .get(n.as_ref())
@@ -528,57 +512,58 @@ pub fn generate_typescript_with_profile(
         }
 
         if ctx.fragment_masking().is_enabled() {
-            import_section.push_str(&format!(
-                "import {{ {} }} from \"{}\";\n",
-                type_imports.join(", "),
-                final_import_path
-            ));
+            import_section.push_str("import { ");
+            import_section.push_str(&type_imports.join(", "));
+            import_section.push_str(" } from \"");
+            import_section.push_str(&final_import_path);
+            import_section.push_str("\";\n");
         } else {
-            import_section.push_str(&format!(
-                "import type {{ {} }} from \"{}\";\n",
-                type_imports.join(", "),
-                final_import_path
-            ));
+            import_section.push_str("import type { ");
+            import_section.push_str(&type_imports.join(", "));
+            import_section.push_str(" } from \"");
+            import_section.push_str(&final_import_path);
+            import_section.push_str("\";\n");
         }
 
         if !doc_imports.is_empty() {
-            import_section.push_str(&format!(
-                "import {{ {} }} from \"{}\";\n",
-                doc_imports.join(", "),
-                final_import_path
-            ));
+            import_section.push_str("import { ");
+            import_section.push_str(&doc_imports.join(", "));
+            import_section.push_str(" } from \"");
+            import_section.push_str(&final_import_path);
+            import_section.push_str("\";\n");
         }
     }
 
     {
         let used_schema_types = ctx.used_schema_types.borrow();
         if !used_schema_types.is_empty() {
-            let mut grouped_imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            let mut grouped_imports: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
             for ty in used_schema_types.iter() {
                 if let Some(import_path) = ctx.type_imports.get(ty) {
                     grouped_imports
-                        .entry(import_path.clone())
+                        .entry(import_path.as_str())
                         .or_default()
-                        .push(ty.clone());
-                } else if let Some(import_path) = ctx.schema_import {
+                        .push(ty.as_str());
+                } else if let Some(import_path) = ctx.schema_import.as_deref() {
                     grouped_imports
-                        .entry(import_path.clone())
+                        .entry(import_path)
                         .or_default()
-                        .push(ty.clone());
+                        .push(ty.as_str());
                 }
             }
             for (import_path, mut types) in grouped_imports {
-                types.sort();
-                import_section.push_str(&format!(
-                    "import type {{ {} }} from \"{}\";\n",
-                    types.join(", "),
-                    import_path
-                ));
+                types.sort_unstable();
+                import_section.push_str("import type { ");
+                import_section.push_str(&types.join(", "));
+                import_section.push_str(" } from \"");
+                import_section.push_str(import_path);
+                import_section.push_str("\";\n");
             }
         }
     }
 
     output.push_str(&import_section);
+    profile.import_generation_time = import_start.elapsed();
 
     if has_operations {
         output.push('\n');
@@ -586,7 +571,6 @@ pub fn generate_typescript_with_profile(
     }
 
     output.push_str(&bodies);
-    profile.import_generation_time = _import_start.elapsed();
 
     if !document_asts.is_empty() {
         let sorted_docs = topological_sort_documents(&document_asts);

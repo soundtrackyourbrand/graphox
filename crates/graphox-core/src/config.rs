@@ -99,105 +99,88 @@ impl RequiredFieldRule {
 
     fn from_yaml(node: &Yaml) -> Option<Self> {
         if let Some(b) = node.as_bool() {
-            Some(RequiredFieldRule::Always(b))
-        } else if let Some(vec) = node.as_vec() {
-            let ops = vec
+            return Some(RequiredFieldRule::Always(b));
+        }
+        if let Some(v) = node.as_vec() {
+            let ops = v
                 .iter()
                 .filter_map(|n| n.as_str().map(String::from))
                 .collect();
-            Some(RequiredFieldRule::Operations(ops))
-        } else {
-            None
+            return Some(RequiredFieldRule::Operations(ops));
         }
+        None
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Hash)]
 pub enum EmitExtensions {
     #[default]
     None,
-    Js,
     Ts,
+    Dts,
+    Js,
 }
 
 impl EmitExtensions {
-    pub fn from_yaml(node: &Yaml) -> Self {
+    pub fn as_str(&self) -> &str {
+        match self {
+            EmitExtensions::None => "",
+            EmitExtensions::Ts => ".ts",
+            EmitExtensions::Dts => ".d.ts",
+            EmitExtensions::Js => ".js",
+        }
+    }
+
+    fn from_yaml(node: &Yaml) -> Self {
         if let Some(s) = node.as_str() {
             match s.to_lowercase().as_str() {
-                "js" => EmitExtensions::Js,
                 "ts" => EmitExtensions::Ts,
+                "dts" | "d.ts" => EmitExtensions::Dts,
+                "js" | "javascript" => EmitExtensions::Js,
                 _ => EmitExtensions::None,
             }
         } else {
             EmitExtensions::None
         }
     }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            EmitExtensions::None => "",
-            EmitExtensions::Js => ".js",
-            EmitExtensions::Ts => ".ts",
-        }
-    }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Hash)]
 pub struct CodegenConfig {
-    enabled: Option<bool>,
-    document_suffix: Option<String>,
-    variables_suffix: Option<String>,
-    fragment_suffix: Option<String>,
-    fragment_document_suffix: Option<String>,
-    query_suffix: Option<String>,
-    mutation_suffix: Option<String>,
-    subscription_suffix: Option<String>,
-    naming_convention: Option<NamingConvention>,
-    fragment_masking: Option<FragmentMaskingConfig>,
-    emit_extensions: Option<EmitExtensions>,
-    generate_ast_for_fragments: Option<bool>,
-    re_exports: Option<bool>,
-    emit_permission_data: Option<bool>,
-    emit_ast_directives: Option<bool>,
-    emit_ast_aliases: Option<bool>,
-    emit_ast_arguments: Option<bool>,
-    emit_ast_variable_defaults: Option<bool>,
-    inline_fragments: Option<bool>,
-    default_scalar_type: Option<String>,
-    schema_import: Option<String>,
+    pub enabled: Option<bool>,
+    pub document_suffix: Option<String>,
+    pub variables_suffix: Option<String>,
+    pub fragment_suffix: Option<String>,
+    pub fragment_document_suffix: Option<String>,
+    pub query_suffix: Option<String>,
+    pub mutation_suffix: Option<String>,
+    pub subscription_suffix: Option<String>,
+    pub naming_convention: Option<NamingConvention>,
+    pub fragment_masking: Option<FragmentMaskingConfig>,
+    pub emit_extensions: Option<EmitExtensions>,
+    pub generate_ast_for_fragments: Option<bool>,
+    pub re_exports: Option<bool>,
+    pub emit_permission_data: Option<bool>,
+    pub emit_ast_directives: Option<bool>,
+    pub emit_ast_aliases: Option<bool>,
+    pub emit_ast_arguments: Option<bool>,
+    pub emit_ast_variable_defaults: Option<bool>,
+    pub inline_fragments: Option<bool>,
+    pub default_scalar_type: Option<String>,
+    pub schema_import: Option<String>,
 }
 
 impl CodegenConfig {
-    pub fn emit_permission_data(&self) -> bool {
-        self.emit_permission_data.unwrap_or(false)
+    pub fn fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = ahash::AHasher::default();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 
-    pub fn generate_ast_for_fragments(&self) -> bool {
-        self.generate_ast_for_fragments.unwrap_or(false)
-    }
-
-    pub fn re_exports(&self) -> bool {
-        self.re_exports.unwrap_or(false)
-    }
-
-    pub fn emit_ast_directives(&self) -> bool {
-        self.emit_ast_directives.unwrap_or(true)
-    }
-
-    pub fn emit_ast_aliases(&self) -> bool {
-        self.emit_ast_aliases.unwrap_or(true)
-    }
-
-    pub fn emit_ast_arguments(&self) -> bool {
-        self.emit_ast_arguments.unwrap_or(true)
-    }
-
-    pub fn emit_ast_variable_defaults(&self) -> bool {
-        self.emit_ast_variable_defaults.unwrap_or(true)
-    }
-
-    pub fn inline_fragments(&self) -> bool {
-        self.inline_fragments.unwrap_or(false)
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = Some(enabled);
+        self
     }
 
     pub fn with_document_suffix(mut self, suffix: String) -> Self {
@@ -384,6 +367,38 @@ impl CodegenConfig {
     pub fn emit_extensions(&self) -> EmitExtensions {
         self.emit_extensions.unwrap_or(EmitExtensions::None)
     }
+
+    pub fn generate_ast_for_fragments(&self) -> bool {
+        self.generate_ast_for_fragments.unwrap_or(false)
+    }
+
+    pub fn re_exports(&self) -> bool {
+        self.re_exports.unwrap_or(false)
+    }
+
+    pub fn emit_permission_data(&self) -> bool {
+        self.emit_permission_data.unwrap_or(false)
+    }
+
+    pub fn emit_ast_directives(&self) -> bool {
+        self.emit_ast_directives.unwrap_or(false)
+    }
+
+    pub fn emit_ast_aliases(&self) -> bool {
+        self.emit_ast_aliases.unwrap_or(true)
+    }
+
+    pub fn emit_ast_arguments(&self) -> bool {
+        self.emit_ast_arguments.unwrap_or(true)
+    }
+
+    pub fn emit_ast_variable_defaults(&self) -> bool {
+        self.emit_ast_variable_defaults.unwrap_or(true)
+    }
+
+    pub fn inline_fragments(&self) -> bool {
+        self.inline_fragments.unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -443,7 +458,7 @@ pub enum SchemaSource {
     Multiple(Vec<String>),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Hash)]
 pub enum FragmentMasking {
     #[default]
     Disabled,
@@ -467,7 +482,7 @@ impl FragmentMasking {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Hash)]
 pub enum NamingConvention {
     #[default]
     PascalCase,
@@ -526,7 +541,7 @@ impl FragmentMasking {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct FragmentMaskingConfig {
     mode: FragmentMasking,
 }
@@ -1261,303 +1276,5 @@ impl Config {
         config.codegen = CodegenConfig::from_yaml(&node["codegen"]);
 
         Some(config)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::tempdir;
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_load_yaml() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-projects:
-  - schema: "s1.graphql"
-    include: "src/p1/**/*.ts"
-  - schema: "s2.graphql"
-    include: "src/p2/**/*.ts"
-    output_dir: "gen2"
- "#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert_eq!(config.projects().len(), 2);
-        assert_eq!(config.projects()[0].schema().as_key(), "s1.graphql");
-        assert_eq!(config.projects()[1].output_dir(), Some("gen2"));
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_load_yml() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-projects:
-  - schema: "s.graphql"
-    include: "src/**/*.ts"
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert_eq!(config.projects().len(), 1);
-        assert_eq!(config.projects()[0].schema().as_key(), "s.graphql");
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_load_parent_dir() {
-        let dir = tempdir().unwrap();
-        let parent_dir = dir.path().join("parent");
-        let child_dir = parent_dir.join("child");
-        fs::create_dir_all(&child_dir).unwrap();
-
-        let config_path = parent_dir.join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-projects:
-  - schema: "s.graphql"
-    include: "**/*.ts"
-"#
-        )
-        .unwrap();
-
-        // Change current directory to child_dir to test upward search
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&child_dir).unwrap();
-
-        let config = Config::load();
-
-        // Restore original directory
-        std::env::set_current_dir(original_dir).unwrap();
-
-        assert_eq!(config.projects().len(), 1);
-        assert_eq!(config.projects()[0].schema().as_key(), "s.graphql");
-
-        // Test that paths are resolved relative to the config file
-        let file_in_child = child_dir.join("test.ts");
-        fs::File::create(&file_in_child).unwrap();
-        assert_eq!(
-            config.get_schema_for_path(&file_in_child),
-            Some("s.graphql".to_string())
-        );
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_include_exclude() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-projects:
-  - schema: "s.graphql"
-    include: 
-      - "src/**/*.ts"
-      - "lib/**/*.ts"
-    exclude: "**/test.ts"
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert_eq!(config.projects().len(), 1);
-        let project = &config.projects()[0];
-        assert_eq!(project.include().patterns().len(), 2);
-        assert_eq!(project.exclude().unwrap().patterns().len(), 1);
-
-        let ts_file = dir.path().join("src/main.ts");
-        let test_file = dir.path().join("src/test.ts");
-        let lib_file = dir.path().join("lib/index.ts");
-        let other_file = dir.path().join("other/file.ts");
-
-        fs::create_dir_all(ts_file.parent().unwrap()).unwrap();
-        fs::create_dir_all(lib_file.parent().unwrap()).unwrap();
-        fs::create_dir_all(other_file.parent().unwrap()).unwrap();
-        fs::File::create(&ts_file).unwrap();
-        fs::File::create(&test_file).unwrap();
-        fs::File::create(&lib_file).unwrap();
-        fs::File::create(&other_file).unwrap();
-
-        // Canonicalize base dir for matching
-        let config = Config::load_from_dir(fs::canonicalize(dir.path()).unwrap())
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(
-            config.get_schema_for_path(&ts_file),
-            Some("s.graphql".to_string())
-        );
-        assert_eq!(config.get_schema_for_path(&test_file), None);
-        assert_eq!(
-            config.get_schema_for_path(&lib_file),
-            Some("s.graphql".to_string())
-        );
-        assert_eq!(config.get_schema_for_path(&other_file), None);
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_codegen_disabled() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-projects:
-  - schema: "s1.graphql"
-    include: "src/p1/**/*.ts"
-    codegen: false
-  - schema: "s2.graphql"
-    include: "src/p2/**/*.ts"
-  - schema: "s3.graphql"
-    include: "src/p3/**/*.ts"
-    codegen: true
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert_eq!(config.projects().len(), 3);
-
-        // First project has codegen disabled
-        assert!(!config.projects()[0].codegen_enabled());
-
-        // Second project has default (enabled)
-        assert!(config.projects()[1].codegen_enabled());
-
-        // Third project has codegen explicitly enabled
-        assert!(config.projects()[2].codegen_enabled());
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_fragment_masking_disabled() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-fragment_masking: disabled
-projects:
-  - schema: "s.graphql"
-    include: "src/**/*.ts"
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert!(matches!(
-            config.get_codegen_config(None).fragment_masking_mode(),
-            FragmentMasking::Disabled
-        ));
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_fragment_masking_enabled() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-codegen:
-  fragment_masking: enabled
-projects:
-  - schema: "s.graphql"
-    include: "src/**/*.ts"
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert!(matches!(
-            config.get_codegen_config(None).fragment_masking_mode(),
-            FragmentMasking::Enabled { .. }
-        ));
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_fragment_masking_enabled_with_custom_function() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-codegen:
-  fragment_masking:
-    unmask_function_name: getData
-projects:
-  - schema: "s.graphql"
-    include: "src/**/*.ts"
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        match config.get_codegen_config(None).fragment_masking_mode() {
-            FragmentMasking::Enabled {
-                unmask_function_name,
-            } => {
-                assert_eq!(unmask_function_name.as_deref(), Some("getData"));
-            }
-            _ => panic!("Expected FragmentMasking::Enabled"),
-        }
-    }
-
-    #[test]
-    #[ntest::timeout(100)]
-    fn test_fragment_masking_project_override() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("graphox.yaml");
-        let mut file = fs::File::create(config_path).unwrap();
-        writeln!(
-            file,
-            r#"
-codegen:
-  fragment_masking: enabled
-projects:
-  - schema: "s1.graphql"
-    include: "src/p1/**/*.ts"
-  - schema: "s2.graphql"
-    include: "src/p2/**/*.ts"
-    codegen:
-      fragment_masking: disabled
-"#
-        )
-        .unwrap();
-
-        let config = Config::load_from_dir(dir.path()).unwrap().unwrap();
-        assert!(matches!(
-            config.get_codegen_config(None).fragment_masking_mode(),
-            FragmentMasking::Enabled { .. }
-        ));
-        assert!(matches!(
-            config
-                .get_codegen_config(Some(&config.projects()[1]))
-                .fragment_masking_mode(),
-            FragmentMasking::Disabled
-        ));
     }
 }

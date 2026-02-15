@@ -189,8 +189,7 @@ impl DocumentDiagnostics for DocumentState {
             && cfg.rules().unique_operation_name()
         {
             // Detect duplicate operation names within this document and report diagnostics.
-            use std::collections::HashMap;
-            let mut counts: HashMap<Arc<str>, usize> = HashMap::new();
+            let mut counts: ahash::AHashMap<Arc<str>, usize> = ahash::AHashMap::default();
             for op in &self.operations {
                 if let Some(name) = &op.name {
                     *counts.entry(name.clone()).or_insert(0) += 1;

@@ -26,7 +26,7 @@ pub struct CodegenParams<'a> {
     pub codegen_config: &'a CodegenConfig,
     pub emit_extensions: graphox_core::config::EmitExtensions,
     pub use_cache: bool,
-    pub type_cache: &'a codegen::TypeCache,
+    pub type_cache: &'a codegen::SchemaAnalysisCaches,
 }
 
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
@@ -176,8 +176,6 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
 
 async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     let mut success = true;
-    let mut project_operations: HashMap<usize, Vec<codegen::OperationGenerated>> = HashMap::new();
-    let mut project_fragments: HashMap<usize, Vec<codegen::FragmentGenerated>> = HashMap::new();
 
     let cfg = config;
 
@@ -194,94 +192,94 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
     let global_metadata = &workspace_metadata.fragments;
 
-    let shared_caches = codegen::TypeCache::new();
+    let shared_caches = codegen::SchemaAnalysisCaches::new();
 
-    for (project_index, (project, project_meta)) in cfg
-        .projects()
+    // Pre-calculate type imports for all projects to avoid redundant work in the project loop
+    let mut workspace_type_imports: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let schema_types = cfg.schema_types();
+
+    // Collect unique schema sources to process in parallel
+    let mut unique_sources = HashSet::new();
+    for project in cfg.projects() {
+        unique_sources.insert(project.schema().as_key());
+    }
+
+    let source_to_matches: HashMap<String, Vec<_>> = unique_sources
         .iter()
-        .zip(&workspace_metadata.projects)
-        .enumerate()
-    {
-        if !project.codegen_enabled() {
-            continue;
-        }
-
-        let project_files: Vec<PathBuf> = project_meta
-            .files
-            .iter()
-            .map(|p| cfg.base_dir().join(p))
-            .collect();
-
-        if project_files.is_empty() {
-            continue;
-        }
-
-        let project_schema_files: HashSet<_> = project.schema().files().into_iter().collect();
-
-        let project_output_dir = project.output_dir().map(Path::new);
-
-        let mut type_imports = HashMap::default();
-        let mut schema_import = project
-            .codegen()
-            .schema_import()
-            .map(String::from)
-            .or_else(|| project.import().map(String::from));
-
-        let schema_types = cfg.schema_types();
-        if !schema_types.is_empty() {
+        .map(|key| {
+            let schema_files: HashSet<_> = key.split(',').map(String::from).collect();
             let mut matches: Vec<_> = schema_types
                 .iter()
                 .filter(|st| {
                     let st_files = st.schema().files();
-                    st_files.iter().all(|f| project_schema_files.contains(f))
+                    st_files.iter().all(|f| schema_files.contains(f))
                 })
                 .collect();
-
             matches.sort_by_key(|st| std::cmp::Reverse(st.schema().files().len()));
+            (key.clone(), matches)
+        })
+        .collect();
 
-            let project_abs_out_dir = project_output_dir.map(|d| cfg.base_dir().join(d));
-
-            // 2. Build the type_imports map
-            for st in matches.iter().rev() {
-                if let Some(import_path) = st.import()
-                    && let Ok(st_schema) = schema::load_and_validate_schema(
-                        cfg.base_dir(),
-                        st.schema(),
-                        cfg.enable_schema_cache(),
-                    )
-                {
-                    let mut final_import_path = import_path.to_string();
-
-                    if (final_import_path == "." || final_import_path == "./")
-                        && let Some(abs_out_dir) = &project_abs_out_dir
-                    {
-                        let abs_st_output = cfg.base_dir().join(st.output());
-                        if abs_st_output.parent() == Some(abs_out_dir) {
-                            let rel = pathdiff::diff_paths(&abs_st_output, abs_out_dir)
-                                .unwrap_or_else(|| {
-                                    PathBuf::from(abs_st_output.file_name().unwrap())
-                                });
-                            let mut s = utils::to_posix_path(&rel);
-                            if s.ends_with(".ts") {
-                                s.truncate(s.len() - 3);
+    let pre_calculated_imports: std::collections::HashMap<String, HashMap<String, String>> =
+        unique_sources
+            .par_iter()
+            .map(|key| {
+                let mut project_type_imports = HashMap::default();
+                if let Some(matches) = source_to_matches.get(key) {
+                    for st in matches.iter().rev() {
+                        if let Some(import_path) = st.import()
+                            && let Ok(st_schema) = schema::load_schema_with_cache(
+                                cfg.base_dir(),
+                                st.schema(),
+                                cfg.enable_schema_cache(),
+                            )
+                        {
+                            for type_name in st_schema.types.keys() {
+                                project_type_imports
+                                    .insert(type_name.to_string(), import_path.to_string());
                             }
-                            if !s.starts_with('.') {
-                                s = format!("./{}", s);
-                            }
-                            final_import_path = s;
                         }
                     }
-
-                    for type_name in st_schema.types.keys() {
-                        type_imports.insert(type_name.to_string(), final_import_path.clone());
-                    }
                 }
+                (key.clone(), project_type_imports)
+            })
+            .collect();
+    for (k, v) in pre_calculated_imports {
+        workspace_type_imports.insert(k, v);
+    }
+
+    // Process projects in parallel
+    let project_results: Vec<_> = cfg
+        .projects()
+        .par_iter()
+        .enumerate()
+        .filter_map(|(project_index, project)| {
+            if !project.codegen_enabled() {
+                return None;
             }
 
-            // 3. Keep schema_import for backward compatibility (the "best" match)
+            let project_meta = &workspace_metadata.projects[project_index];
+            let project_files: Vec<PathBuf> = project_meta
+                .files
+                .iter()
+                .map(|p| cfg.base_dir().join(p))
+                .collect();
+
+            if project_files.is_empty() {
+                return None;
+            }
+
+            let project_output_dir = project.output_dir().map(Path::new);
+            let type_imports = workspace_type_imports
+                .get(&project.schema().as_key())
+                .unwrap();
+            let mut schema_import = project.import().map(String::from);
+
             if schema_import.is_none()
+                && let Some(matches) = source_to_matches.get(&project.schema().as_key())
                 && let Some(st) = matches.first()
             {
+                let project_abs_out_dir = project_output_dir.map(|d| cfg.base_dir().join(d));
                 let mut final_import_path = st.import().map(String::from);
                 if let Some(import_path) = &final_import_path
                     && (import_path == "." || import_path == "./")
@@ -303,255 +301,176 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 }
                 schema_import = final_import_path;
             }
-        }
 
-        let valid_schema = match schema::load_and_validate_schema(
-            cfg.base_dir(),
-            project.schema(),
-            cfg.enable_schema_cache(),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                success = false;
-                continue;
-            }
-        };
-
-        let project_context =
-            Engine::resolve_project_context(&valid_schema, global_metadata, &project_files);
-
-        let project_codegen = cfg.get_codegen_config(Some(project));
-        if !clean && project_codegen.emit_permission_data() {
-            if let Some(out_dir) = project_output_dir {
-                let out_dir_path = cfg.base_dir().join(out_dir);
-                std::fs::create_dir_all(&out_dir_path).ok();
-                let permissions_path = out_dir_path.join("permissions.ts");
-                if verbose {
-                    println!(
-                        "{}: {}",
-                        "Generating permissions".bright_black(),
-                        permissions_path.display().to_string().bright_black()
-                    );
-                }
-                let content = codegen::emit_permission_data_content(
-                    &valid_schema,
-                    cfg.scalars(),
-                    &schema_import,
-                );
-                if let Err(e) = std::fs::write(&permissions_path, content) {
-                    eprintln!("{}: {}", "Failed to write permissions".red(), e);
-                    success = false;
-                }
-            } else {
-                eprintln!(
-                    "{}: emit_permission_data is enabled but no output_dir is specified for project.",
-                    "Warning".yellow()
-                );
-            }
-        }
-
-        let pt_output = project.possible_types();
-        let tp_output = project.type_policies();
-
-        let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
-        let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
-
-        match (&pt_path, &tp_path) {
-            (Some(pt), Some(tp)) if pt == tp => {
-                if verbose {
-                    println!(
-                        "{}: {}",
-                        "Generating possibleTypes and typePolicies".bright_black(),
-                        pt.display().to_string().bright_black()
-                    );
-                }
-                let pt_content = codegen::generate_possible_types(&valid_schema);
-                let tp_content = codegen::generate_type_policies(&valid_schema);
-                let combined =
-                    format!("{}\n\n{}\n", pt_content.trim_end(), tp_content.trim_start());
-                if let Err(e) = std::fs::write(pt, combined) {
-                    eprintln!("{}: {}", "Failed to write combined output".red(), e);
-                    success = false;
-                }
-            }
-            _ => {
-                if let Some(pt) = &pt_path {
-                    if verbose {
-                        println!(
-                            "{}: {}",
-                            "Generating possibleTypes".bright_black(),
-                            pt.display().to_string().bright_black()
-                        );
+            let valid_schema = match schema::load_schema_with_cache(
+                cfg.base_dir(),
+                project.schema(),
+                cfg.enable_schema_cache(),
+            ) {
+                Ok(v) => match v.validate() {
+                    Ok(valid) => valid,
+                    Err(e) => {
+                        // Validation failed: report and treat as project failure (do not panic)
+                        eprintln!("{}", e.to_string().red());
+                        return Some(Err(()));
                     }
-                    let content = codegen::generate_possible_types(&valid_schema);
-                    if let Err(e) = std::fs::write(pt, content) {
-                        eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
-                        success = false;
-                    }
+                },
+                Err(e) => {
+                    eprintln!("{}", e.to_string().red());
+                    return Some(Err(()));
                 }
+            };
 
-                if let Some(tp) = &tp_path {
-                    if verbose {
-                        println!(
-                            "{}: {}",
-                            "Generating typePolicies".bright_black(),
-                            tp.display().to_string().bright_black()
-                        );
-                    }
-                    let content = codegen::generate_type_policies(&valid_schema);
-                    if let Err(e) = std::fs::write(tp, content) {
-                        eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
-                        success = false;
-                    }
-                }
+            let project_context =
+                Engine::resolve_project_context(&valid_schema, global_metadata, &project_files);
+
+            let codegen_config = cfg.get_codegen_config(Some(project));
+            let emit_extensions = cfg.get_emit_extensions(project);
+
+            let res = execute_project_codegen_sync(
+                CodegenParams {
+                    base_dir: cfg.base_dir(),
+                    source: project.schema(),
+                    include: project.include(),
+                    project_files: &project_files,
+                    output_dir: project_output_dir,
+                    scalars: cfg.scalars(),
+                    schema_import: &schema_import,
+                    type_imports,
+                    project_context: &project_context,
+                    global_metadata,
+                    generate_ast_for_fragments: codegen_config.generate_ast_for_fragments(),
+                    workspace_documents: &workspace_metadata.documents,
+                    codegen_config: &codegen_config,
+                    emit_extensions,
+                    use_cache: cfg.enable_schema_cache(),
+                    type_cache: &shared_caches,
+                },
+                verbose,
+                clean,
+            );
+
+            match res {
+                Ok((ops, frags)) => Some(Ok((project_index, ops, frags))),
+                Err(_) => Some(Err(())),
             }
-        }
+        })
+        .collect();
 
-        let codegen_config = cfg.get_codegen_config(Some(project));
+    let mut project_operations: HashMap<usize, Vec<codegen::OperationGenerated>> = HashMap::new();
+    let mut project_fragments: HashMap<usize, Vec<codegen::FragmentGenerated>> = HashMap::new();
 
-        let emit_extensions = cfg.get_emit_extensions(project);
-        match execute_project_codegen_entry(
-            CodegenParams {
-                base_dir: cfg.base_dir(),
-                source: project.schema(),
-                include: project.include(),
-                project_files: &project_files,
-                output_dir: project_output_dir,
-                scalars: cfg.scalars(),
-                schema_import: &schema_import,
-                type_imports: &type_imports,
-                project_context: &project_context,
-                global_metadata,
-                generate_ast_for_fragments: codegen_config.generate_ast_for_fragments(),
-                workspace_documents: &workspace_metadata.documents,
-                codegen_config: &codegen_config,
-                emit_extensions,
-                use_cache: cfg.enable_schema_cache(),
-                type_cache: &shared_caches,
-            },
-            verbose,
-            clean,
-        )
-        .await
-        {
-            Ok((ops, frags)) => {
-                project_operations.insert(project_index, ops);
-                project_fragments.insert(project_index, frags);
+    for res in project_results {
+        match res {
+            Ok((idx, ops, frags)) => {
+                project_operations.insert(idx, ops);
+                project_fragments.insert(idx, frags);
             }
             Err(_) => success = false,
         }
     }
 
-    let schema_types = cfg.schema_types();
     if !schema_types.is_empty() {
-        for st in schema_types {
-            let abs_output = cfg.base_dir().join(st.output());
-            if clean {
-                if abs_output.exists() {
-                    if let Err(e) = std::fs::remove_file(&abs_output) {
-                        eprintln!(
-                            "{}: {} - {}",
-                            "Failed to remove".red(),
-                            abs_output.display().to_string().red(),
-                            e
-                        );
-                        success = false;
-                    } else if verbose {
-                        println!(
-                            "{}: {}",
-                            "Removed".bright_black(),
-                            abs_output.display().to_string().bright_black()
-                        );
-                    }
-                }
-            } else {
-                println!("Generating types for schema: {}", st.output().blue());
-                if !execute_schema_codegen(
-                    cfg.base_dir(),
-                    st.schema(),
-                    &abs_output.to_string_lossy(),
-                    cfg.scalars(),
-                    verbose,
-                    cfg.enable_schema_cache(),
-                )
-                .await
-                {
-                    success = false;
-                }
-
-                if let Ok(schema) = schema::load_and_validate_schema(
-                    cfg.base_dir(),
-                    st.schema(),
-                    cfg.enable_schema_cache(),
-                ) {
-                    let pt_output = st.possible_types();
-                    let tp_output = st.type_policies();
-
-                    let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
-                    let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
-
-                    match (&pt_path, &tp_path) {
-                        (Some(pt), Some(tp)) if pt == tp => {
-                            if verbose {
-                                println!(
-                                    "{}: {}",
-                                    "Generating possibleTypes and typePolicies".bright_black(),
-                                    pt.display().to_string().bright_black()
-                                );
-                            }
-                            let pt_content = codegen::generate_possible_types(&schema);
-                            let tp_content = codegen::generate_type_policies(&schema);
-                            let combined = format!(
-                                "{}\n\n{}\n",
-                                pt_content.trim_end(),
-                                tp_content.trim_start()
+        let schema_results: Vec<_> = schema_types
+            .par_iter()
+            .map(|st| {
+                let abs_output = cfg.base_dir().join(st.output());
+                if clean {
+                    if abs_output.exists() {
+                        if let Err(e) = std::fs::remove_file(&abs_output) {
+                            eprintln!(
+                                "{}: {} - {}",
+                                "Failed to remove".red(),
+                                abs_output.display().to_string().red(),
+                                e
                             );
-                            if let Err(e) = std::fs::write(pt, combined) {
-                                eprintln!("{}: {}", "Failed to write combined output".red(), e);
-                                success = false;
-                            }
+                            return Err(());
+                        } else if verbose {
+                            println!(
+                                "{}: {}",
+                                "Removed".bright_black(),
+                                abs_output.display().to_string().bright_black()
+                            );
                         }
-                        _ => {
-                            if let Some(pt) = &pt_path {
-                                if verbose {
-                                    println!(
-                                        "{}: {}",
-                                        "Generating possibleTypes".bright_black(),
-                                        pt.display().to_string().bright_black()
-                                    );
-                                }
-                                let content = codegen::generate_possible_types(&schema);
-                                if let Err(e) = std::fs::write(pt, content) {
-                                    eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
-                                    success = false;
+                    }
+                    Ok(())
+                } else {
+                    if !clean && verbose {
+                        println!("Generating types for schema: {}", st.output().blue());
+                    }
+                    let res = execute_schema_codegen_sync(
+                        cfg.base_dir(),
+                        st.schema(),
+                        &abs_output.to_string_lossy(),
+                        cfg.scalars(),
+                        verbose,
+                        cfg.enable_schema_cache(),
+                    );
+
+                    if !res {
+                        return Err(());
+                    }
+
+                    if let Ok(schema) = schema::load_schema_with_cache(
+                        cfg.base_dir(),
+                        st.schema(),
+                        cfg.enable_schema_cache(),
+                    ) {
+                        let valid_schema = schema.validate().expect("Schema should be valid");
+                        let pt_output = st.possible_types();
+                        let tp_output = st.type_policies();
+
+                        let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
+                        let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
+
+                        match (&pt_path, &tp_path) {
+                            (Some(pt), Some(tp)) if pt == tp => {
+                                let pt_content = codegen::generate_possible_types(&valid_schema);
+                                let tp_content = codegen::generate_type_policies(&valid_schema);
+                                let combined = format!(
+                                    "{}\n\n{}\n",
+                                    pt_content.trim_end(),
+                                    tp_content.trim_start()
+                                );
+                                if let Err(e) = std::fs::write(pt, combined) {
+                                    eprintln!("{}: {}", "Failed to write combined output".red(), e);
+                                    return Err(());
                                 }
                             }
-
-                            if let Some(tp) = &tp_path {
-                                if verbose {
-                                    println!(
-                                        "{}: {}",
-                                        "Generating typePolicies".bright_black(),
-                                        tp.display().to_string().bright_black()
-                                    );
+                            _ => {
+                                if let Some(pt) = &pt_path {
+                                    let content = codegen::generate_possible_types(&valid_schema);
+                                    if let Err(e) = std::fs::write(pt, content) {
+                                        eprintln!(
+                                            "{}: {}",
+                                            "Failed to write possibleTypes".red(),
+                                            e
+                                        );
+                                        return Err(());
+                                    }
                                 }
-                                let content = codegen::generate_type_policies(&schema);
-                                if let Err(e) = std::fs::write(tp, content) {
-                                    eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
-                                    success = false;
+
+                                if let Some(tp) = &tp_path {
+                                    let content = codegen::generate_type_policies(&valid_schema);
+                                    if let Err(e) = std::fs::write(tp, content) {
+                                        eprintln!(
+                                            "{}: {}",
+                                            "Failed to write typePolicies".red(),
+                                            e
+                                        );
+                                        return Err(());
+                                    }
                                 }
                             }
                         }
                     }
-                } else {
-                    eprintln!(
-                        "{}: Failed to load schema for codegen generation",
-                        "Error".red()
-                    );
-                    success = false;
+                    Ok(())
                 }
-            }
+            })
+            .collect();
+
+        if schema_results.iter().any(|r| r.is_err()) {
+            success = false;
         }
     }
 
@@ -614,125 +533,142 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
         }
 
-        for (out_dir_path, mut ops) in dir_to_ops.into_iter() {
-            let mut frags = dir_to_frags.remove(&out_dir_path).unwrap_or_default();
-            let codegen_config = dir_to_config.get(&out_dir_path).unwrap();
+        let dir_data: Vec<_> = dir_to_ops
+            .into_iter()
+            .map(|(path, ops)| {
+                let frags = dir_to_frags.remove(&path).unwrap_or_default();
+                let config = dir_to_config.get(&path).unwrap().clone();
+                let schema_import = dir_to_schema_import.get(&path).and_then(|o| o.clone());
+                (path, ops, frags, config, schema_import)
+            })
+            .collect();
 
-            // Deduplicate operations by name and source
-            ops.sort_by(|a, b| {
-                a.operation_type_name
-                    .cmp(&b.operation_type_name)
-                    .then_with(|| a.source_text.cmp(&b.source_text))
-            });
-            ops.dedup_by(|a, b| {
-                a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
-            });
+        let dir_results: Vec<_> = dir_data
+            .into_par_iter()
+            .map(
+                |(out_dir_path, mut ops, mut frags, codegen_config, schema_import)| {
+                    // Deduplicate operations by name and source
+                    ops.sort_by(|a, b| {
+                        a.operation_type_name
+                            .cmp(&b.operation_type_name)
+                            .then_with(|| a.source_text.cmp(&b.source_text))
+                    });
+                    ops.dedup_by(|a, b| {
+                        a.operation_type_name == b.operation_type_name
+                            && a.source_text == b.source_text
+                    });
 
-            // Deduplicate fragments by source
-            frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
-            frags.dedup_by(|a, b| a.source_text == b.source_text);
+                    // Deduplicate fragments by source
+                    frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
+                    frags.dedup_by(|a, b| a.source_text == b.source_text);
 
-            // Check if path exists but is a file (blocks directory creation)
-            if out_dir_path.exists() && out_dir_path.is_file() {
-                eprintln!(
-                    "{}: output_dir '{}' exists as a file, not a directory",
-                    "Error".red(),
-                    out_dir_path.display()
-                );
-                success = false;
-                continue;
-            }
-
-            let entrypoint_path = out_dir_path.join("graphql.ts");
-
-            if verbose {
-                println!(
-                    "{}: {}",
-                    "Generating entrypoint".bright_black(),
-                    entrypoint_path.display().to_string().bright_black()
-                );
-            }
-            let schema_import = dir_to_schema_import
-                .get(&out_dir_path)
-                .and_then(|o| o.as_deref());
-            let content = codegen::generate_entrypoint_content(
-                &out_dir_path,
-                &ops,
-                &frags,
-                codegen_config,
-                codegen_config.re_exports(),
-                schema_import,
-            );
-            if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
-                eprintln!(
-                    "{}: Failed to create directory '{}' - {}",
-                    "Error".red(),
-                    out_dir_path.display(),
-                    e
-                );
-                success = false;
-                continue;
-            }
-            if let Err(e) = std::fs::write(&entrypoint_path, content) {
-                eprintln!(
-                    "{}: {} (entrypoint: {}, dir exists: {})",
-                    "Failed to write entrypoint".red(),
-                    e,
-                    entrypoint_path.display(),
-                    out_dir_path.exists()
-                );
-                success = false;
-            }
-
-            let manifest_path = out_dir_path.join("manifest.json");
-            if verbose {
-                println!(
-                    "{}: {}",
-                    "Generating manifest".bright_black(),
-                    manifest_path.display().to_string().bright_black()
-                );
-            }
-            let manifest_entries: Vec<_> = ops
-                .iter()
-                .map(|op| {
-                    let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
-                        .unwrap_or_else(|| op.codegen_path.clone());
-                    let mut path_str = utils::to_posix_path(&rel_path);
-                    if !path_str.starts_with('.') && !path_str.starts_with('/') {
-                        path_str = format!("./{}", path_str);
+                    // Check if path exists but is a file (blocks directory creation)
+                    if out_dir_path.exists() && out_dir_path.is_file() {
+                        eprintln!(
+                            "{}: output_dir '{}' exists as a file, not a directory",
+                            "Error".red(),
+                            out_dir_path.display()
+                        );
+                        return Err(());
                     }
-                    let path_no_ext = if path_str.ends_with(".ts") {
-                        &path_str[..path_str.len() - 3]
-                    } else {
-                        &path_str
-                    };
 
-                    sonic_rs::json!({
-                        "source": op.source_text,
-                        "path": path_no_ext,
-                        "name": op.document_name
-                    })
-                })
-                .collect();
+                    let entrypoint_path = out_dir_path.join("graphql.ts");
 
-            let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();
-            if let Err(e) = std::fs::write(&manifest_path, manifest_json) {
-                eprintln!(
-                    "{}: {} (manifest: {}, dir exists: {})",
-                    "Failed to write manifest".red(),
-                    e,
-                    manifest_path.display(),
-                    out_dir_path.exists()
-                );
-                success = false;
-            }
+                    let content = codegen::generate_entrypoint_content(
+                        &out_dir_path,
+                        &ops,
+                        &frags,
+                        &codegen_config,
+                        codegen_config.re_exports(),
+                        schema_import.as_deref(),
+                    );
+                    if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
+                        eprintln!(
+                            "{}: Failed to create directory '{}' - {}",
+                            "Error".red(),
+                            out_dir_path.display(),
+                            e
+                        );
+                        return Err(());
+                    }
+
+                    // Write entrypoint only if changed
+                    let mut write_entry = true;
+                    if entrypoint_path.exists()
+                        && let Ok(existing) = std::fs::read_to_string(&entrypoint_path)
+                        && existing == content
+                    {
+                        write_entry = false;
+                    }
+                    if write_entry && let Err(e) = std::fs::write(&entrypoint_path, content) {
+                        eprintln!(
+                            "{}: {} (entrypoint: {}, dir exists: {})",
+                            "Failed to write entrypoint".red(),
+                            e,
+                            entrypoint_path.display(),
+                            out_dir_path.exists()
+                        );
+                        return Err(());
+                    }
+
+                    let manifest_path = out_dir_path.join("manifest.json");
+                    let manifest_entries: Vec<_> = ops
+                        .iter()
+                        .map(|op| {
+                            let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
+                                .unwrap_or_else(|| op.codegen_path.clone());
+                            let mut path_str = utils::to_posix_path(&rel_path);
+                            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                                path_str = format!("./{}", path_str);
+                            }
+                            let path_no_ext = if path_str.ends_with(".ts") {
+                                &path_str[..path_str.len() - 3]
+                            } else {
+                                &path_str
+                            };
+
+                            sonic_rs::json!({
+                                "source": op.source_text,
+                                "path": path_no_ext,
+                                "name": op.document_name
+                            })
+                        })
+                        .collect();
+
+                    let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();
+
+                    let mut write_manifest = true;
+                    if manifest_path.exists()
+                        && let Ok(existing) = std::fs::read_to_string(&manifest_path)
+                        && existing == manifest_json
+                    {
+                        write_manifest = false;
+                    }
+                    if write_manifest && let Err(e) = std::fs::write(&manifest_path, manifest_json)
+                    {
+                        eprintln!(
+                            "{}: {} (manifest: {}, dir exists: {})",
+                            "Failed to write manifest".red(),
+                            e,
+                            manifest_path.display(),
+                            out_dir_path.exists()
+                        );
+                        return Err(());
+                    }
+                    Ok(())
+                },
+            )
+            .collect();
+
+        if dir_results.iter().any(|r| r.is_err()) {
+            success = false;
         }
     }
 
     success
 }
 
-async fn execute_schema_codegen(
+fn execute_schema_codegen_sync(
     base_dir: &Path,
     source: &SchemaSource,
     output_path: &str,
@@ -740,8 +676,8 @@ async fn execute_schema_codegen(
     verbose: bool,
     use_cache: bool,
 ) -> bool {
-    let valid_schema = match schema::load_and_validate_schema(base_dir, source, use_cache) {
-        Ok(v) => v,
+    let valid_schema = match schema::load_schema_with_cache(base_dir, source, use_cache) {
+        Ok(v) => v.validate().expect("Schema should be valid"),
         Err(e) => {
             eprintln!("{}", e.to_string().red());
             return false;
@@ -773,7 +709,7 @@ async fn execute_schema_codegen(
     true
 }
 
-async fn execute_project_codegen_entry(
+fn execute_project_codegen_sync(
     params: CodegenParams<'_>,
     verbose: bool,
     clean: bool,
@@ -785,13 +721,13 @@ async fn execute_project_codegen_entry(
     (),
 > {
     if !clean {
-        generate_project_files(params, verbose).await
+        generate_project_files_sync(params, verbose)
     } else {
-        clean_project_files(params, verbose).await
+        clean_project_files_sync(params, verbose)
     }
 }
 
-async fn generate_project_files(
+fn generate_project_files_sync(
     params: CodegenParams<'_>,
     verbose: bool,
 ) -> Result<
@@ -802,32 +738,24 @@ async fn generate_project_files(
     (),
 > {
     let valid_schema =
-        match schema::load_and_validate_schema(params.base_dir, params.source, params.use_cache) {
-            Ok(v) => v,
+        match schema::load_schema_with_cache(params.base_dir, params.source, params.use_cache) {
+            Ok(v) => v.validate().expect("Schema should be valid"),
             Err(e) => {
                 eprintln!("{}", e.to_string().red());
                 return Err(());
             }
         };
 
-    let shared_caches = codegen::SchemaAnalysisCaches::new();
-
     let results: Vec<_> = params
         .project_files
         .par_iter()
-        .filter_map(|path| {
-            params.workspace_documents.get(path).map(|doc| (path, doc))
-        })
-        .filter(|(_, doc)| {
-            !doc.get_graphql_trees().is_empty()
-        })
+        .filter_map(|path| params.workspace_documents.get(path).map(|doc| (path, doc)))
+        .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
         .map(|(path, doc)| {
             let patterns = params.include.patterns();
             let include_prefix_path = patterns
                 .iter()
-                .map(|p| {
-                    utils::get_glob_root(p)
-                })
+                .map(|p| utils::get_glob_root(p))
                 .find(|root| {
                     let abs_root = params.base_dir.join(root);
                     path.starts_with(&abs_root)
@@ -878,7 +806,7 @@ async fn generate_project_files(
                 params.type_imports,
                 params.codegen_config.generate_ast_for_fragments(),
                 &params.project_context.fragment_dependencies,
-                &shared_caches,
+                params.type_cache,
                 params.codegen_config,
                 masking_import_path,
                 abs_out_path.clone(),
@@ -975,6 +903,28 @@ async fn generate_project_files(
             eprintln!("{}: {}", "Failed to write index.ts".red(), e);
             success = false;
         }
+
+        // Optionally emit permission metadata for the project
+        if params.codegen_config.emit_permission_data() {
+            if let Some(_out_dir) = params.output_dir {
+                let permissions_path = out_dir_path.join("permissions.ts");
+                let content = codegen::emit_permission_data_content(
+                    &valid_schema,
+                    params.scalars,
+                    params.schema_import,
+                );
+                if let Err(e) = std::fs::write(&permissions_path, content) {
+                    eprintln!("{}: {}", "Failed to write permissions.ts".red(), e);
+                    success = false;
+                }
+            } else {
+                eprintln!(
+                    "{}: emit_permission_data is enabled but no output_dir is specified for project.",
+                    "Warning".yellow()
+                );
+                // Do not fail the whole run for missing output_dir, just warn
+            }
+        }
     }
 
     if success {
@@ -984,7 +934,7 @@ async fn generate_project_files(
     }
 }
 
-async fn clean_project_files(
+fn clean_project_files_sync(
     params: CodegenParams<'_>,
     verbose: bool,
 ) -> Result<
@@ -1159,16 +1109,27 @@ fn execute_single_file_codegen(
         frag.codegen_path = abs_out_path.clone();
     }
 
-    if let Some(parent) = abs_out_path.parent() {
-        std::fs::create_dir_all(parent).ok();
+    let mut should_write = true;
+    if let Ok(metadata) = std::fs::metadata(&abs_out_path)
+        && metadata.len() == ts_code.len() as u64
+        && let Ok(existing) = std::fs::read(&abs_out_path)
+        && existing == ts_code.as_bytes()
+    {
+        should_write = false;
     }
-    std::fs::write(&abs_out_path, ts_code).map_err(|e| e.to_string())?;
-    if verbose {
-        println!(
-            "{}: {}",
-            "Generated".bright_black(),
-            abs_out_path.display().to_string().bright_black()
-        );
+
+    if should_write {
+        if let Some(parent) = abs_out_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(&abs_out_path, ts_code).map_err(|e| e.to_string())?;
+        if verbose {
+            println!(
+                "{}: {}",
+                "Generated".bright_black(),
+                abs_out_path.display().to_string().bright_black()
+            );
+        }
     }
     Ok((ops, frags))
 }

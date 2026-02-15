@@ -11,22 +11,16 @@ use tower_lsp::lsp_types::*;
 pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParams) {
     let uri = backend.normalize_uri(params.text_document.uri.clone());
     backend.open_documents.insert(uri.clone());
-    let language = DocumentLanguage::from_uri(&uri);
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&language.get_parser_language())
-        .unwrap();
-
+    let _language = DocumentLanguage::from_uri(&uri);
     let position_encoding = if let Ok(caps) = backend.client_capabilities.read() {
         caps.negotiated_encoding()
     } else {
         PositionEncodingKind::UTF16
     };
 
-    let doc = DocumentState::new(
+    let doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &params.text_document.text,
-        parser,
         position_encoding,
     );
 

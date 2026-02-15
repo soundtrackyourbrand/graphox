@@ -108,11 +108,7 @@ mod tests {
 
     fn create_doc(uri_str: &str, text: &str) -> DocumentState {
         let uri = Url::parse(uri_str).unwrap();
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        DocumentState::new(uri, text, parser, PositionEncodingKind::UTF8)
+        DocumentState::new_from_thread_local(uri, text, PositionEncodingKind::UTF8)
     }
 
     #[test]

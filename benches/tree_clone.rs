@@ -41,11 +41,8 @@ fn bench_arc_operations(c: &mut Criterion) {
     group.measurement_time(Duration::from_millis(500));
 
     group.bench_function("Arc::strong_count (single reference)", |b| {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF8);
 
         b.iter(|| {
             let _count = Arc::strong_count(&doc.tree);
@@ -53,11 +50,8 @@ fn bench_arc_operations(c: &mut Criterion) {
     });
 
     group.bench_function("Arc::strong_count (shared reference)", |b| {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF8);
         let shared = doc.tree.clone();
 
         b.iter(|| {
@@ -66,11 +60,8 @@ fn bench_arc_operations(c: &mut Criterion) {
     });
 
     group.bench_function("Arc::get_mut (exclusive access)", |b| {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF8);
 
         b.iter(|| {
             let mut doc = doc.clone();
@@ -79,11 +70,8 @@ fn bench_arc_operations(c: &mut Criterion) {
     });
 
     group.bench_function("Arc::get_mut (shared, will fail)", |b| {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF8);
         let shared = doc.tree.clone();
 
         b.iter(|| {
@@ -106,11 +94,8 @@ fn bench_clone_then_edit(c: &mut Criterion) {
     group.measurement_time(Duration::from_millis(1000));
 
     group.bench_function("Clone Arc<Tree> then get_mut", |b| {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF8);
 
         b.iter(|| {
             let mut doc = doc.clone();
@@ -121,11 +106,8 @@ fn bench_clone_then_edit(c: &mut Criterion) {
     });
 
     group.bench_function("Full reparse (current slow path)", |b| {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_graphql::LANGUAGE.into())
-            .unwrap();
-        let doc = DocumentState::new(uri.clone(), &content, parser, PositionEncodingKind::UTF8);
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF8);
         let shared = doc.tree.clone();
 
         b.iter(|| {
@@ -134,10 +116,12 @@ fn bench_clone_then_edit(c: &mut Criterion) {
             if Arc::get_mut(&mut doc.tree).is_none() {
                 // Current slow path: full reparse
                 let full_text = doc.rope.to_string();
-                let mut p = Parser::new();
-                p.set_language(&tree_sitter_graphql::LANGUAGE.into())
-                    .unwrap();
-                doc.tree = Arc::new(p.parse(&full_text, None).unwrap());
+                doc.tree = DocumentState::new_from_thread_local(
+                    uri.clone(),
+                    &full_text,
+                    PositionEncodingKind::UTF8,
+                )
+                .tree;
             }
         })
     });

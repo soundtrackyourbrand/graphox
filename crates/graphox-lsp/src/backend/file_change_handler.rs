@@ -121,22 +121,10 @@ pub async fn process_file_created_or_changed(
         }
     };
 
-    let language = DocumentLanguage::from_uri(&uri);
-    let mut parser = tree_sitter::Parser::new();
-    if let Err(e) = parser.set_language(&language.get_parser_language()) {
-        super::error_logging::log_error(
-            params.client,
-            "File change handler",
-            format!("Failed to set parser language: {}", e),
-        )
-        .await;
-        return None;
-    }
-
-    let new_doc = DocumentState::new(
+    let _language = DocumentLanguage::from_uri(&uri);
+    let new_doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &content,
-        parser,
         params.position_encoding.clone(),
     );
 

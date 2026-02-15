@@ -58,14 +58,8 @@ pub fn process_document_change(
 
         old_spreads = doc.fragment_spreads.clone();
 
-        // Apply changes incrementally
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&doc.language.get_parser_language())
-            .unwrap();
-
         for change in changes {
-            doc.apply_change(&change, &mut parser, version);
+            doc.apply_change_from_thread_local(&change, version);
         }
 
         // Collect fragments after change

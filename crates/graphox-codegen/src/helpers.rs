@@ -195,7 +195,7 @@ pub fn get_abstract_members<'a>(ty: &'a ExtendedType, schema: &'a Schema) -> Vec
     }
 }
 
-pub fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<String> {
+pub fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<Arc<str>> {
     schema
         .types
         .iter()
@@ -206,7 +206,7 @@ pub fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<
                     .iter()
                     .any(|i| i.as_str() == interface_name)
                 {
-                    Some(format!("\"{}\"", n))
+                    Some(format!("\"{}\"", n).into())
                 } else {
                     None
                 }
@@ -218,20 +218,20 @@ pub fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<
 }
 
 /// Compute interface implementors - called by cache
-pub fn compute_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<String> {
+pub fn compute_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<Arc<str>> {
     get_interface_implementors(interface_name, schema)
 }
 
 /// Compute abstract members - called by cache
-pub fn compute_abstract_members(type_name: &str, schema: &Schema) -> Vec<String> {
+pub fn compute_abstract_members(type_name: &str, schema: &Schema) -> Vec<Arc<str>> {
     if let Some(ty) = schema.types.get(type_name) {
         match ty {
-            ExtendedType::Union(union) => union.members.iter().map(|m| m.to_string()).collect(),
+            ExtendedType::Union(union) => union.members.iter().map(|m| m.as_str().into()).collect(),
             ExtendedType::Interface(_) => get_interface_implementors(type_name, schema),
-            _ => vec![type_name.to_string()],
+            _ => vec![type_name.into()],
         }
     } else {
-        vec![type_name.to_string()]
+        vec![type_name.into()]
     }
 }
 

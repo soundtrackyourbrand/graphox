@@ -60,6 +60,7 @@ pub struct CodegenContext<'a> {
     pub masking_import_path: String,
     pub used_schema_types: RefCell<HashSet<String>>,
     pub codegen_path: PathBuf,
+    pub context_fingerprint: u64,
 }
 
 impl<'a> CodegenContext<'a> {
@@ -81,6 +82,18 @@ impl<'a> CodegenContext<'a> {
         masking_import_path: String,
         codegen_path: PathBuf,
     ) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = ahash::AHasher::default();
+        schema_import.hash(&mut hasher);
+        config.fingerprint().hash(&mut hasher);
+        let mut sorted_keys: Vec<_> = type_imports.keys().collect();
+        sorted_keys.sort_unstable();
+        for k in sorted_keys {
+            k.hash(&mut hasher);
+            type_imports.get(k).unwrap().hash(&mut hasher);
+        }
+        let context_fingerprint = hasher.finish();
+
         Self {
             schema,
             fragment_to_path,
@@ -98,6 +111,7 @@ impl<'a> CodegenContext<'a> {
             masking_import_path,
             used_schema_types: RefCell::new(HashSet::new()),
             codegen_path,
+            context_fingerprint,
         }
     }
 
@@ -145,14 +159,85 @@ impl<'a> CodegenContext<'a> {
         self.config.re_exports()
     }
 
+    /// Get relative path from cache or compute it
+    pub fn diff_paths(&self, from: &Path, to: &Path) -> Option<PathBuf> {
+        let key = (from.to_path_buf(), to.to_path_buf());
+        if let Some(cached) = self.type_cache.diff_path_cache.get(&key) {
+            return cached.clone();
+        }
+
+        let res = pathdiff::diff_paths(from, to);
+        self.type_cache.diff_path_cache.insert(key, res.clone());
+        res
+    }
+
+    /// Get canonical path from cache or compute it
+    pub fn canonicalize_path(&self, path: &Path) -> PathBuf {
+        if let Some(cached) = self.type_cache.canonical_path_cache.get(path) {
+            return cached.clone();
+        }
+
+        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.type_cache
+            .canonical_path_cache
+            .insert(path.to_path_buf(), canonical.clone());
+        canonical
+    }
+
+    /// Get final import path from cache or compute it
+    pub fn get_final_import_path(&self, fragment_path: &Arc<str>, parent_dir: &Path) -> String {
+        let key = (fragment_path.clone(), parent_dir.to_path_buf());
+        if let Some(cached) = self.type_cache.final_import_path_cache.get(&key) {
+            return cached.clone();
+        }
+
+        let rel_path = self
+            .diff_paths(Path::new(fragment_path.as_ref()), parent_dir)
+            .unwrap_or_else(|| Path::new(fragment_path.as_ref()).to_path_buf());
+
+        let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
+        if !path_str.starts_with('.') {
+            path_str.insert_str(0, "./");
+        }
+        let p = Path::new(&path_str);
+        let stem = p.file_stem().unwrap().to_str().unwrap();
+        let parent = p.parent().unwrap();
+        let final_p = parent.join(stem);
+        let mut final_path_str = graphox_core::utils::to_posix_path(&final_p);
+        if !final_path_str.starts_with('.') && !final_path_str.starts_with('/') {
+            final_path_str.insert_str(0, "./");
+        }
+        final_path_str.push_str(".codegen");
+        final_path_str.push_str(self.emit_extensions().as_str());
+
+        self.type_cache
+            .final_import_path_cache
+            .insert(key, final_path_str.clone());
+        final_path_str
+    }
+
+    /// Get cached fragment AST JSON string
+    pub fn get_fragment_ast(&self, fragment_name: &Arc<str>) -> Option<Arc<str>> {
+        let key = (fragment_name.clone(), self.context_fingerprint);
+        self.type_cache
+            .fragment_ast_cache
+            .get(&key)
+            .map(|r| r.value().clone())
+    }
+
+    /// Insert fragment AST JSON string into cache
+    pub fn insert_fragment_ast(&self, fragment_name: Arc<str>, ast_json: Arc<str>) {
+        let key = (fragment_name, self.context_fingerprint);
+        self.type_cache.fragment_ast_cache.insert(key, ast_json);
+    }
+
     /// Get cached type conversion or compute and cache it
     /// Uses tuple-based key with default context for backward compatibility
     pub fn get_cached_type(&self, type_name: &str, compute: impl FnOnce() -> String) -> String {
         let key = TypeCacheKey {
-            type_name: type_name.to_string(),
+            type_name: Arc::from(type_name),
             use_names: false,
-            schema_import_key: None,
-            type_import_keys: Vec::new(),
+            context_fingerprint: self.context_fingerprint,
         };
         self.type_cache.type_cache.get_or_insert_tuple(key, compute)
     }
@@ -165,13 +250,16 @@ impl<'a> CodegenContext<'a> {
         use_names: bool,
         compute: impl FnOnce() -> String,
     ) -> String {
-        let key =
-            TypeCacheKey::from_context(type_name, use_names, self.schema_import, self.type_imports);
+        let key = TypeCacheKey {
+            type_name: Arc::from(type_name),
+            use_names,
+            context_fingerprint: self.context_fingerprint,
+        };
         self.type_cache.type_cache.get_or_insert_tuple(key, compute)
     }
 
     /// Get cached interface implementors
-    pub fn get_interface_implementors(&self, interface_name: &str) -> Vec<String> {
+    pub fn get_interface_implementors(&self, interface_name: &str) -> Vec<Arc<str>> {
         self.type_cache.interface_implementors.get_or_insert(
             self.schema_import,
             interface_name,
@@ -180,7 +268,7 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Get cached abstract members (for unions/interfaces)
-    pub fn get_abstract_members(&self, type_name: &str) -> Vec<String> {
+    pub fn get_abstract_members(&self, type_name: &str) -> Vec<Arc<str>> {
         self.type_cache
             .abstract_members
             .get_or_insert(self.schema_import, type_name, || {
@@ -210,10 +298,9 @@ impl<'a> CodegenContext<'a> {
 /// Using tuple-based struct for type safety and clarity
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct TypeCacheKey {
-    pub type_name: String,
+    pub type_name: Arc<str>,
     pub use_names: bool,
-    pub schema_import_key: Option<String>,
-    pub type_import_keys: Vec<String>,
+    pub context_fingerprint: u64,
 }
 
 impl TypeCacheKey {
@@ -224,13 +311,21 @@ impl TypeCacheKey {
         schema_import: &Option<String>,
         type_imports: &HashMap<String, String>,
     ) -> Self {
-        let mut keys: Vec<_> = type_imports.keys().cloned().collect();
-        keys.sort();
+        use std::hash::{Hash, Hasher};
+        let mut hasher = ahash::AHasher::default();
+        schema_import.hash(&mut hasher);
+        let mut sorted_keys: Vec<_> = type_imports.keys().collect();
+        sorted_keys.sort_unstable();
+        for k in sorted_keys {
+            k.hash(&mut hasher);
+            type_imports.get(k).unwrap().hash(&mut hasher);
+        }
+        let fingerprint = hasher.finish();
+
         Self {
-            type_name: type_name.to_string(),
+            type_name: Arc::from(type_name),
             use_names,
-            schema_import_key: schema_import.clone(),
-            type_import_keys: keys,
+            context_fingerprint: fingerprint,
         }
     }
 }
@@ -296,7 +391,7 @@ impl TypeCache {
 /// Key: (schema_import, interface name), Value: list of implementor type names
 #[derive(Debug, Default)]
 pub struct InterfaceImplementorsCache {
-    cache: DashMap<(Option<String>, String), Vec<String>>,
+    cache: DashMap<(Option<String>, String), Vec<Arc<str>>>,
 }
 
 impl InterfaceImplementorsCache {
@@ -308,8 +403,8 @@ impl InterfaceImplementorsCache {
         &self,
         schema_import: &Option<String>,
         interface_name: &str,
-        compute: impl FnOnce() -> Vec<String>,
-    ) -> Vec<String> {
+        compute: impl FnOnce() -> Vec<Arc<str>>,
+    ) -> Vec<Arc<str>> {
         let key = (schema_import.clone(), interface_name.to_string());
         if let Some(cached) = self.cache.get(&key) {
             return cached.clone();
@@ -332,7 +427,7 @@ impl InterfaceImplementorsCache {
 /// Key: (schema_import, type name), Value: list of member type names
 #[derive(Debug, Default)]
 pub struct AbstractMembersCache {
-    cache: DashMap<(Option<String>, String), Vec<String>>,
+    cache: DashMap<(Option<String>, String), Vec<Arc<str>>>,
 }
 
 impl AbstractMembersCache {
@@ -344,8 +439,8 @@ impl AbstractMembersCache {
         &self,
         schema_import: &Option<String>,
         type_name: &str,
-        compute: impl FnOnce() -> Vec<String>,
-    ) -> Vec<String> {
+        compute: impl FnOnce() -> Vec<Arc<str>>,
+    ) -> Vec<Arc<str>> {
         let key = (schema_import.clone(), type_name.to_string());
         if let Some(cached) = self.cache.get(&key) {
             return cached.clone();
@@ -365,16 +460,33 @@ impl AbstractMembersCache {
 }
 
 /// Unified caches for schema analysis, shared at workspace level
-#[derive(Debug, Default)]
 pub struct SchemaAnalysisCaches {
     pub type_cache: TypeCache,
     pub interface_implementors: InterfaceImplementorsCache,
     pub abstract_members: AbstractMembersCache,
+    pub canonical_path_cache: DashMap<PathBuf, PathBuf>,
+    pub diff_path_cache: DashMap<(PathBuf, PathBuf), Option<PathBuf>>,
+    pub final_import_path_cache: DashMap<(Arc<str>, PathBuf), String>,
+    pub fragment_ast_cache: DashMap<(Arc<str>, u64), Arc<str>>,
 }
 
 impl SchemaAnalysisCaches {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            type_cache: TypeCache::new(),
+            interface_implementors: InterfaceImplementorsCache::new(),
+            abstract_members: AbstractMembersCache::new(),
+            canonical_path_cache: DashMap::new(),
+            diff_path_cache: DashMap::new(),
+            final_import_path_cache: DashMap::new(),
+            fragment_ast_cache: DashMap::new(),
+        }
+    }
+}
+
+impl Default for SchemaAnalysisCaches {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -403,4 +515,85 @@ pub struct CodegenProfile {
     pub selection_set_time: std::time::Duration,
     pub ast_serialization_time: std::time::Duration,
     pub import_generation_time: std::time::Duration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use apollo_compiler::Schema;
+    use graphox_core::config::CodegenConfig;
+    use std::cell::RefCell;
+
+    #[test]
+    fn test_diff_paths_caching() {
+        let caches = SchemaAnalysisCaches::new();
+        let schema_src = r#"
+        type Query {
+          foo: String
+        }
+        "#;
+        let schema = Schema::parse(schema_src, "schema.graphql").unwrap();
+        let valid_schema = schema.validate().expect("Schema should be valid");
+
+        // Mock dependencies
+        let fragment_to_path = HashMap::new();
+        let fragment_to_import = HashMap::new();
+        let fragment_to_type_only = HashMap::new();
+        let all_fragments = HashMap::new();
+        let current_file_path = Path::new("/a/b/c.ts");
+        let scalars = HashMap::new();
+        let schema_import = None;
+        let type_imports = HashMap::new();
+        let fragment_dependencies = HashMap::new();
+        let config = CodegenConfig::default();
+        let used_schema_types = RefCell::new(HashSet::new());
+        let codegen_path = PathBuf::from("/a/b/c.ts");
+        let masking_import_path = "".to_string();
+
+        let ctx = CodegenContext {
+            schema: &valid_schema,
+            fragment_to_path: &fragment_to_path,
+            fragment_to_import: &fragment_to_import,
+            fragment_to_type_only: &fragment_to_type_only,
+            all_fragments: &all_fragments,
+            current_file_path,
+            scalars: &scalars,
+            schema_import: &schema_import,
+            type_imports: &type_imports,
+            generate_ast_for_fragments: false,
+            fragment_dependencies: &fragment_dependencies,
+            type_cache: &caches,
+            config: &config,
+            masking_import_path,
+            used_schema_types,
+            codegen_path,
+            context_fingerprint: 0,
+        };
+
+        let from = Path::new("/a/b/x/file.ts");
+        let to = Path::new("/a/b");
+
+        // First call - should calculate and cache
+        let res1 = ctx.diff_paths(from, to);
+        assert!(res1.is_some());
+
+        // Verify cache is populated
+        assert_eq!(caches.diff_path_cache.len(), 1);
+
+        // Second call - should use cache
+        let res2 = ctx.diff_paths(from, to);
+        assert_eq!(res1, res2);
+
+        // Verify cache size unchanged
+        assert_eq!(caches.diff_path_cache.len(), 1);
+
+        // Third call - different path
+        let from2 = Path::new("/a/c/y/file.ts");
+        let res3 = ctx.diff_paths(from2, to);
+        assert!(res3.is_some());
+        assert_ne!(res1, res3);
+
+        // Verify cache grew
+        assert_eq!(caches.diff_path_cache.len(), 2);
+    }
 }
