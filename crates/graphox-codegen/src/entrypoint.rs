@@ -230,6 +230,8 @@ pub fn generate_entrypoint_content(
             frag_export_paths.insert(final_path, frag.name.clone());
         }
 
+        let fragment_document_suffix = codegen_config.fragment_document_suffix();
+
         for (path, frag_name) in &frag_export_paths {
             output.push_str(&format!(
                 "export type {{ {} }} from \"{}\";\n",
@@ -237,8 +239,8 @@ pub fn generate_entrypoint_content(
             ));
             if generate_ast_for_fragments {
                 output.push_str(&format!(
-                    "export {{ {}Doc }} from \"{}\";\n",
-                    frag_name, path
+                    "export {{ {}{} }} from \"{}\";\n",
+                    frag_name, fragment_document_suffix, path
                 ));
             }
         }
