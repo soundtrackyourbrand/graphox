@@ -145,8 +145,9 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         abs_out_path.clone(),
                     );
                     let g_start = Instant::now();
-                    if let Ok((_ts_code, _ops, _frags, profile)) =
-                        codegen::generate_typescript_with_profile(doc, &ctx)
+                    let mut profile = codegen::CodegenProfile::default();
+                    if let Ok((_ts_code, _ops, _frags, _)) =
+                        codegen::generate_typescript_with_profile(doc, &ctx, &mut profile)
                     {
                         let g_time = g_start.elapsed();
                         return (

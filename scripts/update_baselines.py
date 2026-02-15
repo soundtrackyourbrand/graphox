@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-import subprocess
-import os
-import shutil
-import sys
-import re
 import json
+import os
+import re
+import shutil
+import subprocess
+import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -69,26 +69,42 @@ def update_baselines(fixture_rel, baseline_rel):
         def process_files(source_root, dest_base):
             """Process files from source_root to dest_base, renaming .ts/.json files to .expected.*"""
             nonlocal updated_count
-            
+
             # Generated file patterns
             generated_extensions = (".codegen.ts",)
-            generated_names = ("graphql.ts", "manifest.json", "schema.types.ts", "possible-types.ts", "type-policies.ts", "apollo-shared.ts", "package.json", "pnpm-workspace.yaml", "schema.ts", "types.ts", "base-types.ts", "ext-types.ts", "index.ts")
+            generated_names = (
+                "graphql.ts",
+                "manifest.json",
+                "schema.types.ts",
+                "possible-types.ts",
+                "type-policies.ts",
+                "apollo-shared.ts",
+                "package.json",
+                "pnpm-workspace.yaml",
+                "schema.ts",
+                "types.ts",
+                "base-types.ts",
+                "ext-types.ts",
+                "index.ts",
+            )
 
             for root, dirs, files in os.walk(source_root):
                 for f in files:
                     is_generated = False
                     if f.endswith(generated_extensions) or f in generated_names:
                         is_generated = True
-                    
+
                     # Also consider anything inside an output directory (gen or __generated__)
                     rel_dir = os.path.relpath(root, source_root)
-                    if "gen" in rel_dir.split(os.sep) or "__generated__" in rel_dir.split(os.sep):
+                    if "gen" in rel_dir.split(
+                        os.sep
+                    ) or "__generated__" in rel_dir.split(os.sep):
                         if f.endswith(".ts") or f.endswith(".json"):
                             is_generated = True
 
                     if not is_generated:
                         continue
-                            
+
                     # Calculate target path in baseline dir
                     rel_path = os.path.relpath(os.path.join(root, f), source_root)
                     target_dir = os.path.normpath(os.path.join(dest_base, rel_dir))
@@ -101,23 +117,24 @@ def update_baselines(fixture_rel, baseline_rel):
                     elif f.endswith(".json"):
                         stem = f.replace(".json", "")
                         baseline_name = stem + ".expected.json"
-                        with open(os.path.join(root, f), 'r') as jf:
+                        with open(os.path.join(root, f), "r") as jf:
                             json_data = json.load(jf)
-                        with open(os.path.join(target_dir, baseline_name), 'w') as jf:
+                        with open(os.path.join(target_dir, baseline_name), "w") as jf:
                             json.dump(json_data, jf, indent=2, sort_keys=True)
                         updated_count += 1
                         continue
                     else:
                         baseline_name = f
 
-                    shutil.copy(os.path.join(root, f), os.path.join(target_dir, baseline_name))
+                    shutil.copy(
+                        os.path.join(root, f), os.path.join(target_dir, baseline_name)
+                    )
                     updated_count += 1
 
         print(f"  Capturing generated output")
         process_files(temp_fixture, baseline_dir)
 
         print(f"  Done. Updated {updated_count} baseline files.")
-
 
     finally:
         # Cleanup temp directories
@@ -138,8 +155,14 @@ def main():
         ("tests/fixtures/project_import", "tests/baselines/project_import"),
         ("tests/fixtures/schema_import", "tests/baselines/schema_import"),
         ("tests/fixtures/multi_schema_import", "tests/baselines/multi_schema_import"),
-        ("tests/fixtures/multi_schema_import_superset", "tests/baselines/multi_schema_import_superset"),
-        ("tests/fixtures/multi_schema_two_imports", "tests/baselines/multi_schema_two_imports"),
+        (
+            "tests/fixtures/multi_schema_import_superset",
+            "tests/baselines/multi_schema_import_superset",
+        ),
+        (
+            "tests/fixtures/multi_schema_two_imports",
+            "tests/baselines/multi_schema_two_imports",
+        ),
         ("tests/fixtures/public_test", "tests/baselines/public_test"),
         ("tests/fixtures/fragment_ast", "tests/baselines/fragment_ast"),
         ("tests/fixtures/entrypoint", "tests/baselines/entrypoint"),
@@ -148,27 +171,50 @@ def main():
         ("tests/fixtures/re_exports", "tests/baselines/re_exports"),
         ("tests/fixtures/suffix_consistency", "tests/baselines/suffix_consistency"),
         ("tests/fixtures/operation_suffixes", "tests/baselines/operation_suffixes"),
-        ("tests/fixtures/duplicate_fragment_fields", "tests/baselines/duplicate_fragment_fields"),
-        ("tests/fixtures/duplicate_type_fields", "tests/baselines/duplicate_type_fields"),
+        (
+            "tests/fixtures/duplicate_fragment_fields",
+            "tests/baselines/duplicate_fragment_fields",
+        ),
+        (
+            "tests/fixtures/duplicate_type_fields",
+            "tests/baselines/duplicate_type_fields",
+        ),
         ("tests/fixtures/fragment_masking", "tests/baselines/fragment_masking"),
-        ("tests/fixtures/fragment_document_suffix", "tests/baselines/fragment_document_suffix"),
-        ("tests/fixtures/multi_schema_import_caching", "tests/baselines/multi_schema_import_caching"),
+        (
+            "tests/fixtures/fragment_document_suffix",
+            "tests/baselines/fragment_document_suffix",
+        ),
+        (
+            "tests/fixtures/multi_schema_import_caching",
+            "tests/baselines/multi_schema_import_caching",
+        ),
         ("tests/fixtures/permissions", "tests/baselines/permissions"),
         ("tests/fixtures/include_strip", "tests/baselines/include_strip"),
-        ("tests/fixtures/multi_project_isolation", "tests/baselines/multi_project_isolation"),
+        (
+            "tests/fixtures/multi_project_isolation",
+            "tests/baselines/multi_project_isolation",
+        ),
         ("tests/fixtures/emit_extensions_none", "tests/baselines/emit_extensions_none"),
         ("tests/fixtures/emit_extensions_js", "tests/baselines/emit_extensions_js"),
         ("tests/fixtures/emit_extensions_ts", "tests/baselines/emit_extensions_ts"),
         ("tests/fixtures/possible_types", "tests/baselines/possible_types"),
         ("tests/fixtures/swc_plugin", "tests/baselines/swc_plugin"),
         ("tests/fixtures/output_types", "tests/baselines/output_types"),
-        ("tests/fixtures/interface_fragment_typename", "tests/baselines/interface_fragment_typename"),
-        ("tests/fixtures/naming_convention", "tests/baselines/naming_convention_pascal_case"),
-        ("tests/fixtures/naming_convention_preserve", "tests/baselines/naming_convention_preserve"),
+        (
+            "tests/fixtures/interface_fragment_typename",
+            "tests/baselines/interface_fragment_typename",
+        ),
+        (
+            "tests/fixtures/naming_convention",
+            "tests/baselines/naming_convention_pascal_case",
+        ),
+        (
+            "tests/fixtures/naming_convention_preserve",
+            "tests/baselines/naming_convention_preserve",
+        ),
         ("tests/fixtures/inline_fragments", "tests/baselines/inline_fragments"),
         ("tests/fixtures/typename_strictness", "tests/baselines/typename_strictness"),
     ]
-
 
     for fixture, baseline in tasks:
         update_baselines(fixture, baseline)

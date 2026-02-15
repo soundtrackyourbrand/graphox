@@ -17,6 +17,4 @@ export interface Query2Query {
 export type Query2QueryVariables = Exact<{
   e?: MyEnum | null;
 }>;
-
 export const Query2QueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"Query2"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"e"},"value":{"kind":"Variable","name":{"kind":"Name","value":"e"}}}],"kind":"Field","name":{"kind":"Name","value":"test"}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NamedType","name":{"kind":"Name","value":"MyEnum"}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"e"}}}]}],"kind":"Document"} as unknown as DocumentNode<Query2Query, Query2QueryVariables>;
-

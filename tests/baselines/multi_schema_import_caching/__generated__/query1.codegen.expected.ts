@@ -17,6 +17,4 @@ export interface Query1Query {
 export type Query1QueryVariables = Exact<{
   e?: MyEnum | null;
 }>;
-
 export const Query1QueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"Query1"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"e"},"value":{"kind":"Variable","name":{"kind":"Name","value":"e"}}}],"kind":"Field","name":{"kind":"Name","value":"test"}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NamedType","name":{"kind":"Name","value":"MyEnum"}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"e"}}}]}],"kind":"Document"} as unknown as DocumentNode<Query1Query, Query1QueryVariables>;
-

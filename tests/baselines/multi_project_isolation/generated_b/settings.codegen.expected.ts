@@ -19,6 +19,4 @@ export interface GetSettingsQuery {
 
 export type GetSettingsQueryVariables = Exact<{
 }>;
-
 export const GetSettingsQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetSettings"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"settings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"theme"}},{"kind":"Field","name":{"kind":"Name","value":"notifications"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetSettingsQuery, GetSettingsQueryVariables>;
-

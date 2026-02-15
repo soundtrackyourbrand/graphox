@@ -20,6 +20,4 @@ export interface UpdateUser {
 export type UpdateUserVariables = Exact<{
   name: string;
 }>;
-
 export const UpdateUserDoc = { kind: 'Document', definitions: [{"kind":"OperationDefinition","name":{"kind":"Name","value":"UpdateUser"},"operation":"mutation","selectionSet":{"kind":"SelectionSet","selections":[{"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}}],"kind":"Field","name":{"kind":"Name","value":"updateUser"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}}}]}] } as unknown as DocumentNode<UpdateUser, UpdateUserVariables>;
-

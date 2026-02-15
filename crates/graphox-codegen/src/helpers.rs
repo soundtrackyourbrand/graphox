@@ -255,7 +255,7 @@ pub fn get_operation_deps_cached(
             transitive_deps.extend(cached_transitive.iter().cloned());
         } else if let Some(parsed_frag) = ctx.all_fragments.get(frag_name.as_ref()) {
             let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
-            transitive_deps.extend(frag_deps.into_iter().map(|s| s));
+            transitive_deps.extend(frag_deps.into_iter());
         }
     }
 

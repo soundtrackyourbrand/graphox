@@ -25,6 +25,6 @@ export function graphql(source: string): any {
 export const gql = graphql;
 
 // Re-exports
-export type { GetUsersQuery, GetUsersQueryVariables } from "./query.codegen";
-export { GetUsersQueryDocument } from "./query.codegen";
+export type { GetUserQuery, GetUserQueryVariables, GetUsersQuery, GetUsersQueryVariables } from "./query.codegen";
+export { GetUserQueryDocument, GetUsersQueryDocument } from "./query.codegen";
 export type { UserFields } from "./fragment.codegen";

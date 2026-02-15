@@ -9,4 +9,3 @@ export interface MyFragment {
   id: string;
   name: string;
 }
-

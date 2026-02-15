@@ -68,11 +68,11 @@ fn to_pascal_case(s: &str) -> String {
                 let has_lower_after = acronym_end < len && chars[acronym_end].is_lowercase();
 
                 result.extend(c.to_uppercase());
-                for j in (i + 1)..acronym_end {
+                for (j, &ch) in chars.iter().enumerate().take(acronym_end).skip(i + 1) {
                     if has_lower_after && j == acronym_end - 1 {
-                        result.extend(chars[j].to_uppercase());
+                        result.extend(ch.to_uppercase());
                     } else {
-                        result.extend(chars[j].to_lowercase());
+                        result.extend(ch.to_lowercase());
                     }
                 }
                 i = acronym_end;

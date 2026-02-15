@@ -14,4 +14,3 @@ export interface InternalFields {
   __typename: "User";
   email: string | null;
 }
-

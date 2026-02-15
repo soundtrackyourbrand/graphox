@@ -126,51 +126,50 @@ pub struct DocumentState {
 impl DocumentState {
     pub fn new(
         uri: Url,
-        text: &str,
-        mut parser: tree_sitter::Parser,
+        content: &str,
+        mut parser: Parser,
         position_encoding: PositionEncodingKind,
     ) -> Self {
         let language = DocumentLanguage::from_uri(&uri);
-        let rope = Rope::from_str(text);
-        let tree = Arc::new(parser.parse(text, None).unwrap());
+        let rope = Rope::from_str(content);
+        let tree = Arc::new(parser.parse(content, None).unwrap());
         let (package_root, mtime) = if let Ok(path) = uri.to_file_path() {
             (
                 find_package_root(&path),
-                std::fs::metadata(&path)
-                    .ok()
-                    .and_then(|m| m.modified().ok()),
+                std::fs::metadata(&path).and_then(|m| m.modified()).ok(),
             )
         } else {
             (None, None)
         };
-
-        let masked_source = if language.is_host_language() {
-            mask_interpolations(text).into()
-        } else {
-            text.into()
-        };
-
-        let mut doc = Self {
+        let mut this = Self {
             uri,
+            language,
             rope,
             tree,
-            language,
-            graphql_trees: Vec::new(),
-            fragments: Vec::new(),
-            fragment_spreads: Vec::new(),
-            operations: Vec::new(),
             package_root,
-            masked_source,
+            fragments: Vec::new(),
+            operations: Vec::new(),
+            fragment_spreads: Vec::new(),
+            graphql_trees: Vec::new(),
+            masked_source: "".into(),
             version: 0,
             mtime,
             position_encoding,
         };
-        doc.graphql_trees = doc.reparse_graphql_trees();
-        let (fragments, operations, spreads) = doc.extract_symbols();
-        doc.fragments = fragments;
-        doc.operations = operations;
-        doc.fragment_spreads = spreads;
-        doc
+
+        this.graphql_trees = this.reparse_graphql_trees();
+        if language.is_host_language() {
+            this.masked_source = mask_interpolations(content).into();
+        } else {
+            this.masked_source = content.into();
+        }
+
+        let (fragments, operations, fragment_spreads) = this.extract_symbols();
+        this.fragments = fragments;
+        this.operations = operations;
+        this.fragment_spreads = fragment_spreads;
+
+        this
     }
 
     pub fn reparse_graphql_trees(&self) -> Vec<GraphQLBlock> {

@@ -208,6 +208,36 @@ impl CodegenConfig {
         self
     }
 
+    pub fn with_fragment_suffix(mut self, suffix: String) -> Self {
+        self.fragment_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_fragment_document_suffix(mut self, suffix: String) -> Self {
+        self.fragment_document_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_query_suffix(mut self, suffix: String) -> Self {
+        self.query_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_mutation_suffix(mut self, suffix: String) -> Self {
+        self.mutation_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_subscription_suffix(mut self, suffix: String) -> Self {
+        self.subscription_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_naming_convention(mut self, convention: NamingConvention) -> Self {
+        self.naming_convention = Some(convention);
+        self
+    }
+
     pub fn with_fragment_masking(mut self, config: FragmentMaskingConfig) -> Self {
         self.fragment_masking = Some(config);
         self

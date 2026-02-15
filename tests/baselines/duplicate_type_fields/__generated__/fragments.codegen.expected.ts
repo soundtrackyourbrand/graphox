@@ -4,6 +4,7 @@
 
 type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 
+import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { FragmentType } from "./fragment-masking";
 export type DuplicateFields = ({
   id: string;
@@ -25,9 +26,6 @@ export type DuplicateFields = ({
     playbackMode: "LOOP" | "SEQUENTIAL" | "SHUFFLE";
   }>;
 }) & { ' $fragmentName'?: 'DuplicateFields' };
-
-export declare const DuplicateFieldsDocument: {
+export const DuplicateFieldsDocument = { kind: 'Document', definitions: [{"directives":[],"kind":"FragmentDefinition","name":{"kind":"Name","value":"DuplicateFields"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"__typename"}},{"kind":"Field","name":{"kind":"Name","value":"permissions"}},{"kind":"Field","name":{"kind":"Name","value":"presentAs"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"snapshot"}},{"kind":"Field","name":{"kind":"Name","value":"shortDescription"}},{"kind":"Field","name":{"kind":"Name","value":"curated"}},{"kind":"Field","name":{"kind":"Name","value":"curator"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"accountId"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"presets"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"playbackMode"}}]}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Playlist"}}}] } as unknown as DocumentNode<DuplicateFields, unknown> & {
   __fragment: DuplicateFields;
 };
-
-

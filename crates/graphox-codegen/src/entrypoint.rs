@@ -12,8 +12,6 @@ pub fn generate_entrypoint_content(
     codegen_config: &CodegenConfig,
     re_exports: bool,
 ) -> String {
-    let document_suffix = codegen_config.document_suffix();
-    let variables_suffix = codegen_config.variables_suffix();
     let fragment_masking = FragmentMasking::from_core_config(&codegen_config.fragment_masking());
     let emit_extensions = codegen_config.emit_extensions();
     let generate_ast_for_fragments = codegen_config.generate_ast_for_fragments();
@@ -70,26 +68,23 @@ pub fn generate_entrypoint_content(
         let final_path = format!("{}{}", path_no_ext, ext);
 
         type_import_lines.push(format!(
-            "import type {{ {}, {}{} }} from \"{}\";",
-            op.operation_type_name, op.operation_type_name, variables_suffix, final_path
+            "import type {{ {}, {} }} from \"{}\";",
+            op.operation_type_name, op.variables_type_name, final_path
         ));
 
         runtime_import_lines.push(format!(
-            "import {{ {}{} }} from \"{}\";",
-            op.operation_type_name, document_suffix, final_path
+            "import {{ {} }} from \"{}\";",
+            op.document_name, final_path
         ));
     }
 
     for op in unique_ops_by_source.values() {
         overloads.push_str(&format!(
-            "export function graphql(source: {:?}): typeof {}{};\n",
-            op.source_text, op.operation_type_name, document_suffix
+            "export function graphql(source: {:?}): typeof {};\n",
+            op.source_text, op.document_name
         ));
 
-        map_entries.push_str(&format!(
-            "  {:?}: {}{},\n",
-            op.source_text, op.operation_type_name, document_suffix
-        ));
+        map_entries.push_str(&format!("  {:?}: {},\n", op.source_text, op.document_name));
     }
 
     let mut unique_frags_by_source = BTreeMap::new();
@@ -127,7 +122,7 @@ pub fn generate_entrypoint_content(
         } else {
             type_import_lines.push(format!(
                 "import type {{ {} }} from \"{}\";",
-                frag.name, final_path
+                frag.fragment_type_name, final_path
             ));
         }
     }
@@ -152,7 +147,7 @@ pub fn generate_entrypoint_content(
         } else {
             overloads.push_str(&format!(
                 "export function graphql(source: {:?}): DocumentNode<{}, unknown>;\n",
-                frag.source_text, frag.name
+                frag.source_text, frag.fragment_type_name
             ));
 
             map_entries.push_str(&format!("  {:?}: {{}},\n", frag.source_text));
@@ -185,7 +180,7 @@ pub fn generate_entrypoint_content(
     if re_exports {
         output.push_str("\n// Re-exports\n");
 
-        let mut op_export_paths: BTreeMap<String, String> = BTreeMap::new();
+        let mut path_to_ops: BTreeMap<String, Vec<&OperationGenerated>> = BTreeMap::new();
         for op in unique_ops_by_name.values() {
             let rel_codegen_path = pathdiff::diff_paths(&op.codegen_path, output_dir)
                 .unwrap_or_else(|| op.codegen_path.clone());
@@ -199,21 +194,30 @@ pub fn generate_entrypoint_content(
                 &path_str
             };
             let final_path = format!("{}{}", path_no_ext, ext);
-            op_export_paths.insert(final_path, op.operation_type_name.clone());
+            path_to_ops.entry(final_path).or_default().push(op);
         }
 
-        for (path, op_name) in &op_export_paths {
+        for (path, ops) in &path_to_ops {
+            let mut types = Vec::new();
+            let mut docs = Vec::new();
+            for op in ops {
+                types.push(op.operation_type_name.clone());
+                types.push(op.variables_type_name.clone());
+                docs.push(op.document_name.clone());
+            }
             output.push_str(&format!(
-                "export type {{ {}, {}Variables }} from \"{}\";\n",
-                op_name, op_name, path
+                "export type {{ {} }} from \"{}\";\n",
+                types.join(", "),
+                path
             ));
             output.push_str(&format!(
-                "export {{ {}Document }} from \"{}\";\n",
-                op_name, path
+                "export {{ {} }} from \"{}\";\n",
+                docs.join(", "),
+                path
             ));
         }
 
-        let mut frag_export_paths: BTreeMap<String, String> = BTreeMap::new();
+        let mut path_to_frags: BTreeMap<String, Vec<&FragmentGenerated>> = BTreeMap::new();
         for frag in unique_frags_by_name.values() {
             let rel_codegen_path = pathdiff::diff_paths(&frag.codegen_path, output_dir)
                 .unwrap_or_else(|| frag.codegen_path.clone());
@@ -227,20 +231,28 @@ pub fn generate_entrypoint_content(
                 &path_str
             };
             let final_path = format!("{}{}", path_no_ext, ext);
-            frag_export_paths.insert(final_path, frag.name.clone());
+            path_to_frags.entry(final_path).or_default().push(frag);
         }
 
-        let fragment_document_suffix = codegen_config.fragment_document_suffix();
-
-        for (path, frag_name) in &frag_export_paths {
+        for (path, frags) in &path_to_frags {
+            let mut types = Vec::new();
+            let mut docs = Vec::new();
+            for frag in frags {
+                types.push(frag.fragment_type_name.clone());
+                if generate_ast_for_fragments {
+                    docs.push(frag.document_name.clone());
+                }
+            }
             output.push_str(&format!(
                 "export type {{ {} }} from \"{}\";\n",
-                frag_name, path
+                types.join(", "),
+                path
             ));
-            if generate_ast_for_fragments {
+            if !docs.is_empty() {
                 output.push_str(&format!(
-                    "export {{ {}{} }} from \"{}\";\n",
-                    frag_name, fragment_document_suffix, path
+                    "export {{ {} }} from \"{}\";\n",
+                    docs.join(", "),
+                    path
                 ));
             }
         }

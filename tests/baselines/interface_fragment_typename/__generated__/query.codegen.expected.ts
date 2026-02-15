@@ -21,8 +21,6 @@ export interface TestQueryQuery {
 export type TestQueryQueryVariables = Exact<{
 }>;
 
-export const TestQueryQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"TestQuery"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"DisplayableInfo"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"DisplayableInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"display"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"title"}}]}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Displayable"}}}],"kind":"Document"} as unknown as DocumentNode<TestQueryQuery, TestQueryQueryVariables>;
-
 export interface DisplayableInfo {
   __typename: "Schedule" | "Curator";
   display: {
@@ -30,4 +28,4 @@ export interface DisplayableInfo {
     title: string;
   } | null;
 }
-
+export const TestQueryQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"TestQuery"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"DisplayableInfo"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"DisplayableInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"display"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"title"}}]}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Displayable"}}}],"kind":"Document"} as unknown as DocumentNode<TestQueryQuery, TestQueryQueryVariables>;

@@ -9,4 +9,3 @@ export interface UserFieldsFrag {
   id: string;
   name: string;
 }
-

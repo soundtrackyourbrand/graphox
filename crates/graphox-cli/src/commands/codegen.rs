@@ -2,7 +2,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::config::{CodegenConfig, Config, EmitExtensions, GlobPattern, SchemaSource};
+use graphox_core::config::{CodegenConfig, Config, GlobPattern, SchemaSource};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
 use graphox_core::schema;
 use graphox_core::schema_cache;
@@ -552,17 +552,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         use std::collections::{BTreeMap, HashSet};
         let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
         let mut dir_to_frags: BTreeMap<PathBuf, Vec<codegen::FragmentGenerated>> = BTreeMap::new();
-        let mut dir_to_config: BTreeMap<
-            PathBuf,
-            (
-                codegen::FragmentMasking,
-                String,
-                String,
-                EmitExtensions,
-                bool,
-                bool,
-            ),
-        > = BTreeMap::new();
+        let mut dir_to_config: BTreeMap<PathBuf, CodegenConfig> = BTreeMap::new();
 
         let mut project_indices: HashSet<usize> = project_operations.keys().cloned().collect();
         project_indices.extend(project_fragments.keys().cloned());
@@ -600,43 +590,13 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             if let std::collections::btree_map::Entry::Vacant(e) =
                 dir_to_config.entry(canon_out_dir_path)
             {
-                let project_codegen_config = cfg.get_codegen_config(Some(project));
-                let fragment_masking = codegen::FragmentMasking::from_core_config(
-                    &project_codegen_config.fragment_masking(),
-                );
-                let document_suffix = project_codegen_config.document_suffix().to_string();
-                let variables_suffix = project_codegen_config.variables_suffix().to_string();
-                e.insert((
-                    fragment_masking,
-                    document_suffix,
-                    variables_suffix,
-                    cfg.get_emit_extensions(project),
-                    project_codegen_config.generate_ast_for_fragments(),
-                    project_codegen_config.re_exports(),
-                ));
+                e.insert(cfg.get_codegen_config(Some(project)));
             }
         }
 
         for (out_dir_path, mut ops) in dir_to_ops.into_iter() {
             let mut frags = dir_to_frags.remove(&out_dir_path).unwrap_or_default();
-            let (
-                _fragment_masking,
-                doc_suffix,
-                var_suffix,
-                emit_extensions,
-                generate_ast,
-                re_exports,
-            ) = dir_to_config.get(&out_dir_path).unwrap();
-
-            let project_codegen_config = cfg.get_codegen_config(None);
-            let codegen_config = CodegenConfig::enabled()
-                .with_document_suffix(doc_suffix.clone())
-                .with_variables_suffix(var_suffix.clone())
-                .with_fragment_masking(project_codegen_config.fragment_masking().clone())
-                .with_emit_extensions(*emit_extensions)
-                .with_generate_ast_for_fragments(*generate_ast)
-                .with_re_exports(*re_exports)
-                .with_emit_permission_data(project_codegen_config.emit_permission_data());
+            let codegen_config = dir_to_config.get(&out_dir_path).unwrap();
 
             // Deduplicate operations by name and source
             ops.sort_by(|a, b| {
@@ -676,7 +636,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 &out_dir_path,
                 &ops,
                 &frags,
-                &codegen_config,
+                codegen_config,
                 codegen_config.re_exports(),
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
@@ -726,7 +686,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     sonic_rs::json!({
                         "source": op.source_text,
                         "path": path_no_ext,
-                        "name": format!("{}{}", op.operation_type_name, doc_suffix)
+                        "name": op.document_name
                     })
                 })
                 .collect();

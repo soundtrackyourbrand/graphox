@@ -19,6 +19,4 @@ export interface GetMeQuery {
 
 export type GetMeQueryVariables = Exact<{
 }>;
-
 export const GetMeQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetMe"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"me"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"username"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetMeQuery, GetMeQueryVariables>;
-

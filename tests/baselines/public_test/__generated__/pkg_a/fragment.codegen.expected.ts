@@ -13,4 +13,3 @@ export interface PrivateFrag {
   __typename: "User";
   id: string;
 }
-

@@ -11,4 +11,3 @@ export interface UserFieldsFrag {
   name: string | null;
 }
 export const UserFieldsFragFragmentDoc = { kind: 'Document', definitions: [{"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserFields"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"User"}}}] } as unknown as DocumentNode<UserFieldsFrag, unknown>;
-

@@ -6,7 +6,7 @@ type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 import type { UserFieldsFrag } from "./fragment.codegen";
-import { UserFieldsDoc } from "./fragment.codegen";
+import { UserFieldsFragFragmentDoc } from "./fragment.codegen";
 
 export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
 
@@ -17,6 +17,4 @@ export interface GetUserQuery {
 
 export type GetUserQueryVariables = Exact<{
 }>;
-
-export const GetUserQueryDoc = { kind: 'Document', definitions: [{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUser"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"UserFields"}}]}}]}}, ...UserFieldsDoc.definitions] } as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;
-
+export const GetUserQueryDoc = { kind: 'Document', definitions: [{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUser"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"UserFields"}}]}}]}}, ...UserFieldsFragFragmentDoc.definitions] } as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;

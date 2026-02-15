@@ -12,4 +12,3 @@ export type AccountInfo = {
     __typename: "Admin";
     role: string;
   };
-

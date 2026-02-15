@@ -22,8 +22,6 @@ export type GetUserByIdQueryVariables = Exact<{
   id: string;
 }>;
 
-export const GetUserByIdQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"get_user_by_id"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"email"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}],"kind":"Document"} as unknown as DocumentNode<GetUserByIdQuery, GetUserByIdQueryVariables>;
-
 export interface GetAllPostsQuery {
   __typename: "Query";
   posts: Array<{
@@ -42,8 +40,6 @@ export interface GetAllPostsQuery {
 export type GetAllPostsQueryVariables = Exact<{
 }>;
 
-export const GetAllPostsQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"get_all_posts"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"posts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"content"}},{"kind":"Field","name":{"kind":"Name","value":"author"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetAllPostsQuery, GetAllPostsQueryVariables>;
-
 export interface CreatePostMutation {
   __typename: "Mutation";
   createPost: {
@@ -59,8 +55,6 @@ export type CreatePostMutationVariables = Exact<{
   content: string;
 }>;
 
-export const CreatePostMutationDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"create_post"},"operation":"mutation","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createPost"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"content"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"title"}}},{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"content"}}}]}],"kind":"Document"} as unknown as DocumentNode<CreatePostMutation, CreatePostMutationVariables>;
-
 export interface GenerateOtpQuery {
   __typename: "Query";
   generateOTP: {
@@ -73,8 +67,6 @@ export interface GenerateOtpQuery {
 export type GenerateOtpQueryVariables = Exact<{
   input: any;
 }>;
-
-export const GenerateOtpQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"generateOTP"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"generateOTP"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"otp"}},{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"GenerateOTPInput"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}]}],"kind":"Document"} as unknown as DocumentNode<GenerateOtpQuery, GenerateOtpQueryVariables>;
 
 export interface GetSamlConfigQuery {
   __typename: "Query";
@@ -89,8 +81,6 @@ export type GetSamlConfigQueryVariables = Exact<{
   accountId: string;
 }>;
 
-export const GetSamlConfigQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"getSAMLConfig"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"samlConfig"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"accountId"}}}]}],"kind":"Document"} as unknown as DocumentNode<GetSamlConfigQuery, GetSamlConfigQueryVariables>;
-
 export interface AddTracks_CreateManualPlaylistMutation {
   __typename: "Mutation";
   createManualPlaylist: {
@@ -103,8 +93,6 @@ export interface AddTracks_CreateManualPlaylistMutation {
 export type AddTracks_CreateManualPlaylistMutationVariables = Exact<{
   input: any;
 }>;
-
-export const AddTracks_CreateManualPlaylistMutationDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"AddTracks_CreateManualPlaylist"},"operation":"mutation","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createManualPlaylist"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"permissions"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateManualPlaylistInput"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}]}],"kind":"Document"} as unknown as DocumentNode<AddTracks_CreateManualPlaylistMutation, AddTracks_CreateManualPlaylistMutationVariables>;
 
 export interface ChangePlan_AccountQuery {
   __typename: "Query";
@@ -119,8 +107,6 @@ export type ChangePlan_AccountQueryVariables = Exact<{
   accountId: string;
 }>;
 
-export const ChangePlan_AccountQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"ChangePlan_account"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"account"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"accountId"}}}]}],"kind":"Document"} as unknown as DocumentNode<ChangePlan_AccountQuery, ChangePlan_AccountQueryVariables>;
-
 export interface ChangePlan_PricesQuery {
   __typename: "Query";
   prices: Array<{
@@ -133,12 +119,17 @@ export interface ChangePlan_PricesQuery {
 export type ChangePlan_PricesQueryVariables = Exact<{
 }>;
 
-export const ChangePlan_PricesQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"ChangePlan_prices"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"prices"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"amount"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<ChangePlan_PricesQuery, ChangePlan_PricesQueryVariables>;
-
 export interface UserFields {
   __typename: "User";
   id: string;
   name: string | null;
   email: string | null;
 }
-
+export const AddTracks_CreateManualPlaylistMutationDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"AddTracks_CreateManualPlaylist"},"operation":"mutation","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createManualPlaylist"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"permissions"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateManualPlaylistInput"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}]}],"kind":"Document"} as unknown as DocumentNode<AddTracks_CreateManualPlaylistMutation, AddTracks_CreateManualPlaylistMutationVariables>;
+export const ChangePlan_AccountQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"ChangePlan_account"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"account"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"accountId"}}}]}],"kind":"Document"} as unknown as DocumentNode<ChangePlan_AccountQuery, ChangePlan_AccountQueryVariables>;
+export const ChangePlan_PricesQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"ChangePlan_prices"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"prices"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"amount"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<ChangePlan_PricesQuery, ChangePlan_PricesQueryVariables>;
+export const CreatePostMutationDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"create_post"},"operation":"mutation","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createPost"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"content"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"title"}}},{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"content"}}}]}],"kind":"Document"} as unknown as DocumentNode<CreatePostMutation, CreatePostMutationVariables>;
+export const GenerateOtpQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"generateOTP"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"generateOTP"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"otp"}},{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"GenerateOTPInput"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}]}],"kind":"Document"} as unknown as DocumentNode<GenerateOtpQuery, GenerateOtpQueryVariables>;
+export const GetAllPostsQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"get_all_posts"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"posts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"content"}},{"kind":"Field","name":{"kind":"Name","value":"author"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetAllPostsQuery, GetAllPostsQueryVariables>;
+export const GetSamlConfigQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"getSAMLConfig"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"samlConfig"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}},{"kind":"Field","name":{"kind":"Name","value":"slug"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"accountId"}}}]}],"kind":"Document"} as unknown as DocumentNode<GetSamlConfigQuery, GetSamlConfigQueryVariables>;
+export const GetUserByIdQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"get_user_by_id"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"email"}}]}}]},"variableDefinitions":[{"kind":"VariableDefinition","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}},"variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}],"kind":"Document"} as unknown as DocumentNode<GetUserByIdQuery, GetUserByIdQueryVariables>;

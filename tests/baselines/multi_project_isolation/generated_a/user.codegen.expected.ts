@@ -20,6 +20,4 @@ export interface GetUserQuery {
 
 export type GetUserQueryVariables = Exact<{
 }>;
-
 export const GetUserQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUser"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"email"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;
-

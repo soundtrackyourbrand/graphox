@@ -206,6 +206,7 @@ pub struct OperationGenerated {
     pub name: String,
     pub operation_type_name: String,
     pub variables_type_name: String,
+    pub document_name: String,
     pub source_text: String,
     pub codegen_path: PathBuf,
 }
@@ -213,12 +214,13 @@ pub struct OperationGenerated {
 #[derive(Debug, Clone)]
 pub struct FragmentGenerated {
     pub name: String,
+    pub fragment_type_name: String,
     pub source_text: String,
     pub document_name: String,
     pub codegen_path: PathBuf,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CodegenProfile {
     pub parse_time: std::time::Duration,
     pub selection_set_time: std::time::Duration,

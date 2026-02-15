@@ -16,6 +16,4 @@ export interface GetPublicQuery {
 
 export type GetPublicQueryVariables = Exact<{
 }>;
-
 export const GetPublicQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetPublic"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"users"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"PublicFrag"}}]}}]}},{"directives":[],"kind":"FragmentDefinition","name":{"kind":"Name","value":"PublicFrag"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"User"}}}],"kind":"Document"} as unknown as DocumentNode<GetPublicQuery, GetPublicQueryVariables>;
-

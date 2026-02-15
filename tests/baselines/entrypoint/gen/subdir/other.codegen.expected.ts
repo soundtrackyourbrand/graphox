@@ -18,6 +18,4 @@ export interface GetMyIdQuery {
 
 export type GetMyIdQueryVariables = Exact<{
 }>;
-
 export const GetMyIdQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetMyId"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"me"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetMyIdQuery, GetMyIdQueryVariables>;
-

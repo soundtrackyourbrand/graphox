@@ -9,4 +9,3 @@ export interface UserFields {
   id: string;
   username: string;
 }
-

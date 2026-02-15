@@ -4,9 +4,7 @@ use crate::utils::{get_project_files, is_relevant_file};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
 use lsp_types::Url;
-use once_cell::sync::Lazy;
 use rayon::prelude::*;
-use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +18,7 @@ pub struct FragmentMetadata {
     pub is_public: bool,
     pub is_type_only: bool,
     pub masked_source: Arc<str>,
+    pub direct_deps: Vec<Arc<str>>,
     /// Cached transitive fragment dependencies (computed during workspace scan)
     /// Contains all fragment names that this fragment depends on, directly or transitively
     pub transitive_deps: Vec<Arc<str>>,
@@ -70,9 +69,6 @@ pub struct ProjectContext {
 }
 
 pub struct Engine;
-
-static FRAGMENT_SPREAD_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\.\.\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap());
 
 impl Engine {
     pub fn resolve_project_context(
@@ -296,6 +292,7 @@ impl Engine {
                             is_public: frag.is_public,
                             is_type_only: frag.is_type_only,
                             masked_source: doc.masked_source.clone(),
+                            direct_deps: frag.used_fragments.clone(),
                             transitive_deps: Vec::new(), // Will be populated after all fragments are collected
                         });
                     }
@@ -410,16 +407,10 @@ impl Engine {
         let direct_deps_idx: Vec<Vec<usize>> = fragments
             .par_iter()
             .map(|frag| {
-                let source = &frag.masked_source;
-                if !source.contains("...") {
-                    return Vec::new();
-                }
-
                 let mut deps = HashSet::default();
-                for mat in FRAGMENT_SPREAD_RE.find_iter(source) {
-                    let potential_name = &mat.as_str()[3..];
-                    if let Some(&idx) = name_to_idx.get(potential_name)
-                        && idx != name_to_idx[&frag.name]
+                for dep_name in &frag.direct_deps {
+                    if let Some(&idx) = name_to_idx.get(dep_name.as_ref())
+                        && idx != name_to_idx[frag.name.as_ref()]
                     {
                         deps.insert(idx);
                     }

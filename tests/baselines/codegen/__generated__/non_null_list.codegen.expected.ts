@@ -19,6 +19,4 @@ export interface GetNonNullUsersQuery {
 
 export type GetNonNullUsersQueryVariables = Exact<{
 }>;
-
 export const GetNonNullUsersQueryDocument = {"definitions":[{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetNonNullUsers"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"nonNullUsers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"username"}}]}}]}}],"kind":"Document"} as unknown as DocumentNode<GetNonNullUsersQuery, GetNonNullUsersQueryVariables>;
-
