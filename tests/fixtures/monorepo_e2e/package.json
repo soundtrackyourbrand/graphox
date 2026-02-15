@@ -1,0 +1,20 @@
+{
+  "name": "monorepo-e2e",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "typecheck:graphox": "pnpm with-graphox typecheck",
+    "typecheck:codegen": "pnpm with-codegen typecheck",
+    "with-graphox": "tsx scripts/run-with-graphox.ts",
+    "with-codegen": "tsx scripts/run-with-codegen.ts",
+    "compare": "tsx scripts/compare-ast.ts"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/typed-document-node": "^5.0.0",
+    "@graphql-codegen/typescript": "^4.0.0",
+    "@graphql-typed-document-node/core": "^3.2.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

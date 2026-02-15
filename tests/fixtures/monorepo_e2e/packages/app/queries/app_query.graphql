@@ -1,0 +1,17 @@
+query AppQuery($first: Int = 10, $after: String) {
+  me {
+    id
+    name
+    unmappedField
+  }
+  posts(first: $first, after: $after) {
+    nodes {
+      ...PostFields
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
+  }
+}

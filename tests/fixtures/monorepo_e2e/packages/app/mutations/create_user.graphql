@@ -1,0 +1,27 @@
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    user {
+      id
+      name
+      email
+      role
+      avatarUrl
+      metadata
+      createdAt
+      updatedAt
+      preferences {
+        theme
+        notifications
+        language
+      }
+      totalPosts
+      totalComments
+      reputation
+    }
+    errors {
+      field
+      message
+    }
+    clientMutationId
+  }
+}

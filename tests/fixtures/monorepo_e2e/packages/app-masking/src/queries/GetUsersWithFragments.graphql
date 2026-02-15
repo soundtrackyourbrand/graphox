@@ -1,0 +1,19 @@
+query GetUsersWithFragments($first: Int = 10) {
+  users(first: $first) {
+    nodes {
+      id
+      name
+      email
+      role
+      createdAt
+      posts(first: 3) {
+        nodes {
+          id
+          title
+          status
+          viewCount
+        }
+      }
+    }
+  }
+}

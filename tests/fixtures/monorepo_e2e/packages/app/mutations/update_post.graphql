@@ -1,0 +1,34 @@
+mutation UpdatePost($input: UpdatePostInput!) {
+  updatePost(input: $input) {
+    post {
+      id
+      title
+      body
+      status
+      tags
+      viewCount
+      createdAt
+      updatedAt
+      author {
+        id
+        name
+      }
+      comments(first: 5) {
+        nodes {
+          id
+          body
+          author {
+            id
+            name
+          }
+        }
+        totalCount
+      }
+    }
+    errors {
+      field
+      message
+    }
+    clientMutationId
+  }
+}

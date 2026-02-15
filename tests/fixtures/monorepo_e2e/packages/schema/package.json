@@ -1,0 +1,13 @@
+{
+  "name": "@monorepo-e2e/schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated/*": "./src/__generated__/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

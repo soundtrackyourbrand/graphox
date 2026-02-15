@@ -1,0 +1,12 @@
+query GetUsers($first: Int = 10, $role: UserRole) {
+  users(first: $first, role: $role) {
+    nodes {
+      ...UserFields
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
+  }
+}

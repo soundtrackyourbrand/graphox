@@ -1,0 +1,482 @@
+"""
+Comprehensive test schema for monorepo e2e
+Covers: scalars, enums, interfaces, unions, directives, pagination, mutations, subscriptions
+"""
+
+# ============================================================================
+# Custom Scalars
+# ============================================================================
+scalar DateTime
+scalar JSON
+scalar BigInt
+scalar EmailAddress
+scalar URL
+scalar UnmappedScalar
+
+# ============================================================================
+# Directives
+# ============================================================================
+directive @public on FIELD_DEFINITION
+
+directive @auth(roles: [UserRole!]!) on FIELD_DEFINITION | OBJECT
+
+directive @rateLimit(maxRequests: Int!, windowSeconds: Int!) on FIELD_DEFINITION
+
+# ============================================================================
+# Enums
+# ============================================================================
+enum UserRole {
+  ADMIN
+  MODERATOR
+  USER
+  GUEST
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CommentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SortDirection {
+  ASC
+  DESC
+}
+
+# ============================================================================
+# Interface Hierarchy: Node -> Timestamped -> Content
+# ============================================================================
+interface Node {
+  id: ID!
+  createdAt: DateTime!
+}
+
+interface Timestamped implements Node {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+interface Content implements Timestamped & Node {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  author: User!
+  body: String!
+}
+
+# ============================================================================
+# Types
+# ============================================================================
+type User implements Timestamped & Node @auth(roles: [ADMIN, USER]) {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  "The full name of the user."
+  name: String!
+  "The user's primary email address."
+  email: EmailAddress!
+  role: UserRole!
+  avatarUrl: URL
+  metadata: JSON
+  preferences: UserPreferences!
+  isActive: Boolean!
+  viewCount: BigInt!
+  lastLoginAt: DateTime
+  
+  # Connections with pagination
+  posts(first: Int, after: String, last: Int, before: String): PostConnection!
+  """
+  The user's comments
+  """
+  comments(first: Int, after: String): CommentConnection!
+  
+  # Aggregations
+  """
+  Total number of posts published by the user
+  """
+  totalPosts: Int!
+  totalComments: Int! @rateLimit(maxRequests: 100, windowSeconds: 60)
+  reputation: BigInt!
+  unmappedField: UnmappedScalar!
+}
+
+type UserPreferences {
+  theme: String!
+  notifications: Boolean!
+  """
+  Preferred language code (e.g. 'en-US')
+  """
+  language: String!
+}
+
+type Post implements Content & Timestamped & Node @auth(roles: [ADMIN, USER]) {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  author: User!
+  body: String!
+  title: String!
+  slug: String!
+  status: PostStatus!
+  viewCount: BigInt!
+  tags: [String!]!
+  
+  # Relations
+  comments(first: Int, after: String): CommentConnection!
+  
+  # Deprecated field
+  commentCount: Int @deprecated(reason: "Use comments.totalCount instead")
+}
+
+type Comment implements Content & Timestamped & Node {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  author: User!
+  body: String!
+  status: CommentStatus!
+  parentPost: Post!
+  replyTo: Comment
+  
+  # Nested comments
+  replies(first: Int, after: String): CommentConnection!
+}
+
+# ============================================================================
+# Union Types
+# ============================================================================
+union SearchResult = User | Post | Comment
+
+union ContentItem = Post | Comment
+
+# ============================================================================
+# Connection Types (Relay-style pagination)
+# ============================================================================
+type PageInfo {
+  """
+  When paginating forwards, are there more items?
+  """
+  hasNextPage: Boolean!
+  """
+  When paginating backwards, are there more items?
+  """
+  hasPreviousPage: Boolean!
+  """
+  When paginating backwards, the cursor to continue.
+  """
+  startCursor: String
+  """
+  When paginating forwards, the cursor to continue.
+  """
+  endCursor: String
+}
+
+type UserEdge {
+  node: User!
+  cursor: String!
+}
+
+type UserConnection {
+  edges: [UserEdge!]!
+  nodes: [User!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PostEdge {
+  node: Post!
+  cursor: String!
+}
+
+type PostConnection {
+  edges: [PostEdge!]!
+  nodes: [Post!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CommentEdge {
+  node: Comment!
+  cursor: String!
+}
+
+type CommentConnection {
+  edges: [CommentEdge!]!
+  nodes: [Comment!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+# ============================================================================
+# Input Types
+# ============================================================================
+input CreateUserInput {
+  name: String!
+  email: EmailAddress!
+  role: UserRole
+  avatarUrl: URL
+  metadata: JSON
+  clientMutationId: String
+}
+
+input UpdateUserInput {
+  id: ID!
+  name: String
+  email: EmailAddress
+  role: UserRole
+  avatarUrl: URL
+  metadata: JSON
+  clientMutationId: String
+}
+
+input CreatePostInput {
+  title: String!
+  body: String!
+  authorId: ID!
+  status: PostStatus
+  tags: [String!]
+  clientMutationId: String
+}
+
+input UpdatePostInput {
+  id: ID!
+  title: String
+  body: String
+  status: PostStatus
+  tags: [String!]
+  clientMutationId: String
+}
+
+input CreateCommentInput {
+  body: String!
+  authorId: ID!
+  postId: ID!
+  parentCommentId: ID
+  clientMutationId: String
+}
+
+input UpdateCommentInput {
+  id: ID!
+  body: String
+  status: CommentStatus
+  clientMutationId: String
+}
+
+input SearchInput {
+  query: String!
+  filters: JSON
+  types: [String!]
+}
+
+input PaginationInput {
+  first: Int
+  after: String
+  last: Int
+  before: String
+}
+
+# ============================================================================
+# Payload Types (with errors and clientMutationId)
+# ============================================================================
+type CreateUserPayload {
+  user: User
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type UpdateUserPayload {
+  user: User
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type DeleteUserPayload {
+  success: Boolean!
+  deletedId: ID
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type CreatePostPayload {
+  post: Post
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type UpdatePostPayload {
+  post: Post
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type DeletePostPayload {
+  success: Boolean!
+  deletedId: ID
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type CreateCommentPayload {
+  comment: Comment
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type UpdateCommentPayload {
+  comment: Comment
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type DeleteCommentPayload {
+  success: Boolean!
+  deletedId: ID
+  errors: [UserError!]
+  clientMutationId: String
+}
+
+type BatchCreateUsersPayload {
+  users: [User!]!
+  errors: [BatchUserError!]
+  clientMutationId: String
+}
+
+type UserError {
+  field: [String!]
+  message: String!
+  code: String
+}
+
+type BatchUserError {
+  index: Int!
+  errors: [UserError!]!
+}
+
+# ============================================================================
+# Root Query
+# ============================================================================
+type Query {
+  # Single entity lookups
+  user(id: ID!): User @public
+  post(id: ID!): Post @public
+  comment(id: ID!): Comment @public
+  
+  # List queries with filtering and pagination
+  """
+  Retrieve users with optional filters and pagination
+  """
+  users(
+    filter: JSON
+    role: UserRole
+    sortBy: String
+    sortDirection: SortDirection
+    first: Int
+    after: String
+    last: Int
+    before: String
+  ): UserConnection! @public
+  
+  posts(
+    filter: JSON
+    status: PostStatus
+    authorId: ID
+    tags: [String!]
+    sortBy: String
+    sortDirection: SortDirection
+    first: Int
+    after: String
+  ): PostConnection! @public
+  
+  comments(
+    filter: JSON
+    status: CommentStatus
+    postId: ID
+    authorId: ID
+    first: Int
+    after: String
+  ): CommentConnection! @public
+  
+  # Search across unions
+  search(
+    input: SearchInput!
+    pagination: PaginationInput
+  ): [SearchResult!]! @public
+  
+  # Content union
+  contentItems(
+    pagination: PaginationInput
+  ): [ContentItem!]! @public
+  
+  # Current user
+  me: User @auth(roles: [ADMIN, MODERATOR, USER])
+  
+  # Stats
+  totalUsers: Int! @public
+  totalPosts: Int! @public
+  totalComments: Int! @public
+}
+
+# ============================================================================
+# Root Mutation
+# ============================================================================
+type Mutation {
+  # User mutations
+  createUser(input: CreateUserInput!): CreateUserPayload!
+  updateUser(input: UpdateUserInput!): UpdateUserPayload!
+  deleteUser(id: ID!): DeleteUserPayload!
+  batchCreateUsers(inputs: [CreateUserInput!]!): BatchCreateUsersPayload!
+  
+  # Post mutations
+  createPost(input: CreatePostInput!): CreatePostPayload!
+  updatePost(input: UpdatePostInput!): UpdatePostPayload!
+  deletePost(id: ID!): DeletePostPayload!
+  publishPost(id: ID!): UpdatePostPayload!
+  archivePost(id: ID!): UpdatePostPayload!
+  
+  # Comment mutations
+  createComment(input: CreateCommentInput!): CreateCommentPayload!
+  updateComment(input: UpdateCommentInput!): UpdateCommentPayload!
+  deleteComment(id: ID!): DeleteCommentPayload!
+  approveComment(id: ID!): UpdateCommentPayload!
+  rejectComment(id: ID!): UpdateCommentPayload!
+}
+
+# ============================================================================
+# Root Subscription
+# ============================================================================
+type Subscription {
+  # User lifecycle
+  userCreated: User!
+  userUpdated(id: ID): User!
+  userDeleted: ID!
+  
+  # Post lifecycle
+  postCreated: Post!
+  postUpdated(id: ID): Post!
+  postDeleted: ID!
+  postPublished: Post!
+  postViewed(id: ID!): BigInt!
+  
+  # Comment lifecycle
+  commentCreated(postId: ID): Comment!
+  commentUpdated(id: ID): Comment!
+  commentDeleted: ID!
+  commentApproved: Comment!
+  
+  # Real-time stats
+  statsUpdated: Stats!
+}
+
+type Stats {
+  totalUsers: Int!
+  totalPosts: Int!
+  totalComments: Int!
+  activeUsers: Int!
+}

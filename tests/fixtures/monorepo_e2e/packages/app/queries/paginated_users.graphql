@@ -1,0 +1,30 @@
+query PaginatedUsersWithPosts($first: Int = 10, $after: String, $includeTotal: Boolean = true) {
+  users(first: $first, after: $after) {
+    edges {
+      node {
+        id
+        name
+        email
+        role
+        isActive
+        viewCount
+        createdAt
+        updatedAt
+        posts(first: 5) {
+          nodes {
+            id
+            title
+            status
+            viewCount
+            tags
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount @include(if: $includeTotal)
+  }
+}

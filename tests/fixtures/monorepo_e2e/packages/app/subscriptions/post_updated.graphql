@@ -1,0 +1,14 @@
+subscription PostUpdated($id: ID) {
+  postUpdated(id: $id) {
+    id
+    title
+    body
+    status
+    viewCount
+    updatedAt
+    author {
+      id
+      name
+    }
+  }
+}

@@ -1,0 +1,80 @@
+query ComplexQuery(
+  $searchQuery: String!
+  $userFilter: JSON
+  $first: Int = 10
+  $after: String
+  $includeDeprecated: Boolean = false
+  $includeAuthor: Boolean = true
+) {
+  search(input: { query: $searchQuery }) {
+    ... on User {
+      id
+      name
+      oldName: name @deprecated(reason: "Use 'name' instead")
+      email
+      posts(first: 5) {
+        nodes {
+          id
+          title
+          status
+          viewCount
+        }
+      }
+    }
+    ... on Post {
+      id
+      title
+      viewCount
+      commentCount
+      author @include(if: $includeAuthor) {
+        name
+        role
+      }
+      postStatus: status @skip(if: $includeDeprecated)
+    }
+    ... on Comment {
+      id
+      body
+      author {
+        name
+      }
+      commentStatus: status
+      author {
+        id
+        name
+        email
+      }
+    }
+    ... on Comment {
+      id
+      body
+      status
+      author {
+        id
+        name
+      }
+    }
+  }
+  users(filter: $userFilter, first: $first, after: $after) {
+    nodes {
+      id
+      name
+      email
+      role
+      metadata
+      totalPosts
+      totalComments
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
+  }
+  me {
+    id
+    name
+    email
+    role
+  }
+}

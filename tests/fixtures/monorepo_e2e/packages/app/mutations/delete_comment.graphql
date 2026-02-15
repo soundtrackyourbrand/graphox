@@ -1,0 +1,11 @@
+mutation DeleteComment($id: ID!) {
+  deleteComment(id: $id) {
+    success
+    deletedId
+    errors {
+      field
+      message
+    }
+    clientMutationId
+  }
+}

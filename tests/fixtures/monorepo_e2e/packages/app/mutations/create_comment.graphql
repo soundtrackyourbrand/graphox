@@ -1,0 +1,28 @@
+mutation CreateComment($input: CreateCommentInput!) {
+  createComment(input: $input) {
+    comment {
+      id
+      body
+      status
+      createdAt
+      updatedAt
+      author {
+        id
+        name
+      }
+      parentPost {
+        id
+        title
+      }
+      replyTo {
+        id
+        body
+      }
+    }
+    errors {
+      field
+      message
+    }
+    clientMutationId
+  }
+}

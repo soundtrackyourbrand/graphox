@@ -1,0 +1,18 @@
+mutation BatchCreateUsers($inputs: [CreateUserInput!]!) {
+  batchCreateUsers(inputs: $inputs) {
+    users {
+      id
+      name
+      email
+      role
+    }
+    errors {
+      index
+      errors {
+        field
+        message
+      }
+    }
+    clientMutationId
+  }
+}

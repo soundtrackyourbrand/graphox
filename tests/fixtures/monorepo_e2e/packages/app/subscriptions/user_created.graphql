@@ -1,0 +1,9 @@
+subscription UserCreated {
+  userCreated {
+    id
+    name
+    email
+    role
+    createdAt
+  }
+}

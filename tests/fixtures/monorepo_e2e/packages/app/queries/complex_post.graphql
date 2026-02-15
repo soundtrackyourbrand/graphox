@@ -1,0 +1,55 @@
+query ComplexPostQuery(
+  $postId: ID!
+  $includeComments: Boolean!
+  $commentLimit: Int = 10
+  $skipAuthorDetails: Boolean!
+  $includeMetadata: Boolean!
+) {
+  post(id: $postId) {
+    id
+    title
+    body
+    status
+    viewCount
+    tags
+    createdAt
+    updatedAt
+    author {
+      id
+      authorName: name @skip(if: $skipAuthorDetails)
+      authorEmail: email @include(if: $includeMetadata)
+      authorRole: role @skip(if: $skipAuthorDetails)
+    }
+    comments(first: $commentLimit) @include(if: $includeComments) {
+      nodes {
+        id
+        body
+        status
+        createdAt
+        author {
+          id
+          name
+        }
+        replyTo {
+          id
+          body
+        }
+        replies(first: 3) {
+          nodes {
+            id
+            body
+            author {
+              id
+              name
+            }
+          }
+        }
+      }
+      totalCount
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

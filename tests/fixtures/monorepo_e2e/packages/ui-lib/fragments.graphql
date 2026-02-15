@@ -1,0 +1,15 @@
+fragment UserFields on User {
+  id
+  name
+  email
+  role
+  isActive
+  viewCount
+  createdAt
+  updatedAt
+  preferences {
+    theme
+    notifications
+    language
+  }
+}

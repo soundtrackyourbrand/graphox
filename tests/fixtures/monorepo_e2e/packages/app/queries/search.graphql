@@ -1,0 +1,34 @@
+query Search($query: String!, $includeArchived: Boolean = false) {
+  search(input: { query: $query }) {
+    ... on User {
+      id
+      name
+      email
+      role
+    }
+    ... on Post {
+      id
+      title
+      body
+      postStatus: status
+      viewCount
+      author {
+        id
+        name
+      }
+    }
+    ... on Comment {
+      id
+      body
+      commentStatus: status
+      author {
+        id
+        name
+      }
+      parentPost {
+        id
+        title
+      }
+    }
+  }
+}

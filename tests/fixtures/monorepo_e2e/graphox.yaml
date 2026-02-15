@@ -1,0 +1,46 @@
+codegen:
+  re_exports: true
+  generate_ast_for_fragments: true
+  document_suffix: "Document"
+  fragment_document_suffix: "Document"
+  query_suffix: ""
+  default_scalar_type: "string"
+
+scalars:
+  DateTime: "string"
+  JSON: "any"
+  BigInt: "bigint"
+  EmailAddress: "string"
+  URL: "string"
+
+schema_types:
+  - schema: "packages/schema/schema.graphql"
+    output: "packages/schema/src/__generated__/graphql.ts"
+
+projects:
+  - schema: "packages/schema/schema.graphql"
+    include: 
+      - "packages/ui-lib/**/*.graphql"
+      - "packages/ui-lib/**/*.ts"
+    output_dir: "packages/ui-lib/src/__generated__"
+    codegen:
+      re_exports: true
+
+  - schema: "packages/schema/schema.graphql"
+    include: 
+      - "packages/app/**/*.graphql"
+      - "packages/app/**/*.ts"
+    output_dir: "packages/app/src/__generated__"
+    codegen:
+      re_exports: true
+
+  - schema: "packages/schema/schema.graphql"
+    include:
+      - "packages/app-masking/**/*.graphql"
+      - "packages/app-masking/**/*.ts"
+    output_dir: "packages/app-masking/src/__generated__"
+    codegen:
+      re_exports: true
+      fragment_masking:
+        enabled: true
+        unmask_function_name: "getFragmentData"
