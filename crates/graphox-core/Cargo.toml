@@ -3,11 +3,14 @@ name = "graphox-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+
 [dependencies]
 apollo-compiler = { workspace = true }
 ropey = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+sonic-rs = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }
 tree-sitter-typescript = { workspace = true }

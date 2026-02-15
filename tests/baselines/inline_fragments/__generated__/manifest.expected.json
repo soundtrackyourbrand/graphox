@@ -1,0 +1,27 @@
+[
+  {
+    "name": "CreatePostMutationDocument",
+    "path": "./query.codegen",
+    "source": "query get_user_by_id($id: ID!) {\n  user(id: $id) {\n    id\n    name\n    email\n  }\n}\n\nfragment user_fields on User {\n  id\n  name\n  email\n}\n\nquery get_all_users {\n  users {\n    ...user_fields\n  }\n}\n\nfragment post_fields on Post {\n  id\n  title\n  content\n}\n\nquery get_posts_with_fragment {\n  posts {\n    ...post_fields\n    author {\n      id\n      name\n    }\n  }\n}\n\nmutation create_post($title: String!, $content: String!) {\n  createPost(title: $title, content: $content) {\n    id\n    title\n    content\n  }\n}\n\n# Test nested fragments\nfragment address_fields on Address {\n  street\n  city\n  country\n}\n\nfragment user_with_address on User {\n  id\n  name\n  ...address_fields\n}\n\nquery get_users_with_addresses {\n  users {\n    ...user_with_address\n  }\n}\n"
+  },
+  {
+    "name": "GetAllUsersQueryDocument",
+    "path": "./query.codegen",
+    "source": "query get_user_by_id($id: ID!) {\n  user(id: $id) {\n    id\n    name\n    email\n  }\n}\n\nfragment user_fields on User {\n  id\n  name\n  email\n}\n\nquery get_all_users {\n  users {\n    ...user_fields\n  }\n}\n\nfragment post_fields on Post {\n  id\n  title\n  content\n}\n\nquery get_posts_with_fragment {\n  posts {\n    ...post_fields\n    author {\n      id\n      name\n    }\n  }\n}\n\nmutation create_post($title: String!, $content: String!) {\n  createPost(title: $title, content: $content) {\n    id\n    title\n    content\n  }\n}\n\n# Test nested fragments\nfragment address_fields on Address {\n  street\n  city\n  country\n}\n\nfragment user_with_address on User {\n  id\n  name\n  ...address_fields\n}\n\nquery get_users_with_addresses {\n  users {\n    ...user_with_address\n  }\n}\n"
+  },
+  {
+    "name": "GetPostsWithFragmentQueryDocument",
+    "path": "./query.codegen",
+    "source": "query get_user_by_id($id: ID!) {\n  user(id: $id) {\n    id\n    name\n    email\n  }\n}\n\nfragment user_fields on User {\n  id\n  name\n  email\n}\n\nquery get_all_users {\n  users {\n    ...user_fields\n  }\n}\n\nfragment post_fields on Post {\n  id\n  title\n  content\n}\n\nquery get_posts_with_fragment {\n  posts {\n    ...post_fields\n    author {\n      id\n      name\n    }\n  }\n}\n\nmutation create_post($title: String!, $content: String!) {\n  createPost(title: $title, content: $content) {\n    id\n    title\n    content\n  }\n}\n\n# Test nested fragments\nfragment address_fields on Address {\n  street\n  city\n  country\n}\n\nfragment user_with_address on User {\n  id\n  name\n  ...address_fields\n}\n\nquery get_users_with_addresses {\n  users {\n    ...user_with_address\n  }\n}\n"
+  },
+  {
+    "name": "GetUserByIdQueryDocument",
+    "path": "./query.codegen",
+    "source": "query get_user_by_id($id: ID!) {\n  user(id: $id) {\n    id\n    name\n    email\n  }\n}\n\nfragment user_fields on User {\n  id\n  name\n  email\n}\n\nquery get_all_users {\n  users {\n    ...user_fields\n  }\n}\n\nfragment post_fields on Post {\n  id\n  title\n  content\n}\n\nquery get_posts_with_fragment {\n  posts {\n    ...post_fields\n    author {\n      id\n      name\n    }\n  }\n}\n\nmutation create_post($title: String!, $content: String!) {\n  createPost(title: $title, content: $content) {\n    id\n    title\n    content\n  }\n}\n\n# Test nested fragments\nfragment address_fields on Address {\n  street\n  city\n  country\n}\n\nfragment user_with_address on User {\n  id\n  name\n  ...address_fields\n}\n\nquery get_users_with_addresses {\n  users {\n    ...user_with_address\n  }\n}\n"
+  },
+  {
+    "name": "GetUsersWithAddressesQueryDocument",
+    "path": "./query.codegen",
+    "source": "query get_user_by_id($id: ID!) {\n  user(id: $id) {\n    id\n    name\n    email\n  }\n}\n\nfragment user_fields on User {\n  id\n  name\n  email\n}\n\nquery get_all_users {\n  users {\n    ...user_fields\n  }\n}\n\nfragment post_fields on Post {\n  id\n  title\n  content\n}\n\nquery get_posts_with_fragment {\n  posts {\n    ...post_fields\n    author {\n      id\n      name\n    }\n  }\n}\n\nmutation create_post($title: String!, $content: String!) {\n  createPost(title: $title, content: $content) {\n    id\n    title\n    content\n  }\n}\n\n# Test nested fragments\nfragment address_fields on Address {\n  street\n  city\n  country\n}\n\nfragment user_with_address on User {\n  id\n  name\n  ...address_fields\n}\n\nquery get_users_with_addresses {\n  users {\n    ...user_with_address\n  }\n}\n"
+  }
+]

@@ -1137,7 +1137,7 @@ dependencies = [
  "ntest",
  "pathdiff",
  "serde",
- "serde_json",
+ "sonic-rs",
 ]
 
 [[package]]
@@ -1161,7 +1161,7 @@ dependencies = [
  "regex",
  "ropey",
  "serde",
- "serde_json",
+ "sonic-rs",
  "tempfile",
  "tree-sitter",
  "tree-sitter-graphql",
