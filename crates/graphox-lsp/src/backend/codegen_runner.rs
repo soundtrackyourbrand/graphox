@@ -72,7 +72,9 @@ pub async fn run_codegen(
         let mut type_imports = ahash::AHashMap::default();
         let project_schema_files: ahash::AHashSet<_> =
             project.schema().files().into_iter().collect();
-        let schema_import = if config.schema_types().is_empty() {
+        let schema_import = if let Some(si) = project.codegen().schema_import() {
+            Some(si.to_string())
+        } else if config.schema_types().is_empty() {
             None
         } else {
             let mut matches: Vec<_> = config
@@ -352,6 +354,7 @@ pub async fn run_codegen(
             &frags,
             codegen_config,
             codegen_config.re_exports(),
+            codegen_config.schema_import(),
         );
         std::fs::create_dir_all(&out_dir_path).ok();
         if let Err(e) = std::fs::write(&entrypoint_path, content) {

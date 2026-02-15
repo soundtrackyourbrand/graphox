@@ -1,4 +1,4 @@
-query AppQuery($first: Int = 10, $after: String) {
+query ReferenceQuery($first: Int = 10, $after: String) {
   me {
     ...UserFields
     unmappedField

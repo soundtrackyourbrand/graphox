@@ -1,5 +1,5 @@
 {
-  "name": "@monorepo-e2e/app",
+  "name": "@monorepo-e2e/app-reference",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -7,7 +7,8 @@
   "types": "./src/index.ts",
   "dependencies": {
     "@monorepo-e2e/schema": "workspace:*",
-    "@monorepo-e2e/ui-lib": "workspace:*"
+    "@monorepo-e2e/ui-lib": "workspace:*",
+    "@monorepo-e2e/app": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -11,6 +11,7 @@ pub fn generate_entrypoint_content(
     fragments: &[FragmentGenerated],
     codegen_config: &CodegenConfig,
     re_exports: bool,
+    schema_import: Option<&str>,
 ) -> String {
     let fragment_masking = FragmentMasking::from_core_config(&codegen_config.fragment_masking());
     let emit_extensions = codegen_config.emit_extensions();
@@ -255,6 +256,10 @@ pub fn generate_entrypoint_content(
                     path
                 ));
             }
+        }
+
+        if let Some(import_path) = schema_import {
+            output.push_str(&format!("export * from \"{}\";\n", import_path));
         }
     }
 

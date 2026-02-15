@@ -11,25 +11,24 @@ pub fn serialize_operation(
     fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
     config: &CodegenConfig,
 ) -> Value {
-    // Pre-allocate definitions vector with estimated capacity
-    // Typical operation has 1 op + N fragments where N is usually small
     let mut definitions = Vec::with_capacity(16);
 
     // 1. Add the operation itself
     definitions.push(convert_operation(operation, fragments, config));
 
     // 2. Add all transitive fragments
-    let mut used_fragments: HashSet<Arc<str>> = HashSet::default();
-    collect_fragments(&operation.selection_set, fragments, &mut used_fragments);
+    if !config.inline_fragments() {
+        let mut used_fragments: HashSet<Arc<str>> = HashSet::default();
+        collect_fragments(&operation.selection_set, fragments, &mut used_fragments);
 
-    // Pre-allocate sorted_fragments with known size to avoid reallocation
-    let mut sorted_fragments: Vec<_> = Vec::with_capacity(used_fragments.len());
-    sorted_fragments.extend(used_fragments);
-    sorted_fragments.sort_unstable(); // unstable sort is faster when element order doesn't matter
+        let mut sorted_fragments: Vec<_> = Vec::with_capacity(used_fragments.len());
+        sorted_fragments.extend(used_fragments);
+        sorted_fragments.sort_unstable();
 
-    for frag_name in sorted_fragments {
-        if let Some(frag) = fragments.get(&frag_name) {
-            definitions.push(convert_fragment(frag, fragments, config));
+        for frag_name in sorted_fragments {
+            if let Some(frag) = fragments.get(&frag_name) {
+                definitions.push(convert_fragment(frag, fragments, config));
+            }
         }
     }
 
@@ -134,16 +133,14 @@ fn convert_operation(
             convert_selection_set(&op.selection_set, all_fragments, config),
         );
         if config.emit_ast_directives() && !op.directives.is_empty() {
-            map.insert(
-                "directives",
-                json!(
-                    op.directives
-                        .iter()
-                        .filter(|d| d.name.as_str() != "public")
-                        .map(|d| convert_directive(d, config))
-                        .collect::<Vec<_>>()
-                ),
-            );
+            let directive_vals: Vec<_> = op
+                .directives
+                .iter()
+                .filter_map(|d| convert_directive(d, config))
+                .collect();
+            if !directive_vals.is_empty() {
+                map.insert("directives", json!(directive_vals));
+            }
         }
     }
     map_val
@@ -171,16 +168,14 @@ fn convert_fragment(
             }),
         );
         if config.emit_ast_directives() && !frag.directives.is_empty() {
-            map.insert(
-                "directives",
-                json!(
-                    frag.directives
-                        .iter()
-                        .filter(|d| d.name.as_str() != "public")
-                        .map(|d| convert_directive(d, config))
-                        .collect::<Vec<_>>()
-                ),
-            );
+            let directive_vals: Vec<_> = frag
+                .directives
+                .iter()
+                .filter_map(|d| convert_directive(d, config))
+                .collect();
+            if !directive_vals.is_empty() {
+                map.insert("directives", json!(directive_vals));
+            }
         }
     }
     map_val
@@ -192,79 +187,49 @@ fn convert_selection_set(
     config: &CodegenConfig,
 ) -> Value {
     let mut selections = Vec::new();
-    let mut seen_fields = HashSet::new();
 
     for selection in &sel.selections {
         match selection {
-            Selection::Field(field) => {
-                let key = field_key(field);
-                if seen_fields.insert(key) {
-                    selections.push(convert_selection(selection, all_fragments, config));
-                }
-            }
-            Selection::InlineFragment(_inline) => {
+            Selection::Field(_) | Selection::InlineFragment(_) => {
                 selections.push(convert_selection(selection, all_fragments, config));
             }
             Selection::FragmentSpread(spread) => {
                 if config.inline_fragments() {
                     let frag_name = spread.fragment_name.as_str();
                     if let Some(frag) = all_fragments.get(frag_name) {
-                        for frag_selection in &frag.selection_set.selections {
-                            match frag_selection {
-                                Selection::Field(field) => {
-                                    let key = field_key(field);
-                                    if seen_fields.insert(key) {
-                                        selections.push(convert_selection(
-                                            frag_selection,
-                                            all_fragments,
-                                            config,
-                                        ));
-                                    }
-                                }
-                                Selection::InlineFragment(_inline) => {
-                                    selections.push(convert_selection(
-                                        frag_selection,
-                                        all_fragments,
-                                        config,
-                                    ));
-                                }
-                                Selection::FragmentSpread(nested_spread) => {
-                                    let nested_frag_name = nested_spread.fragment_name.as_str();
-                                    if let Some(nested_frag) = all_fragments.get(nested_frag_name) {
-                                        for nested_selection in
-                                            &nested_frag.selection_set.selections
-                                        {
-                                            match nested_selection {
-                                                Selection::Field(nested_field) => {
-                                                    let key = field_key(nested_field);
-                                                    if seen_fields.insert(key) {
-                                                        selections.push(convert_selection(
-                                                            nested_selection,
-                                                            all_fragments,
-                                                            config,
-                                                        ));
-                                                    }
-                                                }
-                                                Selection::InlineFragment(_nested_inline) => {
-                                                    selections.push(convert_selection(
-                                                        nested_selection,
-                                                        all_fragments,
-                                                        config,
-                                                    ));
-                                                }
-                                                Selection::FragmentSpread(deep_nested) => {
-                                                    expand_deep_nested_fragment(
-                                                        all_fragments,
-                                                        deep_nested,
-                                                        &mut selections,
-                                                        &mut seen_fields,
-                                                        config,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        if config.emit_ast_directives() && !spread.directives.is_empty() {
+                            // If there are directives on the spread, we MUST wrap in an InlineFragment
+                            // to preserve them during inlining.
+                            let mut inline_frag = json!({
+                                "kind": "InlineFragment",
+                                "typeCondition": {
+                                    "kind": "NamedType",
+                                    "name": convert_name(frag.type_condition().as_str()),
+                                },
+                                "selectionSet": convert_selection_set(&frag.selection_set, all_fragments, config),
+                            });
+
+                            let directive_vals: Vec<_> = spread
+                                .directives
+                                .iter()
+                                .filter_map(|d| convert_directive(d, config))
+                                .collect();
+
+                            if !directive_vals.is_empty() {
+                                inline_frag
+                                    .as_object_mut()
+                                    .unwrap()
+                                    .insert("directives", json!(directive_vals));
+                            }
+                            selections.push(inline_frag);
+                        } else {
+                            // Otherwise, just flatten the selections to match manual inlining
+                            for frag_selection in &frag.selection_set.selections {
+                                selections.push(convert_selection(
+                                    frag_selection,
+                                    all_fragments,
+                                    config,
+                                ));
                             }
                         }
                     }
@@ -279,47 +244,6 @@ fn convert_selection_set(
         "kind": "SelectionSet",
         "selections": selections,
     })
-}
-
-fn expand_deep_nested_fragment(
-    all_fragments: &HashMap<Arc<str>, Node<executable::Fragment>>,
-    spread: &executable::FragmentSpread,
-    selections: &mut Vec<Value>,
-    seen_fields: &mut HashSet<String>,
-    config: &CodegenConfig,
-) {
-    let frag_name = spread.fragment_name.as_str();
-    if let Some(frag) = all_fragments.get(frag_name) {
-        for frag_selection in &frag.selection_set.selections {
-            match frag_selection {
-                Selection::Field(field) => {
-                    let key = field_key(field);
-                    if seen_fields.insert(key) {
-                        selections.push(convert_selection(frag_selection, all_fragments, config));
-                    }
-                }
-                Selection::InlineFragment(_inline) => {
-                    selections.push(convert_selection(frag_selection, all_fragments, config));
-                }
-                Selection::FragmentSpread(nested_spread) => {
-                    expand_deep_nested_fragment(
-                        all_fragments,
-                        nested_spread,
-                        selections,
-                        seen_fields,
-                        config,
-                    );
-                }
-            }
-        }
-    }
-}
-
-fn field_key(field: &Node<executable::Field>) -> String {
-    match &field.alias {
-        Some(alias) => format!("{}:{}", alias.as_str(), field.name.as_str()),
-        None => field.name.as_str().to_string(),
-    }
 }
 
 fn convert_selection(
@@ -357,15 +281,14 @@ fn convert_selection(
                     );
                 }
                 if config.emit_ast_directives() && !f.directives.is_empty() {
-                    map.insert(
-                        "directives",
-                        json!(
-                            f.directives
-                                .iter()
-                                .map(|d| convert_directive(d, config))
-                                .collect::<Vec<_>>()
-                        ),
-                    );
+                    let directive_vals: Vec<_> = f
+                        .directives
+                        .iter()
+                        .filter_map(|d| convert_directive(d, config))
+                        .collect();
+                    if !directive_vals.is_empty() {
+                        map.insert("directives", json!(directive_vals));
+                    }
                 }
             }
             map_val
@@ -389,15 +312,14 @@ fn convert_selection(
                     );
                 }
                 if config.emit_ast_directives() && !f.directives.is_empty() {
-                    map.insert(
-                        "directives",
-                        json!(
-                            f.directives
-                                .iter()
-                                .map(|d| convert_directive(d, config))
-                                .collect::<Vec<_>>()
-                        ),
-                    );
+                    let directive_vals: Vec<_> = f
+                        .directives
+                        .iter()
+                        .filter_map(|d| convert_directive(d, config))
+                        .collect();
+                    if !directive_vals.is_empty() {
+                        map.insert("directives", json!(directive_vals));
+                    }
                 }
             }
             map_val
@@ -409,15 +331,14 @@ fn convert_selection(
                 map.insert("kind", json!("FragmentSpread"));
                 map.insert("name", convert_name(f.fragment_name.as_str()));
                 if config.emit_ast_directives() && !f.directives.is_empty() {
-                    map.insert(
-                        "directives",
-                        json!(
-                            f.directives
-                                .iter()
-                                .map(|d| convert_directive(d, config))
-                                .collect::<Vec<_>>()
-                        ),
-                    );
+                    let directive_vals: Vec<_> = f
+                        .directives
+                        .iter()
+                        .filter_map(|d| convert_directive(d, config))
+                        .collect();
+                    if !directive_vals.is_empty() {
+                        map.insert("directives", json!(directive_vals));
+                    }
                 }
             }
             map_val
@@ -452,16 +373,14 @@ fn convert_variable_def(vd: &ast::VariableDefinition, config: &CodegenConfig) ->
             );
         }
         if config.emit_ast_directives() && !vd.directives.is_empty() {
-            map.insert(
-                "directives",
-                json!(
-                    vd.directives
-                        .iter()
-                        .filter(|d| d.name.as_str() != "public")
-                        .map(|d| convert_directive(d, config))
-                        .collect::<Vec<_>>()
-                ),
-            );
+            let directive_vals: Vec<_> = vd
+                .directives
+                .iter()
+                .filter_map(|d| convert_directive(d, config))
+                .collect();
+            if !directive_vals.is_empty() {
+                map.insert("directives", json!(directive_vals));
+            }
         }
     }
     map_val
@@ -494,7 +413,11 @@ fn convert_type(ty: &Type) -> Value {
     }
 }
 
-fn convert_directive(d: &ast::Directive, config: &CodegenConfig) -> Value {
+fn convert_directive(d: &ast::Directive, config: &CodegenConfig) -> Option<Value> {
+    if d.name.as_str() == "public" {
+        return None;
+    }
+
     let mut map_val = json!({});
     {
         let map = map_val.as_object_mut().unwrap();
@@ -514,7 +437,7 @@ fn convert_directive(d: &ast::Directive, config: &CodegenConfig) -> Value {
         }
     }
 
-    map_val
+    Some(map_val)
 }
 
 fn convert_argument(arg: &ast::Argument) -> Value {

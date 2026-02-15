@@ -9,12 +9,14 @@ const config: CodegenConfig = {
     './packages/app/**/*.graphql',
     './packages/app-masking/src/**/*.ts',
     './packages/app-masking/**/*.graphql',
+    './packages/app-reference/src/**/*.ts',
+    './packages/app-reference/**/*.graphql',
   ],
   generates: {
-    './packages/schema/src/__generated__/graphql.ts': {
+    './packages/schema/src/generated/graphql.ts': {
       plugins: ['typescript'],
     },
-    './packages/ui-lib/src/__generated__/': {
+    './packages/ui-lib/src/generated/': {
       preset: 'client',
       plugins: [],
       presetConfig: {
@@ -22,7 +24,7 @@ const config: CodegenConfig = {
         fragmentMasking: false,
       },
     },
-    './packages/app/src/__generated__/': {
+    './packages/app/src/generated/': {
       preset: 'client',
       plugins: [],
       presetConfig: {
@@ -30,7 +32,15 @@ const config: CodegenConfig = {
         fragmentMasking: false,
       },
     },
-    './packages/app-masking/src/__generated__/': {
+    './packages/app-reference/src/generated/': {
+      preset: 'client',
+      plugins: [],
+      presetConfig: {
+        fileName: 'graphql.ts',
+        fragmentMasking: false,
+      },
+    },
+    './packages/app-masking/src/generated/': {
       preset: 'client',
       plugins: [],
       presetConfig: {

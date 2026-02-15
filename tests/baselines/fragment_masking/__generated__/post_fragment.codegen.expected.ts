@@ -11,6 +11,6 @@ export type UserPosts = ({
   id: string;
   title: string | null;
 }) & { ' $fragmentName'?: 'UserPosts' };
-export const UserPostsDocument = { kind: 'Document', definitions: [{"directives":[],"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserPosts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Post"}}}] } as unknown as DocumentNode<UserPosts, unknown> & {
+export const UserPostsDocument = { kind: 'Document', definitions: [{"kind":"FragmentDefinition","name":{"kind":"Name","value":"UserPosts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}}]},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Post"}}}] } as unknown as DocumentNode<UserPosts, unknown> & {
   __fragment: UserPosts;
 };

@@ -149,10 +149,24 @@ pub fn generate_typescript_with_profile(
             let vars_type = v_name.clone();
 
             let ast_start = Instant::now();
-            let op_deps = get_operation_deps_cached(op, ctx);
+            let op_deps = if ctx.config.inline_fragments() {
+                HashSet::default()
+            } else {
+                get_operation_deps_cached(op, ctx)
+            };
+
+            let op_direct_deps = if ctx.generate_ast_for_fragments && !ctx.config.inline_fragments()
+            {
+                let mut direct = HashSet::default();
+                crate::helpers::collect_direct_fragment_spreads(&op.selection_set, &mut direct);
+                direct
+            } else {
+                HashSet::default()
+            };
+
             let ast_content = if ctx.generate_ast_for_fragments {
                 let op_def = serialize_operation_definition(op, ctx.all_fragments, ctx.config);
-                let deps = &op_deps;
+                let deps = &op_direct_deps;
 
                 let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
                 definitions_parts.push(op_def.to_string());
@@ -310,14 +324,22 @@ pub fn generate_typescript_with_profile(
                 let ast_start = Instant::now();
                 let frag_def = serialize_fragment_definition(frag, ctx.all_fragments, ctx.config);
 
-                let mut deps = get_fragment_deps_cached(&frag.name, ctx);
-                if deps.is_empty() {
-                    deps = graphox_core::apollo_ast::get_fragment_fragment_dependencies(
-                        frag,
-                        ctx.all_fragments,
+                let deps = if ctx.config.inline_fragments() {
+                    HashSet::default()
+                } else {
+                    let mut direct = HashSet::default();
+                    crate::helpers::collect_direct_fragment_spreads(
+                        &frag.selection_set,
+                        &mut direct,
                     );
-                }
-                doc_deps = deps.clone();
+                    direct
+                };
+
+                doc_deps = if ctx.config.inline_fragments() {
+                    HashSet::default()
+                } else {
+                    get_fragment_deps_cached(&frag.name, ctx)
+                };
 
                 let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
                 definitions_parts.push(frag_def.to_string());

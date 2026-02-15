@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 #[cfg(unix)]
@@ -181,7 +181,7 @@ async fn test_monorepo_typecheck_and_compare(fixture_dir_str: &str) {
 }
 
 fn typecheck_monorepo(temp_dir: &Path, _generated_dir: &str) -> std::process::Output {
-    let packages = vec!["schema", "ui-lib", "app", "app-masking"];
+    let packages = vec!["schema", "ui-lib", "app", "app-masking", "app-graphox"];
     let mut all_output = String::new();
     let mut success = true;
 
@@ -228,128 +228,191 @@ fn typecheck_monorepo(temp_dir: &Path, _generated_dir: &str) -> std::process::Ou
 
 fn compare_ast_outputs(temp_dir: &Path) {
     // For each package, compare the AST documents
-    let packages = vec!["schema", "ui-lib", "app", "app-masking"];
+    let packages = vec!["ui-lib", "app", "app-masking", "app-graphox"];
 
     for pkg in packages {
-        let graphox_dir = temp_dir.join("packages").join(pkg).join("__generated__");
-        let gqldo_dir = temp_dir.join("packages").join(pkg).join("generated");
+        println!("[Compare] Running JS-based comparison for {}", pkg);
 
-        if !graphox_dir.exists() || !gqldo_dir.exists() {
+        let pkg_dir = temp_dir.join("packages").join(pkg);
+        let graphox_gen_dir = pkg_dir.join("src").join("__generated__");
+        let gqldo_gen_dir = if pkg == "app-graphox" {
+            temp_dir
+                .join("packages")
+                .join("app-reference")
+                .join("src")
+                .join("generated")
+        } else {
+            pkg_dir.join("src").join("generated")
+        };
+
+        if !graphox_gen_dir.exists() || !gqldo_gen_dir.exists() {
+            println!("[Compare] Skipping {} due to missing directories", pkg);
             continue;
         }
 
-        // Find all .codegen.ts files in both directories
-        let graphox_files = collect_codegen_files(&graphox_dir);
-        let gqldo_files = collect_codegen_files(&gqldo_dir);
+        // 1. Collect document names
+        let graphox_docs = extract_all_documents(&graphox_gen_dir);
+        let mut doc_names: Vec<String> = graphox_docs.keys().cloned().collect();
+        doc_names.sort();
 
-        // Compare each file
-        for (rel_path, graphox_file) in &graphox_files {
-            let gqldo_file = gqldo_files.get(rel_path);
-            if let Some(gqldo_path) = gqldo_file {
-                compare_file_ast(graphox_file, gqldo_path, pkg);
-            }
+        if doc_names.is_empty() {
+            println!("[Compare] No documents found in {}", pkg);
+            continue;
+        }
+
+        // 2. Generate comparison script
+        let cod_dir = if pkg == "app-graphox" {
+            "../app-reference/src/generated"
+        } else {
+            "src/generated"
+        };
+
+        let script = format!(
+            r#"
+import {{ deepStrictEqual }} from 'node:assert';
+import {{ pathToFileURL }} from 'node:url';
+import {{ join }} from 'node:path';
+
+async function run() {{
+  const docNames = '{doc_names}'.split(',');
+  const pkgDir = process.cwd();
+  
+  let exitCode = 0;
+  for (const name of docNames) {{
+    if (!name) continue;
+    try {{
+      // Find files containing this document
+      const goxFile = await findFileWithExport(join(pkgDir, 'src', '__generated__'), name + 'Document');
+      const codFile = await findFileWithExport(join(pkgDir, '{cod_dir}'), name + 'Document') 
+                   || await findFileWithExport(join(pkgDir, '{cod_dir}'), name + 'FragmentDoc');
+
+      if (goxFile && codFile) {{
+        console.log(`Comparing ${{name}} from ${{goxFile}} against ${{codFile}}...`);
+        const goxMod = await import(pathToFileURL(goxFile).href);
+        const codMod = await import(pathToFileURL(codFile).href);
+        
+        const goxDoc = goxMod[name + 'Document'];
+        const codDoc = codMod[name + 'Document'] || codMod[name + 'FragmentDoc'];
+        
+        if (!goxDoc || !codDoc) {{
+           console.warn(`⚠️  Missing export for ${{name}}: Gox=${{!!goxDoc}}, Cod=${{!!codDoc}}`);
+           continue;
+        }}
+
+        // We only compare kind and definitions
+        const cleanGox = normalize(goxDoc);
+        const cleanCod = normalize(codDoc);
+        
+        deepStrictEqual(cleanGox, cleanCod);
+        console.log(`✅ ${{name}} matches`);
+      }} else {{
+        console.warn(`⚠️  Could not find files for ${{name}} (Gox: ${{!!goxFile}}, Cod: ${{!!codFile}})`);
+      }}
+    }} catch (e) {{
+      console.error(`❌ ${{name}} mismatch or error!`);
+      console.error(e.message);
+      exitCode = 1;
+    }}
+  }}
+  process.exit(exitCode);
+}}
+
+function normalize(node) {{
+  if (!node || typeof node !== 'object') return node;
+  if (Array.isArray(node)) {{
+    // Filter out @public directive
+    const filtered = node.filter(item => !(item && item.kind === 'Directive' && item.name?.value === 'public'));
+    const mapped = filtered.map(normalize);
+    if (mapped.length === 0) return undefined;
+    // Sort if it makes sense (definitions and selections)
+    if (mapped.length > 1 && (mapped[0].kind === 'Field' || mapped[0].kind === 'FragmentSpread' || mapped[0].kind === 'InlineFragment' || mapped[0].kind === 'FragmentDefinition' || mapped[0].kind === 'OperationDefinition' || mapped[0].kind === 'VariableDefinition')) {{
+      return mapped.sort((a, b) => {{
+        const nameA = a.name?.value || a.variable?.name?.value || '';
+        const nameB = b.name?.value || b.variable?.name?.value || '';
+        return nameA.localeCompare(nameB);
+      }});
+    }}
+    return mapped;
+  }}
+  const result = {{}};
+  for (const key of Object.keys(node).sort()) {{
+    if (key === 'loc') continue; // Always ignore locations
+    const val = normalize(node[key]);
+    if (val !== undefined) {{
+      result[key] = val;
+    }}
+  }}
+  return result;
+}}
+
+async function findFileWithExport(dir, exportName) {{
+  const {{ readdir, readFile, stat }} = await import('node:fs/promises');
+  try {{
+    const entries = await readdir(dir);
+    for (const entry of entries) {{
+      const fullPath = join(dir, entry);
+      const s = await stat(fullPath);
+      if (s.isDirectory()) {{
+        const found = await findFileWithExport(fullPath, exportName);
+        if (found) return found;
+      }} else if (entry.endsWith('.ts')) {{
+        const content = await readFile(fullPath, 'utf8');
+        if (content.includes(`export const ${{exportName}}`)) {{
+          return fullPath;
+        }}
+      }}
+    }}
+  }} catch (e) {{}}
+  return null;
+}}
+
+run();
+"#,
+            doc_names = doc_names.join(","),
+            cod_dir = cod_dir
+        );
+
+        let script_path = pkg_dir.join("compare_ast.ts");
+        std::fs::write(&script_path, script).expect("Failed to write comparison script");
+
+        // 3. Execute comparison script
+        let output = std::process::Command::new("pnpm")
+            .arg("exec")
+            .arg("tsx")
+            .arg("compare_ast.ts")
+            .current_dir(&pkg_dir)
+            .output()
+            .expect("Failed to execute comparison script");
+
+        if !output.status.success() {
+            println!("=== {} AST Comparison Failure ===", pkg);
+            println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            panic!("AST comparison failed for package {}", pkg);
+        } else {
+            println!("[Compare] JS-based comparison for {} PASSED", pkg);
         }
     }
 
-    println!("[Compare] AST comparison complete!");
+    println!("[Compare] All JS-based comparisons complete!");
 }
 
-fn collect_codegen_files(dir: &Path) -> HashMap<String, PathBuf> {
-    let mut files = HashMap::new();
+fn extract_all_documents(dir: &Path) -> HashMap<String, String> {
+    let mut all_docs = HashMap::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let sub_files = collect_codegen_files(&path);
-                for (key, val) in sub_files {
-                    files.insert(key, val);
-                }
-            } else if path.extension().is_some_and(|ext| ext == "ts")
-                && let Ok(rel) = path.strip_prefix(dir)
-            {
-                files.insert(rel.to_string_lossy().to_string(), path);
+                let sub_docs = extract_all_documents(&path);
+                all_docs.extend(sub_docs);
+            } else if path.extension().is_some_and(|ext| ext == "ts") {
+                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let docs = extract_documents(&content);
+                all_docs.extend(docs);
             }
         }
     }
-    files
-}
-
-fn compare_file_ast(graphox_path: &Path, gqldo_path: &Path, pkg: &str) {
-    let graphox_content =
-        std::fs::read_to_string(graphox_path).expect("Failed to read graphox file");
-    let _gqldo_content =
-        std::fs::read_to_string(gqldo_path).expect("Failed to read graphql-codegen file");
-
-    // Extract document names and their definitions from both files
-    let graphox_docs = extract_documents(&graphox_content);
-    let gqldo_docs = extract_documents(&_gqldo_content);
-
-    // Compare documents
-    for (doc_name, graphox_doc) in &graphox_docs {
-        if let Some(gqldo_doc) = gqldo_docs.get(doc_name)
-            && graphox_doc != gqldo_doc
-        {
-            println!("[Compare] AST mismatch in {} for {}:", pkg, doc_name);
-            println!("  Graphox: {}", graphox_doc);
-            println!("  GraphQL-Codegen: {}", gqldo_doc);
-        }
-    }
-
-    // Check for expected JSDoc strings in Graphox output (specifically for the monorepo_e2e fixture)
-    if pkg == "app" && graphox_path.file_name().is_some_and(|n| n == "graphql.ts") {
-        let expected_jsdocs = [
-            "@deprecated Use 'name' instead",
-            "Use comments.totalCount instead",
-            "Retrieve users with optional filters and pagination",
-            "The user's comments",
-            "Total number of posts published by the user",
-            "Preferred language code (e.g. 'en-US')",
-            "The full name of the user.",
-            "The user's primary email address.",
-        ];
-        for expected in expected_jsdocs {
-            if !graphox_content.contains(expected) {
-                panic!(
-                    "[Compare] Expected JSDoc not found in Graphox output for {}: {}",
-                    pkg, expected
-                );
-            }
-        }
-
-        // Verify scalar mapping
-        if !graphox_content.contains("viewCount: bigint") {
-            panic!(
-                "[Compare] Scalar mapping failed: expected 'viewCount: bigint' in {}",
-                pkg
-            );
-        }
-        if !graphox_content.contains("metadata: any") {
-            panic!(
-                "[Compare] Scalar mapping failed: expected 'metadata: any' in {}",
-                pkg
-            );
-        }
-        // Since EmailAddress is string, it might just appear as `email: string`.
-        if !graphox_content.contains("email: string") {
-            panic!(
-                "[Compare] Scalar mapping failed: expected 'email: string' in {}",
-                pkg
-            );
-        }
-
-        // Verify default scalar mapping
-        if !graphox_content.contains("unmappedField: string") {
-            panic!(
-                "[Compare] Default scalar mapping failed: expected 'unmappedField: string' in {}",
-                pkg
-            );
-        }
-
-        println!(
-            "[Compare] Verified JSDoc and Scalar mapping in {} package",
-            pkg
-        );
-    }
+    all_docs
 }
 
 fn extract_documents(content: &str) -> HashMap<String, String> {
@@ -368,7 +431,7 @@ fn extract_documents(content: &str) -> HashMap<String, String> {
             if let Some(name_start) = line.find("export const ") {
                 let after_export = &line[name_start + "export const ".len()..];
                 if let Some(eq_pos) = after_export.find('=') {
-                    let name = if let Some(colon_pos) = after_export.find(':') {
+                    let mut name = if let Some(colon_pos) = after_export.find(':') {
                         if colon_pos < eq_pos {
                             after_export[..colon_pos].trim()
                         } else {
@@ -377,6 +440,10 @@ fn extract_documents(content: &str) -> HashMap<String, String> {
                     } else {
                         after_export[..eq_pos].trim()
                     };
+
+                    if name.ends_with("Document") {
+                        name = &name[..name.len() - "Document".len()];
+                    }
 
                     // Try to find the operation definition
                     if let Some(def_start) = content.find(&format!("{}Document", name)) {

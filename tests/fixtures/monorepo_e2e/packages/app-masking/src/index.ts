@@ -1,4 +1,6 @@
 import { graphql, getFragmentData } from './__generated__';
+export * from './__generated__';
+export { graphql, getFragmentData };
 
 const UserCardFragment = graphql(`
   fragment UserCardFragment on User {

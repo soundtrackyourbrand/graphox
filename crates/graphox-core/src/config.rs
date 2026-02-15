@@ -164,6 +164,7 @@ pub struct CodegenConfig {
     emit_ast_variable_defaults: Option<bool>,
     inline_fragments: Option<bool>,
     default_scalar_type: Option<String>,
+    schema_import: Option<String>,
 }
 
 impl CodegenConfig {
@@ -302,7 +303,12 @@ impl CodegenConfig {
             emit_ast_variable_defaults: node["emit_ast_variable_defaults"].as_bool(),
             inline_fragments: node["inline_fragments"].as_bool(),
             default_scalar_type: node["default_scalar_type"].as_str().map(String::from),
+            schema_import: node["schema_import"].as_str().map(String::from),
         })
+    }
+
+    pub fn schema_import(&self) -> Option<&str> {
+        self.schema_import.as_deref()
     }
 
     pub fn default_scalar_type(&self) -> &str {
@@ -888,6 +894,12 @@ impl Config {
             }
             if project_codegen.inline_fragments.is_some() {
                 result.inline_fragments = project_codegen.inline_fragments;
+            }
+            if project_codegen.default_scalar_type.is_some() {
+                result.default_scalar_type = project_codegen.default_scalar_type.clone();
+            }
+            if project_codegen.schema_import.is_some() {
+                result.schema_import = project_codegen.schema_import.clone();
             }
         }
 

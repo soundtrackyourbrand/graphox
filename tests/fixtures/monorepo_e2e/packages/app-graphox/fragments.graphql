@@ -1,0 +1,16 @@
+fragment PostFields on Post {
+  id
+  title
+  body
+  author {
+    id
+    name
+    email
+    role
+  }
+  status
+  viewCount
+  tags
+  createdAt
+  updatedAt
+}

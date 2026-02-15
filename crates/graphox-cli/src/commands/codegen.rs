@@ -221,7 +221,11 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         let project_output_dir = project.output_dir().map(Path::new);
 
         let mut type_imports = HashMap::default();
-        let mut schema_import = project.import().map(String::from);
+        let mut schema_import = project
+            .codegen()
+            .schema_import()
+            .map(String::from)
+            .or_else(|| project.import().map(String::from));
 
         let schema_types = cfg.schema_types();
         if !schema_types.is_empty() {
@@ -557,6 +561,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
         let mut dir_to_frags: BTreeMap<PathBuf, Vec<codegen::FragmentGenerated>> = BTreeMap::new();
         let mut dir_to_config: BTreeMap<PathBuf, CodegenConfig> = BTreeMap::new();
+        let mut dir_to_schema_import: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
 
         let mut project_indices: HashSet<usize> = project_operations.keys().cloned().collect();
         project_indices.extend(project_fragments.keys().cloned());
@@ -592,9 +597,20 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 .extend(frags);
 
             if let std::collections::btree_map::Entry::Vacant(e) =
-                dir_to_config.entry(canon_out_dir_path)
+                dir_to_config.entry(canon_out_dir_path.clone())
             {
                 e.insert(cfg.get_codegen_config(Some(project)));
+            }
+
+            if let std::collections::btree_map::Entry::Vacant(e) =
+                dir_to_schema_import.entry(canon_out_dir_path)
+            {
+                let project_codegen = cfg.get_codegen_config(Some(project));
+                let schema_import = project_codegen
+                    .schema_import()
+                    .map(String::from)
+                    .or_else(|| project.import().map(String::from));
+                e.insert(schema_import);
             }
         }
 
@@ -636,12 +652,16 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     entrypoint_path.display().to_string().bright_black()
                 );
             }
+            let schema_import = dir_to_schema_import
+                .get(&out_dir_path)
+                .and_then(|o| o.as_deref());
             let content = codegen::generate_entrypoint_content(
                 &out_dir_path,
                 &ops,
                 &frags,
                 codegen_config,
                 codegen_config.re_exports(),
+                schema_import,
             );
             if let Err(e) = std::fs::create_dir_all(&out_dir_path) {
                 eprintln!(

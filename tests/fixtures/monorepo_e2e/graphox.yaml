@@ -2,9 +2,15 @@ codegen:
   re_exports: true
   generate_ast_for_fragments: true
   document_suffix: "Document"
-  fragment_document_suffix: "Document"
+  fragment_document_suffix: "FragmentDoc"
   query_suffix: ""
+  mutation_suffix: ""
+  subscription_suffix: ""
   default_scalar_type: "string"
+  emit_ast_directives: true
+  emit_ast_aliases: true
+  emit_ast_arguments: true
+  emit_ast_variable_defaults: true
 
 scalars:
   DateTime: "string"
@@ -19,20 +25,24 @@ schema_types:
 
 projects:
   - schema: "packages/schema/schema.graphql"
+    import: "@monorepo-e2e/ui-lib"
     include: 
       - "packages/ui-lib/**/*.graphql"
       - "packages/ui-lib/**/*.ts"
     output_dir: "packages/ui-lib/src/__generated__"
     codegen:
       re_exports: true
+      schema_import: "@monorepo-e2e/schema"
 
   - schema: "packages/schema/schema.graphql"
+    import: "@monorepo-e2e/app"
     include: 
       - "packages/app/**/*.graphql"
       - "packages/app/**/*.ts"
     output_dir: "packages/app/src/__generated__"
     codegen:
       re_exports: true
+      schema_import: "@monorepo-e2e/schema"
 
   - schema: "packages/schema/schema.graphql"
     include:
@@ -41,6 +51,29 @@ projects:
     output_dir: "packages/app-masking/src/__generated__"
     codegen:
       re_exports: true
+      schema_import: "@monorepo-e2e/schema"
       fragment_masking:
         enabled: true
         unmask_function_name: "getFragmentData"
+
+  - schema: "packages/schema/schema.graphql"
+    import: "@monorepo-e2e/app-graphox"
+    include: 
+      - "packages/app-graphox/**/*.graphql"
+      - "packages/app-graphox/**/*.ts"
+    output_dir: "packages/app-graphox/src/__generated__"
+    codegen:
+      re_exports: true
+      schema_import: "@monorepo-e2e/schema"
+      inline_fragments: true
+
+  - schema: "packages/schema/schema.graphql"
+    import: "@monorepo-e2e/app-reference"
+    include: 
+      - "packages/app-reference/**/*.graphql"
+      - "packages/app-reference/**/*.ts"
+    output_dir: "packages/app-reference/src/__generated__"
+    codegen:
+      re_exports: true
+      schema_import: "@monorepo-e2e/schema"
+      inline_fragments: false

@@ -43,10 +43,17 @@ fn gql_type_to_ts_internal(
 
         if !is_builtin && let Some(t) = schema.types.get(inner_name.as_str()) {
             match t {
-                ExtendedType::Enum(_) | ExtendedType::InputObject(_) | ExtendedType::Scalar(_) => {
+                ExtendedType::Enum(_) | ExtendedType::InputObject(_) => {
                     ctx.used_schema_types
                         .borrow_mut()
                         .insert(inner_name.to_string());
+                }
+                ExtendedType::Scalar(_) => {
+                    if !scalars.contains_key(inner_name.as_str()) {
+                        ctx.used_schema_types
+                            .borrow_mut()
+                            .insert(inner_name.to_string());
+                    }
                 }
                 ExtendedType::Object(_) | ExtendedType::Interface(_) | ExtendedType::Union(_) => {
                     if use_names {

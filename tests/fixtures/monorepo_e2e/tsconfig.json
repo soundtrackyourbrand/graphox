@@ -6,6 +6,15 @@
     "strict": true,
     "declaration": true,
     "skipLibCheck": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@monorepo-e2e/schema": ["packages/schema/src/index.ts"],
+      "@monorepo-e2e/ui-lib": ["packages/ui-lib/src/index.ts"],
+      "@monorepo-e2e/app": ["packages/app/src/index.ts"],
+      "@monorepo-e2e/app-masking": ["packages/app-masking/src/index.ts"],
+      "@monorepo-e2e/app-graphox": ["packages/app-graphox/src/index.ts"],
+      "@monorepo-e2e/app-reference": ["packages/app-reference/src/index.ts"]
+    }
   }
 }
