@@ -21,7 +21,6 @@ yaml-rust2 = { workspace = true }
 log = { workspace = true }
 dashmap = { workspace = true }
 rayon = { workspace = true }
-regex = { workspace = true }
 glob = { workspace = true }
 globset = { workspace = true }
 ignore = { workspace = true }

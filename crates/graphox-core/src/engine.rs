@@ -18,6 +18,8 @@ pub struct FragmentMetadata {
     pub is_public: bool,
     pub is_type_only: bool,
     pub masked_source: Arc<str>,
+    /// Direct fragment dependencies (extracted during document parsing)
+    /// Contains fragment names that this fragment directly spreads
     pub direct_deps: Vec<Arc<str>>,
     /// Cached transitive fragment dependencies (computed during workspace scan)
     /// Contains all fragment names that this fragment depends on, directly or transitively
@@ -403,22 +405,23 @@ impl Engine {
             name_to_idx.insert(f.name.clone(), i);
         }
 
-        // 2. Extract direct dependencies as indices (Parallel)
+        // 2. Use pre-extracted direct dependencies from document parsing
+        // This avoids redundant regex matching since used_fragments was already extracted
+        // during extract_symbols() via Tree-sitter queries
         let direct_deps_idx: Vec<Vec<usize>> = fragments
             .par_iter()
             .map(|frag| {
-                let mut deps = HashSet::default();
+                let mut deps = Vec::new();
                 for dep_name in &frag.direct_deps {
-                    if let Some(&idx) = name_to_idx.get(dep_name.as_ref())
-                        && idx != name_to_idx[frag.name.as_ref()]
+                    if let Some(&idx) = name_to_idx.get(dep_name)
+                        && idx != name_to_idx[&frag.name]
                     {
-                        deps.insert(idx);
+                        deps.push(idx);
                     }
                 }
-
-                let mut deps_vec: Vec<usize> = deps.into_iter().collect();
-                deps_vec.sort_unstable();
-                deps_vec
+                deps.sort_unstable();
+                deps.dedup();
+                deps
             })
             .collect();
 
