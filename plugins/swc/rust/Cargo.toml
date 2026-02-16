@@ -19,3 +19,6 @@ swc_core = { version = "56.0.0", features = [
     "ecma_parser",
     "ecma_codegen",
 ] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

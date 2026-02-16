@@ -73,6 +73,12 @@ if [ -f "plugins/swc/node/package.json" ]; then
     rm plugins/swc/node/package.json.bak
 fi
 
+# Update version in Babel plugin package.json
+if [ -f "plugins/babel/package.json" ]; then
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" plugins/babel/package.json
+    rm plugins/babel/package.json.bak
+fi
+
 # Update version in VSCode extension package.json
 if [ -f "editors/vscode/package.json" ]; then
     sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" editors/vscode/package.json
@@ -81,7 +87,10 @@ fi
 
 # Update version in NPM CLI package.json and its optionalDependencies
 if [ -f "npm/graphox-cli/package.json" ]; then
-    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/g" npm/graphox-cli/package.json
+    # Update main version
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/graphox-cli/package.json
+    # Update optionalDependencies versions
+    sed -i.bak "s/\"@soundtrack\/graphox-\(.*\)\": \"$CURRENT_VERSION\"/\"@soundtrack\/graphox-\1\": \"$NEW_VERSION\"/g" npm/graphox-cli/package.json
     rm npm/graphox-cli/package.json.bak
 fi
 
@@ -97,6 +106,9 @@ if [ -f "plugins/swc/rust/Cargo.toml" ]; then
 fi
 if [ -f "plugins/swc/node/package.json" ]; then
     git add plugins/swc/node/package.json
+fi
+if [ -f "plugins/babel/package.json" ]; then
+    git add plugins/babel/package.json
 fi
 if [ -f "editors/vscode/package.json" ]; then
     git add editors/vscode/package.json

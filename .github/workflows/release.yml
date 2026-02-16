@@ -123,23 +123,12 @@ jobs:
           }
           cd ../../..
 
-      - name: Upload Release Asset (tar.gz)
-        if: matrix.archive == 'tar.gz'
-        uses: softprops/action-gh-release@v2
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref }}
-          files: ./graphox-${{ matrix.target }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Release Asset (zip)
-        if: matrix.archive == 'zip'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref }}
-          files: ./graphox-${{ matrix.target }}.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: binary-${{ matrix.target }}
+          path: ./graphox-${{ matrix.target }}.${{ matrix.archive }}
+          retention-days: 1
 
   build-swc-wasm:
     name: Build SWC WASM Plugin
@@ -191,17 +180,9 @@ jobs:
       - name: Upload WASM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: swc-wasm-v${{ needs.create-release.outputs.version }}
-          path: plugins/swc/node/wasm/
-          retention-days: 90
-      
-      - name: Upload WASM to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref }}
-          files: plugins/swc/node/wasm/graphox_swc_plugin.wasm
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: swc-wasm
+          path: plugins/swc/node/wasm/graphox_swc_plugin.wasm
+          retention-days: 1
 
   build-vscode-extension:
     name: Build VSCode Extension
@@ -234,13 +215,12 @@ jobs:
         working-directory: editors/vscode
         run: pnpm run package
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
+      - name: Upload VSCode Extension Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref }}
-          files: editors/vscode/*.vsix
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: vscode-extension
+          path: editors/vscode/*.vsix
+          retention-days: 1
 
   publish-platform-packages:
     name: Publish Platform Packages
@@ -294,13 +274,11 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@soundtrack'
 
-      - name: Download Binary
-        uses: dsaltares/fetch-gh-release-asset@master
+      - name: Download Binary Artifact
+        uses: actions/download-artifact@v4
         with:
-          version: tags/${{ github.ref_name }}
-          asset: graphox-${{ matrix.target }}.${{ contains(matrix.target, 'windows') && 'zip' || 'tar.gz' }}
-          target: ./
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: binary-${{ matrix.target }}
+          path: ./
 
       - name: Extract Binary
         run: |
@@ -378,7 +356,7 @@ jobs:
       - name: Download WASM Artifact
         uses: actions/download-artifact@v4
         with:
-          name: swc-wasm-v${{ needs.create-release.outputs.version }}
+          name: swc-wasm
           path: plugins/swc/node/wasm/
       
       - name: Setup pnpm
@@ -421,3 +399,68 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-babel-plugin-github:
+    name: Publish Babel Plugin to GitHub Packages
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@soundtrack'
+
+      - name: Configure package for GitHub Packages
+        working-directory: plugins/babel
+        run: |
+          # Update package name to include scope for GitHub Packages
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = '@soundtrack/graphox-babel';
+          pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Publish Babel Plugin to GitHub Packages
+        working-directory: plugins/babel
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  finalize-release:
+    name: Finalize GitHub Release
+    needs: [create-release, build-binaries, build-swc-wasm, build-vscode-extension]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Display structure of downloaded artifacts
+        run: ls -R ./artifacts
+
+      - name: Upload Assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          files: |
+            ./artifacts/binary-*/*
+            ./artifacts/swc-wasm/*
+            ./artifacts/vscode-extension/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

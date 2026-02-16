@@ -12,9 +12,15 @@ importers:
         specifier: ^8.1.0
         version: 8.1.0
     devDependencies:
+      '@types/minimatch':
+        specifier: ^3.0.5
+        version: 3.0.5
       '@types/node':
         specifier: ^16.11.7
         version: 16.18.126
+      '@types/semver':
+        specifier: ^7.3.10
+        version: 7.7.1
       '@types/vscode':
         specifier: ^1.75.0
         version: 1.109.0
@@ -71,8 +77,14 @@ packages:
     resolution: {integrity: sha512-XTmhdItcBckcVVTy65Xp+42xG4LX5GK+9AqAsXPXk4IqUNv+LyQo5TMwNjuFYBfAB2GTG9iSQGk+QLc03vhf3w==}
     engines: {node: '>=16'}
 
+  '@types/minimatch@3.0.5':
+    resolution: {integrity: sha512-Klz949h02Gz2uZCMGwDUSDS1YBlTdDDgbWHi+81l29tQALUtvz4rAYi5uoVhE5Lagoq6DeqAUlbrHvW/mXDgdQ==}
+
   '@types/node@16.18.126':
     resolution: {integrity: sha512-OTcgaiwfGFBKacvfwuHzzn1KLxH/er8mluiy8/uM3sGXHaRe73RrSIj01jow9t4kJEW633Ov+cOexXeiApTyAw==}
+
+  '@types/semver@7.7.1':
+    resolution: {integrity: sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA==}
 
   '@types/vscode@1.109.0':
     resolution: {integrity: sha512-0Pf95rnwEIwDbmXGC08r0B4TQhAbsHQ5UyTIgVgoieDe4cOnf92usuR5dEczb6bTKEp7ziZH4TV1TRGPPCExtw==}
@@ -830,7 +842,11 @@ snapshots:
       jsonwebtoken: 9.0.3
       uuid: 8.3.2
 
+  '@types/minimatch@3.0.5': {}
+
   '@types/node@16.18.126': {}
+
+  '@types/semver@7.7.1': {}
 
   '@types/vscode@1.109.0': {}
 
