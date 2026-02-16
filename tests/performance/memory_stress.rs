@@ -12,6 +12,7 @@ const MAX_MEMORY_100_DOCS: usize = 50 * 1024 * 1024; // 50MB
 const MAX_MEMORY_1000_DOCS: usize = 100 * 1024 * 1024; // 100MB
 const MAX_MEMORY_50_SCHEMAS: usize = 100 * 1024 * 1024; // 100MB
 const MAX_MEMORY_500_FRAGMENTS: usize = 50 * 1024 * 1024; // 50MB
+#[cfg(not(target_os = "windows"))]
 const MAX_MEMORY_COMPLEX_MONOREPO: usize = 100 * 1024 * 1024; // 100MB
 
 fn create_multi_project_config(base_dir: &Path) -> Config {

@@ -8,6 +8,8 @@ use std::process::Command;
 
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+use std::os::windows::process::ExitStatusExt;
 
 use graphox_core::config;
 use graphox_core::schema_cache;
