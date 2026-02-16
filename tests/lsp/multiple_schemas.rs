@@ -52,10 +52,11 @@ async fn test_multiple_schemas_query_field_from_second_schema() {
         let diagnostics = &full_report.full_document_diagnostic_report.items;
 
         for diag in diagnostics {
-            if let Some(NumberOrString::String(code)) = &diag.code {
-                if code == "missing_field" && diag.message.contains("bar") {
-                    panic!("Incorrect missing_field error for 'bar': {}", diag.message);
-                }
+            if let Some(NumberOrString::String(code)) = &diag.code
+                && code == "missing_field"
+                && diag.message.contains("bar")
+            {
+                panic!("Incorrect missing_field error for 'bar': {}", diag.message);
             }
         }
 

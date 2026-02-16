@@ -303,7 +303,7 @@ pub fn resolve_symbol_at_node(
                     }
                 }
             }
-            "directive" => {
+            "directive" | "directive_definition" => {
                 let name_node = doc.find_child_by_kind(current_node, "name")?;
                 let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
                 if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
