@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "build:wasm": "wasm-pack build ../rust --target nodejs --out-dir wasm --no-pack",
+    "build:wasm": "wasm-pack build ../rust --target nodejs --out-dir $PWD/wasm --no-pack",
     "build:all": "pnpm run build:wasm && pnpm run build",
     "test": "vitest run",
     "prepublishOnly": "pnpm run build"

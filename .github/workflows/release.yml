@@ -171,6 +171,9 @@ jobs:
         working-directory: plugins/swc/node
         run: pnpm run build:wasm
       
+      - name: List WASM files
+        run: ls -R plugins/swc/node/wasm/
+
       - name: Build TypeScript
         working-directory: plugins/swc/node
         run: pnpm run build
