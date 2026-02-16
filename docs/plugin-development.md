@@ -31,6 +31,8 @@ graphox/
 │       └── rust/            # Rust crate source
 │           ├── Cargo.toml
 │           ├── src/
+│           ├── tests/
+│           │   └── swc_cli.rs # SWC integration test
 │           └── lib.rs
 │
 ├── tests/
@@ -42,7 +44,7 @@ graphox/
 │   │           └── app.ts
 │   │
 │   └── integration/
-│       └── swc_cli.rs       # SWC integration test
+│       └── long_running.rs  # Other long-running tests
 │
 └── .github/workflows/
     └── plugins.yml          # CI for plugins
@@ -266,7 +268,7 @@ mod tests {
 
 ### Integration Tests
 
-The SWC plugin has integration tests in `tests/integration/swc_cli.rs`:
+The SWC plugin has integration tests in `plugins/swc/rust/tests/swc_cli.rs`:
 
 ```bash
 # Run the integration test
@@ -282,7 +284,7 @@ cargo test --test swc_cli --include-ignored
 ### Creating New Integration Tests
 
 1. Create test fixtures in `tests/fixtures/swc_cli/`
-2. Add test to `tests/integration/swc_cli.rs`
+2. Add test to `plugins/swc/rust/tests/swc_cli.rs`
 3. Run with `--include-ignored`
 4. Verify CI passes
 

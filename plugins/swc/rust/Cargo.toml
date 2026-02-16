@@ -22,3 +22,9 @@ swc_core = { version = "56.0.0", features = [
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[dev-dependencies]
+tempfile = "3.24.0"
+ntest = "0.9"
+serde_json = { workspace = true }
+graphox = { path = "../../.." }
