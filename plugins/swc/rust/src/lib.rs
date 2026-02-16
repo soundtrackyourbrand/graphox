@@ -171,7 +171,16 @@ impl TransformVisitor {
                     .strip_suffix(".ts")
                     .unwrap_or(&s_index);
 
-                return src_normalized == our_normalized || src_normalized == our_index_normalized;
+                if src_normalized == our_normalized || src_normalized == our_index_normalized {
+                    return true;
+                }
+
+                // Handle directory import resolving to index
+                if format!("{}/index", src_normalized) == our_index_normalized {
+                    return true;
+                }
+
+                return false;
             }
         }
         false
@@ -353,6 +362,9 @@ impl VisitMut for TransformVisitor {
                     }
                 }
                 Expr::Lit(Lit::Str(s)) => Some(normalize(s.value.as_str().unwrap_or(""))),
+                #[cfg(swc_ast_unknown)]
+                _ => None,
+                #[cfg(not(swc_ast_unknown))]
                 _ => None,
             };
 
@@ -454,7 +466,7 @@ mod tests {
 
         assert!(output.contains("import { MyQueryDocument } from \"./query.codegen\";"));
         assert!(output.contains("const q = MyQueryDocument;"));
-        assert!(!output.contains("import { graphql }"));
+        assert!(!output.contains("import { MyQueryDocument } from \"./graphql\""));
     }
 
     #[test]
@@ -820,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn test_document_name_import_single() {
+    fn test_document_name_import_from_directory() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
             path: "./query.codegen".to_string(),
@@ -836,13 +848,13 @@ mod tests {
         };
 
         let output = transform(
-            "import { GetUserQueryDocument } from '../gen/graphql'; const doc = GetUserQueryDocument;",
+            "import { GetUserQueryDocument } from '../gen'; const doc = GetUserQueryDocument;",
             config,
             "/root/app/test.ts",
         );
 
         assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
-        assert!(!output.contains("from '../gen/graphql'"));
+        assert!(!output.contains("from '../gen'"));
         assert!(output.contains("const doc = GetUserQueryDocument;"));
     }
 

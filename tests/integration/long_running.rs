@@ -58,7 +58,18 @@ async fn test_monorepo_typecheck_and_compare(fixture_dir_str: &str) {
         Ok(())
     }
 
+    // Build plugins in the repo first so they are available for copying
+    println!("[Setup] Building plugins...");
+    build_plugins();
+
+    // Copy fixture to temp
     copy_dir_all(fixture_dir, &temp_dir).expect("Failed to copy fixture to temp");
+
+    // Copy plugins to temp dir so they can be linked
+    println!("[Setup] Copying built plugins to temp dir...");
+    let root_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    copy_dir_all(&root_dir.join("plugins"), &temp_dir.join("plugins"))
+        .expect("Failed to copy plugins to temp");
 
     // Clean up old gql.ts files from graphql-codegen to avoid conflicts
     println!("[Cleanup] Removing old gql.ts files...");
@@ -177,8 +188,178 @@ async fn test_monorepo_typecheck_and_compare(fixture_dir_str: &str) {
     println!("[Compare] Comparing AST outputs...");
     compare_ast_outputs(&temp_dir);
 
+    // Step 5: Verify Rsbuild bundles
+    println!("[Rsbuild] Verifying Rsbuild bundles...");
+    verify_rsbuild_bundles(&temp_dir);
+
     // Cleanup
     std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+fn build_plugins() {
+    let root_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    println!("[Setup] Building plugins in {:?}...", root_dir);
+
+    // 1. Build SWC Rust plugin to WASM
+    let swc_rust_dir = root_dir.join("plugins").join("swc").join("rust");
+    println!("[Setup] Building SWC Rust plugin...");
+    let swc_rust_build = Command::new("cargo")
+        .args(["build", "--target", "wasm32-unknown-unknown", "--release"])
+        .current_dir(&swc_rust_dir)
+        .output()
+        .expect("Failed to build SWC Rust plugin");
+
+    assert!(
+        swc_rust_build.status.success(),
+        "SWC Rust build failed: {}",
+        String::from_utf8_lossy(&swc_rust_build.stderr)
+    );
+
+    // 2. Copy WASM to node wrapper
+    let wasm_src = root_dir
+        .join("target")
+        .join("wasm32-unknown-unknown")
+        .join("release")
+        .join("graphox_swc_plugin.wasm");
+    let wasm_dst_dir = root_dir
+        .join("plugins")
+        .join("swc")
+        .join("node")
+        .join("wasm");
+    std::fs::create_dir_all(&wasm_dst_dir).expect("Failed to create wasm dst dir");
+    std::fs::copy(wasm_src, wasm_dst_dir.join("graphox_swc_plugin.wasm"))
+        .expect("Failed to copy WASM plugin");
+
+    // 3. Build SWC Node wrapper
+    let swc_node_dir = root_dir.join("plugins").join("swc").join("node");
+    println!("[Setup] Building SWC Node wrapper...");
+
+    // Install node dependencies
+    let swc_node_install = Command::new("pnpm")
+        .arg("install")
+        .current_dir(&swc_node_dir)
+        .output()
+        .expect("Failed to install SWC Node wrapper dependencies");
+    assert!(swc_node_install.status.success(), "SWC Node install failed");
+
+    let swc_node_build = Command::new("pnpm")
+        .arg("run")
+        .arg("build")
+        .current_dir(&swc_node_dir)
+        .output()
+        .expect("Failed to build SWC Node wrapper");
+    assert!(swc_node_build.status.success(), "SWC Node build failed");
+
+    // 4. (Optional) Babel dependencies
+    let babel_dir = root_dir.join("plugins").join("babel");
+    println!("[Setup] Installing Babel plugin dependencies...");
+    let babel_install = Command::new("pnpm")
+        .arg("install")
+        .current_dir(&babel_dir)
+        .output()
+        .expect("Failed to install Babel plugin dependencies");
+    assert!(babel_install.status.success(), "Babel install failed");
+}
+
+fn verify_rsbuild_bundles(temp_dir: &Path) {
+    let rsbuild_app_dir = temp_dir.join("packages").join("rsbuild-app");
+
+    // 1. Build Babel mode
+    println!("[Rsbuild] Building Babel mode...");
+    let babel_build = Command::new("pnpm")
+        .args(["run", "build:babel"])
+        .current_dir(&rsbuild_app_dir)
+        .output()
+        .expect("Failed to run build:babel");
+
+    assert!(
+        babel_build.status.success(),
+        "Babel build failed: {}",
+        String::from_utf8_lossy(&babel_build.stderr)
+    );
+
+    // 2. Find and run Babel bundle
+    let dist_babel = rsbuild_app_dir.join("dist-babel").join("static").join("js");
+    let bundle_file = std::fs::read_dir(dist_babel)
+        .expect("Failed to read dist-babel dir")
+        .flatten()
+        .find(|e| e.file_name().to_string_lossy().ends_with(".js"))
+        .expect("Could not find Babel bundle JS file")
+        .path();
+
+    println!("[Rsbuild] Running Babel bundle: {:?}", bundle_file);
+    let bundle_output = Command::new("node")
+        .arg(bundle_file)
+        .output()
+        .expect("Failed to run Babel bundle with node");
+
+    assert!(
+        bundle_output.status.success(),
+        "Babel bundle crashed: {}",
+        String::from_utf8_lossy(&bundle_output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&bundle_output.stdout);
+    assert!(stdout.contains("App starting..."), "Missing start log");
+    assert!(stdout.contains("Query 1: {"), "Query 1 was not transformed");
+    assert!(stdout.contains("Query 2: {"), "Query 2 was not transformed");
+    assert!(
+        stdout.contains("Mutation: {"),
+        "Mutation was not transformed"
+    );
+    println!("✅ Babel bundle verified successfully");
+
+    // 3. Build SWC mode (if WASM is available)
+    let wasm_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins/swc/node/wasm/graphox_swc_plugin.wasm");
+
+    if wasm_path.exists() {
+        println!("[Rsbuild] Building SWC mode...");
+        let swc_build = Command::new("pnpm")
+            .args(["run", "build:swc"])
+            .current_dir(&rsbuild_app_dir)
+            .output()
+            .expect("Failed to run build:swc");
+
+        assert!(
+            swc_build.status.success(),
+            "SWC build failed: {}",
+            String::from_utf8_lossy(&swc_build.stderr)
+        );
+
+        let dist_swc = rsbuild_app_dir.join("dist-swc").join("static").join("js");
+        let bundle_file_swc = std::fs::read_dir(dist_swc)
+            .expect("Failed to read dist-swc dir")
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().ends_with(".js"))
+            .expect("Could not find SWC bundle JS file")
+            .path();
+
+        println!("[Rsbuild] Running SWC bundle: {:?}", bundle_file_swc);
+        let bundle_output_swc = Command::new("node")
+            .arg(bundle_file_swc)
+            .output()
+            .expect("Failed to run SWC bundle with node");
+
+        assert!(
+            bundle_output_swc.status.success(),
+            "SWC bundle crashed: {}",
+            String::from_utf8_lossy(&bundle_output_swc.stderr)
+        );
+
+        let stdout_swc = String::from_utf8_lossy(&bundle_output_swc.stdout);
+        assert!(stdout_swc.contains("App starting..."), "Missing start log");
+        assert!(
+            stdout_swc.contains("Query 1: {"),
+            "Query 1 was not transformed (SWC)"
+        );
+        println!("✅ SWC bundle verified successfully");
+    } else {
+        println!(
+            "[Rsbuild] Skipping SWC verification (WASM not found at {:?})",
+            wasm_path
+        );
+    }
 }
 
 fn typecheck_monorepo(temp_dir: &Path, _generated_dir: &str) -> std::process::Output {

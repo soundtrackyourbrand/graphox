@@ -1,6 +1,7 @@
-import { graphql, getFragmentData } from './__generated__';
+import { graphql } from './__generated__';
+import { getFragmentData } from './__generated__/fragment-masking';
 export * from './__generated__';
-export { graphql, getFragmentData };
+export { getFragmentData };
 
 const UserCardFragment = graphql(`
   fragment UserCardFragment on User {

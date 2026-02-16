@@ -106,7 +106,15 @@ module.exports = function (babel) {
 
             if (currentFile && (src.startsWith('.') || src.startsWith('/'))) {
               const absoluteSrc = path.resolve(path.dirname(currentFile), srcNoExt);
-              return absoluteSrc === absoluteEntrypointPath || absoluteSrc === absoluteIndexPath;
+              if (absoluteSrc === absoluteEntrypointPath || absoluteSrc === absoluteIndexPath) {
+
+                return true;
+              }
+              // Handle directory import resolving to index
+              const absoluteSrcIndex = path.join(absoluteSrc, 'index');
+              if (absoluteSrcIndex === absoluteIndexPath) {
+                return true;
+              }
             }
 
             return false;

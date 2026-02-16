@@ -7,7 +7,7 @@
  * @example
  * // rsbuild.config.ts
  * import { defineConfig } from '@rsbuild/core';
- * import { createSWCPlugin } from '@soundtrack/graphox-swc';
+ * import { createSWCPlugin } from '@soundtrackyourbrand/graphox-swc';
  * 
  * export default defineConfig({
  *   tools: {
@@ -61,6 +61,12 @@ export interface PluginConfig {
    * Useful for path aliases like '@/graphql'.
    */
   graphqlImportPaths?: string[];
+
+  /**
+   * File extension to append to generated import paths.
+   * Options: "Ts", "Dts", "Js" or None (default)
+   */
+  emitExtensions?: 'Ts' | 'Dts' | 'Js' | 'None';
 }
 
 /**
@@ -84,25 +90,30 @@ function getWasmPath(): string {
 }
 
 /**
+ * Load the manifest from disk or return inline data.
+ * 
+ * @param config - Plugin configuration
+ * @returns Parsed manifest entries
+ */
+export function loadManifest(config: PluginConfig): Array<{ source: string; path: string; name: string }> {
+  if (config.manifestData) {
+    return config.manifestData;
+  }
+  
+  if (config.manifestPath && fs.existsSync(config.manifestPath)) {
+    const content = fs.readFileSync(config.manifestPath, 'utf-8');
+    const data = JSON.parse(content);
+    return Array.isArray(data) ? data : (data.entries || []);
+  }
+  
+  return [];
+}
+
+/**
  * Create a SWC plugin configuration.
  * 
  * Returns a tuple [wasmPath, options] that can be passed directly to SWC's
  * experimental plugins configuration.
- * 
- * @example
- * const plugin = createSWCPlugin({
- *   manifestPath: './__generated__/manifest.json',
- *   outputDir: './__generated__'
- * });
- * 
- * // Use with SWC
- * const result = await transform(code, {
- *   jsc: {
- *     experimental: {
- *       plugins: [plugin]
- *     }
- *   }
- * });
  */
 export function createSWCPlugin(config: PluginConfig): [string, PluginConfig] {
   // Validate required fields first
@@ -112,8 +123,15 @@ export function createSWCPlugin(config: PluginConfig): [string, PluginConfig] {
   
   const wasmPath = getWasmPath();
   
+  // Inline manifest data to ensure it's available to the WASM plugin
+  // since WASM plugins may not have filesystem access.
+  const inlinedConfig = {
+    ...config,
+    manifestData: loadManifest(config)
+  };
+  
   // Return tuple for SWC
-  return [wasmPath, config];
+  return [wasmPath, inlinedConfig];
 }
 
 /**
@@ -128,26 +146,6 @@ export function isWasmAvailable(): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Load the manifest from disk or return inline data.
- * 
- * @param config - Plugin configuration
- * @returns Parsed manifest entries
- */
-export function loadManifest(config: PluginConfig): Array<{ source: string; path: string; name: string }> {
-  if (config.manifestData) {
-    return config.manifestData;
-  }
-  
-  if (config.manifestPath && fs.existsSync(config.manifestPath)) {
-    const content = fs.readFileSync(config.manifestPath, 'utf-8');
-    const data = JSON.parse(content);
-    return data.entries || [];
-  }
-  
-  return [];
 }
 
 // Default export

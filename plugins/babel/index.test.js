@@ -325,5 +325,13 @@ describe('@soundtrack/graphox-babel', () => {
       expect(output).toContain("import { UserFieldsFragmentDocument } from \"./gen/userFields.codegen\";");
       expect(output).not.toContain("from './gen/graphql'");
     });
+
+    it('rewrites imports from directory resolving to index', () => {
+      const code = "import { GetUserDocument } from './gen';";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).not.toContain("from './gen'");
+    });
   });
 });

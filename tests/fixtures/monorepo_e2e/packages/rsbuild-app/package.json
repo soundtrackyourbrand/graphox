@@ -1,0 +1,23 @@
+{
+  "name": "@monorepo-e2e/rsbuild-app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:swc": "RSBUILD_MODE=swc rsbuild build",
+    "build:babel": "RSBUILD_MODE=babel rsbuild build"
+  },
+  "dependencies": {
+    "@monorepo-e2e/app": "workspace:*",
+    "@monorepo-e2e/schema": "workspace:*",
+    "@soundtrackyourbrand/graphox-babel": "link:../../plugins/babel",
+    "@soundtrackyourbrand/graphox-swc": "link:../../plugins/swc/node"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^1.0.0",
+    "@rsbuild/plugin-babel": "^1.0.0",
+    "@swc/cli": "^0.8.0",
+    "@swc/core": "^1.15.11",
+    "typescript": "^5.0.0"
+  }
+}
