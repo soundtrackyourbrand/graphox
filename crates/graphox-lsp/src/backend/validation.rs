@@ -90,12 +90,23 @@ pub async fn validate_uris(
     for uri in uris {
         if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
             // Skip validating schema files as executable documents
-            if let Ok(path) = uri.to_file_path()
-                && let Some(schema_key) = params.config.get_schema_for_path(&path)
-                && schema_key.contains(&path.to_string_lossy().to_string())
-                && !params.open_documents.contains(&uri)
-            {
-                continue;
+            if let Ok(path) = uri.to_file_path() {
+                // Check if this file is used as a schema in any project
+                let is_schema = params.config.projects().iter().any(|p| {
+                    p.schema().files().iter().any(|f| {
+                        let abs_schema = params.config.base_dir().join(f);
+                        graphox_core::utils::paths_match(Some(&path), Some(&abs_schema))
+                    })
+                }) || params.config.schema_types().iter().any(|st| {
+                    st.schema().files().iter().any(|f| {
+                        let abs_schema = params.config.base_dir().join(f);
+                        graphox_core::utils::paths_match(Some(&path), Some(&abs_schema))
+                    })
+                });
+
+                if is_schema && !params.open_documents.contains(&uri) {
+                    continue;
+                }
             }
 
             unique_package_roots.insert(doc.package_root.clone());

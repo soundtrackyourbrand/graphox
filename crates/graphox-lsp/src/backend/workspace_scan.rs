@@ -403,7 +403,32 @@ async fn validate_all_documents_cancellable(
     // we collect the documents and their URIs first.
     let docs_to_validate: Vec<(Url, Arc<DocumentState>)> = documents
         .iter()
-        .map(|entry| (entry.key().clone(), entry.value().clone()))
+        .filter_map(|entry| {
+            let uri = entry.key().clone();
+            let doc = entry.value().clone();
+
+            // Skip validating schema files as executable documents
+            if let Ok(path) = uri.to_file_path() {
+                // Check if this file is used as a schema in any project
+                let is_schema = config.projects().iter().any(|p| {
+                    p.schema().files().iter().any(|f| {
+                        let abs_schema = config.base_dir().join(f);
+                        graphox_core::utils::paths_match(Some(&path), Some(&abs_schema))
+                    })
+                }) || config.schema_types().iter().any(|st| {
+                    st.schema().files().iter().any(|f| {
+                        let abs_schema = config.base_dir().join(f);
+                        graphox_core::utils::paths_match(Some(&path), Some(&abs_schema))
+                    })
+                });
+
+                if is_schema {
+                    return None;
+                }
+            }
+
+            Some((uri, doc))
+        })
         .collect();
     let total_docs = docs_to_validate.len();
 

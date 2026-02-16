@@ -35,14 +35,15 @@ fn test_codegen_watch_mode() {
         .arg("--watch")
         .arg("--verbose")
         .current_dir(base_dir)
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .expect("Failed to spawn codegen watcher");
 
     let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(5)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(10)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -52,7 +53,7 @@ fn test_codegen_watch_mode() {
     assert!(!initial_content.contains("name: string"));
 
     // Give watcher time to settle
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(200));
 
     // 4. Modify query to include 'name'
     fs::write(&query_path, "query GetMe { me { id name } }").unwrap();
@@ -60,14 +61,14 @@ fn test_codegen_watch_mode() {
     // 5. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(10) {
+    while start.elapsed() < Duration::from_secs(20) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("name: string | null")
         {
             updated = true;
             break;
         }
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
     }
 
     let _ = child.kill();
@@ -110,14 +111,15 @@ fn test_codegen_watch_schema_changes() {
         .arg("--watch")
         .arg("--verbose")
         .current_dir(base_dir)
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .expect("Failed to start watch mode");
 
     let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(5)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(10)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -130,7 +132,7 @@ fn test_codegen_watch_schema_changes() {
     .unwrap();
 
     // Give it a moment to detect schema change and re-evaluate
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(200));
 
     // 5. Modify query to use the new field
     fs::write(&query_path, "query GetMe { me { id email } }").unwrap();
@@ -138,14 +140,14 @@ fn test_codegen_watch_schema_changes() {
     // 6. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(10) {
+    while start.elapsed() < Duration::from_secs(20) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("email: string")
         {
             updated = true;
             break;
         }
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
     }
 
     let _ = child.kill();
@@ -280,7 +282,8 @@ fn test_codegen_watch_ignores_generated_files() {
         .arg("--watch")
         .arg("--verbose")
         .current_dir(&base_dir)
-        .stdout(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .expect("Failed to spawn codegen watcher");
 

@@ -395,10 +395,6 @@ impl Backend {
         // Clear schema memory and disk cache
         let _ = graphox_core::schema_cache::clear_cache();
 
-        // Clear all internal state
-        self.schemas.clear();
-        self.validated_schemas.clear();
-
         // Clear all documents (including open ones) to ensure full re-load
         self.documents.clear();
 
@@ -409,6 +405,15 @@ impl Backend {
         self.package_roots.clear();
         self.type_caches.clear();
         self.diagnostic_cache.clear();
+
+        // Reload schemas to ensure we have the latest from disk
+        super::schema_management::clear_cache(
+            &config,
+            &self.schemas,
+            &self.validated_schemas,
+            &self.client,
+        )
+        .await;
 
         // Trigger workspace scan to re-index everything
         let (supports_progress, position_encoding) =
