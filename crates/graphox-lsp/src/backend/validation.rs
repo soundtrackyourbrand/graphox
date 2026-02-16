@@ -206,6 +206,7 @@ pub async fn validate_all_documents(
 }
 
 /// Computes the set of URIs that need validation based on affected fragments and operations
+#[allow(clippy::too_many_arguments)]
 pub fn get_affected_uris(
     initial_uri: Url,
     affected_fragment_names: AHashSet<Arc<str>>,
