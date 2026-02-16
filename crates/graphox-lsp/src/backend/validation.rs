@@ -140,6 +140,7 @@ pub async fn validate_uris(
                 && let Some(schema_key) = params.config.get_schema_for_path(&path)
             {
                 add_duplicate_operation_diagnostics(
+                    params.config,
                     &doc,
                     &uri,
                     &schema_key,
@@ -310,6 +311,7 @@ pub fn get_fragments_for_doc_with_metadata(
 
 /// Adds diagnostics for duplicate operation names within the same project
 fn add_duplicate_operation_diagnostics(
+    config: &graphox_core::Config,
     doc: &DocumentState,
     uri: &Url,
     schema_key: &str,
@@ -321,11 +323,17 @@ fn add_duplicate_operation_diagnostics(
         if let Some(name) = &op.name {
             // Look up this operation name in the index
             if let Some(entry) = operation_names.get(name) {
+                let path = uri.to_file_path().unwrap();
+                let project_key = config
+                    .get_project_for_path(&path)
+                    .map(|p| p.include().as_key())
+                    .unwrap_or_else(|| schema_key.to_string());
                 // Filter to only operations in the same project (same schema)
+
                 let locations_in_project: Vec<&Url> = entry
                     .value()
                     .iter()
-                    .filter(|(schema, _)| schema.as_ref() == schema_key)
+                    .filter(|(p_key, _)| p_key.as_ref() == project_key)
                     .map(|(_, uri)| uri)
                     .collect();
 

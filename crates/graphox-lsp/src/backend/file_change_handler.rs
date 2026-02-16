@@ -193,14 +193,20 @@ pub async fn process_file_created_or_changed(
         }
 
         // Add new operations
-        let schema_key_arc: Arc<str> = schema_key.into();
+        // obsolete
         for op in new_doc.operations() {
             if let Some(name) = &op.name {
+                let project_key = params
+                    .config
+                    .get_project_for_path(&path)
+                    .map(|p| p.include().as_key())
+                    .unwrap_or_else(|| schema_key.clone());
+                let project_key_arc: Arc<str> = project_key.into();
                 params
                     .operation_names
                     .entry(name.clone())
                     .or_default()
-                    .push((schema_key_arc.clone(), uri.clone()));
+                    .push((project_key_arc, uri.clone()));
             }
         }
     }
