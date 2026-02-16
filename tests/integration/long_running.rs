@@ -82,7 +82,7 @@ async fn test_monorepo_typecheck_and_compare(fixture_dir_str: &str) {
     // Step 1: Install dependencies
     println!("[PNPM] Installing dependencies...");
     let install_output = Command::new("pnpm")
-        .args(["install"])
+        .args(["install", "--no-frozen-lockfile"])
         .current_dir(&temp_dir)
         .output()
         .expect("Failed to run pnpm install");
