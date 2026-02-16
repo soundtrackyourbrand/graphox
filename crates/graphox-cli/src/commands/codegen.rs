@@ -612,6 +612,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                     }
 
                     let manifest_path = out_dir_path.join("manifest.json");
+                    let generate_ast_for_frags = codegen_config.generate_ast_for_fragments();
                     let manifest_entries: Vec<_> = ops
                         .iter()
                         .map(|op| {
@@ -633,6 +634,34 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                                 "name": op.document_name
                             })
                         })
+                        .chain(
+                            frags
+                                .iter()
+                                .filter(|_| {
+                                    generate_ast_for_frags
+                                        || codegen_config.fragment_masking_mode().is_enabled()
+                                })
+                                .map(|frag| {
+                                    let rel_path =
+                                        pathdiff::diff_paths(&frag.codegen_path, &out_dir_path)
+                                            .unwrap_or_else(|| frag.codegen_path.clone());
+                                    let mut path_str = utils::to_posix_path(&rel_path);
+                                    if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                                        path_str = format!("./{}", path_str);
+                                    }
+                                    let path_no_ext = if path_str.ends_with(".ts") {
+                                        &path_str[..path_str.len() - 3]
+                                    } else {
+                                        &path_str
+                                    };
+
+                                    sonic_rs::json!({
+                                        "source": frag.source_text,
+                                        "path": path_no_ext,
+                                        "name": frag.document_name
+                                    })
+                                }),
+                        )
                         .collect();
 
                     let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();

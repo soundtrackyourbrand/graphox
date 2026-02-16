@@ -2,6 +2,20 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 #[test]
 #[ntest::timeout(300000)]
 #[ignore] // This test is slow and requires node/npm and wasm32-wasip1 target
@@ -13,7 +27,7 @@ fn test_swc_cli_integration() {
     let temp_path = temp_dir.path();
 
     // Copy fixture files to temp directory
-    crate::support::copy_dir_all(&fixture_dir, temp_path).expect("Failed to copy fixture files");
+    copy_dir_all(&fixture_dir, temp_path).expect("Failed to copy fixture files");
 
     // 1. Run codegen
     let output = Command::new(bin_path)

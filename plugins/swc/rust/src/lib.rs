@@ -6,6 +6,26 @@ use swc_core::ecma::ast::*;
 use swc_core::ecma::visit::{VisitMut, VisitMutWith};
 use swc_core::plugin::{metadata::TransformPluginProgramMetadata, plugin_transform};
 
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub enum EmitExtensions {
+    #[default]
+    None,
+    Ts,
+    Dts,
+    Js,
+}
+
+impl EmitExtensions {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EmitExtensions::None => "",
+            EmitExtensions::Ts => ".ts",
+            EmitExtensions::Dts => ".d.ts",
+            EmitExtensions::Js => ".js",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     #[serde(rename = "manifestPath")]
@@ -17,6 +37,10 @@ pub struct Config {
     pub output_dir: String,
     #[serde(rename = "graphqlImportPaths")]
     pub graphql_import_paths: Option<Vec<String>>,
+    /// File extension to append to generated import paths
+    /// Options: "none" (default), "ts", "dts", "js"
+    #[serde(rename = "emitExtensions", default)]
+    pub emit_extensions: EmitExtensions,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -35,6 +59,7 @@ pub struct TransformVisitor {
     graphql_ids: std::collections::HashSet<Id>,
     graphql_import_paths: Vec<String>,
     document_name_imports: HashMap<Id, String>, // local_name id -> source_path (non-type-only only)
+    emit_extensions: EmitExtensions,
 }
 
 fn normalize(s: &str) -> String {
@@ -69,11 +94,12 @@ impl TransformVisitor {
             graphql_ids: std::collections::HashSet::new(),
             graphql_import_paths: config.graphql_import_paths.clone().unwrap_or_default(),
             document_name_imports: HashMap::new(),
+            emit_extensions: config.emit_extensions.clone(),
         }
     }
 
     fn get_relative_import_path(&self, codegen_rel_path: &str) -> String {
-        if let Some(current_file) = &self.current_file {
+        let mut result = if let Some(current_file) = &self.current_file {
             let codegen_abs_path = self.output_dir.join(codegen_rel_path);
             if let Some(parent) = current_file.parent()
                 && let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent)
@@ -82,11 +108,17 @@ impl TransformVisitor {
                 if !s.starts_with('.') && !s.starts_with('/') {
                     s = format!("./{}", s);
                 }
-                return s;
+                s
+            } else {
+                codegen_rel_path.to_string()
             }
-        }
-        // Fallback to the path in the manifest
-        codegen_rel_path.to_string()
+        } else {
+            codegen_rel_path.to_string()
+        };
+
+        // Append the emit extension
+        result.push_str(self.emit_extensions.as_str());
+        result
     }
 
     fn is_our_graphql_path(&self, src: &str) -> bool {
@@ -122,6 +154,7 @@ impl TransformVisitor {
                     s_index = format!("./{}", s_index);
                 }
 
+                // Normalize both source and our paths to compare without extensions
                 let src_normalized = src
                     .strip_suffix(".js")
                     .unwrap_or(src)
@@ -350,6 +383,7 @@ pub fn process_transform(
             manifest_data: None,
             output_dir: "".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         });
 
     let current_file = _metadata
@@ -409,6 +443,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -420,6 +455,81 @@ mod tests {
         assert!(output.contains("import { MyQueryDocument } from \"./query.codegen\";"));
         assert!(output.contains("const q = MyQueryDocument;"));
         assert!(!output.contains("import { graphql }"));
+    }
+
+    #[test]
+    fn test_emit_extensions_ts() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::Ts,
+        };
+
+        let output = transform(
+            "import { graphql } from './graphql'; const q = graphql(`query { me { id } }`);",
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("import { MyQueryDocument } from \"./query.codegen.ts\";"));
+    }
+
+    #[test]
+    fn test_emit_extensions_js() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::Js,
+        };
+
+        let output = transform(
+            "import { graphql } from './graphql'; const q = graphql(`query { me { id } }`);",
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("import { MyQueryDocument } from \"./query.codegen.js\";"));
+    }
+
+    #[test]
+    fn test_emit_extensions_dts() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::Dts,
+        };
+
+        let output = transform(
+            "import { graphql } from './graphql'; const q = graphql(`query { me { id } }`);",
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("import { MyQueryDocument } from \"./query.codegen.d.ts\";"));
     }
 
     #[test]
@@ -442,6 +552,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let source = r#"
@@ -472,6 +583,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -500,6 +612,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -511,6 +624,33 @@ mod tests {
         // /root/gen/src/query.codegen relative to /root/app/
         // should be ../gen/src/query.codegen
         assert!(output.contains("import { MyQueryDocument } from \"../gen/src/query.codegen\";"));
+    }
+
+    #[test]
+    fn test_visitor_relative_paths_with_extension() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./src/query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::Js,
+        };
+
+        let output = transform(
+            "import { graphql } from '../gen/graphql'; const q = graphql(`query { me { id } }`);",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(
+            output.contains("import { MyQueryDocument } from \"../gen/src/query.codegen.js\";")
+        );
     }
 
     #[test]
@@ -526,6 +666,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -552,6 +693,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         // Source has different whitespace
@@ -587,6 +729,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -614,6 +757,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -640,6 +784,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
             graphql_import_paths: Some(vec!["@app/gql-entrypoint".to_string()]),
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -660,6 +805,7 @@ mod tests {
             manifest_data: None,
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -686,6 +832,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -719,6 +866,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -745,6 +893,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -772,6 +921,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -798,6 +948,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -824,6 +975,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -835,7 +987,6 @@ mod tests {
         // GetUserQueryDocument (non-type) is rewritten
         assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
         // GetUserQuery (inline type) is removed
-        assert!(!output.contains("type GetUserQuery"));
         assert!(!output.contains("type GetUserQuery"));
         assert!(!output.contains("from '../gen/graphql'"));
     }
@@ -853,6 +1004,7 @@ mod tests {
             manifest_data: Some(manifest),
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
         };
 
         let output = transform(
@@ -864,5 +1016,44 @@ mod tests {
         assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
         assert!(!output.contains("from '../gen/graphql'"));
         assert!(output.contains("const q = GetUserQueryDocument;"));
+    }
+
+    #[test]
+    fn test_fragment_document_with_emit_extensions() {
+        // Test that fragment documents (when generate_ast_for_fragments is enabled) work
+        let manifest = vec![
+            ManifestEntry {
+                source: "query GetUser { user { id } }".to_string(),
+                path: "./user.codegen".to_string(),
+                name: "GetUserQueryDocument".to_string(),
+            },
+            ManifestEntry {
+                source: "fragment UserFields on User { id name }".to_string(),
+                path: "./userFields.codegen".to_string(),
+                name: "UserFieldsFragmentDocument".to_string(),
+            },
+        ];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::Ts,
+        };
+
+        let output = transform(
+            "import { GetUserQueryDocument, UserFieldsFragmentDocument } from '../gen/graphql';",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(
+            output.contains("import { GetUserQueryDocument } from \"../gen/user.codegen.ts\";")
+        );
+        assert!(output.contains(
+            "import { UserFieldsFragmentDocument } from \"../gen/userFields.codegen.ts\";"
+        ));
+        assert!(!output.contains("from '../gen/graphql'"));
     }
 }

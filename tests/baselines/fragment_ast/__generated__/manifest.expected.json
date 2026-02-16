@@ -3,5 +3,10 @@
     "name": "GetMeQueryDocument",
     "path": "./query.codegen",
     "source": "query GetMe { me { ...UserFields } }\n"
+  },
+  {
+    "name": "UserFieldsDocument",
+    "path": "./fragment.codegen",
+    "source": "fragment UserFields on User @public { id name }\n"
   }
 ]

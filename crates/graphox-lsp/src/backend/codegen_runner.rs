@@ -406,6 +406,7 @@ pub async fn run_codegen(
         }
 
         let manifest_path = out_dir_path.join("manifest.json");
+        let generate_ast_for_frags = codegen_config.generate_ast_for_fragments();
         let manifest_entries: Vec<_> = ops
             .iter()
             .map(|op| {
@@ -427,6 +428,33 @@ pub async fn run_codegen(
                     "name": format!("{}Document", op.operation_type_name)
                 })
             })
+            .chain(
+                frags
+                    .iter()
+                    .filter(|_| {
+                        generate_ast_for_frags
+                            || codegen_config.fragment_masking_mode().is_enabled()
+                    })
+                    .map(|frag| {
+                        let rel_path = pathdiff::diff_paths(&frag.codegen_path, &out_dir_path)
+                            .unwrap_or_else(|| frag.codegen_path.clone());
+                        let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
+                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                            path_str = format!("./{}", path_str);
+                        }
+                        let path_no_ext = if path_str.ends_with(".ts") {
+                            &path_str[..path_str.len() - 3]
+                        } else {
+                            &path_str
+                        };
+
+                        serde_json::json!({
+                            "source": frag.source_text,
+                            "path": path_no_ext,
+                            "name": frag.document_name
+                        })
+                    }),
+            )
             .collect();
 
         if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries)

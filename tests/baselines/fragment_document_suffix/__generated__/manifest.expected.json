@@ -3,5 +3,10 @@
     "name": "GetUserQueryDocument",
     "path": "./query.codegen",
     "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n"
+  },
+  {
+    "name": "UserFieldsFragDoc",
+    "path": "./fragment.codegen",
+    "source": "fragment UserFields on User {\n  id\n  name\n}\n"
   }
 ]

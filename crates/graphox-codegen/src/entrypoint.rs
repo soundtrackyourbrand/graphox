@@ -13,7 +13,7 @@ pub fn generate_entrypoint_content(
     re_exports: bool,
     schema_import: Option<&str>,
 ) -> String {
-    let fragment_masking = FragmentMasking::from_core_config(&codegen_config.fragment_masking());
+    let _fragment_masking = FragmentMasking::from_core_config(&codegen_config.fragment_masking());
     let emit_extensions = codegen_config.emit_extensions();
     let generate_ast_for_fragments = codegen_config.generate_ast_for_fragments();
     let op_count = operations.len();
@@ -34,19 +34,9 @@ pub fn generate_entrypoint_content(
     };
 
     let ext = emit_extensions.as_str();
-    if fragment_masking.is_enabled() {
-        output.push_str(&format!(
-            "import type {{ FragmentType }} from \"./fragment-masking{}\";\n",
-            ext
-        ));
-    }
     output.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
 
     output.push_str("type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;\n");
-
-    if fragment_masking.is_enabled() {
-        output.push_str("export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };\n");
-    }
 
     let mut type_import_lines = Vec::with_capacity(operations.len());
     let mut runtime_import_lines = Vec::with_capacity(operations.len());

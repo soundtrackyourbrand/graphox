@@ -112,7 +112,7 @@ export function isFragmentReady<TQuery, TFrag>(
 }
 
 pub fn generate_index_content(
-    fragment_masking: &FragmentMasking,
+    _fragment_masking: &FragmentMasking,
     emit_extensions: EmitExtensions,
 ) -> String {
     let mut output = String::with_capacity(256);
@@ -123,9 +123,6 @@ pub fn generate_index_content(
     );
 
     let ext = emit_extensions.as_str();
-    if fragment_masking.is_enabled() {
-        output.push_str(&format!("export * from \"./fragment-masking{}\";\n", ext));
-    }
     output.push_str(&format!("export * from \"./graphql{}\";\n", ext));
 
     output

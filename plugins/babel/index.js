@@ -5,6 +5,27 @@ function normalize(s) {
   return s.replace(/\s+/g, '');
 }
 
+/**
+ * Convert emitExtensions config to file extension string
+ * @param {string|undefined} emitExtensions - One of: "none", "ts", "dts", "js"
+ * @returns {string} The file extension to append (e.g., ".ts", ".js", or "")
+ */
+function getExtension(emitExtensions) {
+  switch (emitExtensions) {
+    case 'ts':
+      return '.ts';
+    case 'dts':
+      return '.d.ts';
+    case 'js':
+      return '.js';
+    case 'none':
+    case undefined:
+    case null:
+    default:
+      return '';
+  }
+}
+
 module.exports = function (babel) {
   const { types: t } = babel;
 
@@ -18,11 +39,14 @@ module.exports = function (babel) {
             manifestData,
             outputDir,
             graphqlImportPaths = [],
+            emitExtensions,
           } = state.opts;
 
           if (!outputDir) {
             throw new Error('outputDir is required for @soundtrack/graphox-babel');
           }
+
+          const extension = getExtension(emitExtensions);
 
           let entries = [];
           if (manifestData) {
@@ -118,6 +142,8 @@ module.exports = function (babel) {
                       if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
                         relPath = './' + relPath;
                       }
+                      // Append the emit extension
+                      relPath += extension;
                       newImports.set(localName, { sourcePath: relPath, importedName });
                     }
                   }
@@ -153,6 +179,8 @@ module.exports = function (babel) {
                       if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
                         relPath = './' + relPath;
                       }
+                      // Append the emit extension
+                      relPath += extension;
 
                       newImports.set(entry.name, { sourcePath: relPath, importedName: entry.name });
                       callPath.replaceWith(t.identifier(entry.name));

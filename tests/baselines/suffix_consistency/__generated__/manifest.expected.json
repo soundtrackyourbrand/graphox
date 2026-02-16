@@ -8,5 +8,10 @@
     "name": "UpdateUserDoc",
     "path": "./mutation.codegen",
     "source": "mutation UpdateUser($name: String!) { updateUser(name: $name) { id name } }\n"
+  },
+  {
+    "name": "UserFieldsFragFragmentDoc",
+    "path": "./fragment.codegen",
+    "source": "fragment UserFields on User { id name }\n"
   }
 ]

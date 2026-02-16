@@ -155,6 +155,56 @@ describe('@soundtrack/graphox-babel', () => {
     expect(output).not.toContain('big map');
   });
 
+  describe('emit extensions', () => {
+    it('appends .ts extension when emitExtensions is "ts"', () => {
+      const code = "import { graphql } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
+      const output = transform(code, { ...defaultOptions, emitExtensions: 'ts' });
+
+      expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen.ts";');
+    });
+
+    it('appends .js extension when emitExtensions is "js"', () => {
+      const code = "import { graphql } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
+      const output = transform(code, { ...defaultOptions, emitExtensions: 'js' });
+
+      expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen.js";');
+    });
+
+    it('appends .d.ts extension when emitExtensions is "dts"', () => {
+      const code = "import { graphql } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
+      const output = transform(code, { ...defaultOptions, emitExtensions: 'dts' });
+
+      expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen.d.ts";');
+    });
+
+    it('does not append extension when emitExtensions is "none" or omitted', () => {
+      const code = "import { graphql } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
+      const output1 = transform(code, { ...defaultOptions, emitExtensions: 'none' });
+      const output2 = transform(code, defaultOptions);
+
+      expect(output1).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
+      expect(output2).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
+    });
+
+    it('appends extension to relative paths correctly', () => {
+      const manifest = [
+        {
+          source: 'query { me { id } }',
+          path: './src/query.codegen',
+          name: 'MyQueryDocument',
+        },
+      ];
+      const outputDir = path.resolve('/root/gen');
+      const options = { manifestData: manifest, outputDir, emitExtensions: 'js' };
+      const filename = '/root/app/test.ts';
+
+      const code = "import { graphql } from '../gen/graphql'; const q = graphql(`query { me { id } }`);";
+      const output = transform(code, options, filename);
+
+      expect(output).toContain('import { MyQueryDocument } from "../gen/src/query.codegen.js";');
+    });
+  });
+
   describe('re-exported document imports', () => {
     const reExportManifest = [
       {
@@ -252,6 +302,28 @@ describe('@soundtrack/graphox-babel', () => {
 
       expect(output).toContain("import { GetUserDocument as MyUserDoc } from \"./gen/user.codegen\";");
       expect(output).toContain('console.log(MyUserDoc);');
+    });
+
+    it('rewrites fragment document imports when generate_ast_for_fragments is enabled', () => {
+      const manifest = [
+        {
+          source: 'query GetUser { user { id } }',
+          path: './user.codegen',
+          name: 'GetUserDocument',
+        },
+        {
+          source: 'fragment UserFields on User { id name }',
+          path: './userFields.codegen',
+          name: 'UserFieldsFragmentDocument',
+        },
+      ];
+      const options = { manifestData: manifest, outputDir: './gen' };
+      const code = "import { GetUserDocument, UserFieldsFragmentDocument } from './gen/graphql';";
+      const output = transform(code, options);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).toContain("import { UserFieldsFragmentDocument } from \"./gen/userFields.codegen\";");
+      expect(output).not.toContain("from './gen/graphql'");
     });
   });
 });

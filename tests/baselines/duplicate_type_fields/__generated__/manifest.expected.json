@@ -3,5 +3,10 @@
     "name": "GetPlaylistQueryDocument",
     "path": "./query.codegen",
     "source": "query GetPlaylist($id: ID!) {\n  playlist(id: $id) {\n    ...DuplicateFields\n  }\n}\n"
+  },
+  {
+    "name": "DuplicateFieldsDocument",
+    "path": "./fragments.codegen",
+    "source": "fragment DuplicateFields on Playlist @public {\n  id\n  __typename\n  permissions\n  presentAs\n  name\n  snapshot\n  shortDescription\n  curated\n  curator {\n    id\n    accountId\n    name\n  }\n  presets {\n    playbackMode\n  }\n  snapshot\n  permissions\n  presentAs\n}\n"
   }
 ]

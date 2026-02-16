@@ -2,10 +2,8 @@
 /* eslint-disable */
 // This file was automatically generated and should not be edited.
 
-import type { FragmentType } from "./fragment-masking";
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
-export type Incremental<T> = T | { [P in keyof T]?: P extends ' $fragmentName' | '__typename' ? T[P] : never };
 import type { DuplicateFields } from "./fragments.codegen";
 import type { GetPlaylistQuery, GetPlaylistQueryVariables } from "./query.codegen";
 import { GetPlaylistQueryDocument } from "./query.codegen";
