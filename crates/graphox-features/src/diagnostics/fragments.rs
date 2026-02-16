@@ -603,10 +603,12 @@ pub(super) fn mark_selected_fields_recursive(
     // 1. Try local fragments
     if let Some(frag) = this.fragments().iter().find(|f| f.name.as_ref() == name) {
         for field in &frag.selected_fields {
-            ctx.response_key_selected_fields
-                .entry(response_key.to_string().into())
-                .or_default()
-                .insert(field.clone());
+            if type_name.is_none() {
+                ctx.response_key_selected_fields
+                    .entry(response_key.to_string().into())
+                    .or_default()
+                    .insert(field.clone());
+            }
 
             if let Some(tn) = type_name {
                 ctx.type_condition_fields
@@ -637,10 +639,12 @@ pub(super) fn mark_selected_fields_recursive(
     // 2. Try workspace fragments
     else if let Some(frag) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
         for field in &frag.selected_fields {
-            ctx.response_key_selected_fields
-                .entry(response_key.to_string().into())
-                .or_default()
-                .insert(field.clone());
+            if type_name.is_none() {
+                ctx.response_key_selected_fields
+                    .entry(response_key.to_string().into())
+                    .or_default()
+                    .insert(field.clone());
+            }
 
             if let Some(tn) = type_name {
                 ctx.type_condition_fields
@@ -664,6 +668,8 @@ pub(super) fn mark_selected_fields_recursive(
                 .or_default()
                 .insert(field.clone());
         }
+
+        // Original loop was here, now redundant but keeping structure for safety
         for spread in &frag.used_fragments {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }

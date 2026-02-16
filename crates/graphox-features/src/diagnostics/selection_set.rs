@@ -273,11 +273,13 @@ pub(super) fn validate_field(
         // Fields are tracked by response key (alias or field name)
         if ctx.is_operation {
             if let Some(rk) = parent_response_key {
-                // Track field under parent response key (for nested fields)
-                ctx.response_key_selected_fields
-                    .entry(rk.to_string().into())
-                    .or_default()
-                    .insert(actual_field_name.clone().into());
+                if type_name.is_none() {
+                    // Track field under parent response key (for nested fields)
+                    ctx.response_key_selected_fields
+                        .entry(rk.to_string().into())
+                        .or_default()
+                        .insert(actual_field_name.clone().into());
+                }
 
                 // If we're in an inline fragment context, also track in type_condition_fields
                 if let Some(tn) = type_name {
@@ -344,6 +346,10 @@ pub(super) fn validate_field(
             if let Some(sel_set) = selection_set_node {
                 let field_type_name = field_def.ty.inner_named_type();
                 if let Some(field_type_def) = ctx.schema.types.get(field_type_name.as_str()) {
+                    if ctx.is_operation {
+                        ctx.response_key_types
+                            .insert(response_key.clone().into(), field_type_def.clone());
+                    }
                     // Use this field's response key as parent for nested fields
                     let new_parent_rk = if ctx.is_operation {
                         Some(response_key.as_str())

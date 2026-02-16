@@ -18,6 +18,7 @@ pub(super) fn validate_operation(
     ctx.response_key_type_conditions.clear();
     ctx.type_condition_fields.clear();
     ctx.root_response_keys.clear();
+    ctx.response_key_types.clear();
 
     let mut operation_type_string = String::from("query");
     let mut cursor = node.walk();
@@ -152,7 +153,6 @@ pub(super) fn check_required_fields(
             let field_name_str = field_name.as_str();
 
             // 1. Check root-level required fields (fields on Query/Mutation/Subscription)
-            // If the required field exists on root type, check if it was selected
             let root_type_name = match operation_type.as_ref() {
                 "query" => ctx.schema.root_operation(OperationType::Query),
                 "mutation" => ctx.schema.root_operation(OperationType::Mutation),
@@ -160,49 +160,23 @@ pub(super) fn check_required_fields(
                 _ => None,
             };
 
-            let field_selected_at_root = if let Some(rtn) = root_type_name {
-                if let Some(root_type) = ctx.schema.types.get(rtn.as_str()) {
-                    let field_exists_on_root = match root_type {
-                        ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                        ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
-                        _ => false,
-                    };
-
-                    if field_exists_on_root {
-                        // Check if this field was selected at root level
-                        ctx.response_key_selected_fields.iter().any(|(rk, fields)| {
-                            ctx.root_response_keys.contains(rk) && fields.contains(field_name_str)
-                        })
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if !field_selected_at_root {
-                // For root-level fields that exist but weren't selected, report error
-                // (This handles the original behavior)
-                let root_type_name_check = match operation_type.as_ref() {
-                    "query" => ctx.schema.root_operation(OperationType::Query),
-                    "mutation" => ctx.schema.root_operation(OperationType::Mutation),
-                    "subscription" => ctx.schema.root_operation(OperationType::Subscription),
-                    _ => None,
+            if let Some(rtn) = root_type_name
+                && let Some(root_type) = ctx.schema.types.get(rtn.as_str())
+            {
+                let field_exists_on_root = match root_type {
+                    ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
+                    ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                    _ => false,
                 };
 
-                if let Some(rtn) = root_type_name_check
-                    && let Some(root_type) = ctx.schema.types.get(rtn.as_str())
-                {
-                    let field_exists_on_root = match root_type {
-                        ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                        ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
-                        _ => false,
-                    };
+                if field_exists_on_root {
+                    // Check if this field was selected at root level
+                    let is_selected =
+                        ctx.response_key_selected_fields.iter().any(|(rk, fields)| {
+                            ctx.root_response_keys.contains(rk) && fields.contains(field_name_str)
+                        });
 
-                    if field_exists_on_root {
+                    if !is_selected {
                         ctx.diagnostics.push(Diagnostic {
                             range,
                             severity: Some(DiagnosticSeverity::ERROR),
@@ -215,41 +189,37 @@ pub(super) fn check_required_fields(
                             )),
                             ..Default::default()
                         });
-                        continue; // Move to next required field
                     }
                 }
             }
 
-            // 2. Check nested fields (non-root level)
-            // For each selected root-level field, check if its return type has this required field
-            for (response_key, selected_fields) in &ctx.response_key_selected_fields {
-                // Only check root-level response keys
-                if !ctx.root_response_keys.contains(response_key) {
-                    continue;
-                }
+            // 2. Check ALL selected fields (recursive check)
+            for (response_key, type_def) in &ctx.response_key_types {
+                let empty_set = ahash::AHashSet::default();
+                let selected_fields = ctx
+                    .response_key_selected_fields
+                    .get(response_key)
+                    .unwrap_or(&empty_set);
 
-                // Skip if this response key has inline fragments (step 3 handles those)
-                if ctx.response_key_type_conditions.contains_key(response_key) {
-                    continue;
-                }
+                let field_exists = match type_def {
+                    ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
+                    ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
+                    _ => false,
+                };
 
-                // Find the return type for this response key
-                if let Some(return_type) = find_return_type_for_response_key(
-                    this,
-                    node,
-                    offset,
-                    response_key.as_ref(),
-                    operation_type.as_ref(),
-                    ctx,
-                ) && let Some(type_def) = ctx.schema.types.get(return_type.as_str())
-                {
-                    let field_exists = match type_def {
-                        ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                        ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
-                        _ => false,
-                    };
+                if field_exists {
+                    let mut is_selected = selected_fields.contains(field_name_str);
 
-                    if field_exists && !selected_fields.contains(field_name_str) {
+                    // For object types, fields selected in an inline fragment on the same type also count
+                    if !is_selected
+                        && let ExtendedType::Object(obj) = type_def
+                        && let Some(type_fields) = ctx.type_condition_fields.get(response_key)
+                        && let Some(fields) = type_fields.get(obj.name.as_str())
+                    {
+                        is_selected = fields.contains(field_name_str);
+                    }
+
+                    if !is_selected {
                         ctx.diagnostics.push(Diagnostic {
                             range,
                             severity: Some(DiagnosticSeverity::ERROR),
@@ -266,15 +236,15 @@ pub(super) fn check_required_fields(
                 }
             }
 
-            // 3. Check inline fragment type conditions
+            // 3. Check inline fragment type conditions (merging base selections)
             for (response_key, type_conditions) in &ctx.response_key_type_conditions {
+                let base_selected_fields = ctx.response_key_selected_fields.get(response_key);
+
                 for type_name in type_conditions {
                     let type_fields = ctx
                         .type_condition_fields
                         .get(response_key)
-                        .and_then(|m| m.get(type_name))
-                        .cloned()
-                        .unwrap_or_default();
+                        .and_then(|m| m.get(type_name));
 
                     let type_name_str = type_name.to_string();
                     if let Some(type_def) = ctx.schema.types.get(&*type_name_str) {
@@ -286,220 +256,31 @@ pub(super) fn check_required_fields(
                             _ => false,
                         };
 
-                        if field_exists && !type_fields.contains(field_name_str) {
-                            ctx.diagnostics.push(Diagnostic {
-                                range,
-                                severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!(
-                                    "Required field '{}' must be selected in '... on {}'",
-                                    field_name, type_name
-                                ),
-                                code: Some(NumberOrString::String(
-                                    "required_field_missing".to_string(),
-                                )),
-                                ..Default::default()
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+                        if field_exists {
+                            let is_selected = type_fields
+                                .is_some_and(|f| f.contains(field_name_str))
+                                || base_selected_fields.is_some_and(|f| f.contains(field_name_str));
 
-fn find_return_type_for_response_key(
-    this: &DocumentState,
-    node: Node,
-    offset: usize,
-    response_key: &str,
-    operation_type: &str,
-    ctx: &ValidationContext,
-) -> Option<String> {
-    use apollo_compiler::ast::OperationType;
-
-    let op_type = match operation_type {
-        "query" => OperationType::Query,
-        "mutation" => OperationType::Mutation,
-        "subscription" => OperationType::Subscription,
-        _ => return None,
-    };
-
-    if let Some(root_def_name) = ctx.schema.root_operation(op_type)
-        && let Some(root_type) = ctx.schema.types.get(root_def_name.as_str())
-    {
-        return find_field_type_recursive(this, node, offset, response_key, root_type, ctx);
-    }
-    None
-}
-
-fn find_field_type_recursive(
-    this: &DocumentState,
-    node: Node,
-    offset: usize,
-    target_response_key: &str,
-    current_type: &ExtendedType,
-    ctx: &ValidationContext,
-) -> Option<String> {
-    // Check if current type has the field we're looking for
-    let field_def = match current_type {
-        ExtendedType::Object(obj) => obj.fields.get(target_response_key),
-        ExtendedType::Interface(iface) => iface.fields.get(target_response_key),
-        _ => None,
-    };
-
-    if let Some(fdef) = field_def {
-        return Some(fdef.ty.inner_named_type().to_string());
-    }
-
-    // Search recursively in selection sets
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "selection_set"
-            && let Some(found) =
-                search_in_selection_set(this, child, offset, target_response_key, current_type, ctx)
-        {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
-fn search_in_selection_set(
-    this: &DocumentState,
-    selection_set: Node,
-    offset: usize,
-    target_response_key: &str,
-    parent_type: &ExtendedType,
-    ctx: &ValidationContext,
-) -> Option<String> {
-    let mut cursor = selection_set.walk();
-    for child in selection_set.children(&mut cursor) {
-        if child.kind() == "selection" || child.kind() == "field" {
-            let field_node = if child.kind() == "selection" {
-                let mut inner_cursor = child.walk();
-                child
-                    .children(&mut inner_cursor)
-                    .find(|c| c.kind() == "field")
-            } else {
-                Some(child)
-            };
-
-            if let Some(fnode) = field_node {
-                let mut f_cursor = fnode.walk();
-                let mut response_key = None;
-                let mut actual_name = None;
-                let mut selection_set_node = None;
-
-                for fchild in fnode.children(&mut f_cursor) {
-                    if fchild.kind() == "alias" {
-                        let mut a_cursor = fchild.walk();
-                        for achild in fchild.children(&mut a_cursor) {
-                            if achild.kind() == "name" {
-                                response_key = Some(this.get_node_text(achild, offset));
-                                break;
-                            }
-                        }
-                    } else if fchild.kind() == "name" {
-                        actual_name = Some(this.get_node_text(fchild, offset));
-                    } else if fchild.kind() == "selection_set" {
-                        selection_set_node = Some(fchild);
-                    }
-                }
-
-                if actual_name.is_none() {
-                    continue;
-                }
-
-                let rk = response_key
-                    .as_ref()
-                    .unwrap_or(actual_name.as_ref().unwrap())
-                    .as_str();
-
-                if rk == target_response_key {
-                    // Found the field, return its type
-                    // Use actual_name (not rk/response_key) to look up the field definition
-                    let field_name = actual_name.as_ref().unwrap().as_str();
-                    let fdef = match parent_type {
-                        ExtendedType::Object(obj) => obj.fields.get(field_name),
-                        ExtendedType::Interface(iface) => iface.fields.get(field_name),
-                        _ => None,
-                    };
-
-                    if let Some(f) = fdef {
-                        return Some(f.ty.inner_named_type().to_string());
-                    }
-                }
-
-                // Continue searching in nested selection sets
-                if let Some(sel_set) = selection_set_node {
-                    // Use actual_name (not rk/response_key) to look up the field definition
-                    let field_name = actual_name.as_ref().unwrap().as_str();
-                    let fdef = match parent_type {
-                        ExtendedType::Object(obj) => obj.fields.get(field_name),
-                        ExtendedType::Interface(iface) => iface.fields.get(field_name),
-                        _ => None,
-                    };
-
-                    if let Some(field_def) = fdef {
-                        let return_type = field_def.ty.inner_named_type();
-                        if let Some(return_type_def) = ctx.schema.types.get(return_type.as_str())
-                            && let Some(found) = search_in_selection_set(
-                                this,
-                                sel_set,
-                                offset,
-                                target_response_key,
-                                return_type_def,
-                                ctx,
-                            )
-                        {
-                            return Some(found);
-                        }
-                    }
-                }
-            }
-        } else if child.kind() == "inline_fragment" {
-            // Handle inline fragments
-            let mut frag_cursor = child.walk();
-            let mut type_name = None;
-            let mut sel_set_node = None;
-
-            for fchild in child.children(&mut frag_cursor) {
-                if fchild.kind() == "type_condition" {
-                    let mut tc_cursor = fchild.walk();
-                    for tc_child in fchild.children(&mut tc_cursor) {
-                        if tc_child.kind() == "named_type" {
-                            let mut nt_cursor = tc_child.walk();
-                            for nt_child in tc_child.children(&mut nt_cursor) {
-                                if nt_child.kind() == "name" {
-                                    type_name = Some(this.get_node_text(nt_child, offset));
-                                    break;
-                                }
+                            if !is_selected {
+                                ctx.diagnostics.push(Diagnostic {
+                                    range,
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: format!(
+                                        "Required field '{}' must be selected in '... on {}'",
+                                        field_name, type_name
+                                    ),
+                                    code: Some(NumberOrString::String(
+                                        "required_field_missing".to_string(),
+                                    )),
+                                    ..Default::default()
+                                });
                             }
                         }
                     }
-                } else if fchild.kind() == "selection_set" {
-                    sel_set_node = Some(fchild);
                 }
-            }
-
-            if let (Some(tname), Some(sel_set)) = (type_name, sel_set_node)
-                && let Some(type_def) = ctx.schema.types.get(tname.as_str())
-                && let Some(found) = search_in_selection_set(
-                    this,
-                    sel_set,
-                    offset,
-                    target_response_key,
-                    type_def,
-                    ctx,
-                )
-            {
-                return Some(found);
             }
         }
     }
-
-    None
 }
 
 pub(super) fn validate_type_node(
