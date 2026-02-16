@@ -1,8 +1,6 @@
-use serde_json;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tempfile;
 
 #[test]
 #[ntest::timeout(300000)]

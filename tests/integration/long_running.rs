@@ -2,7 +2,6 @@
 //! These tests are marked with #[ignore] as they are slow to run.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 

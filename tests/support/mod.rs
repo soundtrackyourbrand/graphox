@@ -831,20 +831,23 @@ impl TestWorkspace {
 
     /// Copy a directory recursively to the workspace root.
     pub fn copy_from(&self, src: impl AsRef<Path>) {
-        fn copy_recursive(src: &Path, dst: &Path) {
-            fs::create_dir_all(dst).expect("create dir");
-            for entry in fs::read_dir(src).expect("read dir") {
-                let entry = entry.expect("dir entry");
-                let file_type = entry.file_type().expect("file type");
-                if file_type.is_dir() {
-                    copy_recursive(&entry.path(), &dst.join(entry.file_name()));
-                } else {
-                    fs::copy(entry.path(), dst.join(entry.file_name())).expect("copy file");
-                }
-            }
-        }
-        copy_recursive(src.as_ref(), self.tmp.path());
+        copy_dir_all(src.as_ref(), self.tmp.path()).expect("failed to copy directory");
     }
+}
+
+/// Copy a directory recursively from `src` to `dst`.
+pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }
 
 static SCHEMA: OnceLock<Schema> = OnceLock::new();
