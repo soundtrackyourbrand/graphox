@@ -1,11 +1,20 @@
+use crate::support::{
+    create_initialized_lsp_service, lsp_did_open, lsp_request_diagnostics, write_project_file,
+};
 use ahash::AHashMap;
 use apollo_compiler::Schema;
 use graphox::features::diagnostics::DocumentDiagnostics;
 use graphox::{
     Config,
-    config::{RequiredFieldRule, RulesConfig},
+    config::{
+        CodegenConfig, GlobPattern, ProjectConfig, RequiredFieldRule, RulesConfig, SchemaSource,
+    },
 };
-use tower_lsp::lsp_types::DiagnosticSeverity;
+use std::fs;
+use tempfile::TempDir;
+use tower_lsp::lsp_types::{
+    DiagnosticSeverity, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+};
 
 use crate::support::{
     assert_diag_range_equals, assert_diagnostic_severity, assert_diagnostic_with_message,
@@ -598,7 +607,7 @@ fn test_required_field_nested_with_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(200)]
 fn test_required_id_with_fragment_spread() {
     let schema_text = r#"
         type Query {
@@ -671,4 +680,95 @@ fn test_required_id_with_fragment_spread() {
 
     // This should fail (have diagnostics) if the bug exists.
     assert_no_diagnostics(&diagnostics);
+}
+
+#[tokio::test]
+#[ntest::timeout(500)]
+async fn test_required_fields_in_fragment_spread_with_inline_fragment() {
+    let dir = TempDir::new().expect("failed to create tempdir");
+    let schema_text = r#"
+        type Query {
+            node: Node
+        }
+        interface Node {
+            id: ID!
+        }
+        type User implements Node {
+            id: ID!
+            name: String!
+        }
+    "#;
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, schema_text).expect("write schema");
+
+    // Fragment that selects 'name' on 'User' via inline fragment
+    let fragment_text = r#"
+        fragment UserFields on Node {
+            ... on User {
+                name
+            }
+        }
+    "#;
+    let frag_uri = write_project_file(&dir, "fragment.graphql", fragment_text);
+
+    // Query that spreads the fragment
+    let query_text = r#"
+        query GetNode {
+            node {
+                ...UserFields
+            }
+        }
+    "#;
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_rules(
+        RulesConfig::default().with_required_fields(ahash::AHashMap::from([(
+            "name".to_string(),
+            graphox::config::RequiredFieldRule::Always(true),
+        )])),
+    )
+    .with_enable_schema_cache(false)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, fragment_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let mut diagnostics = Vec::new();
+    let start = std::time::Instant::now();
+    while start.elapsed().as_millis() < 200 {
+        let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+        if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+            result
+        {
+            diagnostics = full_report.full_document_diagnostic_report.items;
+            // If we find the specific error, it's a bug
+            if diagnostics
+                .iter()
+                .any(|d| d.message.contains("Required field 'name'"))
+            {
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    let has_error = diagnostics
+        .iter()
+        .any(|d| d.message.contains("Required field 'name'"));
+    assert!(
+        !has_error,
+        "LSP should NOT report missing required field 'name' when selected via fragment spread with inline fragment. Diagnostics: {:?}",
+        diagnostics
+    );
 }

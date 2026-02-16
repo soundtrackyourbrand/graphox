@@ -157,7 +157,10 @@ fn scan_and_index_workspace(
     for project in params.config.projects() {
         for schema_file in project.schema().files() {
             let schema_path = params.config.base_dir().join(schema_file);
-            if let Some(doc) = graphox_core::engine::Engine::parse_doc(&schema_path, params.position_encoding.clone()) {
+            if let Some(doc) = graphox_core::engine::Engine::parse_doc(
+                &schema_path,
+                params.position_encoding.clone(),
+            ) {
                 let uri = doc.uri.clone();
                 if !params.documents.contains_key(&uri) {
                     params.documents.insert(uri, Arc::new(doc));
@@ -169,7 +172,10 @@ fn scan_and_index_workspace(
     for st in params.config.schema_types() {
         for schema_file in st.schema().files() {
             let schema_path = params.config.base_dir().join(schema_file);
-            if let Some(doc) = graphox_core::engine::Engine::parse_doc(&schema_path, params.position_encoding.clone()) {
+            if let Some(doc) = graphox_core::engine::Engine::parse_doc(
+                &schema_path,
+                params.position_encoding.clone(),
+            ) {
                 let uri = doc.uri.clone();
                 if !params.documents.contains_key(&uri) {
                     params.documents.insert(uri, Arc::new(doc));

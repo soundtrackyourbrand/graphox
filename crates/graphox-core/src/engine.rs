@@ -24,6 +24,7 @@ pub struct FragmentMetadata {
     /// Cached transitive fragment dependencies (computed during workspace scan)
     /// Contains all fragment names that this fragment depends on, directly or transitively
     pub transitive_deps: Vec<Arc<str>>,
+    pub type_fields: Vec<(Arc<str>, Arc<str>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +345,7 @@ impl Engine {
                                         masked_source: doc.masked_source.clone(),
                                         direct_deps: frag.used_fragments.clone(),
                                         transitive_deps: Vec::new(),
+                                        type_fields: frag.type_fields.clone(),
                                     });
                                 }
 

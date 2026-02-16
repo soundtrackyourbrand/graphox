@@ -28,8 +28,14 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     );
 
     let mut affected_fragment_names = AHashSet::default();
+    let mut affected_operation_names = AHashSet::default();
     for f in doc.fragments() {
         affected_fragment_names.insert(f.name.clone());
+    }
+    for op in doc.operations() {
+        if let Some(name) = &op.name {
+            affected_operation_names.insert(name.clone());
+        }
     }
 
     // Update performance indices
@@ -51,23 +57,25 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     );
 
     // Update operation names index for duplicate detection
+    backend.clear_operation_names_for_uri(&uri);
     let config = backend.config.read().unwrap().clone();
-    let schema_key: Arc<str> = if let Ok(path) = uri.to_file_path() {
-        if let Some(key) = config.get_schema_for_path(&path) {
-            key.into()
-        } else {
-            "default".into()
-        }
-    } else {
-        "default".into()
-    };
-    for op in doc.operations() {
-        if let Some(name) = &op.name {
-            backend
-                .operation_names
-                .entry(name.clone())
-                .or_default()
-                .push((schema_key.clone(), uri.clone()));
+    if let Ok(path) = uri.to_file_path()
+        && let Some(schema_key) = config.get_schema_for_path(&path)
+    {
+        let project_key = config
+            .get_project_for_path(&path)
+            .map(|p| p.include().as_key())
+            .unwrap_or_else(|| schema_key);
+        let project_key_arc: Arc<str> = project_key.into();
+
+        for op in doc.operations() {
+            if let Some(name) = &op.name {
+                backend
+                    .operation_names
+                    .entry(name.clone())
+                    .or_default()
+                    .push((project_key_arc.clone(), uri.clone()));
+            }
         }
     }
 
@@ -78,8 +86,12 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
 
     backend.documents.insert(uri.clone(), Arc::new(doc));
 
-    let uris_to_validate =
-        backend.get_affected_uris(uri, affected_fragment_names, affected_spread_names);
+    let uris_to_validate = backend.get_affected_uris(
+        uri,
+        affected_fragment_names,
+        affected_spread_names,
+        affected_operation_names,
+    );
     backend.validate_uris(uris_to_validate).await;
 
     // Request throttled codegen if enabled
@@ -103,6 +115,8 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
         PositionEncodingKind::UTF16
     };
 
+    let config = backend.config.read().unwrap().clone();
+
     // Process document changes and update indices
     let change_params = document_changes::DocumentChangeParams {
         documents: &backend.documents,
@@ -111,6 +125,8 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
         package_roots: &backend.package_roots,
         fragment_dependents: &backend.fragment_dependents,
         fragment_definitions: &backend.fragment_definitions,
+        operation_names: &backend.operation_names,
+        config: &config,
         position_encoding,
     };
 

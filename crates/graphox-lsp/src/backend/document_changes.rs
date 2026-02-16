@@ -7,7 +7,7 @@
 use ahash::AHashSet;
 use graphox_core::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
-    FragmentSpreadsMap, PackageRootsMap,
+    FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,6 +26,8 @@ pub struct DocumentChangeParams<'a> {
     pub package_roots: &'a PackageRootsMap,
     pub fragment_dependents: &'a FragmentDependentsMap,
     pub fragment_definitions: &'a FragmentDefinitionsMap,
+    pub operation_names: &'a OperationNamesMap,
+    pub config: &'a graphox_core::Config,
     pub position_encoding: PositionEncodingKind,
 }
 
@@ -38,6 +40,7 @@ pub fn process_document_change(
 ) -> Option<ChangeResult> {
     let mut affected_fragment_names = AHashSet::default();
     let mut old_fragment_names = Vec::new();
+    let mut affected_operation_names = AHashSet::default();
     let old_spreads: Vec<Arc<str>>;
 
     let new_fragments: Vec<graphox_core::document::FragmentDef>;
@@ -113,14 +116,60 @@ pub fn process_document_change(
 
     params.package_roots.insert(uri.clone(), package_root);
 
+    // Update operation names index
+    if let Ok(path) = uri.to_file_path()
+        && let Some(schema_key) = params.config.get_schema_for_path(&path)
+    {
+        let project_key = params
+            .config
+            .get_project_for_path(&path)
+            .map(|p| p.include().as_key())
+            .unwrap_or_else(|| schema_key);
+        let project_key_arc: Arc<str> = project_key.into();
+
+        // Remove old entries for this URI
+        for mut entry in params.operation_names.iter_mut() {
+            let op_name = entry.key().clone();
+            let mut removed = false;
+            entry.value_mut().retain(|(_, op_uri)| {
+                if op_uri == uri {
+                    removed = true;
+                    false
+                } else {
+                    true
+                }
+            });
+            if removed {
+                affected_operation_names.insert(op_name);
+            }
+        }
+        params.operation_names.retain(|_, v| !v.is_empty());
+
+        // Add new entries
+        if let Some(doc) = params.documents.get(uri) {
+            for op in doc.operations() {
+                if let Some(name) = &op.name {
+                    affected_operation_names.insert(name.clone());
+                    params
+                        .operation_names
+                        .entry(name.clone())
+                        .or_default()
+                        .push((project_key_arc.clone(), uri.clone()));
+                }
+            }
+        }
+    }
+
     // Compute affected URIs
     let uris_to_validate = super::validation::get_affected_uris(
         uri.clone(),
         affected_fragment_names,
         affected_spread_names,
+        affected_operation_names,
         params.documents,
         params.fragment_dependents,
         params.fragment_definitions,
+        params.operation_names,
     );
 
     Some(ChangeResult { uris_to_validate })

@@ -82,6 +82,7 @@ pub struct FragmentDef {
     pub used_variables: Vec<Arc<str>>,
     pub used_fragments: Vec<Arc<str>>,
     pub selected_fields: Vec<Arc<str>>,
+    pub type_fields: Vec<(Arc<str>, Arc<str>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -810,24 +811,50 @@ impl DocumentState {
                     }
 
                     let mut selected_fields = Vec::new();
+                    let mut type_fields = Vec::new();
+
                     if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
-                        let mut sel_cursor = sel_set.walk();
-                        for sel_child in sel_set.children(&mut sel_cursor) {
-                            if sel_child.kind() == "selection" {
-                                let mut field_cursor = sel_child.walk();
-                                for field_child in sel_child.children(&mut field_cursor) {
-                                    if field_child.kind() == "field"
-                                        && let Some(name_node) =
-                                            self.find_child_by_kind(field_child, "name")
-                                    {
-                                        selected_fields
-                                            .push(self.get_node_text(name_node, offset).into());
+                        let mut stack = vec![(sel_set, None::<String>)];
+                        while let Some((set, current_tc)) = stack.pop() {
+                            let mut cur = set.walk();
+                            for child in set.children(&mut cur) {
+                                if child.kind() == "selection" {
+                                    let mut inner = child.walk();
+                                    for node in child.children(&mut inner) {
+                                        match node.kind() {
+                                            "field" => {
+                                                if let Some(name_node) =
+                                                    self.find_child_by_kind(node, "name")
+                                                {
+                                                    let fname =
+                                                        self.get_node_text(name_node, offset);
+                                                    if let Some(tc) = &current_tc {
+                                                        type_fields.push((
+                                                            Arc::from(tc.as_str()),
+                                                            Arc::from(fname.as_str()),
+                                                        ));
+                                                    } else {
+                                                        selected_fields
+                                                            .push(Arc::from(fname.as_str()));
+                                                    }
+                                                }
+                                            }
+                                            "inline_fragment" => {
+                                                let tc =
+                                                    self.get_fragment_type_condition(node, offset);
+                                                if let Some(inner_set) =
+                                                    self.find_child_by_kind(node, "selection_set")
+                                                {
+                                                    stack.push((
+                                                        inner_set,
+                                                        tc.or_else(|| current_tc.clone()),
+                                                    ));
+                                                }
+                                            }
+                                            _ => {}
+                                        }
                                     }
                                 }
-                            } else if sel_child.kind() == "field"
-                                && let Some(name_node) = self.find_child_by_kind(sel_child, "name")
-                            {
-                                selected_fields.push(self.get_node_text(name_node, offset).into());
                             }
                         }
                     }
@@ -843,6 +870,7 @@ impl DocumentState {
                             used_variables: Vec::new(),
                             used_fragments: Vec::new(),
                             selected_fields,
+                            type_fields,
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,

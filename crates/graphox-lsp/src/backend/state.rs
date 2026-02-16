@@ -12,7 +12,7 @@ use apollo_compiler::Schema;
 use dashmap::DashMap;
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::{Client, jsonrpc::Result, lsp_types::*};
 
 // Re-export ClientCapabilities for backward compatibility
@@ -208,6 +208,13 @@ impl Backend {
         metadata
     }
 
+    pub fn clear_operation_names_for_uri(&self, uri: &Url) {
+        for mut entry in self.operation_names.iter_mut() {
+            entry.value_mut().retain(|(_, op_uri)| op_uri != uri);
+        }
+        self.operation_names.retain(|_, v| !v.is_empty());
+    }
+
     pub fn invalidate_fragment_cache(&self) {
         if let Ok(mut cache) = self.fragment_metadata_cache.write() {
             *cache = None;
@@ -395,6 +402,10 @@ impl Backend {
         // Clear schema memory and disk cache
         let _ = graphox_core::schema_cache::clear_cache();
 
+        // Clear all internal state
+        self.schemas.clear();
+        self.validated_schemas.clear();
+
         // Clear all documents (including open ones) to ensure full re-load
         self.documents.clear();
 
@@ -406,15 +417,6 @@ impl Backend {
         self.type_caches.clear();
         self.diagnostic_cache.clear();
 
-        // Reload schemas to ensure we have the latest from disk
-        super::schema_management::clear_cache(
-            &config,
-            &self.schemas,
-            &self.validated_schemas,
-            &self.client,
-        )
-        .await;
-
         // Trigger workspace scan to re-index everything
         let (supports_progress, position_encoding) =
             if let Ok(caps) = self.client_capabilities.read() {
@@ -424,8 +426,7 @@ impl Backend {
             };
 
         // Reset workspace_loaded flag
-        self.workspace_loaded
-            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.workspace_loaded.store(false, Ordering::Relaxed);
 
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
@@ -546,7 +547,7 @@ impl Backend {
                                         format!(
                                             "Schema validation failed for project '{}': schema is invalid",
                                             key
-                                        ),
+                                         ),
                                     )
                                     .await;
                             }
@@ -608,8 +609,7 @@ impl Backend {
             };
 
         // Reset workspace_loaded flag
-        self.workspace_loaded
-            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.workspace_loaded.store(false, Ordering::Relaxed);
 
         let scan_config = self.config.read().unwrap().clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
@@ -741,18 +741,20 @@ impl Backend {
         initial_uri: Url,
         affected_fragment_names: AHashSet<Arc<str>>,
         affected_spread_names: AHashSet<Arc<str>>,
+        affected_operation_names: AHashSet<Arc<str>>,
     ) -> Vec<Url> {
         super::validation::get_affected_uris(
             initial_uri,
             affected_fragment_names,
             affected_spread_names,
+            affected_operation_names,
             &self.documents,
             &self.fragment_dependents,
             &self.fragment_definitions,
+            &self.operation_names,
         )
     }
 
-    /// Try to find variable definition location
     pub fn get_preferred_schema_uris(&self, uri: &Url) -> Vec<Url> {
         let mut preferred_uris = Vec::new();
         if let Ok(path) = uri.to_file_path() {
@@ -769,7 +771,6 @@ impl Backend {
         preferred_uris
     }
 
-    /// Try to find fragment definition location
     pub async fn try_goto_fragment_definition(
         &self,
         symbol_name: &Option<String>,
@@ -777,16 +778,13 @@ impl Backend {
     ) -> Option<Location> {
         let name = symbol_name.as_ref()?;
 
-        // Try targeted lookup using the index first
         if let Some(location) = self.lookup_fragment_in_index(name, doc) {
             return Some(location);
         }
 
-        // Fallback to full scan if not in index
         self.scan_all_documents_for_fragment(name, doc).await
     }
 
-    /// Look up fragment definition using the fragment index
     pub fn lookup_fragment_in_index(
         &self,
         name: &str,
@@ -821,13 +819,11 @@ impl Backend {
         None
     }
 
-    /// Scan all documents for fragment definition (fallback)
     pub async fn scan_all_documents_for_fragment(
         &self,
         name: &str,
         doc: &Arc<DocumentState>,
     ) -> Option<Location> {
-        // Only scan if not in index
         if self.fragment_definitions.contains_key(name) {
             return None;
         }
@@ -852,7 +848,6 @@ impl Backend {
         .unwrap()
     }
 
-    /// Check if a fragment is accessible from the current document
     pub fn is_fragment_accessible(
         &self,
         fragment_doc: &Arc<DocumentState>,

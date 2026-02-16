@@ -1,24 +1,33 @@
-//! File change handler module
+//! File system change handling
 //!
-//! This module handles processing file system changes for both schema files
-//! and GraphQL document files, updating indices and triggering validation.
+//! This module handles LSP didChangeWatchedFiles notifications,
+//! processing file creations, changes, and deletions by updating
+//! internal indices and metadata.
 
 use ahash::AHashSet;
-use graphox_core::config::Config;
-use graphox_core::document::{DocumentLanguage, DocumentState};
+use graphox_core::DocumentState;
+use graphox_core::document::DocumentLanguage;
 use graphox_core::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
-use graphox_core::utils::{is_path_ignored, is_relevant_file};
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 
+/// Result of processing a file change
+pub struct FileChangeResult {
+    pub uris_to_validate: Vec<Url>,
+    pub should_reload_schema: bool,
+    pub schema_path: Option<String>,
+    pub should_run_codegen: bool,
+    pub should_reload_config: bool,
+}
+
 /// Parameters for file change processing
 pub struct FileChangeParams<'a> {
     pub client: &'a Client,
-    pub config: &'a Config,
+    pub config: &'a graphox_core::Config,
     pub documents: &'a DocumentsMap,
     pub fragment_defs: &'a FragmentDefsMap,
     pub fragment_spreads: &'a FragmentSpreadsMap,
@@ -30,42 +39,23 @@ pub struct FileChangeParams<'a> {
     pub position_encoding: PositionEncodingKind,
 }
 
-/// Result of processing a file change
-pub struct FileChangeResult {
-    pub uris_to_validate: Vec<Url>,
-    pub should_reload_schema: bool,
-    pub schema_path: Option<String>,
-    pub should_run_codegen: bool,
-    pub should_reload_config: bool,
-}
-
-/// Processes a single file creation or modification
+/// Processes a file creation or change
 pub async fn process_file_created_or_changed(
     change_uri: Url,
     params: &FileChangeParams<'_>,
     normalize_uri: impl Fn(Url) -> Url,
 ) -> Option<FileChangeResult> {
-    let path = match change_uri.to_file_path() {
-        Ok(p) => p,
-        Err(_) => {
-            super::error_logging::log_warning(
-                params.client,
-                "File change handler",
-                format!("Invalid file path in URI: {}", change_uri),
-            )
-            .await;
-            return None;
-        }
-    };
+    let uri = normalize_uri(change_uri);
+    let path = uri.to_file_path().ok()?;
     let path_str = path.to_string_lossy().to_string();
 
-    // Ignore changes to files in output directories to prevent infinite codegen loops
-    if params.config.is_output_file(&path) {
+    // Skip ignored files
+    if graphox_core::utils::is_path_ignored(&path, params.gitignore) {
         return None;
     }
 
-    // Check if this is a config file
-    if is_config_file(&path, params.config) {
+    // Check if this is the config file
+    if is_config_file(&path_str, params.config) {
         return Some(FileChangeResult {
             uris_to_validate: vec![],
             should_reload_schema: false,
@@ -77,15 +67,7 @@ pub async fn process_file_created_or_changed(
 
     let is_schema = is_schema_file(&path_str, params.config);
 
-    // Handle GraphQL document files
-    if !is_relevant_file(&path) || is_path_ignored(&path, params.gitignore) {
-        return None;
-    }
-
-    let uri = normalize_uri(change_uri);
-    let mut affected_fragment_names = AHashSet::default();
-    let mut affected_spread_names = AHashSet::default();
-
+    // Read file content
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
@@ -109,6 +91,10 @@ pub async fn process_file_created_or_changed(
         &content,
         params.position_encoding.clone(),
     );
+
+    let mut affected_fragment_names = AHashSet::default();
+    let mut affected_spread_names = AHashSet::default();
+    let mut affected_operation_names = AHashSet::default();
 
     let old_fragments: Option<Vec<Arc<str>>> = params
         .fragment_defs
@@ -159,67 +145,62 @@ pub async fn process_file_created_or_changed(
         .package_roots
         .insert(uri.clone(), new_doc.package_root.clone());
 
-    update_definition_indices(
+    super::fragment_manager::update_fragment_definitions(
         params.fragment_definitions,
         &uri,
         old_fragments,
         new_fragment_names,
     );
-    update_dependency_indices(params.fragment_dependents, &uri, old_spreads, new_spreads);
+    super::fragment_manager::update_fragment_dependents(
+        params.fragment_dependents,
+        &uri,
+        old_spreads,
+        new_spreads,
+    );
 
     // Update operation name index
     if let Some(schema_key) = params.config.get_schema_for_path(&path) {
+        let project_key = params
+            .config
+            .get_project_for_path(&path)
+            .map(|p| p.include().as_key())
+            .unwrap_or_else(|| schema_key.clone());
+        let project_key_arc: Arc<str> = project_key.into();
+
         // Remove old operations for this URI
-        let mut operations_to_update: Vec<Arc<str>> = Vec::new();
         for mut entry in params.operation_names.iter_mut() {
-            let op_name = entry.key().clone();
             entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
-            if entry.value().is_empty() {
-                operations_to_update.push(op_name);
-            }
         }
-        // Clean up empty entries
-        for op_name in operations_to_update {
-            params.operation_names.remove(&op_name);
-        }
+        params.operation_names.retain(|_, v| !v.is_empty());
 
         // Add new operations
-        // obsolete
         for op in new_doc.operations() {
             if let Some(name) = &op.name {
-                let project_key = params
-                    .config
-                    .get_project_for_path(&path)
-                    .map(|p| p.include().as_key())
-                    .unwrap_or_else(|| schema_key.clone());
-                let project_key_arc: Arc<str> = project_key.into();
+                affected_operation_names.insert(name.clone());
                 params
                     .operation_names
                     .entry(name.clone())
                     .or_default()
-                    .push((project_key_arc, uri.clone()));
+                    .push((project_key_arc.clone(), uri.clone()));
             }
         }
     }
 
-    // Update documents map if we have it
-    if params.documents.contains_key(&uri) {
-        params
-            .documents
-            .insert(uri.clone(), Arc::new(new_doc.clone()));
-    }
+    // Update documents map
+    params.documents.insert(uri.clone(), Arc::new(new_doc));
 
     let uris_to_validate = super::validation::get_affected_uris(
         uri,
         affected_fragment_names,
         affected_spread_names,
+        affected_operation_names,
         params.documents,
         params.fragment_dependents,
         params.fragment_definitions,
+        params.operation_names,
     );
 
-    let should_run_codegen =
-        params.config.lsp_automatic_codegen() && !new_doc.get_graphql_trees().is_empty();
+    let should_run_codegen = !is_schema;
 
     Some(FileChangeResult {
         uris_to_validate,
@@ -233,12 +214,13 @@ pub async fn process_file_created_or_changed(
 /// Processes a file deletion
 pub fn process_file_deleted(
     change_uri: Url,
-    params: &FileChangeParams,
+    params: &FileChangeParams<'_>,
     normalize_uri: impl Fn(Url) -> Url,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
     let mut affected_fragment_names = AHashSet::default();
     let mut affected_spread_names = AHashSet::default();
+    let mut affected_operation_names = AHashSet::default();
 
     let old_fragments = params
         .fragment_defs
@@ -262,29 +244,46 @@ pub fn process_file_deleted(
     params.fragment_defs.remove(&uri);
     params.fragment_spreads.remove(&uri);
     params.package_roots.remove(&uri);
-    update_definition_indices(params.fragment_definitions, &uri, old_fragments, vec![]);
-    update_dependency_indices(params.fragment_dependents, &uri, old_spreads, vec![]);
+    super::fragment_manager::update_fragment_definitions(
+        params.fragment_definitions,
+        &uri,
+        old_fragments,
+        vec![],
+    );
+    super::fragment_manager::update_fragment_dependents(
+        params.fragment_dependents,
+        &uri,
+        old_spreads,
+        vec![],
+    );
 
     // Remove operations from index
-    let mut operations_to_clean: Vec<Arc<str>> = Vec::new();
     for mut entry in params.operation_names.iter_mut() {
         let op_name = entry.key().clone();
-        entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
-        if entry.value().is_empty() {
-            operations_to_clean.push(op_name);
+        let mut removed = false;
+        entry.value_mut().retain(|(_, op_uri)| {
+            if op_uri == &uri {
+                removed = true;
+                false
+            } else {
+                true
+            }
+        });
+        if removed {
+            affected_operation_names.insert(op_name);
         }
     }
-    for op_name in operations_to_clean {
-        params.operation_names.remove(op_name.as_ref());
-    }
+    params.operation_names.retain(|_, v| !v.is_empty());
 
     let uris_to_validate = super::validation::get_affected_uris(
         uri,
         affected_fragment_names,
         affected_spread_names,
+        affected_operation_names,
         params.documents,
         params.fragment_dependents,
         params.fragment_definitions,
+        params.operation_names,
     );
 
     Some(FileChangeResult {
@@ -297,75 +296,22 @@ pub fn process_file_deleted(
 }
 
 /// Checks if a path is the config file
-fn is_config_file(path: &std::path::Path, config: &Config) -> bool {
-    let config_yaml = config.base_dir().join("graphox.yaml");
-    let config_yml = config.base_dir().join("graphox.yml");
-
-    path == config_yaml
-        || path == config_yml
-        || path.canonicalize().ok() == config_yaml.canonicalize().ok()
-        || path.canonicalize().ok() == config_yml.canonicalize().ok()
+fn is_config_file(path: &str, config: &graphox_core::Config) -> bool {
+    let config_path = config.base_dir().join("graphox.yaml");
+    path == config_path.to_string_lossy()
 }
 
 /// Checks if a path is a schema file
-fn is_schema_file(path_str: &str, config: &Config) -> bool {
-    for project in config.projects() {
-        if project.schema().files().iter().any(|f| {
-            let abs = config.base_dir().join(f);
-            abs.to_string_lossy() == path_str
-                || abs
-                    .canonicalize()
-                    .ok()
-                    .map(|p| p.to_string_lossy().to_string())
-                    == Some(path_str.to_string())
-        }) {
-            return true;
-        }
-    }
-
-    for st in config.schema_types() {
-        if st.schema().files().iter().any(|f| {
-            let abs = config.base_dir().join(f);
-            abs.to_string_lossy() == path_str
-                || abs
-                    .canonicalize()
-                    .ok()
-                    .map(|p| p.to_string_lossy().to_string())
-                    == Some(path_str.to_string())
-        }) {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Updates fragment definition indices
-fn update_definition_indices(
-    fragment_definitions: &graphox_core::types::FragmentDefinitionsMap,
-    uri: &Url,
-    old_fragments: Option<Vec<Arc<str>>>,
-    new_fragments: Vec<Arc<str>>,
-) {
-    super::fragment_manager::update_fragment_definitions(
-        fragment_definitions,
-        uri,
-        old_fragments,
-        new_fragments,
-    );
-}
-
-/// Updates fragment dependency indices
-fn update_dependency_indices(
-    fragment_dependents: &graphox_core::types::FragmentDependentsMap,
-    uri: &Url,
-    old_spreads: Option<Vec<Arc<str>>>,
-    new_spreads: Vec<Arc<str>>,
-) {
-    super::fragment_manager::update_fragment_dependents(
-        fragment_dependents,
-        uri,
-        old_spreads,
-        new_spreads,
-    );
+fn is_schema_file(path: &str, config: &graphox_core::Config) -> bool {
+    config.projects().iter().any(|p| {
+        p.schema().files().iter().any(|f| {
+            let abs_schema = config.base_dir().join(f);
+            path == abs_schema.to_string_lossy()
+        })
+    }) || config.schema_types().iter().any(|st| {
+        st.schema().files().iter().any(|f| {
+            let abs_schema = config.base_dir().join(f);
+            path == abs_schema.to_string_lossy()
+        })
+    })
 }

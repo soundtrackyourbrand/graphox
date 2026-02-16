@@ -58,6 +58,7 @@ pub fn collect_fragment_metadata(
                     used_variables: frag.used_variables.clone(),
                     used_fragments: frag.used_fragments.clone(),
                     selected_fields: frag.selected_fields.clone(),
+                    type_fields: frag.type_fields.clone(),
                     requirements: std::collections::BTreeMap::new(),
                 })
                 .collect::<Vec<_>>()
@@ -113,6 +114,7 @@ pub fn collect_fragment_metadata_with_schema(
                             used_variables: frag.used_variables.clone(),
                             used_fragments: frag.used_fragments.clone(),
                             selected_fields: frag.selected_fields.clone(),
+                            type_fields: frag.type_fields.clone(),
                             requirements: std::collections::BTreeMap::new(),
                         },
                         schema_key.clone(),

@@ -14,5 +14,6 @@ pub struct FragmentCompletionInfo {
     pub used_variables: Vec<Arc<str>>,
     pub used_fragments: Vec<Arc<str>>,
     pub selected_fields: Vec<Arc<str>>,
+    pub type_fields: Vec<(Arc<str>, Arc<str>)>,
     pub requirements: std::collections::BTreeMap<Arc<str>, Arc<str>>,
 }

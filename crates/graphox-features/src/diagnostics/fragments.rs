@@ -617,6 +617,19 @@ pub(super) fn mark_selected_fields_recursive(
                     .insert(field.clone());
             }
         }
+        for (tc, field) in &frag.type_fields {
+            ctx.response_key_type_conditions
+                .entry(response_key.to_string().into())
+                .or_default()
+                .insert(tc.clone());
+
+            ctx.type_condition_fields
+                .entry(response_key.to_string().into())
+                .or_default()
+                .entry(tc.clone())
+                .or_default()
+                .insert(field.clone());
+        }
         for spread in &frag.used_fragments {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }
@@ -637,6 +650,19 @@ pub(super) fn mark_selected_fields_recursive(
                     .or_default()
                     .insert(field.clone());
             }
+        }
+        for (tc, field) in &frag.type_fields {
+            ctx.response_key_type_conditions
+                .entry(response_key.to_string().into())
+                .or_default()
+                .insert(tc.clone());
+
+            ctx.type_condition_fields
+                .entry(response_key.to_string().into())
+                .or_default()
+                .entry(tc.clone())
+                .or_default()
+                .insert(field.clone());
         }
         for spread in &frag.used_fragments {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);

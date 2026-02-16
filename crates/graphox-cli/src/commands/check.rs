@@ -52,6 +52,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
                     used_variables: frag.used_variables.clone(),
                     used_fragments: frag.used_fragments.clone(),
                     selected_fields: frag.selected_fields.clone(),
+                    type_fields: frag.type_fields.clone(),
                     requirements: std::collections::BTreeMap::new(),
                 });
             }
@@ -155,6 +156,7 @@ async fn execute_project_check(
                     used_variables: frag.used_variables.clone(),
                     used_fragments: frag.used_fragments.clone(),
                     selected_fields: frag.selected_fields.clone(),
+                    type_fields: frag.type_fields.clone(),
                     requirements: std::collections::BTreeMap::new(),
                 });
             }

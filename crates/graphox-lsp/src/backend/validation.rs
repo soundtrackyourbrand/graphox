@@ -205,17 +205,28 @@ pub async fn validate_all_documents(
     validate_uris(params, all_uris, use_push, diagnostic_cache).await;
 }
 
-/// Computes the set of URIs that need validation based on affected fragments
+/// Computes the set of URIs that need validation based on affected fragments and operations
 pub fn get_affected_uris(
     initial_uri: Url,
     affected_fragment_names: AHashSet<Arc<str>>,
     affected_spread_names: AHashSet<Arc<str>>,
+    affected_operation_names: AHashSet<Arc<str>>,
     documents: &DocumentsMap,
     fragment_dependents: &FragmentDependentsMap,
     fragment_definitions: &FragmentDefinitionsMap,
+    operation_names: &OperationNamesMap,
 ) -> Vec<Url> {
     let mut uris_to_validate = AHashSet::default();
-    uris_to_validate.insert(initial_uri);
+    uris_to_validate.insert(initial_uri.clone());
+
+    // Operation name changes can affect other files with the same name (duplicates)
+    for op_name in affected_operation_names {
+        if let Some(entry) = operation_names.get(&op_name) {
+            for (_, uri) in entry.value() {
+                uris_to_validate.insert(uri.clone());
+            }
+        }
+    }
 
     let mut to_process: Vec<Arc<str>> = affected_fragment_names.into_iter().collect();
     let mut processed_fragments = AHashSet::default();
@@ -357,23 +368,24 @@ fn add_duplicate_operation_diagnostics(
                     });
 
                     // Build list of other files
-                    let other_files: Vec<String> = locations_in_project
+                    let mut other_files: Vec<String> = locations_in_project
                         .iter()
                         .filter(|loc| **loc != uri)
                         .filter_map(|loc| loc.to_file_path().ok())
                         .map(|path| path.display().to_string())
                         .collect();
 
-                    push_duplicate_operation_diagnostic(
-                        diagnostics,
-                        range,
-                        name,
-                        if other_files.is_empty() {
-                            None
-                        } else {
-                            Some(other_files)
-                        },
-                    );
+                    other_files.sort();
+                    other_files.dedup();
+
+                    if !other_files.is_empty() {
+                        push_duplicate_operation_diagnostic(
+                            diagnostics,
+                            range,
+                            name,
+                            Some(other_files),
+                        );
+                    }
 
                     // Only report once per operation name in this file
                     break;
