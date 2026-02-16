@@ -826,3 +826,159 @@ async fn test_required_fields_merging_and_nesting_complex() {
         diagnostics
     );
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_project_level_rules_override_global() {
+    // Bug reproduction: Project-level `required_fields: false` should override global `required_fields`
+    let dir = tempfile::TempDir::new().expect("failed to create tempdir");
+    let schema_text = r#"
+        type Query {
+            users: [User]
+            posts: [Post]
+        }
+        type User {
+            id: ID!
+            name: String!
+        }
+        type Post {
+            id: ID!
+            title: String!
+        }
+    "#;
+    let schema_path = dir.path().join("schema.graphql");
+    std::fs::write(&schema_path, schema_text).expect("write schema");
+
+    // Query that doesn't select 'id' field - should fail with global rules but pass with project override
+    let query_text = r#"
+        query GetUsers {
+            users {
+                name
+            }
+        }
+    "#;
+    let query_uri = crate::support::write_project_file(&dir, "query.graphql", query_text);
+
+    // Create config with:
+    // 1. Global rules: required_fields { id: true } - should require 'id' field
+    // 2. Project rules: required_fields: false - should override global
+    let mut global_required_fields = ahash::AHashMap::default();
+    global_required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            graphox::config::ProjectConfig::default()
+                .with_schema(graphox::config::SchemaSource::Single(
+                    "schema.graphql".to_string(),
+                ))
+                .with_include(graphox::config::GlobPattern::Single(
+                    "**/*.graphql".to_string(),
+                ))
+                .with_rules(
+                    RulesConfig::default().with_required_fields(ahash::AHashMap::default()),
+                ),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_required_fields(global_required_fields))
+    .with_enable_schema_cache(false)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
+
+    crate::support::lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let result = crate::support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    let mut diagnostics = Vec::new();
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+        result
+    {
+        diagnostics = full_report.full_document_diagnostic_report.items;
+    }
+
+    // The project has `required_fields: false` (empty hashmap), so it should override
+    // the global `required_fields: { id: true }` and not report any missing 'id' errors
+    assert!(
+        diagnostics.is_empty(),
+        "Project-level required_fields: false should override global required_fields. Diagnostics: {:?}",
+        diagnostics
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_project_level_rules_without_override_uses_global() {
+    // When project has no rules, it should use global rules
+    let dir = tempfile::TempDir::new().expect("failed to create tempdir");
+    let schema_text = r#"
+        type Query {
+            users: [User]
+            posts: [Post]
+        }
+        type User {
+            id: ID!
+            name: String!
+        }
+        type Post {
+            id: ID!
+            title: String!
+        }
+    "#;
+    let schema_path = dir.path().join("schema.graphql");
+    std::fs::write(&schema_path, schema_text).expect("write schema");
+
+    // Query that doesn't select 'id' field
+    let query_text = r#"
+        query GetUsers {
+            users {
+                name
+            }
+        }
+    "#;
+    let query_uri = crate::support::write_project_file(&dir, "query.graphql", query_text);
+
+    // Create config with global rules but NO project-level rules override
+    let mut global_required_fields = ahash::AHashMap::default();
+    global_required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            graphox::config::ProjectConfig::default()
+                .with_schema(graphox::config::SchemaSource::Single(
+                    "schema.graphql".to_string(),
+                ))
+                .with_include(graphox::config::GlobPattern::Single(
+                    "**/*.graphql".to_string(),
+                )),
+            // No .with_rules() - should use global
+        ],
+    )
+    .with_rules(RulesConfig::default().with_required_fields(global_required_fields))
+    .with_enable_schema_cache(false)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
+
+    crate::support::lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let result = crate::support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    let mut diagnostics = Vec::new();
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+        result
+    {
+        diagnostics = full_report.full_document_diagnostic_report.items;
+    }
+
+    // Without project-level override, global rules should apply and report missing 'id'
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "Should report missing 'id' field when using global rules without project override"
+    );
+    assert!(
+        diagnostics[0].message.contains("Required field 'id'"),
+        "Diagnostic should mention required field 'id': {:?}",
+        diagnostics[0]
+    );
+}

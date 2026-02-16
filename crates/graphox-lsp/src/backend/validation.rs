@@ -136,11 +136,24 @@ pub async fn validate_uris(
                 .get(&doc.package_root)
                 .expect("Package root should be in cache");
 
+            // Use project-specific rules if defined, otherwise fall back to global rules
+            let project_config = uri
+                .to_file_path()
+                .ok()
+                .and_then(|path| params.config.get_project_for_path(&path));
+            let effective_config = if let Some(project) = project_config
+                && let Some(project_rules) = project.rules()
+            {
+                params.config.clone().with_rules(project_rules.clone())
+            } else {
+                params.config.clone()
+            };
+
             let mut diagnostics = doc.get_semantic_diagnostics(
                 &schema,
                 filtered_fragments,
                 Some(&used_fragments),
-                Some(params.config),
+                Some(&effective_config),
                 false,
                 workspace_loaded,
             );

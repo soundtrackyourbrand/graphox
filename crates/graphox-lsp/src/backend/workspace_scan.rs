@@ -564,11 +564,24 @@ async fn validate_all_documents_cancellable(
                         b.is_public.cmp(&a.is_public).reverse()
                     });
 
+                    // Use project-specific rules if defined, otherwise fall back to global rules
+                    let project_config = uri
+                        .to_file_path()
+                        .ok()
+                        .and_then(|path| config_clone.get_project_for_path(&path));
+                    let effective_config = if let Some(project) = project_config
+                        && let Some(project_rules) = project.rules()
+                    {
+                        config_clone.clone().with_rules(project_rules.clone())
+                    } else {
+                        config_clone.clone()
+                    };
+
                     let diagnostics = doc.get_semantic_diagnostics(
                         &schema,
                         &filtered_fragments,
                         Some(&used_fragments_clone),
-                        Some(&config_clone),
+                        Some(&effective_config),
                         false,
                         true,
                     );

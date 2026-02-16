@@ -77,6 +77,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
             &global_used_fragments,
             &global_public_fragments,
             &config,
+            project_config,
             verbose,
             reporter.as_ref(),
         )
@@ -126,6 +127,7 @@ async fn execute_project_check(
     global_used_fragments: &ahash::AHashSet<Arc<str>>,
     global_public_fragments: &[FragmentCompletionInfo],
     config: &Config,
+    project_config: &graphox_core::config::ProjectConfig,
     verbose: bool,
     reporter: &dyn Reporter,
 ) -> bool {
@@ -190,11 +192,21 @@ async fn execute_project_check(
             b_same_pkg.cmp(&a_same_pkg)
         });
 
+        // Use project-specific rules if defined, otherwise fall back to global rules
+        let project_rules = project_config.rules();
+        let effective_config = if project_rules.is_some() {
+            config
+                .clone()
+                .with_rules(project_rules.cloned().unwrap_or_default())
+        } else {
+            config.clone()
+        };
+
         let diagnostics = doc.get_semantic_diagnostics(
             &valid_schema,
             &available_fragments,
             Some(global_used_fragments),
-            Some(config),
+            Some(&effective_config),
             verbose,
             true,
         );

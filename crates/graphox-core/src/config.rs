@@ -79,6 +79,35 @@ impl RulesConfig {
     pub fn no_unused_fragments(&self) -> bool {
         self.no_unused_fragments.unwrap_or(false)
     }
+
+    pub fn from_yaml(node: &Yaml) -> Option<Self> {
+        if node.is_null() || node.is_badvalue() {
+            return None;
+        }
+
+        let mut rules = RulesConfig::default();
+
+        if let Some(rf_hash) = node["required_fields"].as_hash() {
+            let mut required_fields = AHashMap::default();
+            for (k, v) in rf_hash {
+                if let (Some(k), Some(rule)) = (k.as_str(), RequiredFieldRule::from_yaml(v)) {
+                    required_fields.insert(k.to_string(), rule);
+                }
+            }
+            rules.required_fields = Some(required_fields);
+        }
+
+        // Handle `required_fields: false` shorthand to disable all required fields
+        if let Some(false) = node["required_fields"].as_bool() {
+            rules.required_fields = Some(AHashMap::default());
+        }
+
+        rules.unique_operation_name = node["unique_operation_name"].as_bool();
+        rules.no_duplicate_fields = node["no_duplicate_fields"].as_bool();
+        rules.no_unused_fragments = node["no_unused_fragments"].as_bool();
+
+        Some(rules)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -649,6 +678,7 @@ pub struct ProjectConfig {
     codegen: Option<CodegenConfig>,
     possible_types: Option<PathBuf>,
     type_policies: Option<PathBuf>,
+    rules: Option<RulesConfig>,
 }
 
 impl ProjectConfig {
@@ -713,6 +743,15 @@ impl ProjectConfig {
 
     pub fn type_policies(&self) -> Option<&Path> {
         self.type_policies.as_deref()
+    }
+
+    pub fn with_rules(mut self, rules: RulesConfig) -> Self {
+        self.rules = Some(rules);
+        self
+    }
+
+    pub fn rules(&self) -> Option<&RulesConfig> {
+        self.rules.as_ref()
     }
 }
 
@@ -1223,6 +1262,7 @@ impl Config {
                 let codegen_config = CodegenConfig::from_yaml(&p_node["codegen"]);
                 let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
                 let type_policies = p_node["type_policies"].as_str().map(PathBuf::from);
+                let rules = RulesConfig::from_yaml(&p_node["rules"]);
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -1234,6 +1274,7 @@ impl Config {
                     codegen: codegen_config,
                     possible_types,
                     type_policies,
+                    rules,
                 });
             }
         }
