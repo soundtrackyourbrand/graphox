@@ -254,7 +254,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         .par_iter()
         .enumerate()
         .filter_map(|(project_index, project)| {
-            if !project.codegen_enabled() && !clean {
+            if !cfg.get_project_codegen_enabled(project) && !clean {
                 return None;
             }
 
@@ -370,7 +370,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         }
     }
 
-    if !schema_types.is_empty() {
+    if !schema_types.is_empty() && (clean || cfg.codegen().is_enabled()) {
         let schema_results: Vec<_> = schema_types
             .par_iter()
             .map(|st| {

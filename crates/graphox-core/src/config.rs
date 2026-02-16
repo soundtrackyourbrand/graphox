@@ -702,15 +702,6 @@ impl ProjectConfig {
         self.import.as_deref()
     }
 
-    pub fn codegen_enabled(&self) -> bool {
-        self.codegen_enabled.unwrap_or_else(|| {
-            self.codegen
-                .as_ref()
-                .map(|c| c.is_enabled())
-                .unwrap_or(true)
-        })
-    }
-
     pub fn codegen(&self) -> &CodegenConfig {
         static DEFAULT: LazyLock<CodegenConfig> = LazyLock::new(CodegenConfig::default);
         self.codegen.as_ref().unwrap_or(&DEFAULT)
@@ -922,7 +913,13 @@ impl Config {
     }
 
     pub fn get_project_codegen_enabled(&self, project: &ProjectConfig) -> bool {
-        project.codegen_enabled()
+        project.codegen_enabled.unwrap_or_else(|| {
+            project
+                .codegen
+                .as_ref()
+                .and_then(|c| c.enabled)
+                .unwrap_or_else(|| self.codegen().is_enabled())
+        })
     }
 
     pub fn get_emit_extensions(&self, project: &ProjectConfig) -> EmitExtensions {
@@ -980,7 +977,7 @@ impl Config {
     }
 
     pub fn lsp_automatic_codegen(&self) -> bool {
-        self.lsp_automatic_codegen.unwrap_or(true)
+        self.codegen().is_enabled() && self.lsp_automatic_codegen.unwrap_or(true)
     }
 
     pub fn lsp_codegen_throttle_ms(&self) -> u64 {

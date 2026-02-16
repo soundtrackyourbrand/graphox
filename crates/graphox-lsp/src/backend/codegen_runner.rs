@@ -41,7 +41,7 @@ pub async fn run_codegen(
     let total_projects = config
         .projects()
         .iter()
-        .filter(|p: &&graphox_core::config::ProjectConfig| p.codegen_enabled())
+        .filter(|p: &&graphox_core::config::ProjectConfig| config.get_project_codegen_enabled(p))
         .count();
     let mut current_project = 0;
     let mut project_operations_list = Vec::new();
@@ -50,7 +50,7 @@ pub async fn run_codegen(
     // Generate types for each project
     for (project, project_meta) in config.projects().iter().zip(&workspace_metadata.projects) {
         // Skip projects with codegen disabled
-        if !project.codegen_enabled() {
+        if !config.get_project_codegen_enabled(project) {
             project_operations_list.push(Vec::new());
             continue;
         }
@@ -300,7 +300,7 @@ pub async fn run_codegen(
         .zip(project_operations_list)
         .zip(project_fragments_list)
     {
-        if !project.codegen_enabled() {
+        if !config.get_project_codegen_enabled(project) {
             continue;
         }
         let out_dir = project.output_dir().unwrap_or("__generated__");
