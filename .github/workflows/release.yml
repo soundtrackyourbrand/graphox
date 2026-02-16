@@ -181,7 +181,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: swc-wasm
-          path: plugins/swc/node/wasm/graphox_swc_plugin.wasm
+          path: plugins/swc/node/wasm/
           retention-days: 1
 
   build-vscode-extension:
@@ -214,6 +214,8 @@ jobs:
       - name: Package extension
         working-directory: editors/vscode
         run: pnpm run package
+        env:
+          VSCE_PACKAGE_MANAGER: pnpm
 
       - name: Upload VSCode Extension Artifact
         uses: actions/upload-artifact@v4
@@ -323,7 +325,7 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@soundtrack'
 
-      - name: Configure package version
+      - name: Sync package version
         working-directory: npm/graphox-cli
         run: |
           VERSION=${{ needs.create-release.outputs.version }}
@@ -331,9 +333,11 @@ jobs:
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           pkg.version = '$VERSION';
-          Object.keys(pkg.optionalDependencies).forEach(dep => {
-            pkg.optionalDependencies[dep] = '$VERSION';
-          });
+          if (pkg.optionalDependencies) {
+            Object.keys(pkg.optionalDependencies).forEach(dep => {
+              pkg.optionalDependencies[dep] = '$VERSION';
+            });
+          }
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
@@ -381,19 +385,18 @@ jobs:
         working-directory: plugins/swc/node
         run: pnpm run build
 
-      - name: Configure package for GitHub Packages
+      - name: Sync package version
         working-directory: plugins/swc/node
         run: |
-          # Update package name to include scope for GitHub Packages
+          VERSION=${{ needs.create-release.outputs.version }}
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@soundtrack/graphox-swc';
-          pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
+          pkg.version = '$VERSION';
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
-      - name: Publish SWC Plugin to GitHub Packages
+      - name: Publish SWC Plugin
         working-directory: plugins/swc/node
         run: pnpm publish --no-git-checks
         env:
@@ -421,19 +424,18 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@soundtrack'
 
-      - name: Configure package for GitHub Packages
+      - name: Sync package version
         working-directory: plugins/babel
         run: |
-          # Update package name to include scope for GitHub Packages
+          VERSION=${{ needs.create-release.outputs.version }}
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@soundtrack/graphox-babel';
-          pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
+          pkg.version = '$VERSION';
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
-      - name: Publish Babel Plugin to GitHub Packages
+      - name: Publish Babel Plugin
         working-directory: plugins/babel
         run: pnpm publish --no-git-checks
         env:
@@ -451,16 +453,13 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Display structure of downloaded artifacts
-        run: ls -R ./artifacts
-
       - name: Upload Assets to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref }}
           files: |
             ./artifacts/binary-*/*
-            ./artifacts/swc-wasm/*
+            ./artifacts/swc-wasm/*.wasm
             ./artifacts/vscode-extension/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

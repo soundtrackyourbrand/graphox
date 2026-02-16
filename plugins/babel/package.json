@@ -1,7 +1,17 @@
 {
   "name": "@soundtrack/graphox-babel",
   "version": "0.1.0",
+  "description": "Babel plugin for Graphox codesplitting",
   "main": "index.js",
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soundtrack/graphox.git",
+    "directory": "plugins/babel"
+  },
   "scripts": {
     "test": "vitest run"
   },

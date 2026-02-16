@@ -59,7 +59,7 @@ jobs:
 
       - name: Run Integration Tests
         working-directory: plugins/swc/rust
-        run: cargo test --test swc_cli --include-ignored
+        run: cargo test --test swc_cli --ignored
 
       - name: Build WASM
         working-directory: plugins/swc/node

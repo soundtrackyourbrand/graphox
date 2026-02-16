@@ -4,6 +4,7 @@
   "description": "GraphQL Language Server and Codegen",
   "version": "0.1.4",
   "publisher": "soundtrack",
+  "packageManager": "pnpm@9.15.4",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -58,7 +59,7 @@
     "vscode:prepublish": "pnpm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package --packageManager pnpm --skip-license",
+    "package": "vsce package --skip-license",
     "install-local": "code --install-extension graphox-*.vsix",
     "build:dev": "cargo build -p graphox",
     "build:release": "cargo build -p graphox --release"
