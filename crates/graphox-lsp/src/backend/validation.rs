@@ -162,7 +162,7 @@ pub async fn validate_uris(
         if use_push {
             params
                 .client
-                .publish_diagnostics(uri, diagnostics, None)
+                .publish_diagnostics(uri, diagnostics, Some(version))
                 .await;
         }
 

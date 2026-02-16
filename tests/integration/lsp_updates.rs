@@ -654,3 +654,235 @@ async fn test_lsp_fragment_rename_cross_project() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(2000)]
+async fn test_lsp_diagnostics_cleared_after_fix() {
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file("query.graphql", "query { me { id id } }");
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = graphox::Config::new_test(
+        base_dir.clone(),
+        vec![
+            graphox::config::ProjectConfig::default()
+                .with_schema(graphox::config::SchemaSource::Single(
+                    "schema.graphql".to_string(),
+                ))
+                .with_include(graphox::config::GlobPattern::Single(
+                    "**/*.graphql".to_string(),
+                ))
+                .with_codegen(graphox::config::CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false)
+    .with_rules(graphox::config::RulesConfig::default().with_no_duplicate_fields(true));
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let received_diags_clone = received_diags.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
+            }
+        }
+    });
+
+    lsp_initialize_sequence(&mut service).await;
+
+    let query_path = base_dir.join("query.graphql");
+    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let query_text = "query { me { id id } }";
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        diags.iter().any(|d| {
+            d["uri"] == query_uri.as_str() && !d["diagnostics"].as_array().unwrap().is_empty()
+        })
+    })
+    .await;
+
+    {
+        let diags = received_diags.lock().unwrap();
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received diagnostics for query");
+        let d_list = query_diag["diagnostics"].as_array().unwrap();
+        assert!(!d_list.is_empty(), "Should have duplicate field error");
+        assert!(
+            d_list[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Duplicate field"),
+            "Error message should mention duplicate field"
+        );
+    }
+
+    let query_text_fixed = "query { me { id } }";
+    let params = DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: query_uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: query_text_fixed.to_string(),
+        }],
+    };
+    lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
+
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if let Some(d) = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()) {
+            d["diagnostics"].as_array().unwrap().is_empty()
+        } else {
+            false
+        }
+    })
+    .await;
+
+    {
+        let diags = received_diags.lock().unwrap();
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received cleared diagnostics");
+        assert!(
+            query_diag["diagnostics"].as_array().unwrap().is_empty(),
+            "Diagnostics should be cleared after fixing duplicate field"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(2000)]
+async fn test_lsp_fragment_error_cleared_after_fix() {
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file("query.graphql", "query { me { ...UserFields } }");
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = graphox::Config::new_test(
+        base_dir.clone(),
+        vec![
+            graphox::config::ProjectConfig::default()
+                .with_schema(graphox::config::SchemaSource::Single(
+                    "schema.graphql".to_string(),
+                ))
+                .with_include(graphox::config::GlobPattern::Single(
+                    "**/*.graphql".to_string(),
+                ))
+                .with_codegen(graphox::config::CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let received_diags_clone = received_diags.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
+            }
+        }
+    });
+
+    lsp_initialize_sequence(&mut service).await;
+
+    let query_path = base_dir.join("query.graphql");
+    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let query_text = "query { me { ...UserFields } }";
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        diags.iter().any(|d| {
+            d["uri"] == query_uri.as_str() && !d["diagnostics"].as_array().unwrap().is_empty()
+        })
+    })
+    .await;
+
+    {
+        let diags = received_diags.lock().unwrap();
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received diagnostics for query");
+        let d_list = query_diag["diagnostics"].as_array().unwrap();
+        assert!(!d_list.is_empty(), "Should have unknown fragment error");
+        assert!(
+            d_list[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown fragment"),
+            "Error message should mention unknown fragment"
+        );
+    }
+
+    let fragment_path = base_dir.join("fragment.graphql");
+    let fragment_text = "fragment UserFields on User { id name }";
+
+    fs::write(&fragment_path, fragment_text).unwrap();
+    let fragment_uri = Url::from_file_path(fs::canonicalize(&fragment_path).unwrap()).unwrap();
+
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
+
+    let _ = support::wait_for_condition(|| {
+        let diags = received_diags.lock().unwrap();
+        if let Some(d) = diags.iter().rev().find(|d| d["uri"] == query_uri.as_str()) {
+            d["diagnostics"].as_array().unwrap().is_empty()
+        } else {
+            false
+        }
+    })
+    .await;
+
+    {
+        let diags = received_diags.lock().unwrap();
+        let query_diag = diags
+            .iter()
+            .rev()
+            .find(|d| d["uri"] == query_uri.as_str())
+            .expect("Should have received cleared diagnostics");
+        assert!(
+            query_diag["diagnostics"].as_array().unwrap().is_empty(),
+            "Diagnostics should be cleared after creating the fragment"
+        );
+    }
+}

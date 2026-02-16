@@ -418,116 +418,119 @@ async fn validate_all_documents_cancellable(
     let public_fragment_indices_clone = public_fragment_indices.clone();
     let cancelled_clone = cancelled.clone();
 
-    let to_publish: Vec<(Url, Vec<Diagnostic>)> = match tokio::task::spawn_blocking(move || {
-        docs_to_validate
-            .into_par_iter()
-            .enumerate()
-            .map(|(idx, (uri, doc)): (usize, (Url, Arc<DocumentState>))| {
-                // Check cancellation periodically (every 100 documents)
-                if idx > 0 && idx % 100 == 0 && cancelled_clone.load(Ordering::Relaxed) {
-                    return (uri, Vec::new());
-                }
+    let to_publish: Vec<(Url, i32, Vec<Diagnostic>)> =
+        match tokio::task::spawn_blocking(move || {
+            docs_to_validate
+                .into_par_iter()
+                .enumerate()
+                .map(|(idx, (uri, doc)): (usize, (Url, Arc<DocumentState>))| {
+                    // Check cancellation periodically (every 100 documents)
+                    if idx > 0 && idx % 100 == 0 && cancelled_clone.load(Ordering::Relaxed) {
+                        return (uri, doc.version, Vec::new());
+                    }
 
-                // Get schema for doc
-                let (schema_key, schema): (
-                    Option<String>,
-                    Arc<apollo_compiler::validation::Valid<Schema>>,
-                ) = if let Ok(path) = uri.to_file_path()
-                    && let Some(schema_path) = config_clone.get_schema_for_path(&path)
-                    && let Some(schema) = validated_schemas_map_clone.get(&schema_path)
-                {
-                    (Some(schema_path), schema.clone())
-                } else {
-                    (None, valid_empty_schema_clone.clone())
-                };
+                    // Get schema for doc
+                    let (schema_key, schema): (
+                        Option<String>,
+                        Arc<apollo_compiler::validation::Valid<Schema>>,
+                    ) = if let Ok(path) = uri.to_file_path()
+                        && let Some(schema_path) = config_clone.get_schema_for_path(&path)
+                        && let Some(schema) = validated_schemas_map_clone.get(&schema_path)
+                    {
+                        (Some(schema_path), schema.clone())
+                    } else {
+                        (None, valid_empty_schema_clone.clone())
+                    };
 
-                // FAST FRAGMENT LOOKUP using pre-built indices (O(1) instead of O(M))
-                // Collect relevant fragments: same package, same project, or public
-                let mut relevant_frags: Vec<usize> = Vec::with_capacity(64);
-                let doc_pkg_key = doc
-                    .package_root
-                    .as_ref()
-                    .map(|p: &PathBuf| p.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                    // FAST FRAGMENT LOOKUP using pre-built indices (O(1) instead of O(M))
+                    // Collect relevant fragments: same package, same project, or public
+                    let mut relevant_frags: Vec<usize> = Vec::with_capacity(64);
+                    let doc_pkg_key = doc
+                        .package_root
+                        .as_ref()
+                        .map(|p: &PathBuf| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
 
-                // Same package
-                if let Some(pkg_frags) = fragments_by_package_clone.get(&doc_pkg_key) {
-                    relevant_frags.extend(pkg_frags.iter().copied());
-                }
+                    // Same package
+                    if let Some(pkg_frags) = fragments_by_package_clone.get(&doc_pkg_key) {
+                        relevant_frags.extend(pkg_frags.iter().copied());
+                    }
 
-                // Same project (different package but same schema_key)
-                if let Some(ref sk) = schema_key {
-                    let sk_arc: Arc<str> = sk.as_str().into();
-                    if let Some(project_frags) = fragments_by_schema_key_clone.get(&Some(sk_arc)) {
-                        for &idx in project_frags {
-                            if !relevant_frags.contains(&idx) {
-                                relevant_frags.push(idx);
+                    // Same project (different package but same schema_key)
+                    if let Some(ref sk) = schema_key {
+                        let sk_arc: Arc<str> = sk.as_str().into();
+                        if let Some(project_frags) =
+                            fragments_by_schema_key_clone.get(&Some(sk_arc))
+                        {
+                            for &idx in project_frags {
+                                if !relevant_frags.contains(&idx) {
+                                    relevant_frags.push(idx);
+                                }
                             }
                         }
                     }
-                }
 
-                // Add public fragments (if not already included)
-                for &pub_idx in &public_fragment_indices_clone {
-                    if !relevant_frags.contains(&pub_idx) {
-                        relevant_frags.push(pub_idx);
-                    }
-                }
-
-                // Clone only the fragments we actually need (reduced from M to ~few dozen)
-                let mut filtered_fragments: Vec<FragmentCompletionInfo> = relevant_frags
-                    .iter()
-                    .map(|&idx| all_fragments_info_clone[idx].0.clone())
-                    .collect();
-
-                // If there are duplicate fragment names, prioritize the one in the same package,
-                // then same project, then public.
-                filtered_fragments.sort_by(|a, b| {
-                    let a_same_pkg = graphox_core::utils::paths_match(
-                        a.package_root.as_deref(),
-                        doc.package_root.as_deref(),
-                    );
-                    let b_same_pkg = graphox_core::utils::paths_match(
-                        b.package_root.as_deref(),
-                        doc.package_root.as_deref(),
-                    );
-
-                    if a_same_pkg != b_same_pkg {
-                        return b_same_pkg.cmp(&a_same_pkg);
+                    // Add public fragments (if not already included)
+                    for &pub_idx in &public_fragment_indices_clone {
+                        if !relevant_frags.contains(&pub_idx) {
+                            relevant_frags.push(pub_idx);
+                        }
                     }
 
-                    b.is_public.cmp(&a.is_public).reverse()
-                });
+                    // Clone only the fragments we actually need (reduced from M to ~few dozen)
+                    let mut filtered_fragments: Vec<FragmentCompletionInfo> = relevant_frags
+                        .iter()
+                        .map(|&idx| all_fragments_info_clone[idx].0.clone())
+                        .collect();
 
-                let diagnostics = doc.get_semantic_diagnostics(
-                    &schema,
-                    &filtered_fragments,
-                    Some(&used_fragments_clone),
-                    Some(&config_clone),
-                    false,
-                    true,
-                );
+                    // If there are duplicate fragment names, prioritize the one in the same package,
+                    // then same project, then public.
+                    filtered_fragments.sort_by(|a, b| {
+                        let a_same_pkg = graphox_core::utils::paths_match(
+                            a.package_root.as_deref(),
+                            doc.package_root.as_deref(),
+                        );
+                        let b_same_pkg = graphox_core::utils::paths_match(
+                            b.package_root.as_deref(),
+                            doc.package_root.as_deref(),
+                        );
 
-                // Increment progress
-                validated_count_clone.fetch_add(1, Ordering::Relaxed);
+                        if a_same_pkg != b_same_pkg {
+                            return b_same_pkg.cmp(&a_same_pkg);
+                        }
 
-                (uri, diagnostics)
-            })
-            .collect()
-    })
-    .await
-    {
-        Ok(res) => res,
-        Err(_) => {
-            // Task was cancelled or panicked
-            return;
-        }
-    };
+                        b.is_public.cmp(&a.is_public).reverse()
+                    });
+
+                    let diagnostics = doc.get_semantic_diagnostics(
+                        &schema,
+                        &filtered_fragments,
+                        Some(&used_fragments_clone),
+                        Some(&config_clone),
+                        false,
+                        true,
+                    );
+
+                    // Increment progress
+                    validated_count_clone.fetch_add(1, Ordering::Relaxed);
+
+                    (uri, doc.version, diagnostics)
+                })
+                .collect()
+        })
+        .await
+        {
+            Ok(res) => res,
+            Err(_) => {
+                // Task was cancelled or panicked
+                return;
+            }
+        };
 
     // Abort the progress task once validation is done
     progress_task.abort();
 
-    for (u, d) in to_publish {
-        client.publish_diagnostics(u, d, None).await;
+    for (u, v, d) in to_publish {
+        client.publish_diagnostics(u, d, Some(v)).await;
     }
 }
