@@ -177,5 +177,10 @@ pub const GQL_MERGE_QUERY: &str = r#"
         (type_extension (scalar_type_extension (name) @name))
         (type_extension (union_type_extension (name) @name))
         (type_extension (input_object_type_extension (name) @name))
+
+        (schema_definition) @schema_def
+        (root_operation_type_definition 
+            (operation_type) @operation
+            (named_type (name) @named_type)) @root_op
     ] @type_def
 "#;

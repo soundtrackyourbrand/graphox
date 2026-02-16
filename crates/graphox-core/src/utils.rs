@@ -354,6 +354,8 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
     let total_len: usize = texts.iter().map(|s| s.len() + 1).sum();
     let mut merged = String::with_capacity(total_len);
     let mut seen_base = ahash::AHashSet::default();
+    let mut seen_schema = false;
+    let mut seen_root_ops = ahash::AHashSet::default();
 
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = tree_sitter_graphql::LANGUAGE.into();
@@ -375,6 +377,10 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
     });
     let name_idx = query.capture_index_for_name("name").unwrap();
     let type_def_idx = query.capture_index_for_name("type_def").unwrap();
+    let schema_def_idx = query.capture_index_for_name("schema_def").unwrap();
+    let operation_idx = query.capture_index_for_name("operation").unwrap();
+    let named_type_idx = query.capture_index_for_name("named_type").unwrap();
+    let root_op_idx = query.capture_index_for_name("root_op").unwrap();
     let mut cursor = tree_sitter::QueryCursor::new();
 
     for text in texts {
@@ -387,31 +393,147 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
         };
         let root = tree.root_node();
 
-        let mut matches = cursor.matches(query, root, text.as_bytes());
+        // One pass to collect all info
+        let mut collected_matches = Vec::new();
+        {
+            let mut matches_iter = cursor.matches(query, root, text.as_bytes());
+            while let Some(m) = matches_iter.next() {
+                let mut name_node = None;
+                let mut container_node = None;
+                let mut is_schema_def = false;
+                let mut is_root_op = false;
+                let mut operation_node = None;
+                let mut named_type_node = None;
 
-        let mut modifications = Vec::new();
+                for cap in m.captures {
+                    if cap.index == name_idx {
+                        name_node = Some(cap.node);
+                    } else if cap.index == type_def_idx {
+                        container_node = Some(cap.node);
+                    } else if cap.index == schema_def_idx {
+                        is_schema_def = true;
+                    } else if cap.index == root_op_idx {
+                        is_root_op = true;
+                    } else if cap.index == operation_idx {
+                        operation_node = Some(cap.node);
+                    } else if cap.index == named_type_idx {
+                        named_type_node = Some(cap.node);
+                    }
+                }
 
-        while let Some(m) = matches.next() {
-            let mut name_node = None;
-            let mut container_node = None;
-            for cap in m.captures {
-                if cap.index == name_idx {
-                    name_node = Some(cap.node);
-                } else if cap.index == type_def_idx {
-                    container_node = Some(cap.node);
+                if let Some(container) = container_node {
+                    collected_matches.push((
+                        container,
+                        is_schema_def,
+                        is_root_op,
+                        name_node,
+                        operation_node,
+                        named_type_node,
+                    ));
                 }
             }
+        }
 
-            if let (Some(name_node), Some(container_node)) = (name_node, container_node) {
+        let mut modifications = Vec::new();
+        let mut schema_block_indices = Vec::new();
+
+        // Map root ops to their containing schema blocks
+        for (idx, (container, is_schema, _, _, _, _)) in collected_matches.iter().enumerate() {
+            if *is_schema {
+                schema_block_indices.push((
+                    idx,
+                    container.start_byte(),
+                    container.end_byte(),
+                    Vec::new(),
+                ));
+            }
+        }
+
+        for (idx, (container, _, is_root_op, _, _, _)) in collected_matches.iter().enumerate() {
+            if *is_root_op {
+                for block in schema_block_indices.iter_mut() {
+                    if container.start_byte() >= block.1 && container.end_byte() <= block.2 {
+                        block.3.push(idx);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut root_ops_to_remove = ahash::AHashSet::default();
+        let mut handled_schema_blocks = ahash::AHashSet::default();
+
+        for (m_idx, (container, is_schema, is_root_op, name_node, _op_node, _ty_node)) in
+            collected_matches.iter().enumerate()
+        {
+            if *is_schema {
+                if handled_schema_blocks.contains(&m_idx) {
+                    continue;
+                }
+
+                let block = schema_block_indices.iter().find(|b| b.0 == m_idx).unwrap();
+                let mut unique_ops_in_block = Vec::new();
+                for &r_idx in &block.3 {
+                    let (_, _, _, _, o_n, t_n) = &collected_matches[r_idx];
+                    if let (Some(o_n), Some(t_n)) = (o_n, t_n) {
+                        let op = &text[o_n.start_byte()..o_n.end_byte()];
+                        let ty = &text[t_n.start_byte()..t_n.end_byte()];
+                        if !seen_root_ops.contains(&(op.to_string(), ty.to_string())) {
+                            unique_ops_in_block.push(r_idx);
+                        } else {
+                            root_ops_to_remove.insert(r_idx);
+                        }
+                    }
+                }
+
+                if unique_ops_in_block.is_empty() && !block.3.is_empty() {
+                    // Entire schema block is redundant
+                    modifications.push((
+                        container.start_byte(),
+                        container.end_byte(),
+                        "".to_string(),
+                    ));
+                } else if seen_schema {
+                    // Convert to extend schema
+                    modifications.push((
+                        container.start_byte(),
+                        container.start_byte() + 6,
+                        "extend schema".to_string(),
+                    ));
+                    for &r_idx in &unique_ops_in_block {
+                        let (_, _, _, _, o_n, t_n) = &collected_matches[r_idx];
+                        let op = &text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()];
+                        let ty = &text[t_n.unwrap().start_byte()..t_n.unwrap().end_byte()];
+                        seen_root_ops.insert((op.to_string(), ty.to_string()));
+                    }
+                } else {
+                    seen_schema = true;
+                    for &r_idx in &unique_ops_in_block {
+                        let (_, _, _, _, o_n, t_n) = &collected_matches[r_idx];
+                        let op = &text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()];
+                        let ty = &text[t_n.unwrap().start_byte()..t_n.unwrap().end_byte()];
+                        seen_root_ops.insert((op.to_string(), ty.to_string()));
+                    }
+                }
+                handled_schema_blocks.insert(m_idx);
+            } else if *is_root_op {
+                if root_ops_to_remove.contains(&m_idx) {
+                    modifications.push((
+                        container.start_byte(),
+                        container.end_byte(),
+                        "".to_string(),
+                    ));
+                }
+            } else if let Some(name_node) = name_node {
                 let name = &text[name_node.start_byte()..name_node.end_byte()];
-                let is_extension = container_node.kind() == "type_extension";
+                let is_extension = container.kind() == "type_extension";
 
                 if !is_extension {
                     if seen_base.contains(name) {
-                        let is_scalar = container_node.kind() == "scalar_type_definition";
+                        let is_scalar = container.kind() == "scalar_type_definition";
                         let mut has_directives = false;
-                        let mut cursor = container_node.walk();
-                        for child in container_node.children(&mut cursor) {
+                        let mut cursor = container.walk();
+                        for child in container.children(&mut cursor) {
                             if child.kind() == "directives" {
                                 has_directives = true;
                                 break;
@@ -419,30 +541,23 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                         }
 
                         if is_scalar && !has_directives {
-                            // Just remove duplicate scalar with no directives as \"extend scalar Name\" is invalid without directives
                             modifications.push((
-                                container_node.start_byte(),
-                                container_node.end_byte(),
+                                container.start_byte(),
+                                container.end_byte(),
                                 "".to_string(),
                             ));
                         } else {
-                            // We need to convert this to an extension.
-                            // We must skip any description or comments that come before the keyword.
-                            let mut insert_pos = container_node.start_byte();
-
-                            let mut cursor = container_node.walk();
-                            for child in container_node.children(&mut cursor) {
+                            let mut insert_pos = container.start_byte();
+                            let mut cursor = container.walk();
+                            for child in container.children(&mut cursor) {
                                 let kind = child.kind();
                                 if kind != "description" && kind != "comment" {
                                     insert_pos = child.start_byte();
                                     break;
                                 }
                             }
-
-                            // We replace the range from container start to keyword start with \"extend \"
-                            // This effectively strips the description from the extension.
                             modifications.push((
-                                container_node.start_byte(),
+                                container.start_byte(),
                                 insert_pos,
                                 "extend ".to_string(),
                             ));
@@ -457,6 +572,9 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
         modifications.sort_by_key(|m| m.0);
         let mut current_pos = 0;
         for (start, end, replacement) in modifications {
+            if start < current_pos {
+                continue;
+            }
             merged.push_str(&text[current_pos..start]);
             merged.push_str(&replacement);
             current_pos = end;
@@ -590,6 +708,28 @@ pub fn normalize_line_endings(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ntest::timeout(3000)]
+    fn test_merge_schema_texts_multiple_schema_blocks() {
+        let schema1 = "schema { query: Query } type Query { foo: String }".to_string();
+        let schema2 = "schema { query: Query } type Query { bar: String }".to_string();
+        let merged = merge_schema_texts(&[schema1, schema2]);
+        assert!(merged.contains("schema { query: Query }"));
+        assert!(!merged.contains("extend schema { query: Query }")); // should be removed as redundant
+        assert!(merged.contains("type Query { foo: String }"));
+        assert!(merged.contains("extend type Query { bar: String }"));
+    }
+
+    #[test]
+    #[ntest::timeout(3000)]
+    fn test_merge_schema_texts_multiple_query() {
+        let schema1 = "type Query { foo: String }".to_string();
+        let schema2 = "type Query { bar: String }".to_string();
+        let merged = merge_schema_texts(&[schema1, schema2]);
+        assert!(merged.contains("type Query { foo: String }"));
+        assert!(merged.contains("extend type Query { bar: String }"));
+    }
 
     #[test]
     #[ntest::timeout(100)]
