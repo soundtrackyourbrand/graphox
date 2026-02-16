@@ -72,7 +72,6 @@ pub async fn create_initialized_lsp_service_with_socket(
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
     let (mut service, socket) = LspService::new(|client| LspBackend::new(client, config));
-    lsp_initialize_sequence(&mut service).await;
 
     let (tx, rx) = unbounded_channel();
     // Spawn a task that forwards raw Incoming messages into a serde_json::Value
@@ -85,6 +84,8 @@ pub async fn create_initialized_lsp_service_with_socket(
             let _ = tx.send(json);
         }
     });
+
+    lsp_initialize_sequence(&mut service).await;
 
     (service, UnboundedReceiverStream::new(rx))
 }

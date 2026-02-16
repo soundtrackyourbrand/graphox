@@ -6,6 +6,7 @@ mod completion;
 mod completion_filtering;
 mod concurrent_operations;
 mod config_reload;
+mod config_reload_preserves_state;
 mod cross_file_def;
 mod document_highlight;
 mod duplicate_operations;

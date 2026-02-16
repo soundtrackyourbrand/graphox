@@ -519,8 +519,66 @@ impl Backend {
         self.validated_schemas.clear();
         graphox_core::schema_cache::clear_memory_cache();
 
+        // Reload schemas from the new configuration
+        {
+            let config = self.config.read().unwrap().clone();
+            self.client
+                .log_message(MessageType::INFO, "Reloading schemas...")
+                .await;
+
+            for project in config.projects() {
+                let key = project.schema().as_key();
+                // Avoid reloading same schema multiple times if shared across projects
+                if !self.schemas.contains_key(&key) {
+                    match Self::load_schema_source(config.base_dir(), project.schema()) {
+                        Some(schema) => {
+                            if let Ok(valid) = (*schema).clone().validate() {
+                                self.validated_schemas.insert(key.clone(), Arc::new(valid));
+                            } else {
+                                self.client
+                                    .log_message(
+                                        MessageType::ERROR,
+                                        format!(
+                                            "Schema validation failed for project '{}': schema is invalid",
+                                            key
+                                        ),
+                                    )
+                                    .await;
+                            }
+                            self.schemas.insert(key, schema);
+                        }
+                        None => {
+                            self.client
+                                .log_message(
+                                    MessageType::ERROR,
+                                    format!(
+                                        "Failed to load schema for project '{}': files missing or invalid",
+                                        key
+                                    ),
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Preserve open documents to keep unsaved changes and ensure they are re-validated
+        // with the new configuration.
+        let open_docs: Vec<_> = self
+            .documents
+            .iter()
+            .filter(|entry| self.open_documents.contains(entry.key()))
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
+
         // Clear all documents
         self.documents.clear();
+
+        // Restore open documents
+        for (uri, doc) in open_docs {
+            self.documents.insert(uri, doc);
+        }
 
         self.fragment_defs.clear();
         self.fragment_spreads.clear();
