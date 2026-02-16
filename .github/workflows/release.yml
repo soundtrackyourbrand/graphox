@@ -35,7 +35,6 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: create-release
     runs-on: ${{ matrix.os }}
-    fail-fast: true
     strategy:
       matrix:
         include:
