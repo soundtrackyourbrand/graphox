@@ -6,6 +6,7 @@ import plugin from './index.js';
 function transform(code, options, filename = 'test.ts') {
   const result = babel.transformSync(code, {
     plugins: [[plugin, options]],
+    presets: ['@babel/preset-typescript'],
     filename: path.resolve(filename),
     babelrc: false,
     configFile: false,
@@ -33,7 +34,7 @@ describe('@soundtrack/graphox-babel', () => {
 
     expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
     expect(output).toContain('const q = MyQueryDocument;');
-    expect(output).not.toContain('import { graphql }');
+    expect(output).not.toContain('from "./gen/graphql"');
   });
 
   it('transforms multiple calls', () => {
@@ -63,14 +64,15 @@ describe('@soundtrack/graphox-babel', () => {
     expect(output).toContain('const q2 = GetOtherDocument;');
   });
 
-  it('handles mixed imports correctly', () => {
+  it('removes all imports from graphql.ts including unknown specifiers', () => {
     const code = "import { graphql, other } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
     const output = transform(code, defaultOptions);
 
     expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
-    expect(output).toMatch(/import \{ other \} from ['"].\/gen\/graphql['"]/);
+    expect(output).not.toContain('from "./gen/graphql"');
     expect(output).not.toContain('graphql,');
     expect(output).not.toContain(', graphql');
+    expect(output).not.toContain('other');
   });
 
   it('resolves relative paths correctly', () => {
@@ -88,7 +90,6 @@ describe('@soundtrack/graphox-babel', () => {
     const code = "import { graphql } from '../gen/graphql'; const q = graphql(`query { me { id } }`);";
     const output = transform(code, options, filename);
 
-    // /root/gen/src/query.codegen relative to /root/app/ is ../gen/src/query.codegen
     expect(output).toContain('import { MyQueryDocument } from "../gen/src/query.codegen";');
   });
 
@@ -98,7 +99,7 @@ describe('@soundtrack/graphox-babel', () => {
 
     expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
     expect(output).toContain('const q = MyQueryDocument;');
-    expect(output).not.toContain('import { gql }');
+    expect(output).not.toContain('from "./gen/graphql"');
   });
 
   it('is whitespace insensitive (normalization)', () => {
@@ -152,5 +153,105 @@ describe('@soundtrack/graphox-babel', () => {
     expect(output).toContain('export const graphql = () => null;');
     expect(output).toContain('export const gql = graphql;');
     expect(output).not.toContain('big map');
+  });
+
+  describe('re-exported document imports', () => {
+    const reExportManifest = [
+      {
+        source: 'query GetUser { user { id } }',
+        path: './user.codegen',
+        name: 'GetUserDocument',
+      },
+      {
+        source: 'query GetPost { post { id } }',
+        path: './post.codegen',
+        name: 'GetPostDocument',
+      },
+    ];
+
+    const reExportOptions = {
+      manifestData: reExportManifest,
+      outputDir: './gen',
+    };
+
+    it('rewrites single document name import from graphql entrypoint', () => {
+      const code = "import { GetUserDocument } from './gen/graphql'; console.log(GetUserDocument);";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).not.toContain("from './gen/graphql'");
+      expect(output).toContain('console.log(GetUserDocument);');
+    });
+
+    it('rewrites multiple document name imports to correct codegen files', () => {
+      const code = "import { GetUserDocument, GetPostDocument } from './gen/graphql';";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).toContain("import { GetPostDocument } from \"./gen/post.codegen\";");
+      expect(output).not.toContain("from './gen/graphql'");
+    });
+
+    it('removes graphql import alongside document imports', () => {
+      const code = "import { GetUserDocument, graphql } from './gen/graphql';";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).not.toContain("from './gen/graphql'");
+      expect(output).not.toContain('graphql');
+    });
+
+    it('removes non-document imports while rewriting document imports', () => {
+      const code = "import { GetUserDocument, SomeOtherType } from './gen/graphql';";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).not.toContain("from './gen/graphql'");
+      expect(output).not.toContain('SomeOtherType');
+    });
+
+    it('removes type-only imports (they dont exist in minified JS)', () => {
+      const code = "import type { GetUserDocument } from './gen/graphql';";
+      const output = transform(code, reExportOptions);
+
+      // Type-only imports are removed entirely since they don't exist in minified JS
+      expect(output).not.toContain("from './gen/graphql'");
+      expect(output).not.toContain('GetUserDocument');
+    });
+
+    it('removes inline type specifiers from mixed imports', () => {
+      const code = "import { GetUserDocument, type GetPostDocument } from './gen/graphql';";
+      const output = transform(code, reExportOptions);
+
+      // Only GetUserDocument (non-type) is kept and rewritten
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      // GetPostDocument with inline type is removed
+      expect(output).not.toContain("GetPostDocument");
+      expect(output).not.toContain("from './gen/graphql'");
+    });
+
+    it('rewrites imports from index.ts barrel file', () => {
+      const code = "import { GetUserDocument } from './gen/index';";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).not.toContain("from './gen/index'");
+    });
+
+    it('rewrites imports from index.ts with extension', () => {
+      const code = "import { GetUserDocument } from './gen/index.ts';";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).not.toContain("from './gen/index");
+    });
+
+    it('handles aliased document imports', () => {
+      const code = "import { GetUserDocument as MyUserDoc } from './gen/graphql'; console.log(MyUserDoc);";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument as MyUserDoc } from \"./gen/user.codegen\";");
+      expect(output).toContain('console.log(MyUserDoc);');
+    });
   });
 });

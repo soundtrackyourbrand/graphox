@@ -37,14 +37,20 @@ module.exports = function (babel) {
           }
 
           const manifest = new Map();
+          const documentNameToEntry = new Map();
           for (const entry of entries) {
             manifest.set(normalize(entry.source), entry);
+            if (entry.name) {
+              documentNameToEntry.set(entry.name, entry);
+            }
           }
 
           const currentFile = state.file.opts.filename;
           const absoluteOutputDir = path.resolve(outputDir);
+          const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
           const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
 
+          // If processing the entrypoint itself, clear it
           if (currentFile) {
             const currentFileNoExt = currentFile.replace(/\.(js|ts)x?$/, '');
             if (currentFileNoExt === absoluteEntrypointPath) {
@@ -68,36 +74,51 @@ module.exports = function (babel) {
           }
 
           const isOurGraphqlPath = (src) => {
-            // 1. Check explicit config paths
             if (graphqlImportPaths.includes(src)) return true;
             const srcNoExt = src.replace(/\.(js|ts)x?$/, '');
             if (graphqlImportPaths.includes(srcNoExt)) return true;
 
-            // 2. Check for subpath imports starting with # if they contain 'graphql'
             if (src.startsWith('#') && src.includes('graphql')) return true;
 
-            // 3. Fallback to relative path detection
             if (currentFile && (src.startsWith('.') || src.startsWith('/'))) {
               const absoluteSrc = path.resolve(path.dirname(currentFile), srcNoExt);
-              return absoluteSrc === absoluteEntrypointPath;
+              return absoluteSrc === absoluteEntrypointPath || absoluteSrc === absoluteIndexPath;
             }
 
             return false;
           };
 
           const graphqlIds = new Set();
-          const newImports = new Map(); // localName -> sourcePath
+          // newImports stores: localName -> { sourcePath, importedName }
+          // importedName is needed for aliased imports like { GetUserDocument as MyDoc }
+          const newImports = new Map();
 
-          // First pass: identify imports
+          // First pass: identify imports from our graphql.ts or index.ts
           programPath.traverse({
             ImportDeclaration(importPath) {
               const src = importPath.node.source.value;
               if (isOurGraphqlPath(src)) {
+                const importIsTypeOnly = importPath.node.importKind === 'type';
                 importPath.get('specifiers').forEach((specifier) => {
                   if (specifier.isImportSpecifier()) {
-                    const importedName = specifier.node.imported.name;
+                    // Handle both Identifier and StringLiteral for imported name
+                    const importedName = t.isIdentifier(specifier.node.imported) 
+                      ? specifier.node.imported.name 
+                      : specifier.node.imported.value;
+                    const localName = specifier.node.local.name;
+                    const specifierIsTypeOnly = specifier.node.importKind === 'type' || importIsTypeOnly;
+                    
                     if (importedName === 'graphql' || importedName === 'gql') {
-                      graphqlIds.add(specifier.scope.getBinding(specifier.node.local.name));
+                      graphqlIds.add(specifier.scope.getBinding(localName));
+                    } else if (documentNameToEntry.has(importedName) && !specifierIsTypeOnly) {
+                      // Only rewrite non-type-only imports of document names
+                      const entry = documentNameToEntry.get(importedName);
+                      const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
+                      let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
+                      if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+                        relPath = './' + relPath;
+                      }
+                      newImports.set(localName, { sourcePath: relPath, importedName });
                     }
                   }
                 });
@@ -105,7 +126,7 @@ module.exports = function (babel) {
             },
           });
 
-          // Second pass: transform calls
+          // Second pass: transform graphql() calls
           programPath.traverse({
             CallExpression(callPath) {
               const callee = callPath.get('callee');
@@ -133,7 +154,7 @@ module.exports = function (babel) {
                         relPath = './' + relPath;
                       }
 
-                      newImports.set(entry.name, relPath);
+                      newImports.set(entry.name, { sourcePath: relPath, importedName: entry.name });
                       callPath.replaceWith(t.identifier(entry.name));
                     }
                   }
@@ -142,36 +163,25 @@ module.exports = function (babel) {
             },
           });
 
-          // Third pass: remove imports and add new ones
+          // Third pass: remove ALL imports from graphql.ts/index.ts
           programPath.traverse({
             ImportDeclaration(importPath) {
               const src = importPath.node.source.value;
               if (isOurGraphqlPath(src)) {
-                const specifiers = importPath.get('specifiers');
-                specifiers.forEach((specifier) => {
-                  if (specifier.isImportSpecifier()) {
-                    const binding = specifier.scope.getBinding(specifier.node.local.name);
-                    if (graphqlIds.has(binding)) {
-                      specifier.remove();
-                    }
-                  }
-                });
-
-                if (importPath.node.specifiers.length === 0) {
-                  importPath.remove();
-                }
+                importPath.remove();
               }
             },
           });
 
-          // Add new imports at the top
+          // Add new imports at the top (sorted alphabetically by local name)
           const sortedNewImports = Array.from(newImports.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-          for (const [localName, sourcePath] of sortedNewImports) {
+          for (const [localName, { sourcePath, importedName }] of sortedNewImports) {
+            const specifier = t.importSpecifier(
+              t.identifier(localName),
+              t.identifier(importedName)
+            );
             programPath.node.body.unshift(
-              t.importDeclaration(
-                [t.importSpecifier(t.identifier(localName), t.identifier(localName))],
-                t.stringLiteral(sourcePath)
-              )
+              t.importDeclaration([specifier], t.stringLiteral(sourcePath))
             );
           }
         },

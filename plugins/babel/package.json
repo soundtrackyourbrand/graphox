@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
+    "@babel/preset-typescript": "^7.28.5",
     "vitest": "^1.0.0"
   }
 }

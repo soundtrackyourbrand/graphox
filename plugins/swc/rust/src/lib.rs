@@ -28,11 +28,13 @@ pub struct ManifestEntry {
 
 pub struct TransformVisitor {
     manifest: HashMap<String, ManifestEntry>,
+    name_to_entry: HashMap<String, ManifestEntry>,
     output_dir: PathBuf,
     current_file: Option<PathBuf>,
     new_imports: HashMap<String, String>, // local_name -> source_path
     graphql_ids: std::collections::HashSet<Id>,
     graphql_import_paths: Vec<String>,
+    document_name_imports: HashMap<Id, String>, // local_name id -> source_path (non-type-only only)
 }
 
 fn normalize(s: &str) -> String {
@@ -52,17 +54,21 @@ impl TransformVisitor {
         };
 
         let mut manifest = HashMap::new();
+        let mut name_to_entry = HashMap::new();
         for entry in entries {
-            manifest.insert(normalize(&entry.source), entry);
+            manifest.insert(normalize(&entry.source), entry.clone());
+            name_to_entry.insert(entry.name.clone(), entry);
         }
 
         Self {
             manifest,
+            name_to_entry,
             output_dir: PathBuf::from(&config.output_dir),
             current_file: current_file.map(PathBuf::from),
             new_imports: HashMap::new(),
             graphql_ids: std::collections::HashSet::new(),
             graphql_import_paths: config.graphql_import_paths.clone().unwrap_or_default(),
+            document_name_imports: HashMap::new(),
         }
     }
 
@@ -84,7 +90,6 @@ impl TransformVisitor {
     }
 
     fn is_our_graphql_path(&self, src: &str) -> bool {
-        // 1. Check explicit config paths
         for path in &self.graphql_import_paths {
             if src == path
                 || src.strip_suffix(".js") == Some(path)
@@ -96,20 +101,25 @@ impl TransformVisitor {
             }
         }
 
-        // 2. Check for subpath imports starting with # if they contain 'graphql'
         if src.starts_with('#') && src.contains("graphql") {
             return true;
         }
 
-        // 3. Fallback to relative path detection
         if let Some(current_file) = &self.current_file {
             let entrypoint_abs_path = self.output_dir.join("graphql");
+            let index_abs_path = self.output_dir.join("index");
             if let Some(parent) = current_file.parent()
                 && let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent)
+                && let Some(rel_index_path) = pathdiff::diff_paths(&index_abs_path, parent)
             {
                 let mut s = rel_path.to_string_lossy().to_string();
                 if !s.starts_with('.') && !s.starts_with('/') {
                     s = format!("./{}", s);
+                }
+
+                let mut s_index = rel_index_path.to_string_lossy().to_string();
+                if !s_index.starts_with('.') && !s_index.starts_with('/') {
+                    s_index = format!("./{}", s_index);
                 }
 
                 let src_normalized = src
@@ -122,8 +132,13 @@ impl TransformVisitor {
                     .unwrap_or(&s)
                     .strip_suffix(".ts")
                     .unwrap_or(&s);
+                let our_index_normalized = s_index
+                    .strip_suffix(".js")
+                    .unwrap_or(&s_index)
+                    .strip_suffix(".ts")
+                    .unwrap_or(&s_index);
 
-                return src_normalized == our_normalized;
+                return src_normalized == our_normalized || src_normalized == our_index_normalized;
             }
         }
         false
@@ -207,16 +222,29 @@ impl VisitMut for TransformVisitor {
             }
         }
 
-        // First pass: identify imports from our graphql.ts
+        // First pass: identify imports from our graphql.ts or index.ts
         for item in &n.body {
             if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
                 let src = import.src.value.as_str().unwrap_or("");
                 if self.is_our_graphql_path(src) {
+                    let import_is_type_only = import.type_only;
                     for specifier in &import.specifiers {
-                        if let ImportSpecifier::Named(named) = specifier
-                            && (named.local.sym == "graphql" || named.local.sym == "gql")
-                        {
-                            self.graphql_ids.insert(named.local.to_id());
+                        if let ImportSpecifier::Named(named) = specifier {
+                            let name = named.local.sym.as_str();
+                            let specifier_is_type_only = import_is_type_only || named.is_type_only;
+
+                            if name == "graphql" || name == "gql" {
+                                self.graphql_ids.insert(named.local.to_id());
+                            } else if self.name_to_entry.contains_key(name)
+                                && !specifier_is_type_only
+                            {
+                                // Only track non-type-only imports of document names
+                                // Type-only imports are removed (they don't exist in minified JS)
+                                let entry = self.name_to_entry.get(name).unwrap();
+                                let rel_path = self.get_relative_import_path(&entry.path);
+                                self.document_name_imports
+                                    .insert(named.local.to_id(), rel_path);
+                            }
                         }
                     }
                 }
@@ -225,22 +253,24 @@ impl VisitMut for TransformVisitor {
 
         n.visit_mut_children_with(self);
 
+        // Add document name imports to new_imports
+        for (id, path) in self.document_name_imports.iter() {
+            let name = id.0.as_str();
+            self.new_imports.insert(name.to_string(), path.clone());
+        }
+
+        // Remove ALL imports from graphql.ts/index.ts (it's cleared to stubs)
         n.body.retain_mut(|item| {
             if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
                 let src = import.src.value.as_str().unwrap_or("");
                 if self.is_our_graphql_path(src) {
-                    import.specifiers.retain(|specifier| match specifier {
-                        ImportSpecifier::Named(named) => {
-                            !self.graphql_ids.contains(&named.local.to_id())
-                        }
-                        _ => true,
-                    });
-                    return !import.specifiers.is_empty();
+                    return false;
                 }
             }
             true
         });
 
+        // Add new imports at the top (sorted alphabetically)
         let mut imports: Vec<_> = self.new_imports.iter().collect();
         imports.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -451,10 +481,9 @@ mod tests {
         );
 
         assert!(output.contains("import { MyQueryDocument } from \"./query.codegen\";"));
-        assert!(output.contains("import { other } from './graphql';"));
+        assert!(!output.contains("other"));
+        assert!(!output.contains("from './graphql'"));
         assert!(output.contains("const q = MyQueryDocument;"));
-        assert!(!output.contains("graphql,"));
-        assert!(!output.contains(" graphql "));
     }
 
     #[test]
@@ -642,5 +671,198 @@ mod tests {
         assert!(output.contains("export const graphql = ()=>null"));
         assert!(output.contains("export const gql = graphql"));
         assert!(!output.contains("big map"));
+    }
+
+    #[test]
+    fn test_document_name_import_single() {
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "GetUserQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import { GetUserQueryDocument } from '../gen/graphql'; const doc = GetUserQueryDocument;",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(!output.contains("from '../gen/graphql'"));
+        assert!(output.contains("const doc = GetUserQueryDocument;"));
+    }
+
+    #[test]
+    fn test_document_name_import_multiple() {
+        let manifest = vec![
+            ManifestEntry {
+                source: "query GetUser { user { id } }".to_string(),
+                path: "./user.codegen".to_string(),
+                name: "GetUserQueryDocument".to_string(),
+            },
+            ManifestEntry {
+                source: "query GetPost { post { title } }".to_string(),
+                path: "./post.codegen".to_string(),
+                name: "GetPostQueryDocument".to_string(),
+            },
+        ];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import { GetUserQueryDocument, GetPostQueryDocument } from '../gen/graphql';",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/user.codegen\";"));
+        assert!(output.contains("import { GetPostQueryDocument } from \"../gen/post.codegen\";"));
+        assert!(!output.contains("from '../gen/graphql'"));
+    }
+
+    #[test]
+    fn test_document_name_mixed_imports() {
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "GetUserQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import { GetUserQueryDocument, OtherType } from '../gen/graphql';",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(!output.contains("OtherType"));
+        assert!(!output.contains("from '../gen/graphql'"));
+    }
+
+    #[test]
+    fn test_document_name_type_only_import_removed() {
+        // Type-only imports are removed entirely since they don't exist in minified JS
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "GetUserQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import type { GetUserQueryDocument } from '../gen/graphql';",
+            config,
+            "/root/app/test.ts",
+        );
+
+        // Type-only imports are removed entirely
+        assert!(!output.contains("GetUserQueryDocument"));
+        assert!(!output.contains("from '../gen/graphql'"));
+    }
+
+    #[test]
+    fn test_document_name_import_from_index() {
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "GetUserQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import { GetUserQueryDocument } from '../gen/index'; const doc = GetUserQueryDocument;",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(!output.contains("from '../gen/index'"));
+        assert!(output.contains("const doc = GetUserQueryDocument;"));
+    }
+
+    #[test]
+    fn test_document_name_with_type_specifier() {
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "GetUserQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import { GetUserQueryDocument, type GetUserQuery } from '../gen/graphql';",
+            config,
+            "/root/app/test.ts",
+        );
+
+        // GetUserQueryDocument (non-type) is rewritten
+        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
+        // GetUserQuery (inline type) is removed
+        assert!(!output.contains("type GetUserQuery"));
+        assert!(!output.contains("type GetUserQuery"));
+        assert!(!output.contains("from '../gen/graphql'"));
+    }
+
+    #[test]
+    fn test_document_name_and_graphql_function() {
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "GetUserQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+        };
+
+        let output = transform(
+            "import { graphql, GetUserQueryDocument } from '../gen/graphql'; const q = graphql(`query GetUser { user { id } }`);",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(!output.contains("from '../gen/graphql'"));
+        assert!(output.contains("const q = GetUserQueryDocument;"));
     }
 }
