@@ -14,6 +14,7 @@ mod duplicate_operations_cross_project;
 mod extended_references;
 mod folding_ranges;
 mod format;
+mod fragment_shadowing;
 mod goto_definition;
 mod goto_type_definition;
 mod hover;

@@ -129,6 +129,47 @@ pub async fn handle_references(
 
             // Fallback to name-based references for other symbol types
             if let Some(name) = symbol_name {
+                if let Some(target_def) = backend.lookup_fragment_in_index(&name, &doc) {
+                    let mut relevant_uris = std::collections::HashSet::new();
+                    if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
+                        for u in def_uris.iter() {
+                            relevant_uris.insert(u.clone());
+                        }
+                    }
+                    if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
+                        for u in dep_uris.iter() {
+                            relevant_uris.insert(u.clone());
+                        }
+                    }
+
+                    let all_references: Vec<Location> = relevant_uris
+                        .iter()
+                        .par_bridge()
+                        .filter_map(|u| backend.documents.get(u).map(|d| d.value().clone()))
+                        .flat_map(|other_doc| {
+                            let refs =
+                                other_doc.find_references_in_tree(&name, include_declaration);
+                            refs.into_iter()
+                                .filter(|_| {
+                                    if let Some(resolved) =
+                                        backend.lookup_fragment_in_index(&name, &other_doc)
+                                    {
+                                        return resolved.uri == target_def.uri
+                                            && resolved.range == target_def.range;
+                                    }
+                                    false
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect();
+
+                    return Ok(if all_references.is_empty() {
+                        None
+                    } else {
+                        Some(all_references)
+                    });
+                }
+
                 if name.starts_with('$') {
                     let mut all_refs =
                         doc.find_variable_references(&name, position, include_declaration);
@@ -443,6 +484,61 @@ pub async fn handle_rename(
 
             if let Some(name) = symbol_name {
                 let mut changes = std::collections::HashMap::new();
+
+                if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone())
+                    && let Some(target_def) = backend.lookup_fragment_in_index(&name, &doc)
+                {
+                    let mut relevant_uris = std::collections::HashSet::new();
+                    if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
+                        for uri in def_uris.iter() {
+                            relevant_uris.insert(uri.clone());
+                        }
+                    }
+                    if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
+                        for uri in dep_uris.iter() {
+                            relevant_uris.insert(uri.clone());
+                        }
+                    }
+
+                    for other_uri in relevant_uris {
+                        if let Some(other_doc) =
+                            backend.documents.get(&other_uri).map(|r| r.value().clone())
+                        {
+                            let refs = other_doc.find_references_in_tree(&name, true);
+                            let filtered_refs: Vec<Location> = refs
+                                .into_iter()
+                                .filter(|_| {
+                                    if let Some(resolved) =
+                                        backend.lookup_fragment_in_index(&name, &other_doc)
+                                    {
+                                        return resolved.uri == target_def.uri
+                                            && resolved.range == target_def.range;
+                                    }
+                                    false
+                                })
+                                .collect();
+
+                            if !filtered_refs.is_empty() {
+                                let edits: Vec<TextEdit> = filtered_refs
+                                    .into_iter()
+                                    .map(|loc| TextEdit {
+                                        range: loc.range,
+                                        new_text: new_name.clone(),
+                                    })
+                                    .collect();
+                                changes.insert(other_uri.clone(), edits);
+                            }
+                        }
+                    }
+                    return Ok(if changes.is_empty() {
+                        None
+                    } else {
+                        Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        })
+                    });
+                }
 
                 if name.starts_with('$') {
                     if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {

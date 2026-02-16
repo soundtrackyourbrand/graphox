@@ -788,17 +788,31 @@ impl Backend {
         doc: &Arc<DocumentState>,
     ) -> Option<Location> {
         let uris = self.fragment_definitions.get(name)?;
-
+        let mut potentials = Vec::new();
         for other_uri in uris.iter() {
-            let other_doc = self.documents.get(other_uri).map(|r| r.value().clone())?;
-
-            if self.is_fragment_accessible(&other_doc, doc, name)
-                && let Some(location) = other_doc.find_definition_in_tree(name)
-            {
-                return Some(location);
+            if let Some(other_doc) = self.documents.get(other_uri).map(|r| r.value().clone()) {
+                let is_same_pkg = graphox_core::utils::paths_match(
+                    other_doc.package_root.as_deref(),
+                    doc.package_root.as_deref(),
+                );
+                let is_pub = other_doc
+                    .fragments()
+                    .iter()
+                    .any(|f| f.name.as_ref() == name && f.is_public);
+                if is_same_pkg || is_pub {
+                    potentials.push((is_same_pkg, is_pub, other_doc));
+                }
             }
         }
-
+        potentials.sort_by(|a, b| {
+            if a.0 != b.0 {
+                return b.0.cmp(&a.0);
+            }
+            b.1.cmp(&a.1)
+        });
+        if let Some((_, _, best_doc)) = potentials.first() {
+            return best_doc.find_definition_in_tree(name);
+        }
         None
     }
 

@@ -181,7 +181,7 @@ async fn test_cross_project_references_and_rename() {
 #[tokio::test]
 #[ntest::timeout(3000)]
 async fn test_unrelated_projects_rename_isolation() {
-    // This test documents that CURRENTLY rename is workspace-wide and NOT isolated by project/package
+    // This test documents that rename is isolated by project/package
     // if the fragment names match.
     let dir = tempdir().unwrap();
     let base_dir = dir.path();
@@ -311,7 +311,6 @@ async fn test_unrelated_projects_rename_isolation() {
     let edit = result.expect("Expected WorkspaceEdit");
     let changes = edit.changes.expect("Expected changes");
 
-    // CURRENT BEHAVIOR: It renames BOTH because it's workspace-wide by name
     assert!(changes.contains_key(&p1_uri));
-    assert!(changes.contains_key(&p2_uri));
+    assert!(!changes.contains_key(&p2_uri));
 }
