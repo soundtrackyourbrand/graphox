@@ -121,12 +121,20 @@ git commit -m "chore: bump version to $NEW_VERSION"
 # Create and push tag
 git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
 
-echo ""
 echo "Version bumped to $NEW_VERSION"
 echo "Changes committed and tagged as v$NEW_VERSION"
 echo ""
+
+PUSH_CMD="git push && git push origin v$NEW_VERSION"
+
+# Copy to clipboard using OSC 52 if supported by terminal
+if [ -t 1 ]; then
+    printf "\033]52;c;$(printf "%s" "$PUSH_CMD" | base64 | tr -d '\n')\a"
+    echo "(Command copied to clipboard)"
+fi
+
 echo "To push to remote, run:"
-echo "  git push && git push origin v$NEW_VERSION"
+echo "  $PUSH_CMD"
 echo ""
 echo "Or to push everything at once:"
 echo "  git push && git push --tags"
