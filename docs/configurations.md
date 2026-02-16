@@ -703,7 +703,9 @@ projects:
 
 ## Ignoring Deprecations
 
-Suppress warnings for deprecated fields or types.
+Suppress warnings for deprecated fields or types. You can ignore deprecations globally via configuration or on a case-by-case basis using comments.
+
+### Global Configuration
 
 ```yaml
 # graphox.yaml
@@ -717,6 +719,21 @@ projects:
     include: "src/**/*.{ts,tsx}"
     output_dir: "__generated__"
 ```
+
+### Inline Comments
+
+You can also ignore specific instances of deprecated fields by adding a `# graphox-ignore` comment on the same line as the field in your GraphQL operation.
+
+```graphql
+query GetUser {
+  user {
+    id
+    deprecatedField # graphox-ignore
+  }
+}
+```
+
+This is particularly useful when you have a justified use of a deprecated field but want to maintain warnings for the rest of your codebase.
 
 ---
 

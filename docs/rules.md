@@ -164,5 +164,6 @@ rules:
 
 ## See Also
 
+- [Ignoring Deprecations](./configurations.md#ignoring-deprecations)
 - [Configuration](./configurations.md)
-- [Troubleshooting](./troubleshooting.md)
+- [Architecture](./architecture.md)

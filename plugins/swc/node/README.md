@@ -129,4 +129,4 @@ pnpm test
 
 - [Babel Plugin](../babel/README.md)
 - [graphox CLI](../../README.md)
-- [Plugin Development Guide](../../docs/development.md)
+- [Plugin Development Guide](../../../docs/plugin-development.md)

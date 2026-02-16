@@ -4,8 +4,8 @@ This guide covers how to develop, test, and contribute to the Graphox build tool
 
 ## Quick Links
 
-- [Babel Plugin](./plugins/babel/README.md)
-- [SWC Plugin](./plugins/swc/README.md)
+- [Babel Plugin](../plugins/babel/README.md)
+- [SWC Plugin](../plugins/swc/README.md)
 - [Architecture Overview](./architecture.md)
 - [Contributing](../CONTRIBUTING.md)
 

@@ -177,8 +177,7 @@ graphox/
 │   ├── configurations.md    # Common configurations
 │   ├── plugins.md           # Build tool plugins
 │   ├── rules.md             # Validation rules
-│   ├── troubleshooting.md   # Troubleshooting guide
-│   └── development.md       # Plugin development
+│   └── plugin-development.md # Plugin development
 └── scripts/                 # Build and release scripts
 ```
 
@@ -187,5 +186,5 @@ graphox/
 ## See Also
 
 - [Architecture Documentation](./docs/architecture.md)
-- [Plugin Development Guide](./docs/development.md)
+- [Plugin Development Guide](./docs/plugin-development.md)
 - [API Documentation](https://docs.rs/graphox)

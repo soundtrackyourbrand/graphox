@@ -50,5 +50,5 @@ This crate version must match the Node.js package version (`@soundtrack/graphox-
 ## See Also
 
 - [@soundtrack/graphox-swc (npm)](../node/README.md)
-- [Babel Plugin](../babel/README.md)
-- [graphox CLI](../../README.md)
+- [Babel Plugin](../../babel/README.md)
+- [graphox CLI](../../../README.md)

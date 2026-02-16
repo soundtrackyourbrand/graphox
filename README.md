@@ -15,7 +15,6 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 - [Validation Rules](./docs/rules.md)
 - [Architecture](./docs/architecture.md)
 - [Common Configurations](./docs/configurations.md)
-- [Troubleshooting](./docs/troubleshooting.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Plugin Development](./docs/plugin-development.md)
 - [License](#license)
@@ -311,16 +310,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed information on:
 - Testing your changes (CLI and editor)
 - Code quality commands
 - Release process
-
----
-
-## Troubleshooting
-
-See [docs/troubleshooting.md](./docs/troubleshooting.md) for detailed solutions to:
-- CLI issues (binary not found, schema loading)
-- LSP/Editor issues (connection, diagnostics, navigation)
-- Codegen issues (type generation, fragment imports)
-- Performance optimization
 
 ---
 
