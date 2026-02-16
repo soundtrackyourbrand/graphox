@@ -54,7 +54,7 @@ cargo build --release
 
 # Set up npm package to use local build
 export GRAPHOX_LOCAL_BUILD=$(pwd)/target/release/graphox
-cd npm/@soundtrack/graphox-cli
+cd npm/graphox-cli
 pnpm install
 
 # Now pnpm graphox uses your local build

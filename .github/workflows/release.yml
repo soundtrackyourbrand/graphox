@@ -274,7 +274,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@soundtrack'
+          scope: '@soundtrackyourbrand'
 
       - name: Download Binary Artifact
         uses: actions/download-artifact@v4
@@ -323,7 +323,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@soundtrack'
+          scope: '@soundtrackyourbrand'
 
       - name: Sync package version
         working-directory: npm/graphox-cli
@@ -375,7 +375,7 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: plugins/swc/node/pnpm-lock.yaml
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@soundtrack'
+          scope: '@soundtrackyourbrand'
 
       - name: Install dependencies
         working-directory: plugins/swc/node
@@ -422,7 +422,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@soundtrack'
+          scope: '@soundtrackyourbrand'
 
       - name: Sync package version
         working-directory: plugins/babel

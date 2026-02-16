@@ -1,15 +1,15 @@
-# @soundtrack/graphox-cli
+# @soundtrackyourbrand/graphox-cli
 
 NPM package for installing the `Graphox` CLI - a high-performance GraphQL toolset for TypeScript monorepos.
 
 ## Installation
 
 ```bash
-pnpm add @soundtrack/graphox-cli
+pnpm add @soundtrackyourbrand/graphox-cli
 # or
-npm install @soundtrack/graphox-cli
+npm install @soundtrackyourbrand/graphox-cli
 # or
-yarn add @soundtrack/graphox-cli
+yarn add @soundtrackyourbrand/graphox-cli
 ```
 
 ## Usage
@@ -35,7 +35,7 @@ pnpm graphox benchmark
 ### Global Installation
 
 ```bash
-pnpm add -g @soundtrack/graphox-cli
+pnpm add -g @soundtrackyourbrand/graphox-cli
 
 # Now you can use it directly
 graphox lsp
@@ -78,7 +78,7 @@ export GRAPHOX_LOCAL_BUILD=/path/to/graphox/target/release/graphox
 
 # Now install the npm package - it will use your local build
 cd /path/to/your/project
-pnpm add /path/to/graphox/npm/@soundtrack/graphox-cli
+pnpm add /path/to/graphox/npm/@soundtrackyourbrand/graphox-cli
 ```
 
 The install script will copy your local binary instead of downloading from GitHub releases.
@@ -91,7 +91,7 @@ cargo build --release
 
 # Set up the local binary
 export GRAPHOX_LOCAL_BUILD=$(pwd)/target/release/graphox
-cd npm/@soundtrack/graphox-cli
+cd npm/@soundtrackyourbrand/graphox-cli
 pnpm install
 ```
 

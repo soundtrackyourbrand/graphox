@@ -37,7 +37,7 @@ function install() {
   }
 
   // 2. Try to find the binary from optionalDependencies
-  const pkgName = `@soundtrack/graphox-${currentPlatform}`;
+  const pkgName = `@soundtrackyourbrand/graphox-${currentPlatform}`;
   try {
     const pkgPath = require.resolve(`${pkgName}/bin/graphox${process.platform === 'win32' ? '.exe' : ''}`);
     
@@ -52,7 +52,7 @@ function install() {
   } catch (e) {
     console.error(`Error: Could not find platform-specific package ${pkgName}.`);
     console.error('This typically means the package was not installed as an optional dependency.');
-    console.error('Please ensure you have access to @soundtrack scope on GitHub Packages.');
+    console.error('Please ensure you have access to @soundtrackyourbrand scope on GitHub Packages.');
     process.exit(1);
   }
 }
