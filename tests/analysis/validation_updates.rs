@@ -89,6 +89,7 @@ fn test_diagnostics_update_on_fragment_change() {
         package_root: None,
         used_variables: Vec::new(),
         used_fragments: Vec::new(),
+        selected_fields: Vec::new(),
         requirements: std::collections::BTreeMap::new(),
     }];
     let diagnostics =
@@ -111,6 +112,7 @@ fn test_diagnostics_update_on_fragment_change() {
         package_root: None,
         used_variables: Vec::new(),
         used_fragments: Vec::new(),
+        selected_fields: Vec::new(),
         requirements: std::collections::BTreeMap::new(),
     }];
     let diagnostics =

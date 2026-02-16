@@ -395,3 +395,50 @@ fn test_variable_used_only_in_directive() {
 
     assert_eq!(diagnostics.len(), 0);
 }
+
+#[test]
+#[ntest::timeout(1000)]
+fn test_variable_not_unused_when_attached_to_missing_field_arg() {
+    let schema_text = r#"
+        type Query {
+            tracks: [Track]
+        }
+        type Track {
+            id: ID!
+            title: String!
+        }
+    "#;
+    let schema = Schema::parse(schema_text, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let query_text = r#"
+        query TrackQuery($trackIds: [ID!]!) {
+            tracks(ids: $trackIds) {
+                id
+                title
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", query_text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    // If 'tracks' field on 'Query' does not have 'ids' argument, we still mark $trackIds as used
+    // to avoid redundant "unused variable" warnings.
+    let unused_vars: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("Unused variable"))
+        .collect();
+    assert!(
+        unused_vars.is_empty(),
+        "Expected no unused variable diagnostics, but found: {:?}",
+        unused_vars
+    );
+
+    // But we SHOULD still have the Apollo validation error about the missing argument
+    crate::support::assert_diagnostic_with_message(
+        &diagnostics,
+        "the argument `ids` is not supported by `Query.tracks`",
+    );
+}

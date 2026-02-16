@@ -249,6 +249,8 @@ pub(super) fn validate_fragment_spread(
     node: Node,
     offset: usize,
     ctx: &mut ValidationContext,
+    parent_response_key: Option<&str>,
+    type_name: Option<&str>,
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -266,6 +268,18 @@ pub(super) fn validate_fragment_spread(
                         name_child,
                         offset,
                     );
+
+                    if exists && let Some(rk) = parent_response_key {
+                        let mut visited_fields = ahash::AHashSet::default();
+                        mark_selected_fields_recursive(
+                            this,
+                            &name,
+                            ctx,
+                            &mut visited_fields,
+                            rk,
+                            type_name,
+                        );
+                    }
 
                     if !exists && ctx.workspace_loaded {
                         ctx.diagnostics.push(Diagnostic {
@@ -571,4 +585,61 @@ fn mark_used_variables_recursive(
         trigger_node,
         offset,
     )
+}
+
+pub(super) fn mark_selected_fields_recursive(
+    this: &DocumentState,
+    name: &str,
+    ctx: &mut ValidationContext,
+    visited: &mut ahash::AHashSet<String>,
+    response_key: &str,
+    type_name: Option<&str>,
+) {
+    if visited.contains(name) {
+        return;
+    }
+    visited.insert(name.to_string());
+
+    // 1. Try local fragments
+    if let Some(frag) = this.fragments().iter().find(|f| f.name.as_ref() == name) {
+        for field in &frag.selected_fields {
+            ctx.response_key_selected_fields
+                .entry(response_key.to_string().into())
+                .or_default()
+                .insert(field.clone());
+
+            if let Some(tn) = type_name {
+                ctx.type_condition_fields
+                    .entry(response_key.to_string().into())
+                    .or_default()
+                    .entry(tn.to_string().into())
+                    .or_default()
+                    .insert(field.clone());
+            }
+        }
+        for spread in &frag.used_fragments {
+            mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
+        }
+    }
+    // 2. Try workspace fragments
+    else if let Some(frag) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
+        for field in &frag.selected_fields {
+            ctx.response_key_selected_fields
+                .entry(response_key.to_string().into())
+                .or_default()
+                .insert(field.clone());
+
+            if let Some(tn) = type_name {
+                ctx.type_condition_fields
+                    .entry(response_key.to_string().into())
+                    .or_default()
+                    .entry(tn.to_string().into())
+                    .or_default()
+                    .insert(field.clone());
+            }
+        }
+        for spread in &frag.used_fragments {
+            mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
+        }
+    }
 }

@@ -81,6 +81,7 @@ pub struct FragmentDef {
     pub source_hash: u64,
     pub used_variables: Vec<Arc<str>>,
     pub used_fragments: Vec<Arc<str>>,
+    pub selected_fields: Vec<Arc<str>>,
 }
 
 #[derive(Debug, Clone)]
@@ -808,6 +809,29 @@ impl DocumentState {
                         }
                     }
 
+                    let mut selected_fields = Vec::new();
+                    if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
+                        let mut sel_cursor = sel_set.walk();
+                        for sel_child in sel_set.children(&mut sel_cursor) {
+                            if sel_child.kind() == "selection" {
+                                let mut field_cursor = sel_child.walk();
+                                for field_child in sel_child.children(&mut field_cursor) {
+                                    if field_child.kind() == "field"
+                                        && let Some(name_node) =
+                                            self.find_child_by_kind(field_child, "name")
+                                    {
+                                        selected_fields
+                                            .push(self.get_node_text(name_node, offset).into());
+                                    }
+                                }
+                            } else if sel_child.kind() == "field"
+                                && let Some(name_node) = self.find_child_by_kind(sel_child, "name")
+                            {
+                                selected_fields.push(self.get_node_text(name_node, offset).into());
+                            }
+                        }
+                    }
+
                     partial_fragments.push(PartialFragment {
                         def: FragmentDef {
                             name: n.into(),
@@ -818,6 +842,7 @@ impl DocumentState {
                             source_hash,
                             used_variables: Vec::new(),
                             used_fragments: Vec::new(),
+                            selected_fields,
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,

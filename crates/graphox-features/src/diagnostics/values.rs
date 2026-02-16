@@ -42,6 +42,12 @@ pub(super) fn validate_arguments(
                             validate_value(this, v_node, offset, arg_type_def, ctx);
                         }
                     }
+                } else {
+                    // Argument not found in definition, but still mark variables as used to avoid
+                    // redundant "unused variable" warnings.
+                    if let Some(v_node) = components.value {
+                        mark_variables_used(this, v_node, offset, ctx);
+                    }
                 }
             }
         }
@@ -205,6 +211,67 @@ pub(super) fn validate_value(
                         format!("Enum value '{}' is deprecated: {}", value_name, reason),
                         reason,
                     );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn mark_variables_in_arguments_used(
+    this: &DocumentState,
+    node: Node,
+    offset: usize,
+    ctx: &mut ValidationContext,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "argument" {
+            let components = this.extract_named_value_components(child);
+            if let Some(v_node) = components.value {
+                mark_variables_used(this, v_node, offset, ctx);
+            }
+        }
+    }
+}
+
+pub(super) fn mark_variables_used(
+    this: &DocumentState,
+    node: Node,
+    offset: usize,
+    ctx: &mut ValidationContext,
+) {
+    match node.kind() {
+        "value" => {
+            if let Some(child) = node.child(0) {
+                mark_variables_used(this, child, offset, ctx);
+            }
+        }
+        "variable" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "name" {
+                    let name = this.get_node_text(child, offset);
+                    ctx.used_variables.insert(name.into());
+                }
+            }
+        }
+        "object_value" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "object_field" {
+                    let components = this.extract_named_value_components(child);
+                    if let Some(v_node) = components.value {
+                        mark_variables_used(this, v_node, offset, ctx);
+                    }
+                }
+            }
+        }
+        "list_value" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind().ends_with("_value") || child.kind() == "value" {
+                    mark_variables_used(this, child, offset, ctx);
                 }
             }
         }

@@ -49,7 +49,12 @@ pub(super) fn validate_selection_set(
                     );
                 } else if k == "fragment_spread" {
                     crate::diagnostics::fragments::validate_fragment_spread(
-                        this, inner, offset, ctx,
+                        this,
+                        inner,
+                        offset,
+                        ctx,
+                        parent_response_key,
+                        type_name,
                     );
                 }
             }
@@ -65,7 +70,14 @@ pub(super) fn validate_selection_set(
                 type_name,
             );
         } else if kind == "fragment_spread" {
-            crate::diagnostics::fragments::validate_fragment_spread(this, child, offset, ctx);
+            crate::diagnostics::fragments::validate_fragment_spread(
+                this,
+                child,
+                offset,
+                ctx,
+                parent_response_key,
+                type_name,
+            );
         } else if kind == "inline_fragment" {
             crate::diagnostics::fragments::validate_inline_fragment(
                 this,
@@ -351,6 +363,13 @@ pub(super) fn validate_field(
                 }
             }
         } else {
+            // Field not found, but still mark variables in arguments as used to avoid redundant "unused variable" warnings
+            if let Some(args_node) = arguments_node {
+                crate::diagnostics::values::mark_variables_in_arguments_used(
+                    this, args_node, offset, ctx,
+                );
+            }
+
             let type_name = parent_type.name();
 
             // Find similar field names to suggest

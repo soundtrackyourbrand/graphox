@@ -596,3 +596,79 @@ fn test_required_field_nested_with_inline_fragment() {
     );
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
 }
+
+#[test]
+#[ntest::timeout(1000)]
+fn test_required_id_with_fragment_spread() {
+    let schema_text = r#"
+        type Query {
+            tracks(ids: [ID!]!): [Track]
+        }
+        type Track {
+            id: ID!
+            title: String!
+            durationMs: Int!
+            album: Album
+            artists: [Artist]
+        }
+        type Album {
+            id: ID!
+            title: String!
+            display: PlaybackDisplay
+        }
+        type Artist {
+            id: ID!
+            name: String!
+        }
+        type PlaybackDisplay {
+            id: ID!
+            url: String
+        }
+    "#;
+    let schema = Schema::parse(schema_text, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let query_text = r#"
+        fragment PlaybackDisplay on PlaybackDisplay {
+            id
+            url
+        }
+
+        fragment ResolvedTrack on Track {
+            id
+            title
+            durationMs
+            album {
+                display {
+                    ...PlaybackDisplay
+                }
+                id
+                title
+            }
+            artists {
+                id
+                name
+            }
+        }
+
+        query TrackQuery($trackIds: [ID!]!) {
+            tracks(ids: $trackIds) {
+                ...ResolvedTrack
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", query_text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+
+    // This should fail (have diagnostics) if the bug exists.
+    assert_no_diagnostics(&diagnostics);
+}

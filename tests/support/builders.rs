@@ -231,6 +231,7 @@ impl FragmentInfoBuilder {
             package_root: self.package_root,
             used_variables: Vec::new(),
             used_fragments: Vec::new(),
+            selected_fields: Vec::new(),
             requirements: BTreeMap::new(),
         }
     }
