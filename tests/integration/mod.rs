@@ -13,5 +13,6 @@ mod lsp_multi_schema;
 mod lsp_updates;
 mod multibyte;
 mod suffix_consistency;
+mod swc_cli;
 mod template_tags;
 mod tsx_support;

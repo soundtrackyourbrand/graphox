@@ -1,23 +1,21 @@
+use serde_json;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 use tempfile;
-use serde_json;
 
 #[test]
 #[ntest::timeout(300000)]
 #[ignore] // This test is slow and requires node/npm and wasm32-wasip1 target
 fn test_swc_cli_integration() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    // From plugins/swc/rust to root
-    let root_dir = manifest_dir.parent().unwrap().parent().unwrap();
+    let root_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let fixture_dir = root_dir.join("tests/fixtures/swc_cli");
     let temp_dir = tempfile::tempdir().unwrap();
     let temp_path = temp_dir.path();
 
     // Copy fixture files to temp directory
-    copy_dir_all_recursive(&fixture_dir, temp_path).expect("Failed to copy fixture files");
+    crate::support::copy_dir_all(&fixture_dir, temp_path).expect("Failed to copy fixture files");
 
     // 1. Run codegen
     let output = Command::new(bin_path)
@@ -131,18 +129,4 @@ fn test_swc_cli_integration() {
     assert!(transformed_code.contains("../gen/app.codegen"));
     assert!(!transformed_code.contains("graphql("));
     assert!(!transformed_code.contains("import { graphql }"));
-}
-
-fn copy_dir_all_recursive(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-    fs::create_dir_all(&dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all_recursive(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        }
-    }
-    Ok(())
 }

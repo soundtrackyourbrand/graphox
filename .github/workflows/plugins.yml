@@ -53,13 +53,11 @@ jobs:
         working-directory: plugins/swc/node
         run: pnpm install --frozen-lockfile
 
-      - name: Run Rust Tests
-        working-directory: plugins/swc/rust
-        run: cargo test
+      - name: Build main binary
+        run: cargo build --release
 
       - name: Run Integration Tests
-        working-directory: plugins/swc/rust
-        run: cargo test --test swc_cli --ignored
+        run: cargo test --test integration_suite swc_cli --ignored -- --nocapture
 
       - name: Build WASM
         working-directory: plugins/swc/node

@@ -139,8 +139,6 @@ jobs:
       - name: Build benchmarks
         run: cargo test --benches --all-features --no-run
 
-      - name: Run memory and integration tests
+      - name: Run memory tests
         if: runner.os == 'Linux'
-        run: |
-          cargo test --test integration_suite long_running -- --nocapture --ignored
-          cargo test -p graphox-swc-plugin --ignored -- --nocapture
+        run: cargo test --test integration_suite long_running -- --nocapture --ignored
