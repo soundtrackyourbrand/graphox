@@ -127,4 +127,4 @@ jobs:
 
       - name: Run memory tests
         if: runner.os == 'Linux'
-        run: cargo test --test performance_suite -- --nocapture --ignored
+        run: cargo test --test integration_suite long_running -- --nocapture --ignored
