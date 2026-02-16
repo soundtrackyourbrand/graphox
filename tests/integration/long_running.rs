@@ -650,7 +650,7 @@ fn test_swc_cli_integration() {
     // Verify transformation
     // It should import the document and replace the call
     assert!(transformed_code.contains("GetMeQueryDocument"));
-    assert!(transformed_code.contains("../gen/src/app.codegen"));
+    assert!(transformed_code.contains("../gen/app.codegen"));
     assert!(!transformed_code.contains("graphql("));
     assert!(!transformed_code.contains("import { graphql }"));
 }
