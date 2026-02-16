@@ -19,10 +19,10 @@ jobs:
           node-version: '20'
           registry-url: 'https://npm.pkg.github.com'
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: 8
-      - run: cd plugins/babel && pnpm install
+          version: 9
+      - run: cd plugins/babel && pnpm install --frozen-lockfile
       - run: cd plugins/babel && pnpm test
 
   swc:
@@ -45,13 +45,13 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: 8
+          version: 9
 
       - name: Install Node.js dependencies
         working-directory: plugins/swc/node
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Run Rust Tests
         working-directory: plugins/swc/rust
