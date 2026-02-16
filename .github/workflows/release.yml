@@ -242,9 +242,90 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-cli-github:
-    name: Publish CLI to GitHub Packages
-    needs: [create-release]
+  publish-platform-packages:
+    name: Publish Platform Packages
+    needs: [create-release, build-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+            os: linux
+            cpu: x64
+          - target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+            os: linux
+            cpu: arm64
+          - target: x86_64-apple-darwin
+            platform: darwin-x64
+            os: darwin
+            cpu: x64
+          - target: aarch64-apple-darwin
+            platform: darwin-arm64
+            os: darwin
+            cpu: arm64
+          - target: x86_64-pc-windows-msvc
+            platform: win32-x64
+            os: win32
+            cpu: x64
+            ext: .exe
+          - target: aarch64-pc-windows-msvc
+            platform: win32-arm64
+            os: win32
+            cpu: arm64
+            ext: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@soundtrack'
+
+      - name: Download Binary
+        uses: dsaltares/fetch-gh-release-asset@master
+        with:
+          version: tags/${{ github.ref_name }}
+          asset: graphox-${{ matrix.target }}.${{ contains(matrix.target, 'windows') && 'zip' || 'tar.gz' }}
+          target: ./
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Binary
+        run: |
+          mkdir -p package/bin
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            unzip graphox-${{ matrix.target }}.zip -d package/bin
+          else
+            tar -xzf graphox-${{ matrix.target }}.tar.gz -C package/bin
+          fi
+
+      - name: Prepare Package
+        run: |
+          VERSION=${{ needs.create-release.outputs.version }}
+          sed "s/\${platform}/${{ matrix.platform }}/g; s/\${version}/${VERSION}/g; s/\${os}/${{ matrix.os }}/g; s/\${cpu}/${{ matrix.cpu }}/g; s/\${ext}/${{ matrix.ext || '' }}/g" npm/platforms/package.json.template > package/package.json
+          cp README.md package/
+
+      - name: Publish
+        working-directory: package
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-cli-wrapper:
+    name: Publish CLI Wrapper
+    needs: [create-release, publish-platform-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -264,19 +345,21 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@soundtrack'
 
-      - name: Configure package for GitHub Packages
+      - name: Configure package version
         working-directory: npm/graphox-cli
         run: |
-          # Update package name to include scope for GitHub Packages
+          VERSION=${{ needs.create-release.outputs.version }}
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@soundtrack/graphox-cli';
-          pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
+          pkg.version = '$VERSION';
+          Object.keys(pkg.optionalDependencies).forEach(dep => {
+            pkg.optionalDependencies[dep] = '$VERSION';
+          });
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
-      - name: Publish CLI to GitHub Packages
+      - name: Publish CLI Wrapper
         working-directory: npm/graphox-cli
         run: pnpm publish --no-git-checks
         env:

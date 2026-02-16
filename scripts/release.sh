@@ -53,6 +53,14 @@ fi
 sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
 rm Cargo.toml.bak
 
+# Update version in all workspace crates
+for crate in crates/graphox-*; do
+    if [ -f "$crate/Cargo.toml" ]; then
+        sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" "$crate/Cargo.toml"
+        rm "$crate/Cargo.toml.bak"
+    fi
+done
+
 # Update version in SWC plugin Rust crate Cargo.toml
 if [ -f "plugins/swc/rust/Cargo.toml" ]; then
     sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" plugins/swc/rust/Cargo.toml
@@ -71,10 +79,10 @@ if [ -f "editors/vscode/package.json" ]; then
     rm editors/vscode/package.json.bak
 fi
 
-# Update version in NPM CLI package.json
-if [ -f "npm/@soundtrack/graphox-cli/package.json" ]; then
-    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/@soundtrack/graphox-cli/package.json
-    rm npm/@soundtrack/graphox-cli/package.json.bak
+# Update version in NPM CLI package.json and its optionalDependencies
+if [ -f "npm/graphox-cli/package.json" ]; then
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/g" npm/graphox-cli/package.json
+    rm npm/graphox-cli/package.json.bak
 fi
 
 # Update Cargo.lock
@@ -83,6 +91,7 @@ cargo update -p graphox-swc-plugin 2>/dev/null || true
 
 # Commit changes
 git add Cargo.toml Cargo.lock
+git add crates/graphox-*/Cargo.toml
 if [ -f "plugins/swc/rust/Cargo.toml" ]; then
     git add plugins/swc/rust/Cargo.toml
 fi
@@ -92,8 +101,8 @@ fi
 if [ -f "editors/vscode/package.json" ]; then
     git add editors/vscode/package.json
 fi
-if [ -f "npm/@soundtrack/graphox-cli/package.json" ]; then
-    git add npm/@soundtrack/graphox-cli/package.json
+if [ -f "npm/graphox-cli/package.json" ]; then
+    git add npm/graphox-cli/package.json
 fi
 git commit -m "chore: bump version to $NEW_VERSION"
 

@@ -1,0 +1,22 @@
+{
+  "name": "@soundtrack/graphox-${platform}",
+  "version": "${version}",
+  "description": "Graphox CLI binary for ${platform}",
+  "os": [
+    "${os}"
+  ],
+  "cpu": [
+    "${cpu}"
+  ],
+  "files": [
+    "bin/graphox${ext}"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soundtrack/graphox.git"
+  },
+  "license": "MIT"
+}
