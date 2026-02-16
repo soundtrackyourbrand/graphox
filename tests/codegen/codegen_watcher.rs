@@ -80,7 +80,7 @@ fn test_codegen_watch_mode() {
 }
 
 #[test]
-#[ntest::timeout(30000)]
+#[ntest::timeout(3000)]
 fn test_codegen_watch_schema_changes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
@@ -155,6 +155,199 @@ fn test_codegen_watch_schema_changes() {
         updated,
         "Codegen file was not updated after schema + query change in watch mode"
     );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_codegen_idempotent_writes() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let dir = tempdir().unwrap();
+    let base_dir = fs::canonicalize(dir.path()).unwrap();
+
+    // 1. Setup schema and config with schema_types
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type Query { me: String }").unwrap();
+
+    let output_path = base_dir.join("generated-schema.ts");
+
+    let config_path = base_dir.join("graphox.yaml");
+    fs::write(
+        &config_path,
+        format!(
+            "enable_schema_cache: false\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"{}\"",
+            output_path.to_string_lossy()
+        ),
+    )
+    .unwrap();
+
+    // 2. Run codegen first time
+    let status = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&base_dir)
+        .status()
+        .expect("Failed to run codegen");
+    assert!(status.success());
+
+    assert!(output_path.exists());
+    let initial_mtime = fs::metadata(&output_path).unwrap().modified().unwrap();
+
+    // Give some time for mtime to be different if it were rewritten
+    thread::sleep(Duration::from_millis(100));
+
+    // 3. Run codegen second time without changes
+    let status = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&base_dir)
+        .status()
+        .expect("Failed to run codegen second time");
+    assert!(status.success());
+
+    let second_mtime = fs::metadata(&output_path).unwrap().modified().unwrap();
+    assert_eq!(
+        initial_mtime, second_mtime,
+        "Output file should not be rewritten if content is identical"
+    );
+
+    // 4. Modify the output file manually (simulating formatter)
+    let formatted_content =
+        "// formatted\n".to_string() + &fs::read_to_string(&output_path).unwrap();
+    fs::write(&output_path, &formatted_content).unwrap();
+    let after_format_mtime = fs::metadata(&output_path).unwrap().modified().unwrap();
+
+    thread::sleep(Duration::from_millis(100));
+
+    // 5. Run codegen third time - it SHOULD overwrite the formatted content because it differs
+    let status = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&base_dir)
+        .status()
+        .expect("Failed to run codegen third time");
+    assert!(status.success());
+
+    let final_mtime = fs::metadata(&output_path).unwrap().modified().unwrap();
+    assert_ne!(
+        after_format_mtime, final_mtime,
+        "Output file should be rewritten if content differs (even if just formatting)"
+    );
+
+    let final_content = fs::read_to_string(&output_path).unwrap();
+    assert!(
+        !final_content.starts_with("// formatted"),
+        "Graphox should have restored its own content"
+    );
+
+    // 6. Run codegen fourth time - it should NOT overwrite now that content is back to normal
+    thread::sleep(Duration::from_millis(100));
+    let status = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&base_dir)
+        .status()
+        .expect("Failed to run codegen fourth time");
+    assert!(status.success());
+    let final_stable_mtime = fs::metadata(&output_path).unwrap().modified().unwrap();
+    assert_eq!(
+        final_mtime, final_stable_mtime,
+        "Output file should be stable after restoration"
+    );
+}
+
+#[test]
+#[ntest::timeout(30000)]
+fn test_codegen_watch_ignores_generated_files() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let dir = tempdir().unwrap();
+    let base_dir = fs::canonicalize(dir.path()).unwrap();
+
+    // 1. Setup schema and config with schema_types
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(&schema_path, "type Query { me: String }").unwrap();
+
+    let output_path = base_dir.join("generated-schema.ts");
+
+    let config_path = base_dir.join("graphox.yaml");
+    fs::write(
+        &config_path,
+        format!(
+            "enable_schema_cache: false\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"{}\"",
+            output_path.to_string_lossy()
+        ),
+    )
+    .unwrap();
+
+    // 2. Spawn codegen in watch mode
+    let mut child = Command::new(bin_path)
+        .arg("codegen")
+        .arg("--watch")
+        .arg("--verbose")
+        .current_dir(&base_dir)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn codegen watcher");
+
+    // Wait for initial generation
+    let mut count = 0;
+    while !output_path.exists() && count < 100 {
+        thread::sleep(Duration::from_millis(100));
+        count += 1;
+    }
+    assert!(output_path.exists(), "Initial output not generated");
+
+    // Give watcher time to settle
+    thread::sleep(Duration::from_millis(1000));
+
+    // 4. Modify the output file manually (simulating formatter)
+    // This modification should be IGNORED by the watcher.
+    fs::write(
+        &output_path,
+        "// modified by formatter\nexport type Query = { me: string };",
+    )
+    .unwrap();
+
+    // 5. Wait for a while to see if Graphox overwrites it
+    // If the watcher is working correctly (ignoring the file), it won't trigger codegen.
+    thread::sleep(Duration::from_millis(2000));
+
+    let current_content = fs::read_to_string(&output_path).unwrap();
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    assert!(
+        current_content.starts_with("// modified"),
+        "Graphox should NOT have overwritten the file because the watcher should have ignored the change"
+    );
+}
+
+#[test]
+fn test_is_output_file_recognition() {
+    use graphox::Config;
+    let dir = tempdir().unwrap();
+    let base_dir = fs::canonicalize(dir.path()).unwrap();
+
+    let config_text = r#"
+projects:
+  - include: "src"
+    output_dir: "gen"
+    schema: "schema.graphql"
+schema_types:
+  - schema: "schema.graphql"
+    output: "types/schema.ts"
+    possible_types: "types/possible.ts"
+"#;
+    fs::write(base_dir.join("graphox.yaml"), config_text).unwrap();
+    let config = Config::load_from_dir(&base_dir).unwrap().unwrap();
+
+    // Test project output dir
+    assert!(config.is_output_file(&base_dir.join("gen/file.ts")));
+    assert!(config.is_output_file(&base_dir.join("gen/sub/file.ts")));
+
+    // Test schema_types output
+    assert!(config.is_output_file(&base_dir.join("types/schema.ts")));
+    assert!(config.is_output_file(&base_dir.join("types/possible.ts")));
+
+    // Test source files (should NOT be identified as output)
+    assert!(!config.is_output_file(&base_dir.join("src/query.ts")));
+    assert!(!config.is_output_file(&base_dir.join("schema.graphql")));
 }
 
 fn wait_for_file(path: &std::path::Path, timeout: Duration) -> bool {

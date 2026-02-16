@@ -10,23 +10,10 @@ use graphox_core::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
 };
-use graphox_core::utils::{is_path_ignored, is_relevant_file, path_starts_with};
-use std::path::Path;
+use graphox_core::utils::{is_path_ignored, is_relevant_file};
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
-
-fn is_output_file(path: &Path, config: &Config) -> bool {
-    for project in config.projects() {
-        if let Some(output_dir) = project.output_dir() {
-            let abs_output = config.base_dir().join(output_dir);
-            if path_starts_with(path, &abs_output) {
-                return true;
-            }
-        }
-    }
-    false
-}
 
 /// Parameters for file change processing
 pub struct FileChangeParams<'a> {
@@ -73,7 +60,7 @@ pub async fn process_file_created_or_changed(
     let path_str = path.to_string_lossy().to_string();
 
     // Ignore changes to files in output directories to prevent infinite codegen loops
-    if is_output_file(&path, params.config) {
+    if params.config.is_output_file(&path) {
         return None;
     }
 

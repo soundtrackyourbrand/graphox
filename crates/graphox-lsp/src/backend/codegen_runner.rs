@@ -247,14 +247,24 @@ pub async fn run_codegen(
                 return;
             };
 
-            // Write file immediately (no memory buildup)
-            if let Some(parent) = abs_out_path.parent()
-                && std::fs::create_dir_all(parent).is_err()
+            // Write file only if changed
+            let mut should_write = true;
+            if abs_out_path.exists()
+                && let Ok(existing) = std::fs::read_to_string(&abs_out_path)
+                && existing == ts_code
             {
-                return;
+                should_write = false;
             }
-            if std::fs::write(&abs_out_path, ts_code).is_err() {
-                return;
+
+            if should_write {
+                if let Some(parent) = abs_out_path.parent()
+                    && std::fs::create_dir_all(parent).is_err()
+                {
+                    return;
+                }
+                if std::fs::write(&abs_out_path, ts_code).is_err() {
+                    return;
+                }
             }
 
             // Update codegen_path and insert into shared DashMap
@@ -356,18 +366,29 @@ pub async fn run_codegen(
             codegen_config.re_exports(),
             codegen_config.schema_import(),
         );
-        std::fs::create_dir_all(&out_dir_path).ok();
-        if let Err(e) = std::fs::write(&entrypoint_path, content) {
-            client
-                .log_message(
-                    MessageType::ERROR,
-                    format!(
-                        "Failed to write entrypoint file {}: {}",
-                        entrypoint_path.display(),
-                        e
-                    ),
-                )
-                .await;
+
+        let mut should_write_entry = true;
+        if entrypoint_path.exists()
+            && let Ok(existing) = std::fs::read_to_string(&entrypoint_path)
+            && existing == content
+        {
+            should_write_entry = false;
+        }
+
+        if should_write_entry {
+            std::fs::create_dir_all(&out_dir_path).ok();
+            if let Err(e) = std::fs::write(&entrypoint_path, content) {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Failed to write entrypoint file {}: {}",
+                            entrypoint_path.display(),
+                            e
+                        ),
+                    )
+                    .await;
+            }
         }
 
         if codegen_config.fragment_masking_mode().is_enabled() {
@@ -377,7 +398,16 @@ pub async fn run_codegen(
                     .fragment_masking_mode()
                     .unmask_function_name(),
             );
-            if let Err(e) = std::fs::write(&masking_path, masking_content) {
+
+            let mut should_write_masking = true;
+            if masking_path.exists()
+                && let Ok(existing) = std::fs::read_to_string(&masking_path)
+                && existing == masking_content
+            {
+                should_write_masking = false;
+            }
+
+            if should_write_masking && let Err(e) = std::fs::write(&masking_path, masking_content) {
                 client
                     .log_message(
                         MessageType::ERROR,
@@ -396,7 +426,16 @@ pub async fn run_codegen(
             &graphox_codegen::FragmentMasking::from_core_config(&codegen_config.fragment_masking()),
             codegen_config.emit_extensions(),
         );
-        if let Err(e) = std::fs::write(&index_path, index_content) {
+
+        let mut should_write_index = true;
+        if index_path.exists()
+            && let Ok(existing) = std::fs::read_to_string(&index_path)
+            && existing == index_content
+        {
+            should_write_index = false;
+        }
+
+        if should_write_index && let Err(e) = std::fs::write(&index_path, index_content) {
             client
                 .log_message(
                     MessageType::ERROR,
@@ -457,19 +496,27 @@ pub async fn run_codegen(
             )
             .collect();
 
-        if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries)
-            && let Err(e) = std::fs::write(&manifest_path, manifest_json)
-        {
-            client
-                .log_message(
-                    MessageType::ERROR,
-                    format!(
-                        "Failed to write manifest file {}: {}",
-                        manifest_path.display(),
-                        e
-                    ),
-                )
-                .await;
+        if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries) {
+            let mut should_write_manifest = true;
+            if manifest_path.exists()
+                && let Ok(existing) = std::fs::read_to_string(&manifest_path)
+                && existing == manifest_json
+            {
+                should_write_manifest = false;
+            }
+
+            if should_write_manifest && let Err(e) = std::fs::write(&manifest_path, manifest_json) {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Failed to write manifest file {}: {}",
+                            manifest_path.display(),
+                            e
+                        ),
+                    )
+                    .await;
+            }
         }
     }
 

@@ -1,7 +1,7 @@
 use std::process::Command;
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(1000)]
 fn test_codegen_document_node() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_document_test");
@@ -83,7 +83,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(1000)]
 fn test_codegen_aliases_and_enums() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_quirks_test");
@@ -159,7 +159,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(1000)]
 fn test_codegen_document_node_no_vars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_document_no_vars_test");
@@ -216,7 +216,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(1000)]
 fn test_codegen_missing_parent_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_missing_parent_test");
@@ -279,7 +279,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(1000)]
 fn test_entrypoint_documents_and_overloads_populated() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");

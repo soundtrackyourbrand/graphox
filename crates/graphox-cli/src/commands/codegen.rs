@@ -45,20 +45,9 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
 
         let gitignore = utils::get_gitignore_matcher(config.base_dir());
-        let mut output_dirs = Vec::new();
-        for p in config.projects() {
-            if let Some(out) = p.output_dir() {
-                let out_dir = config.base_dir().join(out);
-                if let Ok(canon) = out_dir.canonicalize() {
-                    output_dirs.push(canon);
-                } else {
-                    output_dirs.push(out_dir);
-                }
-            }
-        }
-
         let config_tx_clone = config_tx.clone();
-        let base_dir_for_watcher = config.base_dir();
+        let base_dir_for_watcher = config.base_dir().to_path_buf();
+        let config_for_watcher = config.clone();
         let debounce_ms = config.codegen_watch_debounce_ms();
         let mut debouncer = notify_debouncer_mini::new_debouncer(
             std::time::Duration::from_millis(debounce_ms),
@@ -81,10 +70,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                         if utils::is_path_ignored(&e.path, &gitignore) {
                             return false;
                         }
-                        if output_dirs
-                            .iter()
-                            .any(|d| utils::path_starts_with(&e.path, d))
-                        {
+                        if config_for_watcher.is_output_file(&e.path) {
                             return false;
                         }
                         true
@@ -432,7 +418,14 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                                     pt_content.trim_end(),
                                     tp_content.trim_start()
                                 );
-                                if let Err(e) = std::fs::write(pt, combined) {
+                                let mut should_write = true;
+                                if pt.exists()
+                                    && let Ok(existing) = std::fs::read_to_string(pt)
+                                    && existing == combined
+                                {
+                                    should_write = false;
+                                }
+                                if should_write && let Err(e) = std::fs::write(pt, combined) {
                                     eprintln!("{}: {}", "Failed to write combined output".red(), e);
                                     return Err(());
                                 }
@@ -440,7 +433,14 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                             _ => {
                                 if let Some(pt) = &pt_path {
                                     let content = codegen::generate_possible_types(&valid_schema);
-                                    if let Err(e) = std::fs::write(pt, content) {
+                                    let mut should_write = true;
+                                    if pt.exists()
+                                        && let Ok(existing) = std::fs::read_to_string(pt)
+                                        && existing == content
+                                    {
+                                        should_write = false;
+                                    }
+                                    if should_write && let Err(e) = std::fs::write(pt, content) {
                                         eprintln!(
                                             "{}: {}",
                                             "Failed to write possibleTypes".red(),
@@ -452,7 +452,14 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
                                 if let Some(tp) = &tp_path {
                                     let content = codegen::generate_type_policies(&valid_schema);
-                                    if let Err(e) = std::fs::write(tp, content) {
+                                    let mut should_write = true;
+                                    if tp.exists()
+                                        && let Ok(existing) = std::fs::read_to_string(tp)
+                                        && existing == content
+                                    {
+                                        should_write = false;
+                                    }
+                                    if should_write && let Err(e) = std::fs::write(tp, content) {
                                         eprintln!(
                                             "{}: {}",
                                             "Failed to write typePolicies".red(),
@@ -719,21 +726,32 @@ fn execute_schema_codegen_sync(
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    if let Err(e) = std::fs::write(out_path, ts_code) {
-        eprintln!(
-            "{} {}: {}",
-            "Failed to write schema types file".red(),
-            output_path.red(),
-            e
-        );
-        return false;
+
+    let mut should_write = true;
+    if out_path.exists()
+        && let Ok(existing) = std::fs::read_to_string(out_path)
+        && existing == ts_code
+    {
+        should_write = false;
     }
-    if verbose {
-        println!(
-            "{}: {}",
-            "Generated".bright_black(),
-            out_path.display().to_string().bright_black()
-        );
+
+    if should_write {
+        if let Err(e) = std::fs::write(out_path, ts_code) {
+            eprintln!(
+                "{} {}: {}",
+                "Failed to write schema types file".red(),
+                output_path.red(),
+                e
+            );
+            return false;
+        }
+        if verbose {
+            println!(
+                "{}: {}",
+                "Generated".bright_black(),
+                out_path.display().to_string().bright_black()
+            );
+        }
     }
     true
 }
