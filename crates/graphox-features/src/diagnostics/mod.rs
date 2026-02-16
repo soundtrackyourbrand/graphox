@@ -151,6 +151,7 @@ impl DocumentDiagnostics for DocumentState {
                     || err_str.contains("conflicting field arguments")
                     || (err_str.contains("variable")
                         && err_str.contains("cannot be used for argument"))
+                    || err_str.contains("is deprecated")
                     // Suppress apollo-compiler messages about recursive / circular fragments
                     || err_str.contains("cannot reference itself")
                     || err_str.contains("references itself")
@@ -267,12 +268,11 @@ impl DocumentDiagnostics for DocumentState {
                 let line = self.rope.line(line_idx).to_string();
                 let line_start_byte = self.rope.line_to_byte(line_idx);
                 let relative_end_byte = node.end_byte() + offset - line_start_byte;
-                if relative_end_byte < line.len() {
-                    if let Some(after_text) = line.get(relative_end_byte..) {
-                        if after_text.contains("# graphox-ignore") {
-                            is_ignored_by_comment = true;
-                        }
-                    }
+                if relative_end_byte < line.len()
+                    && let Some(after_text) = line.get(relative_end_byte..)
+                    && after_text.contains("# graphox-ignore")
+                {
+                    is_ignored_by_comment = true;
                 }
             }
         }
