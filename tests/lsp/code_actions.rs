@@ -454,7 +454,7 @@ async fn test_code_action_ignore_deprecation() {
     assert!(changes.contains_key(&query_uri));
     let edits = &changes[&query_uri];
     assert_eq!(edits[0].new_text, " # graphox-ignore");
-    
+
     // Check range: it should be at the end of the line containing oldField
     let expected_pos = Position::new(2, 12); // "    oldField" is line 2 (0-indexed), 12 chars
     assert_eq!(edits[0].range, Range::new(expected_pos, expected_pos));

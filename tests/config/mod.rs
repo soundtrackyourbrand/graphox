@@ -1,2 +1,2 @@
-mod parsing;
 mod codegen_enabled;
+mod parsing;

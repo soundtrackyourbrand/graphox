@@ -43,7 +43,7 @@ projects:
         .expect("Failed to execute process");
 
     assert!(output.status.success());
-    
+
     let gen_dir = temp_dir.join("generated");
     assert!(gen_dir.exists());
     assert!(gen_dir.join("query.codegen.ts").exists());
@@ -111,7 +111,7 @@ projects:
         .expect("Failed to execute process");
 
     assert!(output.status.success());
-    
+
     let gen1 = temp_dir.join("q1.codegen.ts");
     let gen2 = temp_dir.join("q2.codegen.ts");
     assert!(gen1.exists(), "gen1 should exist");
@@ -178,7 +178,7 @@ projects:
         .expect("Failed to execute process");
 
     assert!(output.status.success());
-    
+
     let gen_file = temp_dir.join("query.codegen.ts");
     assert!(gen_file.exists());
     assert!(temp_dir.join("graphql.ts").exists());
@@ -193,7 +193,10 @@ projects:
 
     assert!(output.status.success());
     assert!(!gen_file.exists(), "query.codegen.ts should be removed");
-    assert!(!temp_dir.join("graphql.ts").exists(), "graphql.ts should be removed");
+    assert!(
+        !temp_dir.join("graphql.ts").exists(),
+        "graphql.ts should be removed"
+    );
     assert!(manual_file.exists(), "important.ts should NOT be removed");
 
     // Cleanup
@@ -240,10 +243,13 @@ projects:
         .expect("Failed to execute process");
 
     assert!(output.status.success());
-    
+
     assert!(temp_dir.join("query.codegen.ts").exists());
     let default_gen_dir = temp_dir.join("__generated__");
-    assert!(default_gen_dir.exists(), "__generated__ should be created by default");
+    assert!(
+        default_gen_dir.exists(),
+        "__generated__ should be created by default"
+    );
     assert!(default_gen_dir.join("graphql.ts").exists());
 
     // 2. Run codegen --clean
@@ -255,7 +261,10 @@ projects:
         .expect("Failed to execute process");
 
     assert!(output.status.success());
-    assert!(!temp_dir.join("query.codegen.ts").exists(), "query.codegen.ts should be removed");
+    assert!(
+        !temp_dir.join("query.codegen.ts").exists(),
+        "query.codegen.ts should be removed"
+    );
     assert!(!default_gen_dir.exists(), "__generated__ should be removed");
 
     // Cleanup
@@ -311,11 +320,13 @@ projects:
         .expect("Failed to execute process");
 
     if !output.status.success() {
-        panic!("Codegen failed: {}\n{}", 
+        panic!(
+            "Codegen failed: {}\n{}",
             String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr));
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // With output_dir="." and include="src/**/*.graphql", include_prefix is "src"
     // So src/query.graphql -> query.codegen.ts
     // src/features/user/user.graphql -> features/user/user.codegen.ts
@@ -333,9 +344,11 @@ projects:
         .expect("Failed to execute process");
 
     if !output.status.success() {
-        panic!("Codegen clean failed: {}\n{}", 
+        panic!(
+            "Codegen clean failed: {}\n{}",
             String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr));
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     assert!(!gen_file1.exists(), "query.codegen.ts should be removed");
     assert!(!gen_file2.exists(), "user.codegen.ts should be removed");
@@ -409,7 +422,10 @@ projects:
 
     assert!(output.status.success());
     // Currently this MIGHT fail because disabled projects are filtered out
-    assert!(!temp_dir.join("generated").exists(), "generated directory should be removed even if project is disabled");
+    assert!(
+        !temp_dir.join("generated").exists(),
+        "generated directory should be removed even if project is disabled"
+    );
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();

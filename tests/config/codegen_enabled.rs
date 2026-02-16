@@ -13,13 +13,20 @@ projects:
     schema: "schema.graphql"
 "#;
     fs::write(&config_path, config_content).unwrap();
-    fs::write(temp_dir.path().join("schema.graphql"), "type Query { a: String }").unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
 
     let result = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
     let project = &result.projects()[0];
-    
+
     // This is what currently fails based on my analysis
-    assert!(!result.get_project_codegen_enabled(project), "Project should inherit global codegen: false");
+    assert!(
+        !result.get_project_codegen_enabled(project),
+        "Project should inherit global codegen: false"
+    );
 }
 
 #[test]
@@ -34,12 +41,19 @@ projects:
     codegen: true
 "#;
     fs::write(&config_path, config_content).unwrap();
-    fs::write(temp_dir.path().join("schema.graphql"), "type Query { a: String }").unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
 
     let result = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
     let project = &result.projects()[0];
-    
-    assert!(result.get_project_codegen_enabled(project), "Project should be able to override global codegen: false");
+
+    assert!(
+        result.get_project_codegen_enabled(project),
+        "Project should be able to override global codegen: false"
+    );
 }
 
 #[test]
@@ -53,12 +67,19 @@ projects:
     schema: "schema.graphql"
 "#;
     fs::write(&config_path, config_content).unwrap();
-    fs::write(temp_dir.path().join("schema.graphql"), "type Query { a: String }").unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
 
     let result = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
     let project = &result.projects()[0];
-    
-    assert!(result.get_project_codegen_enabled(project), "Project should inherit global codegen: true");
+
+    assert!(
+        result.get_project_codegen_enabled(project),
+        "Project should inherit global codegen: true"
+    );
 }
 
 #[test]
@@ -73,12 +94,19 @@ projects:
     codegen: false
 "#;
     fs::write(&config_path, config_content).unwrap();
-    fs::write(temp_dir.path().join("schema.graphql"), "type Query { a: String }").unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
 
     let result = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
     let project = &result.projects()[0];
-    
-    assert!(!result.get_project_codegen_enabled(project), "Project should be able to override global codegen: true");
+
+    assert!(
+        !result.get_project_codegen_enabled(project),
+        "Project should be able to override global codegen: true"
+    );
 }
 
 #[test]
@@ -92,13 +120,20 @@ schema_types:
     output: "schema.ts"
 "#;
     fs::write(&config_path, config_content).unwrap();
-    fs::write(temp_dir.path().join("schema.graphql"), "type Query { a: String }").unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
 
     let result = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
-    
+
     // We need a way to check if schema types should be generated.
     // Since there is no per-schema-type enabled flag yet, we check the global one.
-    assert!(!result.codegen().is_enabled(), "Global codegen should be disabled");
+    assert!(
+        !result.codegen().is_enabled(),
+        "Global codegen should be disabled"
+    );
 }
 
 #[test]
@@ -111,6 +146,9 @@ codegen: false
     fs::write(&config_path, config_content).unwrap();
 
     let result = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
-    
-    assert!(!result.lsp_automatic_codegen(), "LSP automatic codegen should be disabled when global codegen is false");
+
+    assert!(
+        !result.lsp_automatic_codegen(),
+        "LSP automatic codegen should be disabled when global codegen is false"
+    );
 }
