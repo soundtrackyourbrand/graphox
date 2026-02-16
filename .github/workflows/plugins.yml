@@ -57,7 +57,7 @@ jobs:
         run: cargo build --release
 
       - name: Run Integration Tests
-        run: cargo test --test integration_suite swc_cli --ignored -- --nocapture
+        run: cargo test --test integration_suite swc_cli -- --ignored --nocapture
 
       - name: Build WASM
         working-directory: plugins/swc/node
