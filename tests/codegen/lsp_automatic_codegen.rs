@@ -76,7 +76,7 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     // Wait for background scan to complete
-    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(100), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -300,7 +300,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait for enabled codegen
-    wait_for_file(&enabled_gen_path, Duration::from_millis(1000)).await;
+    wait_for_file(&enabled_gen_path, Duration::from_millis(200)).await;
     let enabled_content = fs::read_to_string(&enabled_gen_path).unwrap();
     assert!(enabled_content.contains("GetMeQuery"));
 
@@ -360,7 +360,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait again to ensure no codegen happens
-    sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(150)).await;
     assert!(
         !disabled_gen_path.exists(),
         "Should still not generate files after didChange for disabled project"
@@ -546,7 +546,7 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         sleep(Duration::from_millis(50)).await;
     }
 
-    sleep(Duration::from_millis(300)).await;
+    sleep(Duration::from_millis(100)).await;
 
     let final_file_count = std::fs::read_dir(&gen_dir)
         .unwrap()

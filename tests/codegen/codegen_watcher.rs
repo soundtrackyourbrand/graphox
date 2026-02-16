@@ -25,7 +25,7 @@ fn test_codegen_watch_mode() {
     let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
-        "enable_schema_cache: false\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
+        "enable_schema_cache: false\ncodegen_watch_debounce_ms: 10\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
     )
     .unwrap();
 
@@ -52,7 +52,7 @@ fn test_codegen_watch_mode() {
     assert!(!initial_content.contains("name: string"));
 
     // Give watcher time to settle
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(100));
 
     // 4. Modify query to include 'name'
     fs::write(&query_path, "query GetMe { me { id name } }").unwrap();
@@ -100,7 +100,7 @@ fn test_codegen_watch_schema_changes() {
     let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
-        "enable_schema_cache: false\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
+        "enable_schema_cache: false\ncodegen_watch_debounce_ms: 10\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
     )
     .unwrap();
 
@@ -130,7 +130,7 @@ fn test_codegen_watch_schema_changes() {
     .unwrap();
 
     // Give it a moment to detect schema change and re-evaluate
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(100));
 
     // 5. Modify query to use the new field
     fs::write(&query_path, "query GetMe { me { id email } }").unwrap();
@@ -268,7 +268,7 @@ fn test_codegen_watch_ignores_generated_files() {
     fs::write(
         &config_path,
         format!(
-            "enable_schema_cache: false\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"{}\"",
+            "enable_schema_cache: false\ncodegen_watch_debounce_ms: 10\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"{}\"",
             output_path.to_string_lossy()
         ),
     )
@@ -287,13 +287,13 @@ fn test_codegen_watch_ignores_generated_files() {
     // Wait for initial generation
     let mut count = 0;
     while !output_path.exists() && count < 100 {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(50));
         count += 1;
     }
     assert!(output_path.exists(), "Initial output not generated");
 
     // Give watcher time to settle
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(100));
 
     // 4. Modify the output file manually (simulating formatter)
     // This modification should be IGNORED by the watcher.
@@ -305,7 +305,7 @@ fn test_codegen_watch_ignores_generated_files() {
 
     // 5. Wait for a while to see if Graphox overwrites it
     // If the watcher is working correctly (ignoring the file), it won't trigger codegen.
-    thread::sleep(Duration::from_millis(2000));
+    thread::sleep(Duration::from_millis(300));
 
     let current_content = fs::read_to_string(&output_path).unwrap();
 

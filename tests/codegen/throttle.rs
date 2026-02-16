@@ -37,7 +37,7 @@ async fn test_codegen_throttle() {
         ],
     )
     .with_lsp_automatic_codegen(true)
-    .with_lsp_codegen_throttle_ms(200)
+    .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(false);
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
@@ -137,9 +137,9 @@ async fn test_codegen_throttle() {
     }
 
     // Wait for throttle period plus some buffer
-    // With 200ms throttle and 5 rapid changes (100ms total),
+    // With 50ms throttle and 5 rapid changes (100ms total),
     // we should only get 1-2 codegen runs instead of 5
-    sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(150)).await;
 
     let elapsed = start.elapsed();
 
