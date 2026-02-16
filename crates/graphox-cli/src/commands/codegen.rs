@@ -254,7 +254,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         .par_iter()
         .enumerate()
         .filter_map(|(project_index, project)| {
-            if !project.codegen_enabled() {
+            if !project.codegen_enabled() && !clean {
                 return None;
             }
 
@@ -944,14 +944,23 @@ fn clean_project_files_sync(
     ),
     (),
 > {
-    let include_root = utils::get_glob_root(&params.include.as_key());
-    let abs_include_root = params.base_dir.join(&include_root);
+    let patterns = params.include.patterns();
 
     match params.output_dir {
         Some(out_dir) => {
             let abs_out_dir = params.base_dir.join(out_dir);
+            let mut is_surgical = false;
 
-            if abs_out_dir != abs_include_root {
+            for pattern in &patterns {
+                let include_root = utils::get_glob_root(pattern);
+                let abs_include_root = params.base_dir.join(&include_root);
+                if abs_out_dir == abs_include_root || abs_include_root.starts_with(&abs_out_dir) {
+                    is_surgical = true;
+                    break;
+                }
+            }
+
+            if !is_surgical {
                 if abs_out_dir.exists() {
                     if let Err(e) = std::fs::remove_dir_all(&abs_out_dir) {
                         eprintln!(
@@ -971,7 +980,7 @@ fn clean_project_files_sync(
                 }
             } else {
                 eprintln!(
-                    "{}: output_dir '{}' is the same as include root, performing surgical cleanup",
+                    "{}: output_dir '{}' is the same as an include root, performing surgical cleanup",
                     "Warning".yellow(),
                     out_dir.display()
                 );
@@ -979,16 +988,33 @@ fn clean_project_files_sync(
             }
         }
         None => {
+            // Clean individual files
             params
                 .project_files
                 .par_iter()
                 .map(|path| {
-                    let out_path = utils::get_output_path(
+                    let include_prefix_path = patterns
+                        .iter()
+                        .map(|p| utils::get_glob_root(p))
+                        .find(|root| {
+                            let abs_root = params.base_dir.join(root);
+                            path.starts_with(&abs_root)
+                        })
+                        .unwrap_or_default();
+
+                    let out_path_raw = utils::get_output_path(
                         path,
                         params.base_dir,
                         params.output_dir,
-                        Some(&include_root),
+                        Some(&include_prefix_path),
                     );
+
+                    let out_path = if out_path_raw.is_absolute() {
+                        out_path_raw
+                    } else {
+                        params.base_dir.join(out_path_raw)
+                    };
+
                     let mut ok = true;
                     if out_path.exists() {
                         if let Err(e) = std::fs::remove_file(&out_path) {
@@ -1010,6 +1036,25 @@ fn clean_project_files_sync(
                     ok
                 })
                 .reduce(|| true, |a, b| a && b);
+
+            // Also clean up default __generated__ directory if it exists
+            let default_gen_dir = params.base_dir.join("__generated__");
+            if default_gen_dir.exists() && default_gen_dir.is_dir() {
+                if let Err(e) = std::fs::remove_dir_all(&default_gen_dir) {
+                    eprintln!(
+                        "{}: {} - {}",
+                        "Failed to remove default generated directory".red(),
+                        default_gen_dir.display().to_string().red(),
+                        e
+                    );
+                } else if verbose {
+                    println!(
+                        "{}: {}",
+                        "Removed directory".bright_black(),
+                        default_gen_dir.display().to_string().bright_black()
+                    );
+                }
+            }
         }
     }
 
@@ -1019,25 +1064,28 @@ fn clean_project_files_sync(
 fn surgical_clean(dir: &Path, verbose: bool) -> Result<(), ()> {
     let mut ok = true;
 
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map(|e| e == "codegen.ts").unwrap_or(false) {
-                if let Err(e) = std::fs::remove_file(&path) {
-                    eprintln!(
-                        "{}: {} - {}",
-                        "Failed to remove".red(),
-                        path.display().to_string().red(),
-                        e
-                    );
-                    ok = false;
-                } else if verbose {
-                    println!(
-                        "{}: {}",
-                        "Removed".bright_black(),
-                        path.display().to_string().bright_black()
-                    );
-                }
+    let walker = ignore::WalkBuilder::new(dir)
+        .hidden(false)
+        .git_ignore(false)
+        .build();
+
+    for entry in walker.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.to_string_lossy().ends_with(".codegen.ts") {
+            if let Err(e) = std::fs::remove_file(path) {
+                eprintln!(
+                    "{}: {} - {}",
+                    "Failed to remove".red(),
+                    path.display().to_string().red(),
+                    e
+                );
+                ok = false;
+            } else if verbose {
+                println!(
+                    "{}: {}",
+                    "Removed".bright_black(),
+                    path.display().to_string().bright_black()
+                );
             }
         }
     }

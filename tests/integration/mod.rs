@@ -1,4 +1,5 @@
 mod cli;
+mod clean_test;
 mod cross_project_docs;
 mod cross_project_features;
 mod duplicate_operations;

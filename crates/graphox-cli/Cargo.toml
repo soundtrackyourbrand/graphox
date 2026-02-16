@@ -11,6 +11,7 @@ clap = { workspace = true, features = ["derive"] }
 colored = { workspace = true }
 tokio = { workspace = true }
 rayon = { workspace = true }
+ignore = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
 env_logger = { workspace = true }
