@@ -402,7 +402,7 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
     let mut merged = String::with_capacity(total_len);
     let mut seen_base = ahash::AHashSet::default();
     let mut seen_schema = false;
-    let mut seen_root_ops = ahash::AHashSet::default();
+    let mut seen_root_op_names = ahash::AHashSet::default();
 
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = tree_sitter_graphql::LANGUAGE.into();
@@ -521,11 +521,10 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                 let block = schema_block_indices.iter().find(|b| b.0 == m_idx).unwrap();
                 let mut unique_ops_in_block = Vec::new();
                 for &r_idx in &block.3 {
-                    let (_, _, _, _, o_n, t_n) = &collected_matches[r_idx];
-                    if let (Some(o_n), Some(t_n)) = (o_n, t_n) {
-                        let op = &text[o_n.start_byte()..o_n.end_byte()];
-                        let ty = &text[t_n.start_byte()..t_n.end_byte()];
-                        if !seen_root_ops.contains(&(op.to_string(), ty.to_string())) {
+                    let (_, _, _, _, o_n, _t_n) = &collected_matches[r_idx];
+                    if let Some(o_n) = o_n {
+                        let op = text[o_n.start_byte()..o_n.end_byte()].to_string();
+                        if !seen_root_op_names.contains(&op) {
                             unique_ops_in_block.push(r_idx);
                         } else {
                             root_ops_to_remove.insert(r_idx);
@@ -548,18 +547,18 @@ pub fn merge_schema_texts(texts: &[String]) -> String {
                         "extend schema".to_string(),
                     ));
                     for &r_idx in &unique_ops_in_block {
-                        let (_, _, _, _, o_n, t_n) = &collected_matches[r_idx];
-                        let op = &text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()];
-                        let ty = &text[t_n.unwrap().start_byte()..t_n.unwrap().end_byte()];
-                        seen_root_ops.insert((op.to_string(), ty.to_string()));
+                        let (_, _, _, _, o_n, _t_n) = &collected_matches[r_idx];
+                        let op =
+                            text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()].to_string();
+                        seen_root_op_names.insert(op);
                     }
                 } else {
                     seen_schema = true;
                     for &r_idx in &unique_ops_in_block {
-                        let (_, _, _, _, o_n, t_n) = &collected_matches[r_idx];
-                        let op = &text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()];
-                        let ty = &text[t_n.unwrap().start_byte()..t_n.unwrap().end_byte()];
-                        seen_root_ops.insert((op.to_string(), ty.to_string()));
+                        let (_, _, _, _, o_n, _t_n) = &collected_matches[r_idx];
+                        let op =
+                            text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()].to_string();
+                        seen_root_op_names.insert(op);
                     }
                 }
                 handled_schema_blocks.insert(m_idx);
@@ -776,6 +775,27 @@ mod tests {
         let merged = merge_schema_texts(&[schema1, schema2]);
         assert!(merged.contains("type Query { foo: String }"));
         assert!(merged.contains("extend type Query { bar: String }"));
+
+        // Verify with apollo-compiler
+        let s = apollo_compiler::Schema::parse(&merged, "merged.graphql").expect("Parsing failed");
+        s.validate().expect("Validation failed");
+    }
+
+    #[test]
+    #[ntest::timeout(3000)]
+    fn test_merge_schema_texts_conflicting_root_names() {
+        let schema1 = "schema { query: Q1 } type Q1 { f1: String }".to_string();
+        let schema2 = "schema { query: Q2 } type Q2 { f2: String }".to_string();
+        let merged = merge_schema_texts(&[schema1, schema2]);
+
+        println!("Merged:\n{}", merged);
+        assert!(merged.contains("schema { query: Q1 }"));
+        assert!(!merged.contains("extend schema { query: Q2 }"));
+        assert!(!merged.contains("schema { query: Q2 }"));
+        assert!(merged.contains("type Q2 { f2: String }"));
+
+        let s = apollo_compiler::Schema::parse(&merged, "merged.graphql").expect("Parsing failed");
+        s.validate().expect("Validation failed after fix");
     }
 
     #[test]
