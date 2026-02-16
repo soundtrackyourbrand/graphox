@@ -295,6 +295,47 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
         return true;
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::OsStr;
+        let mut p_comps = path.components();
+        let mut pre_comps = prefix.components();
+
+        // Skip /private if present in only one of them
+        let mut p_first = p_comps.next();
+        let mut pre_first = pre_comps.next();
+
+        if let (Some(std::path::Component::RootDir), Some(std::path::Component::RootDir)) =
+            (p_first, pre_first)
+        {
+            p_first = p_comps.next();
+            pre_first = pre_comps.next();
+
+            if let (
+                Some(std::path::Component::Normal(p_n)),
+                Some(std::path::Component::Normal(pre_n)),
+            ) = (p_first, pre_first)
+            {
+                if p_n == OsStr::new("private") && pre_n != OsStr::new("private") {
+                    p_first = p_comps.next();
+                } else if p_n != OsStr::new("private") && pre_n == OsStr::new("private") {
+                    pre_first = pre_comps.next();
+                }
+            }
+        }
+
+        // Compare remaining components
+        while let (Some(p_c), Some(pre_c)) = (p_first, pre_first) {
+            if p_c != pre_c {
+                return false;
+            }
+            p_first = p_comps.next();
+            pre_first = pre_comps.next();
+        }
+
+        pre_first.is_none()
+    }
+
     #[cfg(windows)]
     {
         let s_path = path.to_string_lossy().replace('/', "\\");
@@ -311,9 +352,14 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
             let next_char = clean_path.chars().nth(clean_prefix.len()).unwrap();
             return next_char == '\\' || next_char == '/';
         }
+
+        return false;
     }
 
-    false
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        false
+    }
 }
 
 pub fn get_output_path(
@@ -764,5 +810,28 @@ mod tests {
         );
         assert_eq!(get_glob_root("*.graphql"), PathBuf::from(""));
         assert_eq!(get_glob_root("docs/"), PathBuf::from("docs/"));
+    }
+
+    #[test]
+    fn test_path_starts_with() {
+        let path = Path::new("/Users/foo/bar/baz.ts");
+        let prefix = Path::new("/Users/foo");
+        assert!(path_starts_with(path, prefix));
+
+        let path = Path::new("/private/Users/foo/bar/baz.ts");
+        let prefix = Path::new("/Users/foo");
+        #[cfg(target_os = "macos")]
+        assert!(path_starts_with(path, prefix));
+        #[cfg(not(target_os = "macos"))]
+        assert!(!path_starts_with(path, prefix));
+
+        let path = Path::new("/Users/foo/bar/baz.ts");
+        let prefix = Path::new("/private/Users/foo");
+        #[cfg(target_os = "macos")]
+        assert!(path_starts_with(path, prefix));
+
+        let path = Path::new("/Users/foo/bar/baz.ts");
+        let prefix = Path::new("/Users/fo");
+        assert!(!path_starts_with(path, prefix));
     }
 }

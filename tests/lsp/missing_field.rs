@@ -3,6 +3,8 @@ use crate::support::{
     lsp_request_code_actions, lsp_request_diagnostics, make_temp_project_with_schema,
     write_project_file,
 };
+use graphox::config::{CodegenConfig, Config, GlobPattern, ProjectConfig, SchemaSource};
+use std::fs;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
@@ -121,4 +123,71 @@ async fn test_missing_field_code_actions() {
     let changes = edit.changes.as_ref().unwrap();
     let edits = &changes[&query_uri];
     assert_eq!(edits[0].new_text, "name");
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_missing_field_literal_include_matching() {
+    // Define a schema with a specific field
+    let schema = "type Query { playlist: Playlist } type Playlist { id: ID! }";
+
+    let dir = tempfile::TempDir::new().expect("failed to create tempdir");
+    let schema_path = dir.path().join("schema.graphql");
+    fs::write(&schema_path, schema).expect("write schema");
+    fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
+
+    // Create a sub-directory and a file in it
+    let sub_dir_rel = "packages/playback/src";
+    let sub_dir = dir.path().join(sub_dir_rel);
+    fs::create_dir_all(&sub_dir).expect("create sub-dir");
+
+    // The query file - embedded in TS
+    let query_text = "query PlaylistSourceQuery { playlist { id } }";
+    let query_rel = format!("{}/web.ts", sub_dir_rel);
+    let full_content = format!("const q = gql`{}`;", query_text);
+    let query_uri = crate::support::write_project_file_at(dir.path(), &query_rel, &full_content);
+
+    // Create config with a literal directory include pattern (no glob)
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single(sub_dir_rel.to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    // Simulate opening the document
+    lsp_did_open(
+        &mut service,
+        query_uri.clone(),
+        "typescript",
+        1,
+        &full_content,
+    )
+    .await;
+
+    // Request diagnostics
+    let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+        result
+    {
+        let diagnostics = &full_report.full_document_diagnostic_report.items;
+
+        // If the bug exists, "playlist" will be flagged as missing because the file
+        // was not associated with the project that has the schema.
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no diagnostics for 'playlist' field, but got: {:?}",
+            diagnostics
+        );
+    } else {
+        panic!("Expected full diagnostic report");
+    }
 }

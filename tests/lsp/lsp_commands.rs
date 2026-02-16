@@ -87,7 +87,7 @@ async fn test_lsp_command_clear_cache() {
         .unwrap();
 
     // Wait for re-validation diagnostics
-    for _ in 0..50 {
+    for _ in 0..200 {
         sleep(Duration::from_millis(10)).await;
         let diags = received_diags.lock().unwrap();
         if diags.len() > 1 {

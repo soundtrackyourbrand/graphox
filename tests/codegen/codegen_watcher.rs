@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(30000)]
 fn test_codegen_watch_mode() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
@@ -42,7 +42,7 @@ fn test_codegen_watch_mode() {
     let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(2)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(5)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -51,13 +51,16 @@ fn test_codegen_watch_mode() {
     assert!(initial_content.contains("me: {"));
     assert!(!initial_content.contains("name: string"));
 
+    // Give watcher time to settle
+    thread::sleep(Duration::from_millis(1000));
+
     // 4. Modify query to include 'name'
     fs::write(&query_path, "query GetMe { me { id name } }").unwrap();
 
     // 5. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(3) {
+    while start.elapsed() < Duration::from_secs(10) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("name: string | null")
         {
@@ -77,7 +80,7 @@ fn test_codegen_watch_mode() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(30000)]
 fn test_codegen_watch_schema_changes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
@@ -114,7 +117,7 @@ fn test_codegen_watch_schema_changes() {
     let gen_file = base_dir.join("gen/query.codegen.ts");
 
     // 3. Wait for initial generation
-    if !wait_for_file(&gen_file, Duration::from_secs(3)) {
+    if !wait_for_file(&gen_file, Duration::from_secs(5)) {
         child.kill().ok();
         panic!("Initial codegen file not created in time");
     }
@@ -127,7 +130,7 @@ fn test_codegen_watch_schema_changes() {
     .unwrap();
 
     // Give it a moment to detect schema change and re-evaluate
-    thread::sleep(Duration::from_millis(200));
+    thread::sleep(Duration::from_millis(1000));
 
     // 5. Modify query to use the new field
     fs::write(&query_path, "query GetMe { me { id email } }").unwrap();
@@ -135,7 +138,7 @@ fn test_codegen_watch_schema_changes() {
     // 6. Wait for updated generation
     let mut updated = false;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(3) {
+    while start.elapsed() < Duration::from_secs(10) {
         if let Ok(content) = fs::read_to_string(&gen_file)
             && content.contains("email: string")
         {

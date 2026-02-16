@@ -14,11 +14,11 @@ cargo-test:
 
 ## swc-build: Build SWC plugin (WASM + TypeScript)
 swc-build:
-	cd plugins/swc/node && pnpm run build:all
+	cd plugins/swc/node && pnpm install && pnpm run build:all
 
 ## swc-test: Run SWC plugin tests
 swc-test:
-	cd plugins/swc/node && pnpm test
+	cd plugins/swc/node && pnpm install && pnpm test
 
 ## babel-build: Build Babel plugin
 babel-build:
@@ -26,7 +26,7 @@ babel-build:
 
 ## babel-test: Run Babel plugin tests
 babel-test:
-	cd plugins/babel && pnpm test
+	cd plugins/babel && pnpm install && pnpm test
 
 ## build: Build core crate + all plugins
 build: cargo-build swc-build babel-build

@@ -936,6 +936,20 @@ impl Config {
                 let include_set = get_glob_set(&project.include().patterns());
                 if include_set.is_match(rel_path) {
                     matched = true;
+                } else {
+                    // If it didn't match as a glob, check if it's a sub-path of any of the include patterns
+                    // that are not globs themselves.
+                    for pattern in project.include().patterns() {
+                        if !pattern.contains('*')
+                            && !pattern.contains('?')
+                            && !pattern.contains('[')
+                            && !pattern.contains('{')
+                            && rel_path.starts_with(Path::new(&pattern))
+                        {
+                            matched = true;
+                            break;
+                        }
+                    }
                 }
             }
 
