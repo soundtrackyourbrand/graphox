@@ -121,6 +121,10 @@ pub async fn process_file_created_or_changed(
         }
     };
 
+    if graphox_core::utils::has_generated_header(&content) {
+        return None;
+    }
+
     let _language = DocumentLanguage::from_uri(&uri);
     let new_doc = DocumentState::new_from_thread_local(
         uri.clone(),

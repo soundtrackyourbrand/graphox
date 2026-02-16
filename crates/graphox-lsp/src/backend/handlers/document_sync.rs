@@ -9,6 +9,9 @@ use std::sync::atomic::Ordering;
 use tower_lsp::lsp_types::*;
 
 pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParams) {
+    if graphox_core::utils::has_generated_header(&params.text_document.text) {
+        return;
+    }
     let uri = backend.normalize_uri(params.text_document.uri.clone());
     backend.open_documents.insert(uri.clone());
     let _language = DocumentLanguage::from_uri(&uri);
