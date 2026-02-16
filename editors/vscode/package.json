@@ -2,7 +2,7 @@
   "name": "graphox",
   "displayName": "Graphox",
   "description": "GraphQL Language Server and Codegen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "soundtrack",
   "engines": {
     "vscode": "^1.75.0"
