@@ -2,11 +2,14 @@ use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_typed,
     make_temp_project_with_schema, with_cursor, write_project_file,
 };
+use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox_core::{CodegenConfig, Config};
 use std::fs;
+use tempfile::TempDir;
 use tower_lsp::lsp_types::*;
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_type_vs_fragment_collision() {
     let schema = "type Query { user: User }\ntype User { id: ID! }\ntype Displayable { id: ID! }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -110,7 +113,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_directive() {
     let schema = "directive @customDirective(arg: String) on FIELD\ntype Query { id: ID }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -156,7 +159,7 @@ async fn test_goto_definition_directive() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_enum_value() {
     let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ntype Query { users(status: OrderStatus): [User] }\ntype User { id: ID }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -203,7 +206,7 @@ async fn test_goto_definition_enum_value() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_variable_in_argument() {
     let (tmpdir, mut config) = make_temp_project_with_schema(
         "type Query { user(id: ID!): User }\ntype User { id: ID! name: String }",
@@ -283,7 +286,7 @@ async fn test_goto_definition_variable_in_argument() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_inline_fragment_type() {
     let schema = "type Query { user: User }\ntype User { id: ID! name: String }\ntype Admin { id: ID! privileges: [String] }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -333,7 +336,7 @@ async fn test_goto_definition_inline_fragment_type() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_input_object_field() {
     let schema = "input CreateUserInput { id: ID! name: String }\ntype Mutation { createUser(input: CreateUserInput): ID }\ntype Query { dummy: String }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -374,7 +377,7 @@ async fn test_goto_definition_input_object_field() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(200)]
 async fn test_goto_definition_nested_enum_value() {
     let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ninput OrderFilter { status: OrderStatus }\ntype Query { orders(filter: OrderFilter): [ID] }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -414,4 +417,68 @@ async fn test_goto_definition_nested_enum_value() {
     } else {
         panic!("Expected definition of ACTIVE enum value, got {:?}", result);
     }
+}
+
+#[tokio::test]
+#[ntest::timeout(200)]
+async fn test_goto_definition_to_schema_file_outside_include() {
+    let dir = TempDir::new().expect("failed to create tempdir");
+
+    // 1. Create a schema file OUTSIDE the include root
+    fs::create_dir_all(dir.path().join("schema")).unwrap();
+    let schema_text = "type Query { user: User }\ntype User {\n  id: ID!\n  name: String\n}";
+    let schema_path = dir.path().join("schema/schema.graphql");
+    fs::write(&schema_path, schema_text).expect("write schema");
+
+    // 2. Create an operation file INSIDE the include root
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    let query_text = "query GetUser { user { id name } }";
+    let query_uri = write_project_file(&dir, "src/query.graphql", query_text);
+
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema/schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(false)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    // Open operation file
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    // 3. Test Go to Definition on 'user' field
+    let params_field = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position: Position::new(0, 16),
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result_field: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params_field).await;
+
+    // EXPECTED FAILURE: Currently it might return None if schema file is not indexed as document
+    let loc_field = match result_field {
+        Some(GotoDefinitionResponse::Scalar(l)) => l,
+        _ => panic!(
+            "REPRO: Should have definition for 'user' field in schema/schema.graphql. Got: {:?}",
+            result_field
+        ),
+    };
+
+    assert!(
+        loc_field.uri.as_str().contains("schema.graphql"),
+        "Definition should be in schema.graphql, got {}",
+        loc_field.uri
+    );
 }

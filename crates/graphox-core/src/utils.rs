@@ -30,7 +30,7 @@ pub fn is_relevant_file(path: &Path) -> bool {
         let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let is_ext_relevant = matches!(
             ext,
-            "graphql" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
+            "graphql" | "graphqls" | "gql" | "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
         );
 
         if !is_ext_relevant {

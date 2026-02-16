@@ -75,16 +75,7 @@ pub async fn process_file_created_or_changed(
         });
     }
 
-    // Check if this is a schema file
-    if is_schema_file(&path_str, params.config) {
-        return Some(FileChangeResult {
-            uris_to_validate: vec![],
-            should_reload_schema: true,
-            schema_path: Some(path_str),
-            should_run_codegen: false,
-            should_reload_config: false,
-        });
-    }
+    let is_schema = is_schema_file(&path_str, params.config);
 
     // Handle GraphQL document files
     if !is_relevant_file(&path) || is_path_ignored(&path, params.gitignore) {
@@ -232,8 +223,8 @@ pub async fn process_file_created_or_changed(
 
     Some(FileChangeResult {
         uris_to_validate,
-        should_reload_schema: false,
-        schema_path: None,
+        should_reload_schema: is_schema,
+        schema_path: if is_schema { Some(path_str) } else { None },
         should_run_codegen,
         should_reload_config: false,
     })
