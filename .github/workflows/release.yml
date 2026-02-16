@@ -129,11 +129,15 @@ jobs:
           name: binary-${{ matrix.target }}
           path: ./graphox-${{ matrix.target }}.${{ matrix.archive }}
           retention-days: 1
+          if-no-files-found: error
 
-  build-swc-wasm:
-    name: Build SWC WASM Plugin
+  build-and-publish-swc-plugin:
+    name: Build and Publish SWC Plugin
     needs: create-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -154,20 +158,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@soundtrackyourbrand'
           cache: 'pnpm'
           cache-dependency-path: plugins/swc/node/pnpm-lock.yaml
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install dependencies
         working-directory: plugins/swc/node
@@ -177,12 +171,79 @@ jobs:
         working-directory: plugins/swc/node
         run: pnpm run build:wasm
       
-      - name: Upload WASM Artifact
+      - name: Build TypeScript
+        working-directory: plugins/swc/node
+        run: pnpm run build
+
+      - name: Sync package version
+        working-directory: plugins/swc/node
+        run: |
+          VERSION=${{ needs.create-release.outputs.version }}
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = '$VERSION';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Publish SWC Plugin
+        working-directory: plugins/swc/node
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload WASM Artifact for Release
         uses: actions/upload-artifact@v4
         with:
           name: swc-wasm
           path: plugins/swc/node/wasm/
           retention-days: 1
+          if-no-files-found: error
+
+  publish-babel-plugin:
+    name: Publish Babel Plugin
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@soundtrackyourbrand'
+          cache: 'pnpm'
+          cache-dependency-path: plugins/babel/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: plugins/babel
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync package version
+        working-directory: plugins/babel
+        run: |
+          VERSION=${{ needs.create-release.outputs.version }}
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = '$VERSION';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Publish Babel Plugin
+        working-directory: plugins/babel
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-vscode-extension:
     name: Build VSCode Extension
@@ -223,6 +284,7 @@ jobs:
           name: vscode-extension
           path: editors/vscode/*.vsix
           retention-days: 1
+          if-no-files-found: error
 
   publish-platform-packages:
     name: Publish Platform Packages
@@ -347,103 +409,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-swc-plugin-github:
-    name: Publish SWC Plugin to GitHub Packages
-    needs: [create-release, build-swc-wasm]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Download WASM Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: swc-wasm
-          path: plugins/swc/node/wasm/
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-          cache-dependency-path: plugins/swc/node/pnpm-lock.yaml
-          registry-url: 'https://npm.pkg.github.com'
-          scope: '@soundtrackyourbrand'
-
-      - name: Install dependencies
-        working-directory: plugins/swc/node
-        run: pnpm install --frozen-lockfile
-      
-      - name: Build TypeScript
-        working-directory: plugins/swc/node
-        run: pnpm run build
-
-      - name: Sync package version
-        working-directory: plugins/swc/node
-        run: |
-          VERSION=${{ needs.create-release.outputs.version }}
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.version = '$VERSION';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-          "
-
-      - name: Publish SWC Plugin
-        working-directory: plugins/swc/node
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish-babel-plugin-github:
-    name: Publish Babel Plugin to GitHub Packages
-    needs: [create-release]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          registry-url: 'https://npm.pkg.github.com'
-          scope: '@soundtrackyourbrand'
-
-      - name: Sync package version
-        working-directory: plugins/babel
-        run: |
-          VERSION=${{ needs.create-release.outputs.version }}
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.version = '$VERSION';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-          "
-
-      - name: Publish Babel Plugin
-        working-directory: plugins/babel
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   finalize-release:
     name: Finalize GitHub Release
-    needs: [create-release, build-binaries, build-swc-wasm, build-vscode-extension]
+    needs: [create-release, build-binaries, build-and-publish-swc-plugin, build-vscode-extension, publish-babel-plugin, publish-platform-packages, publish-cli-wrapper]
     runs-on: ubuntu-latest
     permissions:
       contents: write
