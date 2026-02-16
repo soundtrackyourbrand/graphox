@@ -132,6 +132,35 @@ fn test_validation_deprecated_field() {
 
 #[test]
 #[ntest::timeout(100)]
+fn test_validation_deprecated_field_ignored() {
+    let doc = create_doc(
+        "file:///deprecated_ignored.graphql",
+        r#"
+            query GetUser {
+                user {
+                    id
+                    oldField # graphox-ignore
+                }
+            }
+        "#,
+    );
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_deprecated_field_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        None,
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 0);
+}
+
+#[test]
+#[ntest::timeout(100)]
 fn test_validation_nested_missing_field() {
     let doc = create_doc(
         "file:///nested.graphql",

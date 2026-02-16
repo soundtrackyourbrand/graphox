@@ -257,11 +257,32 @@ impl DocumentDiagnostics for DocumentState {
         message: String,
         reason: &str,
     ) {
-        if !self.is_deprecation_ignored(reason, ctx.config) {
+        let is_ignored_in_config = self.is_deprecation_ignored(reason, ctx.config);
+        let mut is_ignored_by_comment = false;
+
+        if !is_ignored_in_config {
+            let start_byte = node.start_byte() + offset;
+            let line_idx = self.rope.byte_to_line(start_byte);
+            if line_idx < self.rope.len_lines() {
+                let line = self.rope.line(line_idx).to_string();
+                let line_start_byte = self.rope.line_to_byte(line_idx);
+                let relative_end_byte = node.end_byte() + offset - line_start_byte;
+                if relative_end_byte < line.len() {
+                    if let Some(after_text) = line.get(relative_end_byte..) {
+                        if after_text.contains("# graphox-ignore") {
+                            is_ignored_by_comment = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !is_ignored_in_config && !is_ignored_by_comment {
             ctx.diagnostics.push(Diagnostic {
                 range: self.translate_to_file_range(node, offset),
                 severity: Some(DiagnosticSeverity::WARNING),
                 message,
+                code: Some(lsp_types::NumberOrString::String("deprecated".to_string())),
                 ..Default::default()
             });
         } else if ctx.include_ignored {
@@ -269,6 +290,7 @@ impl DocumentDiagnostics for DocumentState {
                 range: self.translate_to_file_range(node, offset),
                 severity: Some(DiagnosticSeverity::INFORMATION),
                 message: format!("[Ignored] {}", message),
+                code: Some(lsp_types::NumberOrString::String("deprecated".to_string())),
                 ..Default::default()
             });
         }
