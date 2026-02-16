@@ -2,7 +2,7 @@
   "name": "graphox",
   "displayName": "Graphox",
   "description": "GraphQL Language Server and Codegen",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "soundtrack",
   "packageManager": "pnpm@9.15.4",
   "engines": {
