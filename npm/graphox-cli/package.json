@@ -1,6 +1,6 @@
 {
   "name": "@soundtrackyourbrand/graphox-cli",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Graphox CLI - High-performance GraphQL toolset",
   "bin": {
     "graphox": "./bin/graphox"
@@ -9,12 +9,12 @@
     "postinstall": "node postinstall.js"
   },
   "optionalDependencies": {
-    "@soundtrackyourbrand/graphox-darwin-arm64": "0.1.6",
-    "@soundtrackyourbrand/graphox-darwin-x64": "0.1.6",
-    "@soundtrackyourbrand/graphox-linux-arm64": "0.1.6",
-    "@soundtrackyourbrand/graphox-linux-x64": "0.1.6",
-    "@soundtrackyourbrand/graphox-win32-arm64": "0.1.6",
-    "@soundtrackyourbrand/graphox-win32-x64": "0.1.6"
+    "@soundtrackyourbrand/graphox-darwin-arm64": "0.1.7",
+    "@soundtrackyourbrand/graphox-darwin-x64": "0.1.7",
+    "@soundtrackyourbrand/graphox-linux-arm64": "0.1.7",
+    "@soundtrackyourbrand/graphox-linux-x64": "0.1.7",
+    "@soundtrackyourbrand/graphox-win32-arm64": "0.1.7",
+    "@soundtrackyourbrand/graphox-win32-x64": "0.1.7"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

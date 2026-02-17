@@ -1,6 +1,6 @@
 [package]
 name = "graphox-swc-plugin"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 
 [lib]
@@ -28,3 +28,6 @@ tempfile = "3.24.0"
 ntest = "0.9"
 serde_json = { workspace = true }
 graphox = { path = "../../.." }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(swc_ast_unknown)'] }
