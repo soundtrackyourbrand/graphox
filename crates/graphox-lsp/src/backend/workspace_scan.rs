@@ -52,6 +52,8 @@ pub struct WorkspaceScanParams {
     pub supports_progress: bool,
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
     pub position_encoding: PositionEncodingKind,
+    pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
+    pub last_full_validation_version: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Spawns a background workspace scan task
@@ -141,7 +143,11 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
     }
 
     // Validate all documents with proper schemas and fragments
+    let current_version = params.workspace_version.load(Ordering::SeqCst);
     validate_all_documents_cancellable(&params, &cancelled, Some(&progress)).await;
+    params
+        .last_full_validation_version
+        .store(current_version, Ordering::SeqCst);
 
     // End progress
     progress

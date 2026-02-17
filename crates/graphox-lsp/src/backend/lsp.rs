@@ -95,6 +95,8 @@ impl LanguageServer for Backend {
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
+            workspace_version: self.workspace_version.clone(),
+            last_full_validation_version: self.last_full_validation_version.clone(),
         });
 
         // Register file watchers

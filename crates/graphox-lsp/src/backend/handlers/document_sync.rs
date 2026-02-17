@@ -85,6 +85,7 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     }
 
     backend.documents.insert(uri.clone(), Arc::new(doc));
+    backend.increment_workspace_version();
 
     let uris_to_validate = backend.get_affected_uris(
         uri,
@@ -138,6 +139,7 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
     ) {
         // Invalidate fragment metadata cache since fragments might have changed
         backend.invalidate_fragment_cache();
+        backend.increment_workspace_version();
 
         // Validate affected documents
         backend.validate_uris(result.uris_to_validate).await;
@@ -204,6 +206,7 @@ pub async fn handle_did_change_watched_files(
             if let Some(result) = result {
                 // Invalidate fragment metadata cache since fragments might have changed
                 backend.invalidate_fragment_cache();
+                backend.increment_workspace_version();
 
                 // Config reload takes precedence - if config changed, reload everything
                 if result.should_reload_config {

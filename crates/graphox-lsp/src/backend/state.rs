@@ -51,6 +51,10 @@ pub struct Backend {
     pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
     /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
     pub diagnostic_cache: DiagnosticCacheMap,
+    /// Current version of the workspace, incremented on any change
+    pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
+    /// Version of the workspace when the last full validation was completed
+    pub last_full_validation_version: Arc<std::sync::atomic::AtomicUsize>,
     /// Throttled codegen runner
     pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
     /// Global cache for all fragments in the workspace
@@ -159,6 +163,8 @@ impl Backend {
             type_caches,
             client_capabilities: Arc::new(std::sync::RwLock::new(ClientCapabilities::default())),
             diagnostic_cache: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
+            workspace_version: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
+            last_full_validation_version: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             codegen_throttle,
             fragment_metadata_cache: Arc::new(std::sync::RwLock::new(None)),
         }
@@ -173,6 +179,11 @@ impl Backend {
 
     pub fn normalize_uri(&self, uri: Url) -> Url {
         super::helpers::normalize_uri(uri)
+    }
+
+    pub fn increment_workspace_version(&self) {
+        self.workspace_version
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<apollo_compiler::validation::Valid<Schema>> {
@@ -378,6 +389,7 @@ impl Backend {
             // Invalidate fragment metadata cache since schema changed,
             // which might affect fragment requirements resolution.
             self.invalidate_fragment_cache();
+            self.increment_workspace_version();
         }
 
         // Validate documents affected by reloaded schemas
@@ -417,6 +429,10 @@ impl Backend {
         self.type_caches.clear();
         self.diagnostic_cache.clear();
 
+        // Reset workspace version
+        self.workspace_version.store(1, Ordering::SeqCst);
+        self.last_full_validation_version.store(0, Ordering::SeqCst);
+
         // Trigger workspace scan to re-index everything
         let (supports_progress, position_encoding, supports_pull_diagnostics) =
             if let Ok(caps) = self.client_capabilities.read() {
@@ -454,6 +470,8 @@ impl Backend {
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
+            workspace_version: self.workspace_version.clone(),
+            last_full_validation_version: self.last_full_validation_version.clone(),
         });
 
         self.client
@@ -599,6 +617,10 @@ impl Backend {
         self.type_caches.clear();
         self.diagnostic_cache.clear();
 
+        // Reset workspace version
+        self.workspace_version.store(1, Ordering::SeqCst);
+        self.last_full_validation_version.store(0, Ordering::SeqCst);
+
         // Re-register file watchers with new config
         {
             let config = self.config.read().unwrap();
@@ -643,6 +665,8 @@ impl Backend {
             supports_progress,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
+            workspace_version: self.workspace_version.clone(),
+            last_full_validation_version: self.last_full_validation_version.clone(),
         });
 
         self.client
@@ -713,6 +737,13 @@ impl Backend {
     }
 
     pub async fn validate_all_documents(&self) {
+        let current_version = self.workspace_version.load(Ordering::SeqCst);
+        let last_version = self.last_full_validation_version.load(Ordering::SeqCst);
+
+        if last_version >= current_version {
+            return;
+        }
+
         let (use_push, supports_progress, position_encoding) =
             if let Ok(caps) = self.client_capabilities.read() {
                 (
@@ -744,6 +775,9 @@ impl Backend {
         };
         super::validation::validate_all_documents(params, use_push, Some(&self.diagnostic_cache))
             .await;
+
+        self.last_full_validation_version
+            .store(current_version, Ordering::SeqCst);
     }
 
     pub fn get_affected_uris(

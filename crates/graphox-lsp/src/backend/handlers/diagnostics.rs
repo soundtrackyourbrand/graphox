@@ -1,4 +1,5 @@
 use crate::backend::state::Backend;
+use ahash::AHashMap;
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -171,16 +172,22 @@ pub async fn handle_workspace_diagnostic(
         // Validate all documents (this will cache diagnostics)
         backend.validate_all_documents().await;
 
+        // Convert previous_result_ids to a map for faster O(1) lookup
+        let previous_ids: AHashMap<Url, String> = params
+            .previous_result_ids
+            .iter()
+            .map(|prev| (prev.uri.clone(), prev.value.clone()))
+            .collect();
+
         // Collect diagnostics from cache
         for uri in all_uris {
             if let Some(cached) = backend.diagnostic_cache.get(&uri) {
                 let (version, diagnostics) = cached.value();
 
-                // Check if this URI was in the previous result
-                let unchanged = params
-                    .previous_result_ids
-                    .iter()
-                    .any(|prev| prev.uri == uri && prev.value == version.to_string());
+                // Check if this URI was in the previous result with same version
+                let unchanged = previous_ids
+                    .get(&uri)
+                    .is_some_and(|prev_val| prev_val == &version.to_string());
 
                 if unchanged {
                     items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
