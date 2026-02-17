@@ -173,14 +173,20 @@ impl Engine {
                     .include()
                     .patterns()
                     .iter()
-                    .map(|p_inc| config.base_dir().join(p_inc).to_string_lossy().to_string())
+                    .map(|p_inc| {
+                        let abs = config.base_dir().join(p_inc);
+                        crate::utils::to_posix_path(&abs)
+                    })
                     .collect();
                 let abs_excludes: Vec<String> = p
                     .exclude()
                     .map(|e: &crate::config::GlobPattern| e.patterns())
                     .unwrap_or_default()
                     .iter()
-                    .map(|p_exc| config.base_dir().join(p_exc).to_string_lossy().to_string())
+                    .map(|p_exc| {
+                        let abs = config.base_dir().join(p_exc);
+                        crate::utils::to_posix_path(&abs)
+                    })
                     .collect();
                 let output_dir = p.output_dir();
                 (

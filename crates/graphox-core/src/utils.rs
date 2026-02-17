@@ -225,7 +225,12 @@ pub fn get_project_files(
                             }
 
                             if !excluded {
-                                let _ = tx.send(path.to_owned());
+                                let send_path = if cfg!(windows) {
+                                    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
+                                } else {
+                                    path.to_owned()
+                                };
+                                let _ = tx.send(send_path);
                             }
                         }
                     }
@@ -438,34 +443,37 @@ pub fn get_output_path(
         abs_base_dir
     };
 
-    #[cfg(windows)]
-    let rel_path = {
-        // Robustly calculate relative path by stripping Windows prefixes if necessary
-        let s_abs = abs_path.to_string_lossy().replace('/', "\\");
-        let s_target = diff_target.to_string_lossy().replace('/', "\\");
+    let rel_path = if let Ok(rel) = abs_path.strip_prefix(&diff_target) {
+        rel.to_path_buf()
+    } else {
+        #[cfg(windows)]
+        {
+            // Robustly calculate relative path by stripping Windows prefixes if necessary
+            let s_abs = abs_path.to_string_lossy().replace('/', "\\");
+            let s_target = diff_target.to_string_lossy().replace('/', "\\");
 
-        let clean_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
-        };
-        let clean_target = if let Some(s) = s_target.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_target
-                .strip_prefix(r"\\?\")
-                .unwrap_or(&s_target)
-                .to_string()
-        };
+            let clean_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
+                format!("\\\\{}", s)
+            } else {
+                s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
+            };
+            let clean_target = if let Some(s) = s_target.strip_prefix(r"\\?\UNC\") {
+                format!("\\\\{}", s)
+            } else {
+                s_target
+                    .strip_prefix(r"\\?\")
+                    .unwrap_or(&s_target)
+                    .to_string()
+            };
 
-        pathdiff::diff_paths(&clean_abs, &clean_target).unwrap_or_else(|| abs_path.clone())
+            pathdiff::diff_paths(&clean_abs, &clean_target).unwrap_or_else(|| abs_path.clone())
+        }
+
+        #[cfg(not(windows))]
+        {
+            pathdiff::diff_paths(&abs_path, &diff_target).unwrap_or_else(|| abs_path.clone())
+        }
     };
-
-    #[cfg(not(windows))]
-    let rel_path = abs_path
-        .strip_prefix(&diff_target)
-        .unwrap_or(&abs_path)
-        .to_path_buf();
 
     if let Some(out_dir) = output_dir {
         output_path.push(out_dir);

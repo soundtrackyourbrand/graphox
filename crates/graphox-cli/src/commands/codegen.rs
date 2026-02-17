@@ -805,6 +805,7 @@ fn generate_project_files_sync(
                 .map(|p| utils::get_glob_root(p))
                 .find(|root| {
                     let abs_root = params.base_dir.join(root);
+                    let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
                     utils::path_starts_with(path, &abs_root)
                 })
                 .unwrap_or_default();
@@ -1047,6 +1048,7 @@ fn clean_project_files_sync(
                         .map(|p| utils::get_glob_root(p))
                         .find(|root| {
                             let abs_root = params.base_dir.join(root);
+                            let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
                             utils::path_starts_with(path, &abs_root)
                         })
                         .unwrap_or_default();
