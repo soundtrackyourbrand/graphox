@@ -20,7 +20,7 @@ This project is organized as a Rust workspace with specialized crates:
 
 1. **Clone and install dependencies**
    ```bash
-   git clone https://github.com/soundtrack/graphox.git
+   git clone https://github.com/soundtrackyourbrand/graphox.git
    cd graphox
    ```
 
@@ -151,7 +151,7 @@ git push && git push --tags
 - Publishes NPM package to GitHub Packages
 - Creates a GitHub Release with all artifacts attached
 
-The release will be available at: `https://github.com/soundtrack/graphox/releases`
+The release will be available at: `https://github.com/soundtrackyourbrand/graphox/releases`
 
 ---
 

@@ -104,7 +104,7 @@ pnpm add @soundtrackyourbrand/graphox-cli --registry=https://npm.pkg.github.com
 
 ### Manual Binary Installation
 
-Download pre-built binaries from the [releases page](https://github.com/soundtrack/graphox/releases) for:
+Download pre-built binaries from the [releases page](https://github.com/soundtrackyourbrand/graphox/releases) for:
 - macOS (x86_64, ARM64)
 - Linux (x86_64, ARM64)
 - Windows (x86_64, ARM64)
@@ -335,4 +335,4 @@ MIT
 
 ## Repository
 
-https://github.com/soundtrack/graphox
+https://github.com/soundtrackyourbrand/graphox

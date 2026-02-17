@@ -60,7 +60,7 @@ This package automatically downloads the correct binary for your platform:
 
 ## Configuration
 
-Create a `graphox.yaml` file in your project root. See the [main documentation](https://github.com/soundtrack/graphox#configuration) for details.
+Create a `graphox.yaml` file in your project root. See the [main documentation](https://github.com/soundtrackyourbrand/graphox#configuration) for details.
 
 ## Local Development
 
@@ -97,7 +97,7 @@ pnpm install
 
 ## Manual Binary Download
 
-If automatic installation fails, you can manually download binaries from the [releases page](https://github.com/soundtrack/graphox/releases).
+If automatic installation fails, you can manually download binaries from the [releases page](https://github.com/soundtrackyourbrand/graphox/releases).
 
 ## Environment Variables
 
@@ -110,4 +110,4 @@ MIT
 
 ## Repository
 
-https://github.com/soundtrack/graphox
+https://github.com/soundtrackyourbrand/graphox

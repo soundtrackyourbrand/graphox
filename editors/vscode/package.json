@@ -1,9 +1,17 @@
 {
   "name": "graphox",
   "displayName": "Graphox",
-  "description": "GraphQL Language Server and Codegen",
+  "description": "Rust-powered GraphQL language server, validation, and codegen for VS Code",
   "version": "0.1.8",
   "publisher": "soundtrack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soundtrackyourbrand/graphox.git"
+  },
+  "homepage": "https://github.com/soundtrackyourbrand/graphox",
+  "bugs": {
+    "url": "https://github.com/soundtrackyourbrand/graphox/issues"
+  },
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "vscode": "^1.75.0"

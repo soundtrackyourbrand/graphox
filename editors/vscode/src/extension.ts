@@ -11,11 +11,22 @@ let client: LanguageClient | undefined;
 
 function existsSync(filePath: string): boolean {
   try {
-    require('fs').existsSync(filePath);
-    return true;
+    return require('fs').existsSync(filePath);
   } catch {
     return false;
   }
+}
+
+function hasWorkspaceConfigFile(): boolean {
+  const folders = workspace.workspaceFolders || [];
+
+  return folders.some((folder) => {
+    const rootPath = folder.uri.fsPath;
+    return (
+      existsSync(path.join(rootPath, 'graphox.yaml')) ||
+      existsSync(path.join(rootPath, 'graphox.yml'))
+    );
+  });
 }
 
 function findNpmPackagePath(): string | undefined {
@@ -69,10 +80,7 @@ function findLocalBuildPath(): string | undefined {
   return undefined;
 }
 
-function findServerPath(context: ExtensionContext): string {
-  const config = workspace.getConfiguration('graphox');
-  const configuredPath = config.get<string>('serverPath', '').trim();
-
+function findServerPath(configuredPath: string): string {
   if (configuredPath) {
     return configuredPath;
   }
@@ -94,14 +102,14 @@ function findServerPath(context: ExtensionContext): string {
 }
 
 async function showBinaryNotFoundMessage(serverPath: string, usedNpm: boolean): Promise<void> {
-  const docsUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphox#installation');
-  const configUri = require('vscode').Uri.parse('https://github.com/soundtrack/graphox/blob/main/editors/vscode/README.md');
+  const docsUri = require('vscode').Uri.parse('https://github.com/soundtrackyourbrand/graphox#installation');
+  const configUri = require('vscode').Uri.parse('https://github.com/soundtrackyourbrand/graphox/blob/main/editors/vscode/README.md');
 
   let message: string;
   if (usedNpm) {
     message = `graphox binary from npm package was found but failed to start. Check the Output panel for details.`;
   } else {
-    message = `graphox binary not found. Install via 'pnpm add @soundtrack/graphox-cli' or build from source.`;
+    message = `graphox binary not found. Install via 'pnpm add @soundtrackyourbrand/graphox-cli' or build from source.`;
   }
 
   const action = await window.showErrorMessage(
@@ -118,7 +126,12 @@ async function showBinaryNotFoundMessage(serverPath: string, usedNpm: boolean): 
 }
 
 export async function activate(context: ExtensionContext): Promise<void> {
-  const serverPath = findServerPath(context);
+  const configuredPath = workspace.getConfiguration('graphox').get<string>('serverPath', '').trim();
+  if (!configuredPath && !hasWorkspaceConfigFile()) {
+    return;
+  }
+
+  const serverPath = findServerPath(configuredPath);
   const usedNpm = serverPath.includes('node_modules');
 
   const logLevel = workspace.getConfiguration('graphox').get<string>('logLevel', 'info');
@@ -209,7 +222,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
           clientOptions
         );
         await client.start();
-        const newPath = findServerPath(context);
+        const newPath = findServerPath(
+          workspace.getConfiguration('graphox').get<string>('serverPath', '').trim()
+        );
         const newUsedNpm = newPath.includes('node_modules');
         const newSourceMessage = newUsedNpm
           ? 'Using graphox from npm package in workspace'

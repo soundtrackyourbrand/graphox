@@ -14,7 +14,7 @@ function transform(code, options, filename = 'test.ts') {
   return result.code;
 }
 
-describe('@soundtrack/graphox-babel', () => {
+describe('@soundtrackyourbrand/graphox-babel', () => {
   const defaultManifest = [
     {
       source: 'query { me { id } }',

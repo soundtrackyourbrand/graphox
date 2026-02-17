@@ -50,7 +50,7 @@ Choose your build tool:
 ### [Babel Plugin →](../plugins/babel/README.md)
 For Webpack-based projects and React Native (Metro)
 
-### [@soundtrack/graphox-swc →](../plugins/swc/node/README.md)
+### [@soundtrackyourbrand/graphox-swc →](../plugins/swc/node/README.md)
 For rsbuild, Turbopack, or native SWC
 
 ## See Also

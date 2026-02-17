@@ -10,7 +10,7 @@
 # 3. Copy the token and add it below
 #
 # Then install with:
-#   pnpm add @soundtrack/graphox-cli
+#   pnpm add @soundtrackyourbrand/graphox-cli
 
-@soundtrack:registry=https://npm.pkg.github.com
+@soundtrackyourbrand:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=TOKEN

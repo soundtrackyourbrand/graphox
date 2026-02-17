@@ -1,4 +1,4 @@
-# @soundtrack/graphox-swc
+# @soundtrackyourbrand/graphox-swc
 
 ## Overview
 
@@ -19,7 +19,7 @@ For users of the pre-built package, only Node.js 18+ is required.
 ## Installation
 
 ```bash
-pnpm add @soundtrack/graphox-swc
+pnpm add @soundtrackyourbrand/graphox-swc
 ```
 
 ## Requirements
@@ -34,7 +34,7 @@ pnpm add @soundtrack/graphox-swc
 ```typescript
 // rsbuild.config.ts
 import { defineConfig } from '@rsbuild/core';
-import { createSWCPlugin } from '@soundtrack/graphox-swc';
+import { createSWCPlugin } from '@soundtrackyourbrand/graphox-swc';
 import path from 'path';
 
 export default defineConfig({
@@ -68,7 +68,7 @@ export default defineConfig({
 
 ```javascript
 // next.config.js
-import { createSWCPlugin } from '@soundtrack/graphox-swc';
+import { createSWCPlugin } from '@soundtrackyourbrand/graphox-swc';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

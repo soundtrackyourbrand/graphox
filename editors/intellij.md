@@ -9,7 +9,7 @@ We use the [LSP4IJ](https://github.com/redhat-developer/lsp4ij) plugin to connec
 
 ### Method 1: Using npm/pnpm Package (Recommended for Projects)
 
-This method uses the `@soundtrack/graphox-cli` package installed in your project. It's the easiest setup and ensures version consistency.
+This method uses the `@soundtrackyourbrand/graphox-cli` package installed in your project. It's the easiest setup and ensures version consistency.
 
 **Step 1: Install the LSP Client Plugin**
 1.  Open **Settings** (Windows/Linux: `Ctrl+Alt+S`, macOS: `Cmd+,`).
@@ -98,7 +98,7 @@ For developing `Graphox` itself, point directly to your local build:
 ## Troubleshooting
 
 - **Server fails to start**: Open the "LSP Consoles" tool window (View > Tool Windows > LSP Consoles) to see error output.
-- **Version issues**: Ensure the npm package version matches your expectations. Check with `pnpm list @soundtrack/graphox-cli`.
+- **Version issues**: Ensure the npm package version matches your expectations. Check with `pnpm list @soundtrackyourbrand/graphox-cli`.
 - **Binary not found**: Use Method 3 with an absolute path to the binary.
 - **Monorepo issues**: Make sure you're in a workspace folder where `graphox-cli` is installed.
 

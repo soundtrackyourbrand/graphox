@@ -21,7 +21,7 @@ graphox/
 │   │   └── README.md        # User documentation
 │   │
 │   └── swc/                 # SWC transformation plugin
-│       ├── node/            # Node.js package (@soundtrack/graphox-swc)
+│       ├── node/            # Node.js package (@soundtrackyourbrand/graphox-swc)
 │       │   ├── package.json
 │       │   ├── src/
 │       │   ├── test/
@@ -310,7 +310,7 @@ npm publish --registry https://npm.pkg.github.com
 ```
 
 **Distribution:**
-- **NPM Package**: `@soundtrack/graphox-swc` (published to GitHub Packages)
+- **NPM Package**: `@soundtrackyourbrand/graphox-swc` (published to GitHub Packages)
 - **Release Asset**: Standalone WASM file (`graphox_swc_plugin.wasm`)
 - **Version**: Always synced with main project via `release.sh`
 
@@ -335,8 +335,8 @@ Three workflows handle the project:
 - Builds binaries for all platforms (6 targets)
 - Builds SWC WASM plugin
 - Publishes to GitHub Packages:
-  - `@soundtrack/graphox-cli`
-  - `@soundtrack/graphox-swc`
+  - `@soundtrackyourbrand/graphox-cli`
+  - `@soundtrackyourbrand/graphox-swc`
 - Uploads assets to release:
   - Platform binaries
   - WASM file
