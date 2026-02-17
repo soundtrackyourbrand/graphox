@@ -55,7 +55,7 @@ pub async fn process_file_created_or_changed(
     }
 
     // Check if this is the config file
-    if is_config_file(&path_str, params.config) {
+    if is_config_file(&path, params.config) {
         return Some(FileChangeResult {
             uris_to_validate: vec![],
             should_reload_schema: false,
@@ -65,7 +65,7 @@ pub async fn process_file_created_or_changed(
         });
     }
 
-    let is_schema = is_schema_file(&path_str, params.config);
+    let is_schema = is_schema_file(&path, params.config);
 
     // Read file content
     let content = match std::fs::read_to_string(&path) {
@@ -296,22 +296,24 @@ pub fn process_file_deleted(
 }
 
 /// Checks if a path is the config file
-fn is_config_file(path: &str, config: &graphox_core::Config) -> bool {
+fn is_config_file(path: &std::path::Path, config: &graphox_core::Config) -> bool {
     let config_path = config.base_dir().join("graphox.yaml");
-    path == config_path.to_string_lossy()
+    let config_yml_path = config.base_dir().join("graphox.yml");
+    graphox_core::utils::paths_match(Some(path), Some(&config_path))
+        || graphox_core::utils::paths_match(Some(path), Some(&config_yml_path))
 }
 
 /// Checks if a path is a schema file
-fn is_schema_file(path: &str, config: &graphox_core::Config) -> bool {
+fn is_schema_file(path: &std::path::Path, config: &graphox_core::Config) -> bool {
     config.projects().iter().any(|p| {
         p.schema().files().iter().any(|f| {
             let abs_schema = config.base_dir().join(f);
-            path == abs_schema.to_string_lossy()
+            graphox_core::utils::paths_match(Some(path), Some(&abs_schema))
         })
     }) || config.schema_types().iter().any(|st| {
         st.schema().files().iter().any(|f| {
             let abs_schema = config.base_dir().join(f);
-            path == abs_schema.to_string_lossy()
+            graphox_core::utils::paths_match(Some(path), Some(&abs_schema))
         })
     })
 }

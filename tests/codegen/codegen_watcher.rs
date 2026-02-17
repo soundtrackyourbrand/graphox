@@ -175,10 +175,7 @@ fn test_codegen_idempotent_writes() {
     let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
-        format!(
-            "enable_schema_cache: false\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"{}\"",
-            output_path.to_string_lossy()
-        ),
+        "enable_schema_cache: false\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"generated-schema.ts\"",
     )
     .unwrap();
 
@@ -269,10 +266,7 @@ fn test_codegen_watch_ignores_generated_files() {
     let config_path = base_dir.join("graphox.yaml");
     fs::write(
         &config_path,
-        format!(
-            "enable_schema_cache: false\ncodegen_watch_debounce_ms: 10\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"{}\"",
-            output_path.to_string_lossy()
-        ),
+        "enable_schema_cache: false\ncodegen_watch_debounce_ms: 10\nschema_types:\n  - schema: \"schema.graphql\"\n    output: \"generated-schema.ts\"",
     )
     .unwrap();
 

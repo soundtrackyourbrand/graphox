@@ -283,8 +283,8 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
 
             #[cfg(windows)]
             {
-                let sa = pa.to_string_lossy();
-                let sb = pb.to_string_lossy();
+                let sa = pa.to_string_lossy().replace('/', "\\");
+                let sb = pb.to_string_lossy().replace('/', "\\");
                 let ca = sa.strip_prefix(r"\\?\").unwrap_or(&sa);
                 let cb = sb.strip_prefix(r"\\?\").unwrap_or(&sb);
                 return ca.eq_ignore_ascii_case(cb);
