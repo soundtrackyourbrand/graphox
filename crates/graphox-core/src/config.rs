@@ -786,7 +786,7 @@ impl SchemaTypeConfig {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct Config {
     projects: Vec<ProjectConfig>,
     schema_types: Option<Vec<SchemaTypeConfig>>,
@@ -802,6 +802,29 @@ pub struct Config {
     rules: Option<RulesConfig>,
     codegen: Option<CodegenConfig>,
     base_dir: PathBuf,
+    project_cache: DashMap<PathBuf, Option<usize>>,
+}
+
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Self {
+            projects: self.projects.clone(),
+            schema_types: self.schema_types.clone(),
+            scalars: self.scalars.clone(),
+            ignore_deprecations: self.ignore_deprecations.clone(),
+            tracing: self.tracing.clone(),
+            timeouts: self.timeouts.clone(),
+            watch_all_files: self.watch_all_files,
+            lsp_automatic_codegen: self.lsp_automatic_codegen,
+            lsp_codegen_throttle_ms: self.lsp_codegen_throttle_ms,
+            codegen_watch_debounce_ms: self.codegen_watch_debounce_ms,
+            enable_schema_cache: self.enable_schema_cache,
+            rules: self.rules.clone(),
+            codegen: self.codegen.clone(),
+            base_dir: self.base_dir.clone(),
+            project_cache: DashMap::new(), // Cache is not cloned
+        }
+    }
 }
 
 impl Config {
@@ -966,18 +989,25 @@ impl Config {
     }
 
     pub fn get_project_for_path(&self, path: &Path) -> Option<&ProjectConfig> {
-        let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if let Some(cached) = self.project_cache.get(path) {
+            return cached.value().and_then(|idx| self.projects.get(idx));
+        }
+
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.base_dir.join(path)
+        };
+
         let relative_path = abs_path.strip_prefix(&self.base_dir).ok();
 
-        for project in &self.projects {
+        for (idx, project) in self.projects.iter().enumerate() {
             let mut matched = false;
             if let Some(rel_path) = relative_path {
                 let include_set = get_glob_set(&project.include().patterns());
                 if include_set.is_match(rel_path) {
                     matched = true;
                 } else {
-                    // If it didn't match as a glob, check if it's a sub-path of any of the include patterns
-                    // that are not globs themselves.
                     for pattern in project.include().patterns() {
                         if !pattern.contains('*')
                             && !pattern.contains('?')
@@ -1015,9 +1045,12 @@ impl Config {
             }
 
             if matched {
+                self.project_cache.insert(path.to_path_buf(), Some(idx));
                 return Some(project);
             }
         }
+
+        self.project_cache.insert(path.to_path_buf(), None);
         None
     }
 
@@ -1166,6 +1199,7 @@ impl Config {
             rules: None,
             codegen: None,
             base_dir: PathBuf::from("."),
+            project_cache: DashMap::new(),
         }
     }
 

@@ -1,9 +1,11 @@
 use crate::backend::state::Backend;
-use graphox_core::document::CompletionContext;
 use graphox_core::document::DocumentState;
-use graphox_features::completion::DocumentCompletion;
+use graphox_features::completion::{
+    DocumentCompletion, FragmentCompletionInfo, FragmentRequirements,
+};
 
 use ahash::AHashMap;
+use std::sync::{Arc, Mutex};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionParams, CompletionResponse, CompletionTextEdit, Position,
@@ -78,122 +80,7 @@ pub async fn handle_completion(
                 let schema = backend.get_schema_for_doc(&uri);
                 let all_fragments = backend.get_all_fragments_info();
 
-                // Optimization: Identify completion context first.
-                // If we are not in a selection set, we can skip fragments entirely.
-                let context = doc.get_completion_context(position, &schema);
-
-                let mut fragments = match context {
-                    CompletionContext::SelectionSet(parent_type) => {
-                        let mut filtered = backend.get_fragments_for_doc(&doc, &all_fragments);
-                        let parent_name = parent_type.name();
-
-                        filtered.retain(|f| {
-                            if f.is_type_only {
-                                return false;
-                            }
-                            // Keep fragment if it's on the same type
-                            if f.type_condition.as_ref() == parent_name.as_str() {
-                                return true;
-                            }
-
-                            // Get the fragment's type from schema
-                            let frag_type = match schema.types.get(f.type_condition.as_ref()) {
-                                Some(t) => t,
-                                None => return true, // If type unknown, play it safe and keep it
-                            };
-
-                            // Check for intersection between parent_type and frag_type
-                            match (&parent_type, frag_type) {
-                                // Object and Interface/Object
-                                (
-                                    apollo_compiler::schema::ExtendedType::Object(obj),
-                                    apollo_compiler::schema::ExtendedType::Interface(_),
-                                ) => obj
-                                    .implements_interfaces
-                                    .iter()
-                                    .any(|i| i.as_str() == f.type_condition.as_ref()),
-                                (
-                                    apollo_compiler::schema::ExtendedType::Interface(_),
-                                    apollo_compiler::schema::ExtendedType::Object(obj),
-                                ) => obj
-                                    .implements_interfaces
-                                    .iter()
-                                    .any(|i| i.as_str() == parent_name.as_str()),
-
-                                // Union cases
-                                (
-                                    apollo_compiler::schema::ExtendedType::Union(u),
-                                    apollo_compiler::schema::ExtendedType::Object(_),
-                                ) => u
-                                    .members
-                                    .iter()
-                                    .any(|m| m.as_str() == f.type_condition.as_ref()),
-                                (
-                                    apollo_compiler::schema::ExtendedType::Object(_),
-                                    apollo_compiler::schema::ExtendedType::Union(u),
-                                ) => u.members.iter().any(|m| m.as_str() == parent_name.as_str()),
-
-                                // Interface and Interface (intersection if they share implementors)
-                                (
-                                    apollo_compiler::schema::ExtendedType::Interface(_),
-                                    apollo_compiler::schema::ExtendedType::Interface(_),
-                                ) => true,
-
-                                // Union and Interface
-                                (
-                                    apollo_compiler::schema::ExtendedType::Union(u),
-                                    apollo_compiler::schema::ExtendedType::Interface(_),
-                                ) => u.members.iter().any(|m| {
-                                    if let Some(apollo_compiler::schema::ExtendedType::Object(
-                                        obj,
-                                    )) = schema.types.get(m.as_str())
-                                    {
-                                        obj.implements_interfaces
-                                            .iter()
-                                            .any(|i| i.as_str() == f.type_condition.as_ref())
-                                    } else {
-                                        false
-                                    }
-                                }),
-                                (
-                                    apollo_compiler::schema::ExtendedType::Interface(_),
-                                    apollo_compiler::schema::ExtendedType::Union(u),
-                                ) => u.members.iter().any(|m| {
-                                    if let Some(apollo_compiler::schema::ExtendedType::Object(
-                                        obj,
-                                    )) = schema.types.get(m.as_str())
-                                    {
-                                        obj.implements_interfaces
-                                            .iter()
-                                            .any(|i| i.as_str() == parent_name.as_str())
-                                    } else {
-                                        false
-                                    }
-                                }),
-
-                                // Union and Union
-                                (
-                                    apollo_compiler::schema::ExtendedType::Union(u1),
-                                    apollo_compiler::schema::ExtendedType::Union(u2),
-                                ) => u1.members.iter().any(|m1| {
-                                    u2.members.iter().any(|m2| m1.as_str() == m2.as_str())
-                                }),
-
-                                _ => false,
-                            }
-                        });
-                        filtered
-                    }
-                    CompletionContext::OperationDefinition => Vec::new(),
-                    CompletionContext::SchemaDefinition => Vec::new(),
-                    CompletionContext::FieldAlias => Vec::new(),
-                    CompletionContext::DirectiveArguments => Vec::new(),
-                    CompletionContext::UnionMembers => Vec::new(),
-                    CompletionContext::ImplementsClause => Vec::new(),
-                    CompletionContext::VariableDefaultValue => Vec::new(),
-                    CompletionContext::ArgumentDefaultValue => Vec::new(),
-                    CompletionContext::Other => Vec::new(),
-                };
+                let fragments = backend.get_fragments_for_doc(&doc, &all_fragments);
 
                 log::trace!(
                     "completion: fragments for doc {} = {:?}",
@@ -201,18 +88,84 @@ pub async fn handle_completion(
                     fragments.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
                 );
 
-                let mut variable_types_cache = AHashMap::default();
-                for f in &mut fragments {
-                    f.requirements = backend.get_fragment_requirements(
-                        &f.name,
-                        &schema,
-                        doc.package_root.as_ref(),
-                        &all_fragments,
-                        &mut variable_types_cache,
-                    );
+                // Optimization: Pre-index fragments by name for faster recursive lookups
+                let mut fragments_by_name: AHashMap<Arc<str>, Vec<FragmentCompletionInfo>> =
+                    AHashMap::with_capacity(all_fragments.len());
+                for f in all_fragments.iter() {
+                    fragments_by_name
+                        .entry(f.name.clone())
+                        .or_default()
+                        .push(f.clone());
                 }
 
-                let mut items = doc.get_completion_items(position, &schema, fragments);
+                let variable_types_cache: Mutex<AHashMap<Arc<str>, FragmentRequirements>> =
+                    Mutex::new(AHashMap::default());
+                let package_root = doc.package_root.clone();
+                let documents = backend.documents.clone();
+                let schema_for_requirements = schema.clone();
+
+                let resolve_requirements = Arc::new(move |name: &str| {
+                    let mut requirements = std::collections::BTreeMap::new();
+                    let mut visited = ahash::AHashSet::<Arc<str>>::default();
+                    let mut stack: Vec<Arc<str>> = vec![Arc::from(name)];
+
+                    while let Some(current_name) = stack.pop() {
+                        if !visited.insert(current_name.clone()) {
+                            continue;
+                        }
+
+                        if let Some(potentials) = fragments_by_name.get(&current_name)
+                            && let Some(frag) = potentials.iter().find(|p| {
+                                p.is_public
+                                    || graphox_core::utils::paths_match(
+                                        p.package_root.as_deref(),
+                                        package_root.as_deref(),
+                                    )
+                            })
+                        {
+                            let cached_vars = {
+                                variable_types_cache
+                                    .lock()
+                                    .expect("variable_types_cache mutex poisoned")
+                                    .get(&current_name)
+                                    .cloned()
+                            };
+                            let local_vars = if let Some(cached) = cached_vars {
+                                cached
+                            } else if let Some(frag_doc) =
+                                documents.get(&frag.uri).map(|r| r.value().clone())
+                            {
+                                let vars = frag_doc.get_fragment_variable_types(
+                                    &current_name,
+                                    &schema_for_requirements,
+                                );
+                                let mut vars_arc = std::collections::BTreeMap::new();
+                                for (k, v) in vars {
+                                    vars_arc.insert(Arc::from(k), Arc::from(v));
+                                }
+                                variable_types_cache
+                                    .lock()
+                                    .expect("variable_types_cache mutex poisoned")
+                                    .insert(current_name.clone(), vars_arc.clone());
+                                vars_arc
+                            } else {
+                                std::collections::BTreeMap::new()
+                            };
+
+                            for (var, ty) in local_vars {
+                                requirements.insert(var, ty);
+                            }
+
+                            for nested in &frag.used_fragments {
+                                stack.push(nested.clone());
+                            }
+                        }
+                    }
+                    requirements
+                });
+
+                let mut items =
+                    doc.get_completion_items(position, &schema, &fragments, resolve_requirements);
                 sanitize_completion_items(&doc, &mut items);
                 log::trace!(
                     "completion: produced items = {:?}",

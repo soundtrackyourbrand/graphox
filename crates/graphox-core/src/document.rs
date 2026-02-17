@@ -1699,11 +1699,12 @@ impl DocumentState {
         &self,
         position: Position,
         schema: &apollo_compiler::Schema,
-    ) -> CompletionContext {
+    ) -> Option<CompletionContext> {
         let offset = self.position_to_byte(position);
         for block in self.get_graphql_trees() {
             if self.is_cursor_in_node_range(block.tree.root_node(), block.offset, offset) {
                 let local_byte = offset.saturating_sub(block.offset);
+                // Try with a 1-byte range ending at cursor to find the node we just typed after
                 if let Some(current) = block
                     .tree
                     .root_node()
@@ -1715,12 +1716,12 @@ impl DocumentState {
                         && let Some(parent_type) =
                             self.find_parent_type_for_node(selection_set, block.offset, schema)
                     {
-                        return CompletionContext::SelectionSet(parent_type);
+                        return Some(CompletionContext::SelectionSet(parent_type));
                     }
                 }
             }
         }
-        CompletionContext::Other
+        None
     }
 }
 

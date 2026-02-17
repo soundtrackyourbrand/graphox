@@ -14,7 +14,7 @@ pub mod types;
 pub mod utils;
 pub mod values;
 
-pub use types::FragmentCompletionInfo;
+pub use types::{FragmentCompletionInfo, FragmentRequirements, FragmentRequirementsResolver};
 
 fn is_cursor_inside_comment(
     doc: &DocumentState,
@@ -40,12 +40,14 @@ fn is_cursor_inside_comment(
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 pub trait DocumentCompletion {
     fn get_completion_items(
         &self,
         position: Position,
         schema: &Schema,
-        fragments: Vec<FragmentCompletionInfo>,
+        fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Vec<CompletionItem>;
 
     fn find_completions_in_tree(
@@ -55,6 +57,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn try_directive_completions(
@@ -84,6 +87,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn find_preceding_field_type_internal(
@@ -127,6 +131,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn get_operation_variables(
@@ -143,6 +148,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn complete_fragment(
@@ -152,6 +158,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn complete_inline_fragment(
@@ -161,6 +168,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn complete_selection_set_recursive(
@@ -171,6 +179,7 @@ pub trait DocumentCompletion {
         parent_type: &schema::ExtendedType,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn complete_field(
@@ -181,6 +190,7 @@ pub trait DocumentCompletion {
         parent_type: &schema::ExtendedType,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
 
     fn get_fragment_name_completions(
@@ -188,6 +198,7 @@ pub trait DocumentCompletion {
         fragments: &[FragmentCompletionInfo],
         expected_type: Option<&schema::ExtendedType>,
         schema: &Schema,
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Vec<CompletionItem>;
 
     fn get_field_completions(
@@ -288,7 +299,8 @@ impl DocumentCompletion for DocumentState {
         &self,
         position: Position,
         schema: &Schema,
-        fragments: Vec<FragmentCompletionInfo>,
+        fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Vec<CompletionItem> {
         let byte_offset = self.position_to_byte(position);
 
@@ -342,8 +354,14 @@ impl DocumentCompletion for DocumentState {
 
             if byte_offset >= offset
                 && byte_offset <= allowed_end
-                && let Some(items) =
-                    self.find_completions_in_tree(root, offset, byte_offset, schema, &fragments)
+                && let Some(items) = self.find_completions_in_tree(
+                    root,
+                    offset,
+                    byte_offset,
+                    schema,
+                    fragments,
+                    resolve_requirements.clone(),
+                )
             {
                 return items;
             }
@@ -359,6 +377,7 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
         let root_end = root.end_byte();
         let local_byte = cursor_offset.saturating_sub(offset);
@@ -474,6 +493,7 @@ impl DocumentCompletion for DocumentState {
                     cursor_offset,
                     schema,
                     fragments,
+                    resolve_requirements.clone(),
                 )
             {
                 let filtered: Vec<_> = items
@@ -495,9 +515,15 @@ impl DocumentCompletion for DocumentState {
             }
 
             // Try node-specific completions
-            if let Some(items) =
-                self.try_node_kind_completions(node, root, offset, cursor_offset, schema, fragments)
-            {
+            if let Some(items) = self.try_node_kind_completions(
+                node,
+                root,
+                offset,
+                cursor_offset,
+                schema,
+                fragments,
+                resolve_requirements.clone(),
+            ) {
                 return Some(items);
             }
 
@@ -515,6 +541,7 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
         match current.kind() {
             "operation_type" => Some(self.get_operation_type_keyword_completions()),
@@ -773,7 +800,12 @@ impl DocumentCompletion for DocumentState {
             }
             "fragment_spread" => {
                 let parent_type = self.find_parent_type_for_node(current, offset, schema);
-                Some(self.get_fragment_name_completions(fragments, parent_type.as_ref(), schema))
+                Some(self.get_fragment_name_completions(
+                    fragments,
+                    parent_type.as_ref(),
+                    schema,
+                    resolve_requirements,
+                ))
             }
             "fragment_definition" => {
                 if self.is_after_on(cursor_offset) {
@@ -785,6 +817,7 @@ impl DocumentCompletion for DocumentState {
                     cursor_offset,
                     schema,
                     fragments,
+                    resolve_requirements,
                 )
             }
             "selection_set" | "operation_definition" => self.complete_selection_set_at_node(
@@ -793,6 +826,7 @@ impl DocumentCompletion for DocumentState {
                 cursor_offset,
                 schema,
                 fragments,
+                resolve_requirements,
             ),
             _ => None,
         }
@@ -901,8 +935,17 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
-        fields::complete_selection_set_at_node(self, node, offset, cursor_offset, schema, fragments)
+        fields::complete_selection_set_at_node(
+            self,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements,
+        )
     }
 
     fn get_operation_variables(
@@ -921,8 +964,17 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
-        operations::complete_operation(self, node, offset, cursor_offset, schema, fragments)
+        operations::complete_operation(
+            self,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements,
+        )
     }
 
     fn complete_fragment(
@@ -932,8 +984,17 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
-        fragments::complete_fragment(self, node, offset, cursor_offset, schema, fragments)
+        fragments::complete_fragment(
+            self,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements,
+        )
     }
 
     fn complete_inline_fragment(
@@ -943,8 +1004,17 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
-        fragments::complete_inline_fragment(self, node, offset, cursor_offset, schema, fragments)
+        fragments::complete_inline_fragment(
+            self,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements,
+        )
     }
 
     fn complete_selection_set_recursive(
@@ -955,6 +1025,7 @@ impl DocumentCompletion for DocumentState {
         parent_type: &schema::ExtendedType,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
         fields::complete_selection_set_recursive(
             self,
@@ -964,6 +1035,7 @@ impl DocumentCompletion for DocumentState {
             parent_type,
             schema,
             fragments,
+            resolve_requirements,
         )
     }
 
@@ -975,6 +1047,7 @@ impl DocumentCompletion for DocumentState {
         parent_type: &schema::ExtendedType,
         schema: &Schema,
         fragments: &[FragmentCompletionInfo],
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
         fields::complete_field(
             self,
@@ -984,6 +1057,7 @@ impl DocumentCompletion for DocumentState {
             parent_type,
             schema,
             fragments,
+            resolve_requirements,
         )
     }
 
@@ -992,8 +1066,15 @@ impl DocumentCompletion for DocumentState {
         fragments: &[FragmentCompletionInfo],
         expected_type: Option<&schema::ExtendedType>,
         schema: &Schema,
+        resolve_requirements: FragmentRequirementsResolver,
     ) -> Vec<CompletionItem> {
-        fragments::get_fragment_name_completions(self, fragments, expected_type, schema)
+        fragments::get_fragment_name_completions(
+            self,
+            fragments,
+            expected_type,
+            schema,
+            resolve_requirements,
+        )
     }
 
     fn get_field_completions(

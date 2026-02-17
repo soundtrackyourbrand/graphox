@@ -4,7 +4,7 @@ use lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent
 use tree_sitter::Node;
 
 use crate::completion::fields;
-use crate::completion::types::FragmentCompletionInfo;
+use crate::completion::types::{FragmentCompletionInfo, FragmentRequirementsResolver};
 use crate::completion::values;
 use crate::shared::markdown_utils::describe_fragment_completion_markdown;
 
@@ -15,17 +15,12 @@ pub fn complete_fragment(
     cursor_offset: usize,
     schema: &Schema,
     fragments: &[FragmentCompletionInfo],
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
     if let Some(type_cond) = doc.find_child_by_kind(node, "type_condition")
         && doc.is_cursor_in_node_range(type_cond, offset, cursor_offset)
     {
-        return Some(values::get_implements_interface_completions(schema)); // Wait, was get_all_type_completions in original. Let's check.
-        // It was self.get_all_type_completions(schema).
-        // I need to find where get_all_type_completions is. I didn't see it in values.rs.
-        // It was in DocumentCompletion.
-        // I should put it in values.rs or types_lookup.rs?
-        // Let's assume I put it in values.rs or utils.rs.
-        // I'll check if I missed it.
+        return Some(values::get_all_type_completions(schema));
     }
 
     if let Some(selection_set) = doc.find_child_by_kind(node, "selection_set")
@@ -41,6 +36,7 @@ pub fn complete_fragment(
             type_def,
             schema,
             fragments,
+            resolve_requirements,
         );
     }
     None
@@ -53,6 +49,7 @@ pub fn complete_inline_fragment(
     cursor_offset: usize,
     schema: &Schema,
     fragments: &[FragmentCompletionInfo],
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
     let type_name = doc.get_fragment_type_condition(node, offset);
     let parent_type = if let Some(tn) = type_name {
@@ -76,6 +73,7 @@ pub fn complete_inline_fragment(
             &type_def,
             schema,
             fragments,
+            resolve_requirements,
         );
     }
     None
@@ -86,6 +84,7 @@ pub fn get_fragment_name_completions(
     fragments: &[FragmentCompletionInfo],
     expected_type: Option<&schema::ExtendedType>,
     schema: &Schema,
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Vec<CompletionItem> {
     fragments
         .iter()
@@ -142,14 +141,10 @@ pub fn get_fragment_name_completions(
             }
         })
         .map(|f| {
-            let requirements: Vec<(String, String)> = f
-                .requirements
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect();
+            let requirements_map = resolve_requirements(&f.name);
             let documentation = describe_fragment_completion_markdown(
                 f.description.as_deref(),
-                &requirements,
+                requirements_map.iter(),
                 f.import_path.as_deref(),
             );
             CompletionItem {

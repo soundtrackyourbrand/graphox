@@ -1,4 +1,5 @@
 use apollo_compiler::{Schema, schema};
+use std::sync::Arc;
 
 pub fn schema_field_strings(
     parent_type: &schema::ExtendedType,
@@ -70,20 +71,22 @@ pub fn describe_local_markdown(name: &str, description: &str) -> String {
     format!("### {}\n---\n{}", name, description)
 }
 
-pub fn describe_fragment_completion_markdown(
+pub fn describe_fragment_completion_markdown<'a>(
     description: Option<&str>,
-    requirements: &[(String, String)],
+    requirements: impl Iterator<Item = (&'a Arc<str>, &'a Arc<str>)>,
     import_path: Option<&str>,
 ) -> String {
     let mut documentation = description.map(|s| s.to_string()).unwrap_or_default();
-    if !requirements.is_empty() {
-        if !documentation.is_empty() {
-            documentation.push_str("\n\n---\n\n");
+    let mut has_reqs = false;
+    for (var, ty) in requirements {
+        if !has_reqs {
+            if !documentation.is_empty() {
+                documentation.push_str("\n\n---\n\n");
+            }
+            documentation.push_str("**Requires Variables:**\n");
+            has_reqs = true;
         }
-        documentation.push_str("**Requires Variables:**\n");
-        for (var, ty) in requirements {
-            documentation.push_str(&format!("- `${}`: `{}`\n", var, ty));
-        }
+        documentation.push_str(&format!("- `${}`: `{}`\n", var, ty));
     }
     if let Some(import) = import_path {
         if !documentation.is_empty() {

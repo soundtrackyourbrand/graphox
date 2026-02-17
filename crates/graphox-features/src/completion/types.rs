@@ -1,6 +1,9 @@
 use lsp_types::Url;
 use std::sync::Arc;
 
+pub type FragmentRequirements = std::collections::BTreeMap<Arc<str>, Arc<str>>;
+pub type FragmentRequirementsResolver = Arc<dyn Fn(&str) -> FragmentRequirements>;
+
 #[derive(Clone)]
 pub struct FragmentCompletionInfo {
     pub name: Arc<str>,
@@ -15,5 +18,5 @@ pub struct FragmentCompletionInfo {
     pub used_fragments: Vec<Arc<str>>,
     pub selected_fields: Vec<Arc<str>>,
     pub type_fields: Vec<(Arc<str>, Arc<str>)>,
-    pub requirements: std::collections::BTreeMap<Arc<str>, Arc<str>>,
+    pub requirements: FragmentRequirements,
 }

@@ -50,7 +50,7 @@ pub struct WorkspaceScanParams {
     pub workspace_scan_cancelled: Arc<AtomicBool>,
     pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
     pub supports_progress: bool,
-    pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
+    pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
     pub position_encoding: PositionEncodingKind,
     pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
     pub last_full_validation_version: Arc<std::sync::atomic::AtomicUsize>,

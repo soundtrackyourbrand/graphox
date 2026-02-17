@@ -6,7 +6,7 @@ use lsp_types::{
 };
 use tree_sitter::Node;
 
-use crate::completion::types::FragmentCompletionInfo;
+use crate::completion::types::{FragmentCompletionInfo, FragmentRequirementsResolver};
 use crate::completion::{fragments, operations, utils};
 use crate::shared::{markdown_utils, schema_utils};
 
@@ -99,17 +99,36 @@ pub fn complete_selection_set_at_node(
     cursor_offset: usize,
     schema: &Schema,
     fragments: &[FragmentCompletionInfo],
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
     match node.kind() {
-        "operation_definition" => {
-            operations::complete_operation(doc, node, offset, cursor_offset, schema, fragments)
-        }
-        "fragment_definition" => {
-            fragments::complete_fragment(doc, node, offset, cursor_offset, schema, fragments)
-        }
-        "inline_fragment" => {
-            fragments::complete_inline_fragment(doc, node, offset, cursor_offset, schema, fragments)
-        }
+        "operation_definition" => operations::complete_operation(
+            doc,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements.clone(),
+        ),
+        "fragment_definition" => fragments::complete_fragment(
+            doc,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements.clone(),
+        ),
+        "inline_fragment" => fragments::complete_inline_fragment(
+            doc,
+            node,
+            offset,
+            cursor_offset,
+            schema,
+            fragments,
+            resolve_requirements.clone(),
+        ),
         "selection_set" => {
             if let Some(parent) = node.parent() {
                 match parent.kind() {
@@ -121,6 +140,7 @@ pub fn complete_selection_set_at_node(
                             cursor_offset,
                             schema,
                             fragments,
+                            resolve_requirements.clone(),
                         );
                     }
                     "fragment_definition" => {
@@ -131,6 +151,7 @@ pub fn complete_selection_set_at_node(
                             cursor_offset,
                             schema,
                             fragments,
+                            resolve_requirements.clone(),
                         );
                     }
                     "inline_fragment" => {
@@ -141,6 +162,7 @@ pub fn complete_selection_set_at_node(
                             cursor_offset,
                             schema,
                             fragments,
+                            resolve_requirements.clone(),
                         );
                     }
                     "field" => {
@@ -164,6 +186,7 @@ pub fn complete_selection_set_at_node(
                                     field_type_def,
                                     schema,
                                     fragments,
+                                    resolve_requirements.clone(),
                                 );
                             }
                         }
@@ -178,6 +201,7 @@ pub fn complete_selection_set_at_node(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_selection_set_recursive(
     doc: &DocumentState,
     node: Node,
@@ -186,6 +210,7 @@ pub fn complete_selection_set_recursive(
     parent_type: &schema::ExtendedType,
     schema: &Schema,
     fragments_info: &[FragmentCompletionInfo],
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
     let target_node = if node.kind() == "selection_set" {
         node
@@ -213,6 +238,7 @@ pub fn complete_selection_set_recursive(
                             parent_type,
                             schema,
                             fragments_info,
+                            resolve_requirements.clone(),
                         ) {
                             return Some(items);
                         }
@@ -223,6 +249,7 @@ pub fn complete_selection_set_recursive(
                             fragments_info,
                             Some(parent_type),
                             schema,
+                            resolve_requirements.clone(),
                         ));
                     }
                 }
@@ -235,6 +262,7 @@ pub fn complete_selection_set_recursive(
                     parent_type,
                     schema,
                     fragments_info,
+                    resolve_requirements.clone(),
                 ) {
                     return Some(items);
                 }
@@ -244,6 +272,7 @@ pub fn complete_selection_set_recursive(
                     fragments_info,
                     Some(parent_type),
                     schema,
+                    resolve_requirements.clone(),
                 ));
             }
         }
@@ -259,6 +288,7 @@ pub fn complete_selection_set_recursive(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_field(
     doc: &DocumentState,
     field_node: Node,
@@ -267,6 +297,7 @@ pub fn complete_field(
     parent_type: &schema::ExtendedType,
     schema: &Schema,
     fragments: &[FragmentCompletionInfo],
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
     let components = doc.extract_field_components(field_node);
 
@@ -300,6 +331,7 @@ pub fn complete_field(
                         field_type_def,
                         schema,
                         fragments,
+                        resolve_requirements,
                     );
                 }
             }

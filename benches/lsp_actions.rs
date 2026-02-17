@@ -427,6 +427,26 @@ fn bench_lsp_actions(c: &mut Criterion) {
         });
     });
 
+    group.bench_function("Fragment Metadata Collection (1000 fragments)", |b| {
+        b.iter(|| {
+            // Force cache miss
+            backend.invalidate_fragment_cache();
+            backend.get_all_fragments_info()
+        });
+    });
+
+    group.bench_function("Get Completion Context", |b| {
+        b.iter(|| {
+            let doc = backend
+                .documents
+                .get(&target_uri)
+                .map(|r| r.value().clone())
+                .unwrap();
+            let schema = backend.get_schema_for_doc(&target_uri);
+            doc.get_completion_context(Position::new(0, calculate_completion_position(0)), &schema)
+        });
+    });
+
     group.finish();
 }
 

@@ -58,7 +58,7 @@ pub struct Backend {
     /// Throttled codegen runner
     pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
     /// Global cache for all fragments in the workspace
-    pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Vec<FragmentCompletionInfo>>>>,
+    pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
 }
 
 impl Backend {
@@ -196,7 +196,7 @@ impl Backend {
         )
     }
 
-    pub fn get_all_fragments_info(&self) -> Vec<FragmentCompletionInfo> {
+    pub fn get_all_fragments_info(&self) -> Arc<Vec<FragmentCompletionInfo>> {
         // Try to return cached metadata if available
         if let Ok(cache) = self.fragment_metadata_cache.read()
             && let Some(metadata) = &*cache
@@ -206,11 +206,11 @@ impl Backend {
 
         // Cache miss: collect metadata and update cache
         let config = self.config.read().unwrap();
-        let metadata = super::fragment_manager::collect_fragment_metadata(
+        let metadata = Arc::new(super::fragment_manager::collect_fragment_metadata(
             &self.fragment_defs,
             &config,
             &self.package_roots,
-        );
+        ));
 
         if let Ok(mut cache) = self.fragment_metadata_cache.write() {
             *cache = Some(metadata.clone());

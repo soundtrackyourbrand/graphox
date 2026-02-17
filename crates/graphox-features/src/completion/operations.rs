@@ -4,7 +4,7 @@ use lsp_types::{CompletionItem, CompletionItemKind};
 use tree_sitter::Node;
 
 use crate::completion::fields;
-use crate::completion::types::FragmentCompletionInfo;
+use crate::completion::types::{FragmentCompletionInfo, FragmentRequirementsResolver};
 
 pub fn get_operation_variables(
     doc: &DocumentState,
@@ -53,6 +53,7 @@ pub fn complete_operation(
     cursor_offset: usize,
     schema: &Schema,
     fragments: &[FragmentCompletionInfo],
+    resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
     let operation_type_string = doc.get_operation_type(node, offset);
 
@@ -75,6 +76,7 @@ pub fn complete_operation(
             root_type,
             schema,
             fragments,
+            resolve_requirements,
         );
     }
     None
