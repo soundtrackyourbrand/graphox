@@ -310,3 +310,85 @@ async fn test_lsp_required_field_nested_code_action_targets_nested_selection() {
         add_changes[0].new_text
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_required_field_code_actions_dedup_duplicate_diagnostics() {
+    use ahash::AHashMap;
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("requestId".to_string(), RequiredFieldRule::Always(true));
+
+    let schema = "type User { id: ID! name: String } type Query { me: User requestId: String }";
+    let (dir, mut config) = make_temp_project_with_schema(schema, "query.graphql");
+    config = config.with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let query_text = "query {\n  me {\n    id\n    name\n  }\n}";
+    let query_uri = write_project_file(&dir, "query.graphql", query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let diag_result =
+        crate::support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    let diagnostics = if let DocumentDiagnosticReportResult::Report(
+        DocumentDiagnosticReport::Full(full_report),
+    ) = diag_result
+    {
+        full_report.full_document_diagnostic_report.items
+    } else {
+        panic!("Expected full diagnostic report");
+    };
+
+    let required_field_diagnostic = diagnostics
+        .iter()
+        .find(|d| {
+            if let Some(NumberOrString::String(code)) = &d.code {
+                code == "required_field_missing"
+            } else {
+                false
+            }
+        })
+        .expect("Should have required_field_missing diagnostic")
+        .clone();
+
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: query_uri.clone(),
+        },
+        range: required_field_diagnostic.range,
+        context: CodeActionContext {
+            diagnostics: vec![
+                required_field_diagnostic.clone(),
+                required_field_diagnostic.clone(),
+            ],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let actions = lsp_request_code_actions(&mut service, params, 4)
+        .await
+        .expect("Expected actions");
+
+    let required_actions = actions
+        .iter()
+        .filter_map(|a| {
+            if let CodeActionOrCommand::CodeAction(ca) = a {
+                Some(ca.title.as_str())
+            } else {
+                None
+            }
+        })
+        .filter(|title| {
+            *title == "Add required field 'requestId'"
+                || *title == "Ignore required field with # graphox-ignore"
+        })
+        .count();
+
+    assert_eq!(
+        required_actions, 2,
+        "Should only return one add + one ignore action for duplicate required diagnostics"
+    );
+}

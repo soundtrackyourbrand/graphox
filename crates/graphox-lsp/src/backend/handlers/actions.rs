@@ -1,4 +1,5 @@
 use crate::backend::state::Backend;
+use ahash::AHashSet;
 use graphox_features::code_actions::DocumentCodeActions;
 
 use tower_lsp::jsonrpc::Result;
@@ -12,9 +13,35 @@ pub async fn handle_code_action(
         .with_tracing("code_action", async move {
             let uri = &params.text_document.uri;
             let mut actions = Vec::new();
+            let mut seen_diagnostics = AHashSet::default();
 
             // 1. Diagnostics-based fixes
             for diagnostic in params.context.diagnostics {
+                let diagnostic_code = match &diagnostic.code {
+                    Some(NumberOrString::String(s)) => s.clone(),
+                    Some(NumberOrString::Number(n)) => n.to_string(),
+                    None => String::new(),
+                };
+                let diagnostic_data = diagnostic
+                    .data
+                    .as_ref()
+                    .and_then(|d| serde_json::to_string(d).ok())
+                    .unwrap_or_default();
+                let diagnostic_key = format!(
+                    "{}:{}:{}:{}:{}:{}:{}:{}",
+                    diagnostic.range.start.line,
+                    diagnostic.range.start.character,
+                    diagnostic.range.end.line,
+                    diagnostic.range.end.character,
+                    diagnostic_code,
+                    diagnostic.message,
+                    diagnostic.source.clone().unwrap_or_default(),
+                    diagnostic_data
+                );
+                if !seen_diagnostics.insert(diagnostic_key) {
+                    continue;
+                }
+
                 if let Some(NumberOrString::String(ref code)) = diagnostic.code {
                     if code == "unused_fragment" {
                         let mut changes = std::collections::HashMap::new();

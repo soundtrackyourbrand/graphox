@@ -60,11 +60,15 @@ impl LanguageServer for Backend {
         }
 
         // Spawn workspace scan in background to avoid hanging the LSP
-        let (supports_progress, position_encoding) =
+        let (supports_progress, position_encoding, supports_pull_diagnostics) =
             if let Ok(caps) = self.client_capabilities.read() {
-                (caps.supports_progress, caps.negotiated_encoding())
+                (
+                    caps.supports_progress,
+                    caps.negotiated_encoding(),
+                    caps.supports_pull_diagnostics,
+                )
             } else {
-                (false, PositionEncodingKind::UTF16)
+                (false, PositionEncodingKind::UTF16, false)
             };
 
         let config = self.config.read().unwrap().clone();
@@ -72,6 +76,7 @@ impl LanguageServer for Backend {
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
             config,
+            supports_pull_diagnostics,
             documents: self.documents.clone(),
             fragment_defs: self.fragment_defs.clone(),
             fragment_spreads: self.fragment_spreads.clone(),

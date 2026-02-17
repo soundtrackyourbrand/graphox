@@ -30,6 +30,7 @@ const VALIDATION_PROGRESS_START: u32 = 70;
 pub struct WorkspaceScanParams {
     pub client: Client,
     pub config: Config,
+    pub supports_pull_diagnostics: bool,
     pub documents: DocumentsMap,
     pub fragment_defs: FragmentDefsMap,
     pub fragment_spreads: FragmentSpreadsMap,
@@ -605,7 +606,9 @@ async fn validate_all_documents_cancellable(
     // Abort the progress task once validation is done
     progress_task.abort();
 
-    for (u, v, d) in to_publish {
-        client.publish_diagnostics(u, d, Some(v)).await;
+    if !params.supports_pull_diagnostics {
+        for (u, v, d) in to_publish {
+            client.publish_diagnostics(u, d, Some(v)).await;
+        }
     }
 }

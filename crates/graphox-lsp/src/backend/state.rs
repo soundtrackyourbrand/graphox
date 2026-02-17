@@ -418,11 +418,15 @@ impl Backend {
         self.diagnostic_cache.clear();
 
         // Trigger workspace scan to re-index everything
-        let (supports_progress, position_encoding) =
+        let (supports_progress, position_encoding, supports_pull_diagnostics) =
             if let Ok(caps) = self.client_capabilities.read() {
-                (caps.supports_progress, caps.negotiated_encoding())
+                (
+                    caps.supports_progress,
+                    caps.negotiated_encoding(),
+                    caps.supports_pull_diagnostics,
+                )
             } else {
-                (false, PositionEncodingKind::UTF16)
+                (false, PositionEncodingKind::UTF16, false)
             };
 
         // Reset workspace_loaded flag
@@ -431,6 +435,7 @@ impl Backend {
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
             config: config.clone(),
+            supports_pull_diagnostics,
             documents: self.documents.clone(),
             fragment_defs: self.fragment_defs.clone(),
             fragment_spreads: self.fragment_spreads.clone(),
@@ -601,11 +606,15 @@ impl Backend {
         }
 
         // Trigger workspace scan to re-index everything
-        let (supports_progress, position_encoding) =
+        let (supports_progress, position_encoding, supports_pull_diagnostics) =
             if let Ok(caps) = self.client_capabilities.read() {
-                (caps.supports_progress, caps.negotiated_encoding())
+                (
+                    caps.supports_progress,
+                    caps.negotiated_encoding(),
+                    caps.supports_pull_diagnostics,
+                )
             } else {
-                (false, PositionEncodingKind::UTF16)
+                (false, PositionEncodingKind::UTF16, false)
             };
 
         // Reset workspace_loaded flag
@@ -615,6 +624,7 @@ impl Backend {
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
             config: scan_config,
+            supports_pull_diagnostics,
             documents: self.documents.clone(),
             fragment_defs: self.fragment_defs.clone(),
             fragment_spreads: self.fragment_spreads.clone(),
