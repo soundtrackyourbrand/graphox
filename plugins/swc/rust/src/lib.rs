@@ -105,6 +105,9 @@ impl TransformVisitor {
                 && let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent)
             {
                 let mut s = rel_path.to_string_lossy().to_string();
+                if cfg!(windows) {
+                    s = s.replace('\\', "/");
+                }
                 if !s.starts_with('.') && !s.starts_with('/') {
                     s = format!("./{}", s);
                 }
@@ -122,6 +125,14 @@ impl TransformVisitor {
     }
 
     fn is_our_graphql_path(&self, src: &str) -> bool {
+        // Normalize incoming src path for comparison on Windows
+        let src = if cfg!(windows) {
+            src.replace('\\', "/")
+        } else {
+            src.to_string()
+        };
+        let src = src.as_str();
+
         for path in &self.graphql_import_paths {
             if src == path
                 || src.strip_suffix(".js") == Some(path)
@@ -145,11 +156,17 @@ impl TransformVisitor {
                 && let Some(rel_index_path) = pathdiff::diff_paths(&index_abs_path, parent)
             {
                 let mut s = rel_path.to_string_lossy().to_string();
+                if cfg!(windows) {
+                    s = s.replace('\\', "/");
+                }
                 if !s.starts_with('.') && !s.starts_with('/') {
                     s = format!("./{}", s);
                 }
 
                 let mut s_index = rel_index_path.to_string_lossy().to_string();
+                if cfg!(windows) {
+                    s_index = s_index.replace('\\', "/");
+                }
                 if !s_index.starts_with('.') && !s_index.starts_with('/') {
                     s_index = format!("./{}", s_index);
                 }

@@ -4,12 +4,7 @@ use tower_lsp::lsp_types::*;
 
 /// Normalize a file URI by resolving it to canonical path
 pub fn normalize_uri(uri: Url) -> Url {
-    if let Ok(path) = uri.to_file_path()
-        && let Ok(canon) = std::fs::canonicalize(&path)
-    {
-        return Url::from_file_path(canon).unwrap_or(uri);
-    }
-    uri
+    graphox_core::utils::normalize_uri(uri)
 }
 
 /// Execute an async operation with tracing and timeout support

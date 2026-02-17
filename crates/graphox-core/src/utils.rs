@@ -225,7 +225,12 @@ pub fn get_project_files(
                             }
 
                             if !excluded {
-                                let _ = tx.send(path.to_owned());
+                                let send_path = if cfg!(windows) {
+                                    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
+                                } else {
+                                    path.to_owned()
+                                };
+                                let _ = tx.send(send_path);
                             }
                         }
                     }
@@ -289,18 +294,11 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
 
             #[cfg(windows)]
             {
-                let sa = pa.to_string_lossy().replace('/', "\\");
-                let sb = pb.to_string_lossy().replace('/', "\\");
-                let ca = if let Some(s) = sa.strip_prefix(r"\\?\UNC\") {
-                    format!("\\\\{}", s)
-                } else {
-                    sa.strip_prefix(r"\\?\").unwrap_or(&sa).to_string()
-                };
-                let cb = if let Some(s) = sb.strip_prefix(r"\\?\UNC\") {
-                    format!("\\\\{}", s)
-                } else {
-                    sb.strip_prefix(r"\\?\").unwrap_or(&sb).to_string()
-                };
+                let sa = pa.to_string_lossy();
+                let sb = pb.to_string_lossy();
+
+                let ca = normalize_windows_path(&sa);
+                let cb = normalize_windows_path(&sb);
                 return ca.eq_ignore_ascii_case(&cb);
             }
 
@@ -362,33 +360,47 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
 
     #[cfg(windows)]
     {
-        let s_path = path.to_string_lossy().replace('/', "\\");
-        let s_prefix = prefix.to_string_lossy().replace('/', "\\");
-        let clean_path = if let Some(s) = s_path.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_path.strip_prefix(r"\\?\").unwrap_or(&s_path).to_string()
-        };
-        let clean_prefix = if let Some(s) = s_prefix.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_prefix
-                .strip_prefix(r"\\?\")
-                .unwrap_or(&s_prefix)
-                .to_string()
-        };
+        use std::path::Component;
+        let mut p_comps = path.components();
+        let mut pre_comps = prefix.components();
 
-        if clean_path.len() >= clean_prefix.len()
-            && clean_path[..clean_prefix.len()].eq_ignore_ascii_case(&clean_prefix)
-        {
-            if clean_path.len() == clean_prefix.len() {
-                return true;
+        loop {
+            match (p_comps.next(), pre_comps.next()) {
+                (Some(p), Some(pre)) => {
+                    let match_comp = match (p, pre) {
+                        (Component::Normal(s1), Component::Normal(s2)) => s1
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case(&s2.to_string_lossy()),
+                        (Component::Prefix(p1), Component::Prefix(p2)) => {
+                            let normalize_prefix = |kind: std::path::Prefix| {
+                                use std::path::Prefix::*;
+                                match kind {
+                                    VerbatimDisk(d) | Disk(d) => {
+                                        format!("{}:", (d as char).to_uppercase())
+                                    }
+                                    VerbatimUNC(s1, s2) | UNC(s1, s2) => {
+                                        format!(
+                                            "\\\\{}\\{}",
+                                            s1.to_string_lossy(),
+                                            s2.to_string_lossy()
+                                        )
+                                    }
+                                    Verbatim(s) | DeviceNS(s) => s.to_string_lossy().to_string(),
+                                }
+                            };
+                            normalize_prefix(p1.kind())
+                                .eq_ignore_ascii_case(&normalize_prefix(p2.kind()))
+                        }
+                        (c1, c2) => c1 == c2,
+                    };
+                    if !match_comp {
+                        return false;
+                    }
+                }
+                (_, None) => return true,
+                (None, Some(_)) => return false,
             }
-            let next_char = clean_path.chars().nth(clean_prefix.len()).unwrap();
-            return next_char == '\\' || next_char == '/';
         }
-
-        return false;
     }
 
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -420,34 +432,26 @@ pub fn get_output_path(
         abs_base_dir
     };
 
-    #[cfg(windows)]
-    let rel_path = {
-        // Robustly calculate relative path by stripping Windows prefixes if necessary
-        let s_abs = abs_path.to_string_lossy().replace('/', "\\");
-        let s_target = diff_target.to_string_lossy().replace('/', "\\");
+    let rel_path = if let Ok(rel) = abs_path.strip_prefix(&diff_target) {
+        rel.to_path_buf()
+    } else {
+        #[cfg(windows)]
+        {
+            // Robustly calculate relative path by stripping Windows prefixes if necessary
+            let s_abs = abs_path.to_string_lossy();
+            let s_target = diff_target.to_string_lossy();
 
-        let clean_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
-        };
-        let clean_target = if let Some(s) = s_target.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_target
-                .strip_prefix(r"\\?\")
-                .unwrap_or(&s_target)
-                .to_string()
-        };
+            let clean_abs = normalize_windows_path(&s_abs);
+            let clean_target = normalize_windows_path(&s_target);
 
-        pathdiff::diff_paths(&clean_abs, &clean_target).unwrap_or_else(|| abs_path.clone())
+            pathdiff::diff_paths(&clean_abs, &clean_target).unwrap_or_else(|| abs_path.clone())
+        }
+
+        #[cfg(not(windows))]
+        {
+            pathdiff::diff_paths(&abs_path, &diff_target).unwrap_or_else(|| abs_path.clone())
+        }
     };
-
-    #[cfg(not(windows))]
-    let rel_path = abs_path
-        .strip_prefix(&diff_target)
-        .unwrap_or(&abs_path)
-        .to_path_buf();
 
     if let Some(out_dir) = output_dir {
         output_path.push(out_dir);
@@ -804,14 +808,51 @@ pub fn push_duplicate_operation_diagnostic(
 pub fn to_posix_path(path: &Path) -> String {
     let s = path.to_string_lossy();
     if cfg!(windows) {
-        s.replace('\\', "/")
+        normalize_windows_path(&s).replace('\\', "/")
     } else {
         s.into_owned()
     }
 }
 
+pub fn normalize_uri(uri: Url) -> Url {
+    if let Ok(path) = uri.to_file_path() {
+        // Try to canonicalize to resolve symlinks
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let path_str = path.to_string_lossy();
+
+        #[cfg(windows)]
+        let path_str = normalize_windows_path(&path_str);
+
+        return Url::from_file_path(Path::new(&*path_str)).unwrap_or(uri);
+    }
+    uri
+}
+
 pub fn normalize_line_endings(text: &str) -> String {
     text.replace("\r\n", "\n")
+}
+
+pub fn normalize_windows_path(s: &str) -> String {
+    let s = if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+        format!("\\\\{}", stripped)
+    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        stripped.to_string()
+    } else {
+        s.to_string()
+    };
+
+    // Replace all forward slashes with backslashes for consistency before processing
+    let mut s = s.replace('/', "\\");
+
+    // Handle drive letter casing: "c:\" -> "C:\"
+    if s.len() >= 2 && s.as_bytes()[1] == b':' {
+        let drive = s.as_bytes()[0] as char;
+        if drive.is_ascii_lowercase() {
+            s = format!("{}{}", drive.to_ascii_uppercase(), &s[1..]);
+        }
+    }
+
+    s
 }
 
 #[cfg(test)]
