@@ -28,6 +28,7 @@ url = { workspace = true }
 lsp-types = { workspace = true }
 colored = { workspace = true }
 dirs = { workspace = true }
+tempfile = "3.24.0"
 
 [dev-dependencies]
 ntest = "0.9"

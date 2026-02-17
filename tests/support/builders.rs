@@ -32,7 +32,7 @@ impl ConfigBuilder {
         Self {
             base_dir: base_dir.to_path_buf(),
             projects: Vec::new(),
-            enable_schema_cache: Some(true),
+            enable_schema_cache: Some(false),
             lsp_automatic_codegen: Some(false),
         }
     }

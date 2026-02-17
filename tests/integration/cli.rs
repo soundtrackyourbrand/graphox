@@ -126,6 +126,7 @@ fn test_cli_check_cross_project_fragment_usage() {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "project1/**/*.graphql"
@@ -191,6 +192,7 @@ fn test_cli_check_recursive_fragment_usage() {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "*.graphql"
@@ -242,6 +244,7 @@ fn test_cli_ignore_files() {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "**/*.graphql"
@@ -293,6 +296,7 @@ fn test_cli_codegen_error() {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -333,6 +337,7 @@ fn test_cli_codegen_invalid_schema() {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "*.graphql"
@@ -381,6 +386,7 @@ fn test_cli_codegen_clean() {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -471,6 +477,7 @@ type Query {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 ignore_deprecations:
   - "Use newField.*"
 projects:
@@ -557,6 +564,7 @@ fn test_cli_fragment_ast_generation() {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 codegen:
   generate_ast_for_fragments: true
 projects:
@@ -628,6 +636,7 @@ fn test_cli_graphql_entrypoint() {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -707,6 +716,7 @@ fn test_cli_config_file() {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -760,6 +770,7 @@ fn test_cli_config_output_dir() {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -839,6 +850,7 @@ query Test($old: OldInput) {
     std::fs::write(
         temp_dir.join("graphox.yaml"),
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -882,6 +894,7 @@ fn test_cli_schema_types() {
         &config_file,
         format!(
             r#"
+enable_schema_cache: false
 projects: []
 schema_types:
   - schema: "{}"
@@ -973,6 +986,7 @@ query GetNow {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -1055,6 +1069,7 @@ fn test_cli_codegen_entrypoint() {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"
@@ -1080,6 +1095,7 @@ projects:
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 codegen:
   generate_ast_for_fragments: true
 projects:
@@ -1158,6 +1174,7 @@ type User {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "enabled.graphql"
@@ -1252,6 +1269,7 @@ type User {
     std::fs::write(
         &config_file,
         r#"
+enable_schema_cache: false
 projects:
   - schema: "schema.graphql"
     include: "query.graphql"

@@ -323,7 +323,7 @@ pub fn make_temp_project_with_schema(
                 .with_codegen(CodegenConfig::disabled()),
         ],
     )
-    .with_enable_schema_cache(true)
+    .with_enable_schema_cache(false)
     .with_lsp_automatic_codegen(false);
 
     (dir, config)

@@ -106,7 +106,7 @@ impl LspTestScenario {
         }
 
         graphox::Config::new_test(base_dir.to_path_buf(), projects)
-            .with_enable_schema_cache(true)
+            .with_enable_schema_cache(false)
             .with_lsp_automatic_codegen(false)
     }
 

@@ -1134,6 +1134,7 @@ impl Config {
         Self {
             base_dir: fs::canonicalize(&base_dir).unwrap_or(base_dir),
             projects,
+            enable_schema_cache: Some(false),
             ..Self::new_empty()
         }
     }

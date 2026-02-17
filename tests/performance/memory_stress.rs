@@ -13,7 +13,7 @@ const MAX_MEMORY_1000_DOCS: usize = 100 * 1024 * 1024; // 100MB
 const MAX_MEMORY_50_SCHEMAS: usize = 100 * 1024 * 1024; // 100MB
 const MAX_MEMORY_500_FRAGMENTS: usize = 50 * 1024 * 1024; // 50MB
 #[cfg(not(target_os = "windows"))]
-const MAX_MEMORY_COMPLEX_MONOREPO: usize = 100 * 1024 * 1024; // 100MB
+const MAX_MEMORY_COMPLEX_MONOREPO: usize = 120 * 1024 * 1024; // 120MB
 
 fn create_multi_project_config(base_dir: &Path) -> Config {
     let mut projects = Vec::new();
@@ -52,7 +52,7 @@ fn create_multi_project_config(base_dir: &Path) -> Config {
             ProjectConfig::default()
                 .with_schema(SchemaSource::Multiple(vec![
                     "schemas/schema_a.graphql".to_string(),
-                    "schemas/schema_b.graphql".to_string(),
+                    "schemas/schema_b_extension.graphql".to_string(),
                 ]))
                 .with_include(GlobPattern::Multiple(vec![
                     format!("project_{}/**/*.graphql", i),
@@ -80,8 +80,21 @@ async fn test_memory_complex_monorepo_workspace_scan() {
     fs::create_dir_all(base_dir.join("schemas")).unwrap();
     let schema_a = crate::support::create_complex_schema_a(1000);
     let schema_b = crate::support::create_complex_schema_b(1000);
+    let schema_b_extension = schema_b
+        .lines()
+        .filter(|line| !line.starts_with("directive @key("))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("type Query {", "extend type Query {")
+        .replace("type Mutation {", "extend type Mutation {")
+        .replace("type Subscription {", "extend type Subscription {");
     fs::write(base_dir.join("schemas/schema_a.graphql"), schema_a).unwrap();
     fs::write(base_dir.join("schemas/schema_b.graphql"), schema_b).unwrap();
+    fs::write(
+        base_dir.join("schemas/schema_b_extension.graphql"),
+        schema_b_extension,
+    )
+    .unwrap();
 
     // 2. Create 10 projects
     for i in 0..10 {

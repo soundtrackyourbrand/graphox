@@ -44,9 +44,15 @@ use ahash::AHashMap;
 use apollo_compiler::{Schema, validation::Valid};
 use dashmap::DashMap;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Metadata for cache validation
 #[derive(Debug, Clone)]
@@ -178,6 +184,21 @@ impl CacheMetadata {
     }
 }
 
+fn try_remove_file<P: AsRef<Path>>(p: P) {
+    match fs::remove_file(&p) {
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => {
+            // Best-effort: ignore other errors as cache removal should not
+            // abort the main flow in test environments.
+        }
+    }
+}
+
+fn rename_tmp_into_place(tmp_path: &Path, final_path: &Path) -> io::Result<()> {
+    fs::rename(tmp_path, final_path)
+}
+
 impl CacheEntry {
     /// Manual binary serialization for CacheEntry
     fn to_bytes(&self) -> Vec<u8> {
@@ -306,11 +327,24 @@ pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<Str
         return None;
     }
 
-    let cache_data = fs::read(&cache_path).ok()?;
-    let entry = CacheEntry::from_bytes(&cache_data)?;
+    // Read the cache file. If it is corrupted (unable to deserialize), remove
+    // it immediately to avoid repeatedly trying to load a broken file.
+    let cache_data = match fs::read(&cache_path) {
+        Ok(d) => d,
+        Err(_) => return None,
+    };
+
+    let entry = match CacheEntry::from_bytes(&cache_data) {
+        Some(e) => e,
+        None => {
+            // Corrupted cache file - attempt best-effort removal and bail out.
+            try_remove_file(&cache_path);
+            return None;
+        }
+    };
 
     if !entry.metadata.is_valid(base_dir) {
-        let _ = fs::remove_file(&cache_path);
+        try_remove_file(&cache_path);
         return None;
     }
 
@@ -337,7 +371,92 @@ pub fn save_to_cache(
             .map_err(|e| format!("Failed to create cache directory: {}", e))?;
     }
 
-    fs::write(&cache_path, cache_data).map_err(|e| format!("Failed to write cache file: {}", e))?;
+    // Write to a temporary file in the same directory and then atomically
+    // rename to the final cache path. This prevents readers from seeing a
+    // partially-written cache file if multiple writers race.
+    let tmp_file_name = if let Some(fname) = cache_path.file_name().and_then(|s| s.to_str()) {
+        format!(
+            "{}.tmp.{}.{}",
+            fname,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        )
+    } else {
+        // Fallback to a fixed tmp suffix if filename isn't valid UTF-8
+        format!("cache.tmp.{}", std::process::id())
+    };
+
+    let tmp_path = cache_path
+        .parent()
+        .map(|p| p.join(tmp_file_name))
+        .unwrap_or_else(|| cache_path.with_extension("tmp"));
+
+    if let Err(e) = write_cache_with_lock(&cache_data, &cache_path, &tmp_path) {
+        // Cleanup temp file on failure
+        try_remove_file(&tmp_path);
+        return Err(format!("Failed to write cache file: {}", e));
+    }
+    Ok(())
+}
+
+/// Write `data` to a temporary file in the same directory as `final_path`,
+/// fsync the file, and atomically rename it into place.
+fn write_cache_with_lock(data: &[u8], final_path: &Path, tmp_path: &Path) -> io::Result<()> {
+    // Ensure parent dir exists - caller normally does this but be defensive.
+    if let Some(parent) = final_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Try to create the temp file using create_new so we don't clobber a
+    // concurrently-created tmp file. If a name collision occurs, append a
+    // quick counter and retry a few times.
+    let mut attempt_tmp = tmp_path.to_path_buf();
+    let mut created = false;
+    let mut tmp_file: Option<std::fs::File> = None;
+    for _ in 0..8 {
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&attempt_tmp)
+        {
+            Ok(f) => {
+                tmp_file = Some(f);
+                created = true;
+                break;
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                // Try a new name with a counter suffix
+                let suffix = TMP_COUNTER.fetch_add(1, Ordering::SeqCst);
+                attempt_tmp = tmp_path.with_extension(format!("tmp.{}", suffix));
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    if !created {
+        // As a last resort, open with truncate to ensure we can proceed.
+        let f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&attempt_tmp)?;
+        tmp_file = Some(f);
+    }
+
+    let mut f = tmp_file.expect("tmp file must be opened");
+    // Write the complete payload before rename so readers never observe partial content.
+    f.write_all(data)?;
+    drop(f);
+
+    if let Err(e) = rename_tmp_into_place(&attempt_tmp, final_path) {
+        let _ = fs::remove_file(&attempt_tmp);
+        return Err(e);
+    }
+
     Ok(())
 }
 
@@ -426,5 +545,38 @@ mod tests {
         fs::write(&schema_path, "type Query { world: String }").unwrap();
         let loaded = try_load_from_cache(dir.path(), &source);
         assert_eq!(loaded, None);
+    }
+
+    #[test]
+    #[ntest::timeout(100)]
+    fn test_corrupted_cache_file_is_removed() {
+        let dir = tempdir().unwrap();
+
+        // Create a schema file so metadata checks can succeed later
+        let schema_path = dir.path().join("schema.graphql");
+        fs::write(&schema_path, "type Query { ok: Boolean }").unwrap();
+
+        let source = SchemaSource::Single("schema.graphql".to_string());
+
+        // Ensure cache directory exists and write a corrupted cache file
+        let cache_path = get_cache_path(dir.path(), &source);
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+
+        // Write invalid bytes that cannot be deserialized
+        fs::write(&cache_path, b"this is not a valid cache entry").unwrap();
+        assert!(cache_path.exists());
+
+        // Loader should return None and remove the corrupted cache file
+        let loaded = try_load_from_cache(dir.path(), &source);
+        assert_eq!(loaded, None);
+        assert!(!cache_path.exists());
+
+        // After removal, saving to cache must succeed and loader should read it back
+        let merged = "type Query { ok: Boolean }";
+        save_to_cache(dir.path(), &source, merged).unwrap();
+        let loaded2 = try_load_from_cache(dir.path(), &source);
+        assert_eq!(loaded2, Some(merged.to_string()));
     }
 }

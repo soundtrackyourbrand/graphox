@@ -135,6 +135,14 @@ jobs:
       
       - name: Run tests
         run: cargo test --workspace --all-features
+
+      - name: Configure per-job Graphox cache directory
+        if: always()
+        run: |
+          # Use the runner temporary directory to avoid shared caches across jobs
+          echo "GRAPHOX_CACHE_DIR=$RUNNER_TEMP/graphox-cache" >> $GITHUB_ENV
+          mkdir -p "$RUNNER_TEMP/graphox-cache"
+        shell: bash
       
       - name: Build benchmarks
         run: cargo test --benches --all-features --no-run
