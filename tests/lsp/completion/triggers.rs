@@ -269,3 +269,20 @@ async fn test_completion_field_alias() {
     assert!(items.iter().any(|i| i.label == "id"));
     assert!(items.iter().any(|i| i.label == "name"));
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_completion_disabled_inside_inline_comment() {
+    let schema = "type Query { users: [User!]! } type User { id: ID! name: String! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "query {\n  users { # graphox-ignore|\n    id\n  }\n}";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+    assert!(items.is_empty(), "Expected no completions inside comments");
+}

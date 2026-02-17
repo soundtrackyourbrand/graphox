@@ -16,6 +16,30 @@ pub mod values;
 
 pub use types::FragmentCompletionInfo;
 
+fn is_cursor_inside_comment(
+    doc: &DocumentState,
+    root: Node,
+    offset: usize,
+    cursor_offset: usize,
+) -> bool {
+    let root_end = root.end_byte();
+    let local_byte = cursor_offset.saturating_sub(offset);
+    let clamped_local = if local_byte > root_end && root_end > 0 {
+        root_end
+    } else {
+        local_byte
+    };
+
+    if let Some(current) =
+        root.descendant_for_byte_range(clamped_local.saturating_sub(1), clamped_local)
+    {
+        return current.kind() == "comment"
+            || doc.find_ancestor_by_kind(current, "comment").is_some();
+    }
+
+    false
+}
+
 pub trait DocumentCompletion {
     fn get_completion_items(
         &self,
@@ -267,6 +291,27 @@ impl DocumentCompletion for DocumentState {
         fragments: Vec<FragmentCompletionInfo>,
     ) -> Vec<CompletionItem> {
         let byte_offset = self.position_to_byte(position);
+
+        // Never provide GraphQL completions inside GraphQL comments.
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let root = block.tree.root_node();
+            let tree_len = root.end_byte();
+            let block_end = offset + tree_len;
+
+            let allowed_end = if self.language.is_host_language() {
+                block_end.saturating_add(1)
+            } else {
+                block_end
+            };
+
+            if byte_offset >= offset
+                && byte_offset <= allowed_end
+                && is_cursor_inside_comment(self, root, offset, byte_offset)
+            {
+                return Vec::new();
+            }
+        }
 
         // Check for keyword prefixes at the root level or in operation type positions
         if let Some(prefix) = self.get_word_prefix_at_cursor(byte_offset) {

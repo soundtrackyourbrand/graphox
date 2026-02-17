@@ -1,10 +1,69 @@
 use crate::backend::state::Backend;
 use graphox_core::document::CompletionContext;
+use graphox_core::document::DocumentState;
 use graphox_features::completion::DocumentCompletion;
 
 use ahash::AHashMap;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::{CompletionParams, CompletionResponse};
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionParams, CompletionResponse, CompletionTextEdit, Position,
+    PositionEncodingKind, Range,
+};
+
+fn line_max_character(doc: &DocumentState, line: u32) -> u32 {
+    let last_line = doc.rope.len_lines().saturating_sub(1) as u32;
+    let line_idx = line.min(last_line) as usize;
+    let mut line_text = doc.rope.line(line_idx).to_string();
+    while line_text.ends_with('\n') || line_text.ends_with('\r') {
+        line_text.pop();
+    }
+
+    if doc.position_encoding == PositionEncodingKind::UTF8 {
+        line_text.len() as u32
+    } else if doc.position_encoding == PositionEncodingKind::UTF16 {
+        line_text.encode_utf16().count() as u32
+    } else {
+        line_text.chars().count() as u32
+    }
+}
+
+fn clamp_position(doc: &DocumentState, pos: Position) -> Position {
+    let max_line = doc.rope.len_lines().saturating_sub(1) as u32;
+    let line = pos.line.min(max_line);
+    let max_char = line_max_character(doc, line);
+    Position::new(line, pos.character.min(max_char))
+}
+
+fn clamp_range(doc: &DocumentState, range: Range) -> Range {
+    let start = clamp_position(doc, range.start);
+    let mut end = clamp_position(doc, range.end);
+    if end.line < start.line || (end.line == start.line && end.character < start.character) {
+        end = start;
+    }
+    Range::new(start, end)
+}
+
+fn sanitize_completion_items(doc: &DocumentState, items: &mut [CompletionItem]) {
+    for item in items {
+        if let Some(text_edit) = &mut item.text_edit {
+            match text_edit {
+                CompletionTextEdit::Edit(edit) => {
+                    edit.range = clamp_range(doc, edit.range);
+                }
+                CompletionTextEdit::InsertAndReplace(edit) => {
+                    edit.insert = clamp_range(doc, edit.insert);
+                    edit.replace = clamp_range(doc, edit.replace);
+                }
+            }
+        }
+
+        if let Some(additional_edits) = &mut item.additional_text_edits {
+            for edit in additional_edits {
+                edit.range = clamp_range(doc, edit.range);
+            }
+        }
+    }
+}
 
 pub async fn handle_completion(
     backend: &Backend,
@@ -153,7 +212,8 @@ pub async fn handle_completion(
                     );
                 }
 
-                let items = doc.get_completion_items(position, &schema, fragments);
+                let mut items = doc.get_completion_items(position, &schema, fragments);
+                sanitize_completion_items(&doc, &mut items);
                 log::trace!(
                     "completion: produced items = {:?}",
                     items.iter().map(|i| i.label.clone()).collect::<Vec<_>>()
@@ -164,4 +224,57 @@ pub async fn handle_completion(
             Ok(None)
         })
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::{TextEdit, Url};
+
+    #[test]
+    fn test_sanitize_completion_items_clamps_out_of_range_positions() {
+        let uri = Url::parse("file:///tmp/test.graphql").expect("valid test uri");
+        let doc = DocumentState::new_from_thread_local(
+            uri,
+            "query {\n  users\n}\n",
+            PositionEncodingKind::UTF16,
+        );
+
+        let mut items = vec![CompletionItem {
+            label: "users".to_string(),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: Range::new(Position::new(9, 500), Position::new(10, 600)),
+                new_text: "users".to_string(),
+            })),
+            additional_text_edits: Some(vec![TextEdit {
+                range: Range::new(Position::new(1, 999), Position::new(1, 1000)),
+                new_text: "x".to_string(),
+            }]),
+            ..Default::default()
+        }];
+
+        sanitize_completion_items(&doc, &mut items);
+
+        let item = &items[0];
+        let CompletionTextEdit::Edit(main_edit) = item.text_edit.clone().expect("text edit exists")
+        else {
+            panic!("expected main edit");
+        };
+        assert!(main_edit.range.start.line <= 3);
+        assert!(main_edit.range.end.line <= 3);
+        assert!(
+            main_edit.range.start.character <= line_max_character(&doc, main_edit.range.start.line)
+        );
+        assert!(
+            main_edit.range.end.character <= line_max_character(&doc, main_edit.range.end.line)
+        );
+
+        let additional = item
+            .additional_text_edits
+            .as_ref()
+            .expect("additional edits exist");
+        let extra = &additional[0];
+        assert!(extra.range.start.character <= line_max_character(&doc, extra.range.start.line));
+        assert!(extra.range.end.character <= line_max_character(&doc, extra.range.end.line));
+    }
 }
