@@ -1,6 +1,173 @@
 use graphox_core::document::DocumentState;
 use lsp_types::*;
 
+enum PreservedComment {
+    Standalone {
+        anchor: Option<String>,
+        text: String,
+    },
+    Inline {
+        anchor: String,
+        text: String,
+    },
+}
+
+fn normalize_graphql_line_for_match(line: &str) -> String {
+    let without_comment = line.split_once('#').map_or(line, |(before, _)| before);
+    let mut trimmed = without_comment.trim_end();
+
+    while let Some(stripped) = trimmed.strip_suffix(',') {
+        trimmed = stripped.trim_end();
+    }
+
+    trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn find_matching_line(lines: &[String], anchor: &str, start: usize) -> Option<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .skip(start)
+        .find_map(|(idx, line)| {
+            let normalized = normalize_graphql_line_for_match(line);
+            if normalized.is_empty() || normalized != anchor {
+                None
+            } else {
+                Some(idx)
+            }
+        })
+}
+
+fn leading_whitespace(line: &str) -> &str {
+    let indent_len = line
+        .char_indices()
+        .find_map(|(idx, ch)| (!ch.is_whitespace()).then_some(idx))
+        .unwrap_or(line.len());
+    &line[..indent_len]
+}
+
+fn extract_preserved_comments(original: &str) -> Vec<PreservedComment> {
+    let source_lines: Vec<&str> = original.lines().collect();
+    let mut comments = Vec::new();
+
+    for (idx, line) in source_lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(hash_idx) = line.find('#') {
+            let comment_text = line[hash_idx..].trim().to_string();
+            let prefix = &line[..hash_idx];
+
+            if prefix.trim().is_empty() {
+                let anchor = source_lines[idx + 1..].iter().find_map(|next| {
+                    let next_trimmed = next.trim();
+                    if next_trimmed.is_empty() || next_trimmed.starts_with('#') {
+                        return None;
+                    }
+
+                    let normalized = normalize_graphql_line_for_match(next);
+                    if normalized.is_empty() {
+                        None
+                    } else {
+                        Some(normalized)
+                    }
+                });
+
+                comments.push(PreservedComment::Standalone {
+                    anchor,
+                    text: comment_text,
+                });
+            } else {
+                let anchor = normalize_graphql_line_for_match(prefix);
+                if !anchor.is_empty() {
+                    comments.push(PreservedComment::Inline {
+                        anchor,
+                        text: comment_text,
+                    });
+                }
+            }
+        }
+    }
+
+    comments
+}
+
+fn restore_graphql_comments(formatted: &str, original: &str) -> String {
+    let comments = extract_preserved_comments(original);
+    if comments.is_empty() {
+        return formatted.to_string();
+    }
+
+    let mut lines: Vec<String> = formatted.lines().map(ToString::to_string).collect();
+    let mut search_from = 0usize;
+
+    for comment in comments {
+        match comment {
+            PreservedComment::Inline { anchor, text } => {
+                if let Some(idx) = find_matching_line(&lines, &anchor, search_from) {
+                    if !lines[idx].contains('#') {
+                        lines[idx].push(' ');
+                        lines[idx].push_str(&text);
+                    }
+                    search_from = idx;
+                }
+            }
+            PreservedComment::Standalone { anchor, text } => {
+                let insert_at = anchor
+                    .as_ref()
+                    .and_then(|a| find_matching_line(&lines, a, search_from))
+                    .unwrap_or(lines.len());
+                let indent = if insert_at < lines.len() {
+                    leading_whitespace(&lines[insert_at]).to_string()
+                } else {
+                    String::new()
+                };
+
+                lines.insert(insert_at, format!("{indent}{text}"));
+                search_from = insert_at.saturating_add(1);
+            }
+        }
+    }
+
+    let mut result = lines.join("\n");
+    if formatted.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn apply_embedded_template_indentation(original: &str, formatted: &str) -> String {
+    if !original.starts_with('\n') {
+        return formatted.to_string();
+    }
+
+    let indent = original
+        .lines()
+        .find_map(|line| {
+            if line.trim().is_empty() {
+                None
+            } else {
+                Some(leading_whitespace(line).to_string())
+            }
+        })
+        .unwrap_or_default();
+
+    let mut result = String::new();
+    result.push('\n');
+
+    for line in formatted.lines() {
+        if !line.is_empty() {
+            result.push_str(&indent);
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+
+    result
+}
+
 pub trait DocumentCodeActions {
     fn get_format_action(&self, range: Range) -> Option<CodeAction>;
     fn get_extraction_actions(
@@ -101,6 +268,8 @@ impl DocumentCodeActions for DocumentState {
                         document.to_string()
                     }
                 };
+                let formatted = restore_graphql_comments(&formatted, &graphql_content);
+                let formatted = apply_embedded_template_indentation(&graphql_content, &formatted);
 
                 // Only create the action if the formatted version is different
                 if formatted.trim() == graphql_content.trim() {

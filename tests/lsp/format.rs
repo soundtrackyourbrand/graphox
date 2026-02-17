@@ -200,3 +200,99 @@ async fn test_format_code_action_with_baseline() {
         );
     }
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_format_code_action_preserves_comments_and_template_indentation() {
+    let (dir, config) = crate::support::make_temp_project_with_schema(
+        "type Query { radioPlaylist(id: ID!, kind: RadioPlaylistKind): RadioPlaylist } enum RadioPlaylistKind { A } type RadioPlaylist { id: ID playlist: Playlist } type Playlist { id: ID permissions: String name: String composerType: String }",
+        "**/*.tsx",
+    );
+
+    let tsx_text = r#"export const SourceRadioDoc = graphql(/* GraphQL */ `
+  query SourceRadio($id: ID!, $kind: RadioPlaylistKind) {
+    # eslint-disable-next-line @graphql-eslint/require-id-when-available
+    radioPlaylist(id: $id, kind: $kind) { # graphox-ignore: fetching permissions on RadioPlaylistComposer is broken
+      id,
+      playlist {
+        permissions,
+        name,
+        composerType,
+        id,
+        ...Displayable,
+      }
+    }
+  }
+`)
+"#;
+
+    let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
+
+    let tsx_uri = crate::support::write_project_file(&dir, "query.tsx", tsx_text);
+    crate::support::lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
+
+    let doc = create_doc(tsx_uri.as_str(), tsx_text);
+    let range = crate::support::range_for_token(&doc, tsx_text, "SourceRadio");
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: tsx_uri.clone(),
+        },
+        range,
+        context: CodeActionContext {
+            diagnostics: vec![],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result = crate::support::lsp_request_code_actions(&mut service, params, 1).await;
+    let actions = result.expect("Expected actions");
+    let format_action = actions
+        .iter()
+        .find(|a| {
+            if let CodeActionOrCommand::CodeAction(ca) = a {
+                ca.title == "Format GraphQL"
+            } else {
+                false
+            }
+        })
+        .expect("Should find 'Format GraphQL' action");
+
+    if let CodeActionOrCommand::CodeAction(action) = format_action {
+        let edit = action.edit.as_ref().unwrap();
+        let changes = edit.changes.as_ref().unwrap();
+        let edits = &changes[&tsx_uri];
+
+        assert_eq!(edits.len(), 1);
+        let formatted_text = &edits[0].new_text;
+        let expected = r#"
+  query SourceRadio($id: ID!, $kind: RadioPlaylistKind) {
+    # eslint-disable-next-line @graphql-eslint/require-id-when-available
+    radioPlaylist(id: $id, kind: $kind) { # graphox-ignore: fetching permissions on RadioPlaylistComposer is broken
+      id
+      playlist {
+        permissions
+        name
+        composerType
+        id
+        ...Displayable
+      }
+    }
+  }
+"#;
+
+        assert_eq!(
+            formatted_text, expected,
+            "Format action should preserve GraphQL comments and embedded indentation"
+        );
+    }
+}
