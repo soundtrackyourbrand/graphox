@@ -285,6 +285,7 @@ pub(crate) fn run_baseline_test(
         std::fs::remove_dir_all(&temp_dir).ok();
     }
     std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = std::fs::canonicalize(temp_dir).expect("Failed to canonicalize temp_dir");
 
     fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dst)?;

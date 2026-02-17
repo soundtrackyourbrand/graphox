@@ -805,7 +805,7 @@ fn generate_project_files_sync(
                 .map(|p| utils::get_glob_root(p))
                 .find(|root| {
                     let abs_root = params.base_dir.join(root);
-                    path.starts_with(&abs_root)
+                    utils::path_starts_with(path, &abs_root)
                 })
                 .unwrap_or_default();
 
@@ -1001,7 +1001,9 @@ fn clean_project_files_sync(
             for pattern in &patterns {
                 let include_root = utils::get_glob_root(pattern);
                 let abs_include_root = params.base_dir.join(&include_root);
-                if abs_out_dir == abs_include_root || abs_include_root.starts_with(&abs_out_dir) {
+                if abs_out_dir == abs_include_root
+                    || utils::path_starts_with(&abs_include_root, &abs_out_dir)
+                {
                     is_surgical = true;
                     break;
                 }
@@ -1045,7 +1047,7 @@ fn clean_project_files_sync(
                         .map(|p| utils::get_glob_root(p))
                         .find(|root| {
                             let abs_root = params.base_dir.join(root);
-                            path.starts_with(&abs_root)
+                            utils::path_starts_with(path, &abs_root)
                         })
                         .unwrap_or_default();
 

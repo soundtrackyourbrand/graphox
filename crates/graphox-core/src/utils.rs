@@ -162,9 +162,9 @@ pub fn get_project_files(
 
     if !roots.is_empty() {
         roots.sort();
-        let mut unique_roots = Vec::new();
+        let mut unique_roots: Vec<PathBuf> = Vec::new();
         for root in roots {
-            if !unique_roots.iter().any(|r| root.starts_with(r)) {
+            if !unique_roots.iter().any(|r| path_starts_with(&root, r)) {
                 unique_roots.push(root);
             }
         }
