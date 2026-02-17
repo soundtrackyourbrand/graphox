@@ -618,6 +618,19 @@ impl DocumentCodeActions for DocumentState {
             return actions;
         };
 
+        let scope = diagnostic
+            .data
+            .as_ref()
+            .and_then(|data| data.get("scope"))
+            .and_then(|value| value.as_str());
+        let response_key = diagnostic
+            .data
+            .as_ref()
+            .and_then(|data| data.get("response_key"))
+            .and_then(|value| value.as_str());
+        let is_operation_scope = scope == Some("operation")
+            || (scope.is_none() && diagnostic.message.contains("operations"));
+
         // Find the operation in the diagnostic range
         let start_byte = self.position_to_byte(diagnostic.range.start);
         let end_byte = self.position_to_byte(diagnostic.range.end);
@@ -630,84 +643,142 @@ impl DocumentCodeActions for DocumentState {
                 let root = block.tree.root_node();
 
                 if let Some(mut node) = root.descendant_for_byte_range(local_start, local_end) {
-                    // Climb up to find the operation definition
-                    while node.kind() != "operation_definition" {
-                        if let Some(parent) = node.parent() {
-                            node = parent;
-                        } else {
-                            break;
-                        }
-                    }
+                    let mut target_selection_set = None;
 
-                    if node.kind() == "operation_definition" {
-                        // Find the selection set
-                        let mut cursor = node.walk();
-                        for child in node.children(&mut cursor) {
-                            if child.kind() == "selection_set" {
-                                // Find the position right after the opening brace
-                                let insert_position =
-                                    self.byte_to_position(child.start_byte() + offset + 1);
-
-                                // Get the indentation of the first field (if any)
-                                let mut indentation = "\n  ".to_string();
-                                let mut has_fields = false;
-
-                                let mut selection_cursor = child.walk();
-                                for selection_child in child.children(&mut selection_cursor) {
-                                    if selection_child.kind() == "selection" {
-                                        has_fields = true;
-                                        // Extract indentation from first field
-                                        let field_start_pos = self.byte_to_position(
-                                            selection_child.start_byte() + offset,
-                                        );
-                                        let field_start_byte = self.position_to_byte(
-                                            Position::new(field_start_pos.line, 0),
-                                        );
-                                        let field_actual_start =
-                                            selection_child.start_byte() + offset;
-
-                                        if field_actual_start > field_start_byte {
-                                            let indent_text = self
-                                                .rope
-                                                .byte_slice(field_start_byte..field_actual_start)
-                                                .to_string();
-                                            indentation = format!("\n{}", indent_text);
-                                        }
-                                        break;
-                                    }
+                    if !is_operation_scope {
+                        let mut field_node = node;
+                        loop {
+                            if field_node.kind() == "field" {
+                                target_selection_set =
+                                    self.find_child_by_kind(field_node, "selection_set");
+                                if target_selection_set.is_some() {
+                                    break;
                                 }
+                            }
 
-                                let new_text = if has_fields {
-                                    format!("{}{}", indentation, field_name)
-                                } else {
-                                    // Empty selection set, add with default indentation
-                                    format!("\n  {}\n", field_name)
-                                };
-
-                                let mut changes = std::collections::HashMap::new();
-                                changes.insert(
-                                    self.uri.clone(),
-                                    vec![TextEdit {
-                                        range: Range::new(insert_position, insert_position),
-                                        new_text,
-                                    }],
-                                );
-
-                                actions.push(CodeAction {
-                                    title: format!("Add required field '{}'", field_name),
-                                    kind: Some(CodeActionKind::QUICKFIX),
-                                    diagnostics: Some(vec![diagnostic.clone()]),
-                                    edit: Some(WorkspaceEdit {
-                                        changes: Some(changes),
-                                        ..Default::default()
-                                    }),
-                                    is_preferred: Some(true),
-                                    ..Default::default()
-                                });
-
+                            if let Some(parent) = field_node.parent() {
+                                field_node = parent;
+                            } else {
                                 break;
                             }
                         }
+                    }
+
+                    if target_selection_set.is_none() {
+                        while node.kind() != "operation_definition" {
+                            if let Some(parent) = node.parent() {
+                                node = parent;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if node.kind() == "operation_definition" {
+                            if !is_operation_scope
+                                && let Some(target_key) = response_key
+                                && let Some(operation_selection_set) =
+                                    self.find_child_by_kind(node, "selection_set")
+                            {
+                                let mut op_cursor = operation_selection_set.walk();
+                                for selection in operation_selection_set.children(&mut op_cursor) {
+                                    let field_node = if selection.kind() == "selection" {
+                                        self.find_child_by_kind(selection, "field")
+                                    } else if selection.kind() == "field" {
+                                        Some(selection)
+                                    } else {
+                                        None
+                                    };
+
+                                    let Some(field) = field_node else {
+                                        continue;
+                                    };
+                                    let components = self.extract_field_components(field);
+                                    let Some(name_node) = components.name else {
+                                        continue;
+                                    };
+
+                                    let mut key = self.get_node_text(name_node, offset);
+                                    if let Some(alias_node) = components.alias
+                                        && let Some(alias_name_node) =
+                                            self.find_child_by_kind(alias_node, "name")
+                                    {
+                                        key = self.get_node_text(alias_name_node, offset);
+                                    }
+
+                                    if key == target_key {
+                                        target_selection_set = components.selection_set;
+                                        if target_selection_set.is_some() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if target_selection_set.is_none() {
+                                target_selection_set =
+                                    self.find_child_by_kind(node, "selection_set");
+                            }
+                        }
+                    }
+
+                    if let Some(selection_set) = target_selection_set {
+                        // Find the position right after the opening brace
+                        let insert_position =
+                            self.byte_to_position(selection_set.start_byte() + offset + 1);
+
+                        // Get the indentation of the first field (if any)
+                        let mut indentation = "\n  ".to_string();
+                        let mut has_fields = false;
+
+                        let mut selection_cursor = selection_set.walk();
+                        for selection_child in selection_set.children(&mut selection_cursor) {
+                            if selection_child.kind() == "selection" {
+                                has_fields = true;
+                                // Extract indentation from first field
+                                let field_start_pos =
+                                    self.byte_to_position(selection_child.start_byte() + offset);
+                                let field_start_byte =
+                                    self.position_to_byte(Position::new(field_start_pos.line, 0));
+                                let field_actual_start = selection_child.start_byte() + offset;
+
+                                if field_actual_start > field_start_byte {
+                                    let indent_text = self
+                                        .rope
+                                        .byte_slice(field_start_byte..field_actual_start)
+                                        .to_string();
+                                    indentation = format!("\n{}", indent_text);
+                                }
+                                break;
+                            }
+                        }
+
+                        let new_text = if has_fields {
+                            format!("{}{}", indentation, field_name)
+                        } else {
+                            // Empty selection set, add with default indentation
+                            format!("\n  {}\n", field_name)
+                        };
+
+                        let mut changes = std::collections::HashMap::new();
+                        changes.insert(
+                            self.uri.clone(),
+                            vec![TextEdit {
+                                range: Range::new(insert_position, insert_position),
+                                new_text,
+                            }],
+                        );
+
+                        actions.push(CodeAction {
+                            title: format!("Add required field '{}'", field_name),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![diagnostic.clone()]),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            is_preferred: Some(true),
+                            ..Default::default()
+                        });
                     }
                 }
             }

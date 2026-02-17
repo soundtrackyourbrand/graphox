@@ -5,6 +5,24 @@ use graphox_core::document::DocumentState;
 use lsp_types::*;
 use tree_sitter::Node;
 
+fn push_required_field_diagnostic(diagnostics: &mut Vec<Diagnostic>, diagnostic: Diagnostic) {
+    let is_duplicate = diagnostics.iter().any(|existing| {
+        existing.range == diagnostic.range
+            && existing.message == diagnostic.message
+            && matches!(
+                (&existing.code, &diagnostic.code),
+                (
+                    Some(NumberOrString::String(existing_code)),
+                    Some(NumberOrString::String(new_code))
+                ) if existing_code == new_code
+            )
+    });
+
+    if !is_duplicate {
+        diagnostics.push(diagnostic);
+    }
+}
+
 pub(super) fn validate_operation(
     this: &DocumentState,
     node: Node,
@@ -133,10 +151,13 @@ pub(super) fn check_required_fields(
     ctx: &mut ValidationContext,
 ) {
     if let Some(config) = ctx.config
-        && let Some(operation_type) = &ctx.current_operation_type
+        && let Some(operation_type) = ctx.current_operation_type.clone()
     {
         let rules = config.rules();
         let required_fields = rules.required_fields();
+        let mut emitted_operation_requirements = ahash::AHashSet::default();
+        let mut emitted_response_key_requirements = ahash::AHashSet::default();
+        let mut emitted_type_condition_requirements = ahash::AHashSet::default();
 
         // Find the name node of the operation for the diagnostic range
         let mut cursor = node.walk();
@@ -146,7 +167,7 @@ pub(super) fn check_required_fields(
             .unwrap_or_else(|| this.translate_to_file_range(node, offset));
 
         for (field_name, rule) in required_fields {
-            if !rule.applies_to_operation(operation_type) {
+            if !rule.applies_to_operation(operation_type.as_ref()) {
                 continue;
             }
 
@@ -177,6 +198,11 @@ pub(super) fn check_required_fields(
                         });
 
                     if !is_selected {
+                        let op_key = format!("{}:{}", field_name_str, operation_type);
+                        if !emitted_operation_requirements.insert(op_key) {
+                            continue;
+                        }
+
                         let anchor_node =
                             find_root_selection_anchor_for_response_key(this, node, offset, None);
                         if let Some(anchor) = anchor_node
@@ -187,20 +213,24 @@ pub(super) fn check_required_fields(
                             continue;
                         }
 
-                        ctx.diagnostics.push(Diagnostic {
-                            range: anchor_node
-                                .map(|n| this.translate_to_file_range(n, offset))
-                                .unwrap_or(operation_range),
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            message: format!(
-                                "Required field '{}' must be selected in {} operations",
-                                field_name, operation_type
-                            ),
-                            code: Some(NumberOrString::String(
-                                "required_field_missing".to_string(),
-                            )),
-                            ..Default::default()
-                        });
+                        push_required_field_diagnostic(
+                            ctx.diagnostics,
+                            Diagnostic {
+                                range: anchor_node
+                                    .map(|n| this.translate_to_file_range(n, offset))
+                                    .unwrap_or(operation_range),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!(
+                                    "Required field '{}' must be selected in {} operations",
+                                    field_name, operation_type
+                                ),
+                                code: Some(NumberOrString::String(
+                                    "required_field_missing".to_string(),
+                                )),
+                                data: Some(serde_json::json!({ "scope": "operation" })),
+                                ..Default::default()
+                            },
+                        );
                     }
                 }
             }
@@ -232,6 +262,12 @@ pub(super) fn check_required_fields(
                     }
 
                     if !is_selected {
+                        let response_key_requirement =
+                            format!("{}:{}", field_name_str, response_key.as_ref());
+                        if !emitted_response_key_requirements.insert(response_key_requirement) {
+                            continue;
+                        }
+
                         let anchor_node = find_root_selection_anchor_for_response_key(
                             this,
                             node,
@@ -246,20 +282,27 @@ pub(super) fn check_required_fields(
                             continue;
                         }
 
-                        ctx.diagnostics.push(Diagnostic {
-                            range: anchor_node
-                                .map(|n| this.translate_to_file_range(n, offset))
-                                .unwrap_or(operation_range),
-                            severity: Some(DiagnosticSeverity::ERROR),
-                            message: format!(
-                                "Required field '{}' must be selected in '{}'",
-                                field_name, response_key
-                            ),
-                            code: Some(NumberOrString::String(
-                                "required_field_missing".to_string(),
-                            )),
-                            ..Default::default()
-                        });
+                        push_required_field_diagnostic(
+                            ctx.diagnostics,
+                            Diagnostic {
+                                range: anchor_node
+                                    .map(|n| this.translate_to_file_range(n, offset))
+                                    .unwrap_or(operation_range),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!(
+                                    "Required field '{}' must be selected in '{}'",
+                                    field_name, response_key
+                                ),
+                                code: Some(NumberOrString::String(
+                                    "required_field_missing".to_string(),
+                                )),
+                                data: Some(serde_json::json!({
+                                    "scope": "response_key",
+                                    "response_key": response_key.as_ref()
+                                })),
+                                ..Default::default()
+                            },
+                        );
                     }
                 }
             }
@@ -290,6 +333,18 @@ pub(super) fn check_required_fields(
                                 || base_selected_fields.is_some_and(|f| f.contains(field_name_str));
 
                             if !is_selected {
+                                let type_condition_requirement = format!(
+                                    "{}:{}:{}",
+                                    field_name_str,
+                                    response_key.as_ref(),
+                                    type_name
+                                );
+                                if !emitted_type_condition_requirements
+                                    .insert(type_condition_requirement)
+                                {
+                                    continue;
+                                }
+
                                 let anchor_node = find_root_selection_anchor_for_response_key(
                                     this,
                                     node,
@@ -304,20 +359,24 @@ pub(super) fn check_required_fields(
                                     continue;
                                 }
 
-                                ctx.diagnostics.push(Diagnostic {
-                                    range: anchor_node
-                                        .map(|n| this.translate_to_file_range(n, offset))
-                                        .unwrap_or(operation_range),
-                                    severity: Some(DiagnosticSeverity::ERROR),
-                                    message: format!(
-                                        "Required field '{}' must be selected in '... on {}'",
-                                        field_name, type_name
-                                    ),
-                                    code: Some(NumberOrString::String(
-                                        "required_field_missing".to_string(),
-                                    )),
-                                    ..Default::default()
-                                });
+                                push_required_field_diagnostic(
+                                    ctx.diagnostics,
+                                    Diagnostic {
+                                        range: anchor_node
+                                            .map(|n| this.translate_to_file_range(n, offset))
+                                            .unwrap_or(operation_range),
+                                        severity: Some(DiagnosticSeverity::ERROR),
+                                        message: format!(
+                                            "Required field '{}' must be selected in '... on {}'",
+                                            field_name, type_name
+                                        ),
+                                        code: Some(NumberOrString::String(
+                                            "required_field_missing".to_string(),
+                                        )),
+                                        data: Some(serde_json::json!({ "scope": "response_key" })),
+                                        ..Default::default()
+                                    },
+                                );
                             }
                         }
                     }
