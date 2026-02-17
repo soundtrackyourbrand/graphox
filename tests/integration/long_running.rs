@@ -209,46 +209,55 @@ fn build_plugins() {
         .output()
         .expect("Failed to build SWC Rust plugin");
 
-    assert!(
-        swc_rust_build.status.success(),
-        "SWC Rust build failed: {}",
-        String::from_utf8_lossy(&swc_rust_build.stderr)
-    );
+    let swc_stderr = String::from_utf8_lossy(&swc_rust_build.stderr);
+    let wasm_target_missing = swc_stderr.contains("wasm32-unknown-unknown")
+        && swc_stderr.contains("target may not be installed");
+    if !swc_rust_build.status.success() {
+        if wasm_target_missing {
+            println!(
+                "[Setup] Skipping SWC plugin build: wasm32-unknown-unknown target is not installed"
+            );
+        } else {
+            panic!("SWC Rust build failed: {}", swc_stderr);
+        }
+    }
 
-    // 2. Copy WASM to node wrapper
-    let wasm_src = root_dir
-        .join("target")
-        .join("wasm32-unknown-unknown")
-        .join("release")
-        .join("graphox_swc_plugin.wasm");
-    let wasm_dst_dir = root_dir
-        .join("plugins")
-        .join("swc")
-        .join("node")
-        .join("wasm");
-    std::fs::create_dir_all(&wasm_dst_dir).expect("Failed to create wasm dst dir");
-    std::fs::copy(wasm_src, wasm_dst_dir.join("graphox_swc_plugin.wasm"))
-        .expect("Failed to copy WASM plugin");
+    if swc_rust_build.status.success() {
+        // 2. Copy WASM to node wrapper
+        let wasm_src = root_dir
+            .join("target")
+            .join("wasm32-unknown-unknown")
+            .join("release")
+            .join("graphox_swc_plugin.wasm");
+        let wasm_dst_dir = root_dir
+            .join("plugins")
+            .join("swc")
+            .join("node")
+            .join("wasm");
+        std::fs::create_dir_all(&wasm_dst_dir).expect("Failed to create wasm dst dir");
+        std::fs::copy(wasm_src, wasm_dst_dir.join("graphox_swc_plugin.wasm"))
+            .expect("Failed to copy WASM plugin");
 
-    // 3. Build SWC Node wrapper
-    let swc_node_dir = root_dir.join("plugins").join("swc").join("node");
-    println!("[Setup] Building SWC Node wrapper...");
+        // 3. Build SWC Node wrapper
+        let swc_node_dir = root_dir.join("plugins").join("swc").join("node");
+        println!("[Setup] Building SWC Node wrapper...");
 
-    // Install node dependencies
-    let swc_node_install = Command::new("pnpm")
-        .arg("install")
-        .current_dir(&swc_node_dir)
-        .output()
-        .expect("Failed to install SWC Node wrapper dependencies");
-    assert!(swc_node_install.status.success(), "SWC Node install failed");
+        // Install node dependencies
+        let swc_node_install = Command::new("pnpm")
+            .arg("install")
+            .current_dir(&swc_node_dir)
+            .output()
+            .expect("Failed to install SWC Node wrapper dependencies");
+        assert!(swc_node_install.status.success(), "SWC Node install failed");
 
-    let swc_node_build = Command::new("pnpm")
-        .arg("run")
-        .arg("build")
-        .current_dir(&swc_node_dir)
-        .output()
-        .expect("Failed to build SWC Node wrapper");
-    assert!(swc_node_build.status.success(), "SWC Node build failed");
+        let swc_node_build = Command::new("pnpm")
+            .arg("run")
+            .arg("build")
+            .current_dir(&swc_node_dir)
+            .output()
+            .expect("Failed to build SWC Node wrapper");
+        assert!(swc_node_build.status.success(), "SWC Node build failed");
+    }
 
     // 4. (Optional) Babel dependencies
     let babel_dir = root_dir.join("plugins").join("babel");
