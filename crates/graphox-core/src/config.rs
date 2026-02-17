@@ -1061,6 +1061,7 @@ impl Config {
         for project in &self.projects {
             if let Some(output_dir) = project.output_dir() {
                 let abs_output = self.base_dir.join(output_dir);
+                let abs_output = fs::canonicalize(&abs_output).unwrap_or(abs_output);
                 if crate::utils::path_starts_with(&abs_path, &abs_output) {
                     return true;
                 }
@@ -1071,17 +1072,20 @@ impl Config {
         if let Some(schema_types) = &self.schema_types {
             for st in schema_types {
                 let abs_output = self.base_dir.join(st.output());
+                let abs_output = fs::canonicalize(&abs_output).unwrap_or(abs_output);
                 if crate::utils::paths_match(Some(&abs_path), Some(&abs_output)) {
                     return true;
                 }
                 if let Some(pt) = st.possible_types() {
                     let abs_pt = self.base_dir.join(pt);
+                    let abs_pt = fs::canonicalize(&abs_pt).unwrap_or(abs_pt);
                     if crate::utils::paths_match(Some(&abs_path), Some(&abs_pt)) {
                         return true;
                     }
                 }
                 if let Some(tp) = st.type_policies() {
                     let abs_tp = self.base_dir.join(tp);
+                    let abs_tp = fs::canonicalize(&abs_tp).unwrap_or(abs_tp);
                     if crate::utils::paths_match(Some(&abs_path), Some(&abs_tp)) {
                         return true;
                     }

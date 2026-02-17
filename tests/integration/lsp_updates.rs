@@ -221,7 +221,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Wait for initial diagnostics
-    let _ = support::wait_for_condition(|| !received_diags.lock().unwrap().is_empty()).await;
+    let _ = support::wait_for_condition_with_timeout(|| !received_diags.lock().unwrap().is_empty(), std::time::Duration::from_secs(10)).await;
     {
         let diags = received_diags.lock().unwrap();
         assert!(
@@ -254,14 +254,14 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_send_notification(&mut service, "workspace/didChangeWatchedFiles", &params).await;
 
     // 6. Wait for diagnostics after schema change
-    let _ = support::wait_for_condition(|| {
+    let _ = support::wait_for_condition_with_timeout(|| {
         let diags = received_diags.lock().unwrap();
         if diags.is_empty() {
             return false;
         }
         let last = diags.last().unwrap();
         !last["diagnostics"].as_array().unwrap().is_empty()
-    })
+    }, std::time::Duration::from_secs(10))
     .await;
     {
         let diags = received_diags.lock().unwrap();
@@ -290,14 +290,14 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_send_notification(&mut service, "textDocument/didChange", &params).await;
 
     // 8. Verify diagnostics cleared
-    let _ = support::wait_for_condition(|| {
+    let _ = support::wait_for_condition_with_timeout(|| {
         let diags = received_diags.lock().unwrap();
         if diags.is_empty() {
             return false;
         }
         let last = diags.last().unwrap();
         last["diagnostics"].as_array().unwrap().is_empty()
-    })
+    }, std::time::Duration::from_secs(10))
     .await;
     {
         let diags = received_diags.lock().unwrap();

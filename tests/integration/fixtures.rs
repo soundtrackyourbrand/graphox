@@ -437,8 +437,11 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, output_dir: &
 
             let mut actual_path = None;
 
-            // Try EXACT relative path first
+            // Normalize rel_path components for comparison
+            let has_output_dir_in_rel = rel_path.components().any(|c| c.as_os_str() == output_dir);
+
             for e in possible_extensions.iter() {
+                // Try EXACT relative path first (always)
                 let p = temp_dir
                     .join(rel_path)
                     .join(format!("{}.{}", actual_name, e));
@@ -446,22 +449,16 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, output_dir: &
                     actual_path = Some(p);
                     break;
                 }
-            }
 
-            // Try in output_dir as fallback
-            if actual_path.is_none() {
-                let has_output_dir_in_rel =
-                    rel_path.components().any(|c| c.as_os_str() == output_dir);
+                // Try in output_dir as fallback only if NOT already in rel_path
                 if !has_output_dir_in_rel {
-                    for e in possible_extensions {
-                        let p = temp_dir
-                            .join(output_dir)
-                            .join(rel_path)
-                            .join(format!("{}.{}", actual_name, e));
-                        if p.exists() {
-                            actual_path = Some(p);
-                            break;
-                        }
+                    let p = temp_dir
+                        .join(output_dir)
+                        .join(rel_path)
+                        .join(format!("{}.{}", actual_name, e));
+                    if p.exists() {
+                        actual_path = Some(p);
+                        break;
                     }
                 }
             }
