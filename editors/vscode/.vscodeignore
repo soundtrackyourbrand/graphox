@@ -1,12 +1,13 @@
 .vscode/**
 .vscode-test/**
 out/test/**
+out/src/**
 src/**
 tsconfig.json
+esbuild.js
+node_modules/**
 **/*.map
 .gitignore
 pnpm-lock.yaml
 package-lock.json
 yarn.lock
-!out/
-!out/*.js
