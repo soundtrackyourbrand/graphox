@@ -31,12 +31,27 @@ function install() {
   // 1. Check for local build first (for development)
   if (process.env.GRAPHOX_LOCAL_BUILD) {
     try {
-      fs.copyFileSync(process.env.GRAPHOX_LOCAL_BUILD, binaryPath);
-      fs.chmodSync(binaryPath, 0o755);
-      console.log('Using local build.');
+      if (fs.existsSync(binaryPath)) {
+        fs.unlinkSync(binaryPath);
+      }
+      
+      const absoluteLocalBuild = path.resolve(process.env.GRAPHOX_LOCAL_BUILD);
+      
+      // Use symlink for local development so rebuilding Rust updates the CLI immediately
+      fs.symlinkSync(absoluteLocalBuild, binaryPath);
+      console.log(`Using local build via symlink: ${absoluteLocalBuild}`);
       return;
     } catch (e) {
-      console.error('Failed to use local build:', e.message);
+      console.warn('Failed to create symlink for local build:', e.message);
+      // Fallback to copy if symlink fails
+      try {
+        fs.copyFileSync(process.env.GRAPHOX_LOCAL_BUILD, binaryPath);
+        fs.chmodSync(binaryPath, 0o755);
+        console.log('Using local build (copy fallback).');
+        return;
+      } catch (copyErr) {
+        console.error('Failed to copy local build:', copyErr.message);
+      }
     }
   }
 

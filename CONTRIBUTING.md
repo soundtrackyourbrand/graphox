@@ -49,23 +49,24 @@ cargo build
 
 **Option 2: Using the npm package with local build**
 ```bash
-# Build release binary
-cargo build --release
+# Automated setup (Recommended)
+./scripts/setup-npm-dev.sh
 
-# Set up npm package to use local build
+# Manual setup
+cargo build --release
 export GRAPHOX_LOCAL_BUILD=$(pwd)/target/release/graphox
 cd npm/graphox-cli
-pnpm install
+node postinstall.js
 
-# Now pnpm graphox uses your local build
-cd /path/to/test/project
-pnpm graphox check
-pnpm graphox codegen
+# To test globally
+pnpm link --global
 ```
 
-**Quick setup script:**
+Now you can link it in any test project:
 ```bash
-./scripts/setup-npm-dev.sh
+cd /path/to/test/project
+pnpm link --global @soundtrackyourbrand/graphox-cli
+graphox check
 ```
 
 ### Editor Testing

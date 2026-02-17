@@ -78,7 +78,7 @@ export GRAPHOX_LOCAL_BUILD=/path/to/graphox/target/release/graphox
 
 # Now install the npm package - it will use your local build
 cd /path/to/your/project
-pnpm add /path/to/graphox/npm/@soundtrackyourbrand/graphox-cli
+pnpm add /path/to/graphox/npm/graphox-cli
 ```
 
 The install script will copy your local binary instead of downloading from GitHub releases.
@@ -90,9 +90,11 @@ The install script will copy your local binary instead of downloading from GitHu
 cargo build --release
 
 # Set up the local binary
-export GRAPHOX_LOCAL_BUILD=$(pwd)/target/release/graphox
-cd npm/@soundtrackyourbrand/graphox-cli
-pnpm install
+./scripts/setup-npm-dev.sh
+
+# Link globally
+cd npm/graphox-cli
+pnpm link --global
 ```
 
 ## Manual Binary Download

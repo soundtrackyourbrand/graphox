@@ -2,3 +2,4 @@
 /tests/fixtures/swc_cli/node_modules
 /plugins/swc/node/dist
 /plugins/swc/node/wasm
+/npm/graphox-cli/bin/graphox-bin
