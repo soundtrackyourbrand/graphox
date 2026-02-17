@@ -31,11 +31,15 @@
     "commands": [
       {
         "command": "graphql.runCodegen",
-        "title": "GraphQL: Run Codegen"
+        "title": "Graphox: Run Codegen"
       },
       {
         "command": "graphql.clearCache",
-        "title": "GraphQL: Clear Cache"
+        "title": "Graphox: Clear Cache"
+      },
+      {
+        "command": "graphql.restartServer",
+        "title": "Graphox: Restart Server"
       }
     ],
     "configuration": {
@@ -48,7 +52,13 @@
         },
         "graphox.logLevel": {
           "type": "string",
-          "enum": ["error", "warn", "info", "debug", "trace"],
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
           "default": "info",
           "description": "Set the logging level for the LSP server."
         }

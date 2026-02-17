@@ -9,9 +9,9 @@ This extension brings Graphox into VS Code for fast validation, navigation, and 
 - Autocomplete, hover, go-to-definition, and find references
 - Fragment-aware validation across your workspace
 - Commands:
-  - `GraphQL: Run Codegen`
-  - `GraphQL: Clear Cache`
-  - `GraphQL: Restart Server`
+  - `Graphox: Run Codegen`
+  - `Graphox: Clear Cache`
+  - `Graphox: Restart Server`
 
 ## Supported files
 
