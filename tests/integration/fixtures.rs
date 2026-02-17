@@ -465,6 +465,20 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, output_dir: &
             }
 
             let actual_path = actual_path.unwrap_or_else(|| {
+                println!("Files in temp_dir:");
+                fn list_files(dir: &Path, indent: usize) {
+                    if let Ok(entries) = std::fs::read_dir(dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            println!("{:indent$}{:?}", "", path, indent = indent);
+                            if path.is_dir() {
+                                list_files(&path, indent + 2);
+                            }
+                        }
+                    }
+                }
+                list_files(temp_dir, 2);
+
                 panic!(
                     "Baseline file {:?} has no corresponding codegen output in temp_dir={:?} (rel_path={:?}, output_dir={:?})",
                     path,
