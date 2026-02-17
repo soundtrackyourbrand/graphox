@@ -240,7 +240,7 @@ impl CacheEntry {
 // Helper function to generate a unique cache key including the base directory
 fn make_cache_key(base_dir: &Path, source: &SchemaSource) -> String {
     let source_key = source.as_key();
-    let base_path = base_dir.to_string_lossy();
+    let base_path = crate::utils::to_posix_path(base_dir);
     format!("{}:{}", base_path, source_key)
 }
 

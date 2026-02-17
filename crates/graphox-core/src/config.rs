@@ -1038,9 +1038,8 @@ impl Config {
                             && !pattern.contains('{')
                         {
                             let pattern_path = Path::new(&pattern);
-                            if rel_path.starts_with(pattern_path)
+                            if crate::utils::path_starts_with(rel_path, pattern_path)
                                 || posix_rel_path.starts_with(&pattern)
-                                || crate::utils::path_starts_with(rel_path, pattern_path)
                             {
                                 matched = true;
                                 break;

@@ -291,16 +291,19 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
             {
                 let sa = pa.to_string_lossy().replace('/', "\\");
                 let sb = pb.to_string_lossy().replace('/', "\\");
-                let ca = if let Some(s) = sa.strip_prefix(r"\\?\UNC\") {
-                    format!("\\\\{}", s)
-                } else {
-                    sa.strip_prefix(r"\\?\").unwrap_or(&sa).to_string()
+
+                let normalize_win = |s: &str| {
+                    if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+                        format!("\\\\{}", stripped)
+                    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                        stripped.to_string()
+                    } else {
+                        s.to_string()
+                    }
                 };
-                let cb = if let Some(s) = sb.strip_prefix(r"\\?\UNC\") {
-                    format!("\\\\{}", s)
-                } else {
-                    sb.strip_prefix(r"\\?\").unwrap_or(&sb).to_string()
-                };
+
+                let ca = normalize_win(&sa);
+                let cb = normalize_win(&sb);
                 return ca.eq_ignore_ascii_case(&cb);
             }
 
@@ -362,33 +365,48 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
 
     #[cfg(windows)]
     {
-        let s_path = path.to_string_lossy().replace('/', "\\");
-        let s_prefix = prefix.to_string_lossy().replace('/', "\\");
-        let clean_path = if let Some(s) = s_path.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_path.strip_prefix(r"\\?\").unwrap_or(&s_path).to_string()
-        };
-        let clean_prefix = if let Some(s) = s_prefix.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", s)
-        } else {
-            s_prefix
-                .strip_prefix(r"\\?\")
-                .unwrap_or(&s_prefix)
-                .to_string()
-        };
+        use std::path::Component;
+        let mut p_comps = path.components();
+        let mut pre_comps = prefix.components();
 
-        if clean_path.len() >= clean_prefix.len()
-            && clean_path[..clean_prefix.len()].eq_ignore_ascii_case(&clean_prefix)
-        {
-            if clean_path.len() == clean_prefix.len() {
-                return true;
+        loop {
+            match (p_comps.next(), pre_comps.next()) {
+                (Some(p), Some(pre)) => {
+                    let match_comp = match (p, pre) {
+                        (Component::Normal(s1), Component::Normal(s2)) => {
+                            s1.to_string_lossy()
+                                .eq_ignore_ascii_case(&s2.to_string_lossy())
+                        }
+                        (Component::Prefix(p1), Component::Prefix(p2)) => {
+                            let normalize_prefix = |kind: std::path::Prefix| {
+                                use std::path::Prefix::*;
+                                match kind {
+                                    VerbatimDisk(d) | Disk(d) => {
+                                        format!("{}:", (d as char).to_uppercase())
+                                    }
+                                    VerbatimUNC(s1, s2) | UNC(s1, s2) => {
+                                        format!(
+                                            "\\\\{}\\{}",
+                                            s1.to_string_lossy(),
+                                            s2.to_string_lossy()
+                                        )
+                                    }
+                                    Verbatim(s) | DeviceNS(s) => s.to_string_lossy().to_string(),
+                                }
+                            };
+                            normalize_prefix(p1.kind())
+                                .eq_ignore_ascii_case(&normalize_prefix(p2.kind()))
+                        }
+                        (c1, c2) => c1 == c2,
+                    };
+                    if !match_comp {
+                        return false;
+                    }
+                }
+                (_, None) => return true,
+                (None, Some(_)) => return false,
             }
-            let next_char = clean_path.chars().nth(clean_prefix.len()).unwrap();
-            return next_char == '\\' || next_char == '/';
         }
-
-        return false;
     }
 
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -804,6 +822,11 @@ pub fn push_duplicate_operation_diagnostic(
 pub fn to_posix_path(path: &Path) -> String {
     let s = path.to_string_lossy();
     if cfg!(windows) {
+        let s = if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+            format!("\\\\{}", stripped)
+        } else {
+            s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+        };
         s.replace('\\', "/")
     } else {
         s.into_owned()
