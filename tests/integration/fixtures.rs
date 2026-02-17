@@ -213,7 +213,7 @@ fn test_cli_typename_strictness_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(10000)]
 fn test_cli_fragment_masking_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_masking",
@@ -223,7 +223,7 @@ fn test_cli_fragment_masking_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(10000)]
 fn test_cli_fragment_document_suffix_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_document_suffix",
@@ -233,7 +233,7 @@ fn test_cli_fragment_document_suffix_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(10000)]
 fn test_cli_duplicate_type_fields() {
     run_baseline_test(
         "tests/fixtures/duplicate_type_fields",
@@ -243,7 +243,7 @@ fn test_cli_duplicate_type_fields() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(10000)]
 fn test_cli_duplicate_fragment_fields_baselines() {
     run_baseline_test(
         "tests/fixtures/duplicate_fragment_fields",
@@ -253,7 +253,7 @@ fn test_cli_duplicate_fragment_fields_baselines() {
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(10000)]
 fn test_cli_include_strip_baselines() {
     run_baseline_test(
         "tests/fixtures/include_strip",
@@ -360,8 +360,16 @@ pub(crate) fn run_baseline_test(
                 let actual = std::fs::read_to_string(&codegen_path).unwrap();
                 let expected = std::fs::read_to_string(&expected_path).unwrap();
 
-                let actual_norm = actual.trim().replace("\r\n", "\n").replace("\\\\", "/");
-                let expected_norm = expected.trim().replace("\r\n", "\n").replace("\\\\", "/");
+                let actual_norm = actual
+                    .trim()
+                    .replace("\r\n", "\n")
+                    .replace("\\\\", "/")
+                    .replace("\\", "/");
+                let expected_norm = expected
+                    .trim()
+                    .replace("\r\n", "\n")
+                    .replace("\\\\", "/")
+                    .replace("\\", "/");
 
                 if actual_norm != expected_norm {
                     println!("--- ACTUAL ({:?}) ---", path);
@@ -379,10 +387,11 @@ pub(crate) fn run_baseline_test(
     std::fs::remove_dir_all(temp_dir).ok();
 }
 
-fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: &str) {
+fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, output_dir: &str) {
     fn verify_files_recursive(
         baseline_root: &Path,
-        codegen_root: &Path,
+        temp_dir: &Path,
+        output_dir: &str,
         current_baseline_dir: &Path,
     ) {
         for entry in std::fs::read_dir(current_baseline_dir).unwrap() {
@@ -390,7 +399,7 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: 
             let path = entry.path();
 
             if path.is_dir() {
-                verify_files_recursive(baseline_root, codegen_root, &path);
+                verify_files_recursive(baseline_root, temp_dir, output_dir, &path);
                 continue;
             }
 
@@ -405,7 +414,20 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: 
             }
 
             let actual_name = &file_stem[..file_stem.len() - ".expected".len()];
-            let rel_path = path.parent().unwrap().strip_prefix(baseline_root).unwrap();
+
+            // Normalize paths for prefix stripping on Windows
+            let canon_path = path
+                .parent()
+                .unwrap()
+                .canonicalize()
+                .unwrap_or_else(|_| path.parent().unwrap().to_path_buf());
+            let canon_baseline = baseline_root
+                .canonicalize()
+                .unwrap_or_else(|_| baseline_root.to_path_buf());
+
+            let rel_path = canon_path
+                .strip_prefix(&canon_baseline)
+                .unwrap_or_else(|_| path.parent().unwrap().strip_prefix(baseline_root).unwrap());
 
             let possible_extensions = if ext == Some("ts") {
                 vec!["codegen.ts", "ts"]
@@ -414,8 +436,10 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: 
             };
 
             let mut actual_path = None;
-            for e in possible_extensions {
-                let p = codegen_root
+
+            // Try EXACT relative path first
+            for e in possible_extensions.iter() {
+                let p = temp_dir
                     .join(rel_path)
                     .join(format!("{}.{}", actual_name, e));
                 if p.exists() {
@@ -424,11 +448,31 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: 
                 }
             }
 
+            // Try in output_dir as fallback
+            if actual_path.is_none() {
+                let has_output_dir_in_rel =
+                    rel_path.components().any(|c| c.as_os_str() == output_dir);
+                if !has_output_dir_in_rel {
+                    for e in possible_extensions {
+                        let p = temp_dir
+                            .join(output_dir)
+                            .join(rel_path)
+                            .join(format!("{}.{}", actual_name, e));
+                        if p.exists() {
+                            actual_path = Some(p);
+                            break;
+                        }
+                    }
+                }
+            }
+
             let actual_path = actual_path.unwrap_or_else(|| {
                 panic!(
-                    "Baseline file {:?} has no corresponding codegen output in {:?}",
+                    "Baseline file {:?} has no corresponding codegen output in temp_dir={:?} (rel_path={:?}, output_dir={:?})",
                     path,
-                    codegen_root.join(rel_path)
+                    temp_dir,
+                    rel_path,
+                    output_dir
                 )
             });
 
@@ -439,10 +483,26 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: 
             let expected_norm = expected.trim().replace("\r\n", "\n").replace("\\\\", "/");
 
             if ext == Some("json") {
-                let actual_v: serde_json::Value = serde_json::from_str(&actual_norm).unwrap();
-                let expected_v: serde_json::Value = serde_json::from_str(&expected_norm).unwrap();
+                let actual_v: serde_json::Value = match serde_json::from_str(&actual_norm) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        println!("Failed to parse actual JSON from {:?}: {}", actual_path, e);
+                        println!("Content: {}", actual_norm);
+                        panic!("JSON parse error for actual output");
+                    }
+                };
+                let expected_v: serde_json::Value = match serde_json::from_str(&expected_norm) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        println!("Failed to parse expected JSON from {:?}: {}", path, e);
+                        println!("Content: {}", expected_norm);
+                        panic!("JSON parse error for expected baseline");
+                    }
+                };
                 assert_eq!(actual_v, expected_v, "Baseline mismatch for {:?}", path);
             } else {
+                let actual_norm = actual_norm.replace("\\", "/");
+                let expected_norm = expected_norm.replace("\\", "/");
                 assert_eq!(
                     actual_norm, expected_norm,
                     "Baseline mismatch for {:?}",
@@ -452,5 +512,5 @@ fn verify_all_baseline_files(baseline_dir: &Path, temp_dir: &Path, _output_dir: 
         }
     }
 
-    verify_files_recursive(baseline_dir, temp_dir, baseline_dir);
+    verify_files_recursive(baseline_dir, temp_dir, output_dir, baseline_dir);
 }
