@@ -27,9 +27,9 @@ jobs:
 
   swc:
     name: SWC Plugin
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4-ubuntu-2404
     steps:
-      - uses: ubicloud-standard-4-ubuntu-2404
+      - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
