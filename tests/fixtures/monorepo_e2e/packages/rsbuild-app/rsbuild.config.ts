@@ -7,10 +7,10 @@ import * as path from 'path';
 const mode = process.env.RSBUILD_MODE || 'swc';
 const appGeneratedDir = path.resolve(__dirname, '../app/src/__generated__');
 
-const swcPlugin = createSWCPlugin({
+const swcPlugin = mode === 'swc' ? createSWCPlugin({
   manifestPath: path.join(appGeneratedDir, 'manifest.json'),
   outputDir: appGeneratedDir,
-});
+}) : null;
 
 export default defineConfig({
   plugins: mode === 'babel' ? [
@@ -30,7 +30,7 @@ export default defineConfig({
     }),
   ] : [],
   tools: {
-    swc: mode === 'swc' ? {
+    swc: (mode === 'swc' && swcPlugin) ? {
       jsc: {
         experimental: {
           plugins: [swcPlugin],
