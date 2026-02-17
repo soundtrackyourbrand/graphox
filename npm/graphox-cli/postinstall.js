@@ -21,8 +21,12 @@ function getPlatform() {
 function install() {
   const currentPlatform = getPlatform();
   const binDir = path.join(__dirname, 'bin');
-  const binaryName = process.platform === 'win32' ? 'graphox.exe' : 'graphox';
+  const binaryName = process.platform === 'win32' ? 'graphox-bin.exe' : 'graphox-bin';
   const binaryPath = path.join(binDir, binaryName);
+
+  if (!fs.existsSync(binDir)) {
+    fs.mkdirSync(binDir, { recursive: true });
+  }
 
   // 1. Check for local build first (for development)
   if (process.env.GRAPHOX_LOCAL_BUILD) {
@@ -41,10 +45,6 @@ function install() {
   try {
     const pkgPath = require.resolve(`${pkgName}/bin/graphox${process.platform === 'win32' ? '.exe' : ''}`);
     
-    if (!fs.existsSync(binDir)) {
-      fs.mkdirSync(binDir, { recursive: true });
-    }
-
     // Copy or link the binary
     fs.copyFileSync(pkgPath, binaryPath);
     fs.chmodSync(binaryPath, 0o755);
