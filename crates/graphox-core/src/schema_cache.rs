@@ -490,7 +490,21 @@ pub fn clear_cache() -> Result<(), String> {
         }
 
         if let Some(e) = last_err {
-            return Err(format!("Failed to clear cache directory: {}", e));
+            // Ignore "Directory not empty" errors as they often indicate a race
+            // with another process that is already recreating the cache.
+            let mut is_not_empty = false;
+            #[cfg(unix)]
+            if e.raw_os_error() == Some(39) || e.raw_os_error() == Some(66) {
+                is_not_empty = true;
+            }
+            #[cfg(windows)]
+            if e.raw_os_error() == Some(145) {
+                is_not_empty = true;
+            }
+
+            if !is_not_empty {
+                return Err(format!("Failed to clear cache directory: {}", e));
+            }
         }
     }
 

@@ -191,15 +191,19 @@ pub fn get_project_files(
                 {
                     let path = entry.path();
                     if is_relevant_file(path) {
-                        let mut matched = include_set_ref.is_match(path);
+                        let mut matched = include_set_ref.is_match(path)
+                            || include_set_ref.is_match(to_posix_path(path));
 
                         if !matched && let Ok(abs_path) = std::fs::canonicalize(path) {
-                            matched = include_set_ref.is_match(&abs_path);
+                            matched = include_set_ref.is_match(&abs_path)
+                                || include_set_ref.is_match(to_posix_path(&abs_path));
                         }
 
                         if !matched && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
                         {
-                            matched = include_set_ref.is_match(&rel_to_base);
+                            let posix_rel_path = to_posix_path(&rel_to_base);
+                            matched = include_set_ref.is_match(&rel_to_base)
+                                || include_set_ref.is_match(posix_rel_path);
                         }
 
                         if !matched
@@ -210,10 +214,12 @@ pub fn get_project_files(
                         }
 
                         if matched {
-                            let mut excluded = exclude_set_ref.is_match(path);
+                            let mut excluded = exclude_set_ref.is_match(path)
+                                || exclude_set_ref.is_match(to_posix_path(path));
                             if !excluded
                                 && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
-                                && exclude_set_ref.is_match(&rel_to_base)
+                                && (exclude_set_ref.is_match(&rel_to_base)
+                                    || exclude_set_ref.is_match(to_posix_path(&rel_to_base)))
                             {
                                 excluded = true;
                             }
@@ -285,12 +291,17 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
             {
                 let sa = pa.to_string_lossy().replace('/', "\\");
                 let sb = pb.to_string_lossy().replace('/', "\\");
-                let ca = sa.strip_prefix(r"\\?\").unwrap_or(&sa);
-                let cb = sb.strip_prefix(r"\\?\").unwrap_or(&sb);
-                // Also strip again in case of double prefix or different representation
-                let ca = ca.strip_prefix(r"\\?\").unwrap_or(ca);
-                let cb = cb.strip_prefix(r"\\?\").unwrap_or(cb);
-                return ca.eq_ignore_ascii_case(cb);
+                let ca = if let Some(s) = sa.strip_prefix(r"\\?\UNC\") {
+                    format!("\\\\{}", s)
+                } else {
+                    sa.strip_prefix(r"\\?\").unwrap_or(&sa).to_string()
+                };
+                let cb = if let Some(s) = sb.strip_prefix(r"\\?\UNC\") {
+                    format!("\\\\{}", s)
+                } else {
+                    sb.strip_prefix(r"\\?\").unwrap_or(&sb).to_string()
+                };
+                return ca.eq_ignore_ascii_case(&cb);
             }
 
             #[cfg(not(windows))]
@@ -353,11 +364,22 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
     {
         let s_path = path.to_string_lossy().replace('/', "\\");
         let s_prefix = prefix.to_string_lossy().replace('/', "\\");
-        let clean_path = s_path.strip_prefix(r"\\?\").unwrap_or(&s_path);
-        let clean_prefix = s_prefix.strip_prefix(r"\\?\").unwrap_or(&s_prefix);
+        let clean_path = if let Some(s) = s_path.strip_prefix(r"\\?\UNC\") {
+            format!("\\\\{}", s)
+        } else {
+            s_path.strip_prefix(r"\\?\").unwrap_or(&s_path).to_string()
+        };
+        let clean_prefix = if let Some(s) = s_prefix.strip_prefix(r"\\?\UNC\") {
+            format!("\\\\{}", s)
+        } else {
+            s_prefix
+                .strip_prefix(r"\\?\")
+                .unwrap_or(&s_prefix)
+                .to_string()
+        };
 
         if clean_path.len() >= clean_prefix.len()
-            && clean_path[..clean_prefix.len()].eq_ignore_ascii_case(clean_prefix)
+            && clean_path[..clean_prefix.len()].eq_ignore_ascii_case(&clean_prefix)
         {
             if clean_path.len() == clean_prefix.len() {
                 return true;
@@ -389,15 +411,43 @@ pub fn get_output_path(
         .unwrap_or_else(|_| base_dir.to_path_buf());
     let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
-    let rel_path = if let Some(prefix) = include_prefix {
-        let abs_prefix = base_dir
+    let diff_target = if let Some(prefix) = include_prefix {
+        base_dir
             .join(prefix)
             .canonicalize()
-            .unwrap_or_else(|_| base_dir.join(prefix));
-        abs_path.strip_prefix(&abs_prefix).unwrap_or(&abs_path)
+            .unwrap_or_else(|_| base_dir.join(prefix))
     } else {
-        abs_path.strip_prefix(&abs_base_dir).unwrap_or(&abs_path)
+        abs_base_dir
     };
+
+    #[cfg(windows)]
+    let rel_path = {
+        // Robustly calculate relative path by stripping Windows prefixes if necessary
+        let s_abs = abs_path.to_string_lossy().replace('/', "\\");
+        let s_target = diff_target.to_string_lossy().replace('/', "\\");
+
+        let clean_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
+            format!("\\\\{}", s)
+        } else {
+            s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
+        };
+        let clean_target = if let Some(s) = s_target.strip_prefix(r"\\?\UNC\") {
+            format!("\\\\{}", s)
+        } else {
+            s_target
+                .strip_prefix(r"\\?\")
+                .unwrap_or(&s_target)
+                .to_string()
+        };
+
+        pathdiff::diff_paths(&clean_abs, &clean_target).unwrap_or_else(|| abs_path.clone())
+    };
+
+    #[cfg(not(windows))]
+    let rel_path = abs_path
+        .strip_prefix(&diff_target)
+        .unwrap_or(&abs_path)
+        .to_path_buf();
 
     if let Some(out_dir) = output_dir {
         output_path.push(out_dir);

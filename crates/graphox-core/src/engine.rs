@@ -81,7 +81,7 @@ impl Engine {
     ) -> ProjectContext {
         let project_files_set: HashSet<Arc<str>> = project_files
             .iter()
-            .map(|p| Arc::from(p.to_string_lossy().to_string()))
+            .map(|p| Arc::from(crate::utils::to_posix_path(p)))
             .collect();
 
         let mut fragment_to_path: HashMap<Arc<str>, Arc<str>> = HashMap::default();
@@ -91,7 +91,9 @@ impl Engine {
 
         for meta in global_metadata {
             // Avoid expensive canonicalize calls by checking the path as-is first
-            let is_local = project_files_set.contains(&meta.path);
+            // Normalize meta.path to POSIX for consistent matching
+            let meta_path_posix = crate::utils::to_posix_path(Path::new(meta.path.as_ref()));
+            let is_local = project_files_set.contains(meta_path_posix.as_str());
             if is_local {
                 fragment_to_path.insert(meta.name.clone(), meta.path.clone());
                 fragment_to_type_only.insert(meta.name.clone(), meta.is_type_only);

@@ -999,13 +999,36 @@ impl Config {
             self.base_dir.join(path)
         };
 
-        let relative_path = abs_path.strip_prefix(&self.base_dir).ok();
+        #[cfg(windows)]
+        let relative_path = {
+            // Normalize paths to handle potential UNC prefix mismatches on Windows
+            let s_abs = abs_path.to_string_lossy().replace('/', "\\");
+            let s_base = self.base_dir.to_string_lossy().replace('/', "\\");
+
+            let normalized_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
+                format!("\\\\{}", s)
+            } else {
+                s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
+            };
+
+            let normalized_base = if let Some(s) = s_base.strip_prefix(r"\\?\UNC\") {
+                format!("\\\\{}", s)
+            } else {
+                s_base.strip_prefix(r"\\?\").unwrap_or(&s_base).to_string()
+            };
+
+            pathdiff::diff_paths(&normalized_abs, &normalized_base)
+        };
+
+        #[cfg(not(windows))]
+        let relative_path = pathdiff::diff_paths(&abs_path, &self.base_dir);
 
         for (idx, project) in self.projects.iter().enumerate() {
             let mut matched = false;
-            if let Some(rel_path) = relative_path {
+            if let Some(rel_path) = &relative_path {
+                let posix_rel_path = crate::utils::to_posix_path(rel_path);
                 let include_set = get_glob_set(&project.include().patterns());
-                if include_set.is_match(rel_path) {
+                if include_set.is_match(&posix_rel_path) || include_set.is_match(rel_path) {
                     matched = true;
                 } else {
                     for pattern in project.include().patterns() {
@@ -1013,10 +1036,15 @@ impl Config {
                             && !pattern.contains('?')
                             && !pattern.contains('[')
                             && !pattern.contains('{')
-                            && rel_path.starts_with(Path::new(&pattern))
                         {
-                            matched = true;
-                            break;
+                            let pattern_path = Path::new(&pattern);
+                            if rel_path.starts_with(pattern_path)
+                                || posix_rel_path.starts_with(&pattern)
+                                || crate::utils::path_starts_with(rel_path, pattern_path)
+                            {
+                                matched = true;
+                                break;
+                            }
                         }
                     }
                 }
@@ -1025,7 +1053,12 @@ impl Config {
             if !matched {
                 for pattern in project.include().patterns() {
                     let include_path = self.base_dir.join(&pattern);
-                    if let Ok(include_path) = fs::canonicalize(include_path)
+                    // Only canonicalize if it's a direct path (no globs)
+                    if !pattern.contains('*')
+                        && !pattern.contains('?')
+                        && !pattern.contains('[')
+                        && !pattern.contains('{')
+                        && let Ok(include_path) = fs::canonicalize(include_path)
                         && crate::utils::path_starts_with(&abs_path, &include_path)
                     {
                         matched = true;
@@ -1036,10 +1069,11 @@ impl Config {
 
             if matched
                 && let Some(exclude) = project.exclude()
-                && let Some(rel_path) = relative_path
+                && let Some(rel_path) = &relative_path
             {
+                let posix_rel_path = crate::utils::to_posix_path(rel_path);
                 let exclude_set = get_glob_set(&exclude.patterns());
-                if exclude_set.is_match(rel_path) {
+                if exclude_set.is_match(&posix_rel_path) || exclude_set.is_match(rel_path) {
                     matched = false;
                 }
             }

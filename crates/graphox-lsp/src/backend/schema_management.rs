@@ -178,13 +178,19 @@ where
 
 /// Checks if a schema source contains a specific file
 fn schema_contains_file(source: &SchemaSource, changed_path: &str, base_dir: &Path) -> bool {
+    let changed_path_obj = Path::new(changed_path);
     source.files().iter().any(|f| {
         let abs = base_dir.join(f);
-        abs.to_string_lossy() == changed_path
-            || abs
-                .canonicalize()
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-                == Some(changed_path.to_string())
+        if graphox_core::utils::paths_match(Some(&abs), Some(changed_path_obj)) {
+            return true;
+        }
+
+        if let Ok(canonical_abs) = abs.canonicalize()
+            && graphox_core::utils::paths_match(Some(&canonical_abs), Some(changed_path_obj))
+        {
+            return true;
+        }
+
+        false
     })
 }
