@@ -15,6 +15,57 @@ pub trait DocumentCodeActions {
     fn get_deprecation_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
 }
 
+fn create_inline_ignore_action(
+    doc: &DocumentState,
+    diagnostic: &Diagnostic,
+    title: &str,
+) -> Option<CodeAction> {
+    let line_idx = diagnostic.range.end.line as usize;
+    if line_idx >= doc.rope.len_lines() {
+        return None;
+    }
+
+    let line = doc.rope.line(line_idx).to_string();
+    if line.contains("# graphox-ignore") {
+        return None;
+    }
+
+    let line_len_chars = doc.rope.line(line_idx).len_chars();
+    let line_start_char = doc.rope.line_to_char(line_idx);
+
+    let mut last_char_in_line = line_start_char + line_len_chars;
+    while last_char_in_line > line_start_char {
+        let c = doc.rope.char(last_char_in_line - 1);
+        if c == '\n' || c == '\r' {
+            last_char_in_line -= 1;
+        } else {
+            break;
+        }
+    }
+
+    let insert_pos = doc.byte_to_position(doc.rope.char_to_byte(last_char_in_line));
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(
+        doc.uri.clone(),
+        vec![TextEdit {
+            range: Range::new(insert_pos, insert_pos),
+            new_text: " # graphox-ignore".to_string(),
+        }],
+    );
+
+    Some(CodeAction {
+        title: title.to_string(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        is_preferred: Some(true),
+        ..Default::default()
+    })
+}
+
 impl DocumentCodeActions for DocumentState {
     /// Get format action for inline GraphQL blocks in TypeScript/JavaScript files
     fn get_format_action(&self, range: Range) -> Option<CodeAction> {
@@ -378,6 +429,14 @@ impl DocumentCodeActions for DocumentState {
     fn get_required_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
         let mut actions = Vec::new();
 
+        if let Some(action) = create_inline_ignore_action(
+            self,
+            diagnostic,
+            "Ignore required field with # graphox-ignore",
+        ) {
+            actions.push(action);
+        }
+
         // Extract the field name from the diagnostic message
         // Message format: "Required field 'fieldName' must be selected in <type> operations"
         let field_name = if let Some(start) = diagnostic.message.find('\'') {
@@ -497,56 +556,13 @@ impl DocumentCodeActions for DocumentState {
             return actions;
         }
 
-        let line_idx = diagnostic.range.end.line as usize;
-        if line_idx >= self.rope.len_lines() {
-            return actions;
+        if let Some(action) = create_inline_ignore_action(
+            self,
+            diagnostic,
+            "Ignore deprecation with # graphox-ignore",
+        ) {
+            actions.push(action);
         }
-
-        let line = self.rope.line(line_idx).to_string();
-
-        // Check if it already has the ignore comment
-        if line.contains("# graphox-ignore") {
-            return actions;
-        }
-
-        let mut changes = std::collections::HashMap::new();
-
-        // Find the insertion point at the end of the line (before newline)
-        let line_len_chars = self.rope.line(line_idx).len_chars();
-        let line_start_char = self.rope.line_to_char(line_idx);
-
-        // Position at the end of the line text (before \n or \r\n)
-        let mut last_char_in_line = line_start_char + line_len_chars;
-        while last_char_in_line > line_start_char {
-            let c = self.rope.char(last_char_in_line - 1);
-            if c == '\n' || c == '\r' {
-                last_char_in_line -= 1;
-            } else {
-                break;
-            }
-        }
-
-        let insert_pos = self.byte_to_position(self.rope.char_to_byte(last_char_in_line));
-
-        changes.insert(
-            self.uri.clone(),
-            vec![TextEdit {
-                range: Range::new(insert_pos, insert_pos),
-                new_text: " # graphox-ignore".to_string(),
-            }],
-        );
-
-        actions.push(CodeAction {
-            title: "Ignore deprecation with # graphox-ignore".to_string(),
-            kind: Some(CodeActionKind::QUICKFIX),
-            diagnostics: Some(vec![diagnostic.clone()]),
-            edit: Some(WorkspaceEdit {
-                changes: Some(changes),
-                ..Default::default()
-            }),
-            is_preferred: Some(true),
-            ..Default::default()
-        });
 
         actions
     }

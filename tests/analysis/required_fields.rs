@@ -82,7 +82,7 @@ fn test_required_field_missing_always_true() {
     assert_diagnostics_count(&diagnostics, 1);
     let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
-    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "GetPosts"));
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "posts"));
 }
 
 #[test]
@@ -156,7 +156,9 @@ fn test_required_field_specific_operation_query() {
     );
 
     assert_diagnostics_count(&diagnostics, 1);
-    assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "posts"));
 }
 
 #[test]
@@ -233,7 +235,9 @@ fn test_multiple_required_fields() {
     // both users and posts should be selected on Query
     // but users is missing
     assert_diagnostics_count(&diagnostics, 1);
-    assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "posts"));
 }
 
 #[test]
@@ -372,6 +376,33 @@ fn test_required_field_subscription() {
     let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
 
     // postAdded selects id, so valid.
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(100)]
+fn test_required_field_ignored_with_inline_comment() {
+    let schema = fixtures::user_with_posts_schema()
+        .clone()
+        .validate()
+        .unwrap();
+
+    let text = r#"
+        query {
+            users { # graphox-ignore
+                username
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
     assert_no_diagnostics(&diagnostics);
 }
 

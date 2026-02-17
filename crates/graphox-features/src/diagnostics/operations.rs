@@ -141,7 +141,7 @@ pub(super) fn check_required_fields(
         // Find the name node of the operation for the diagnostic range
         let mut cursor = node.walk();
         let name_node = node.children(&mut cursor).find(|c| c.kind() == "name");
-        let range = name_node
+        let operation_range = name_node
             .map(|n| this.translate_to_file_range(n, offset))
             .unwrap_or_else(|| this.translate_to_file_range(node, offset));
 
@@ -177,8 +177,20 @@ pub(super) fn check_required_fields(
                         });
 
                     if !is_selected {
+                        let anchor_node =
+                            find_root_selection_anchor_for_response_key(this, node, offset, None);
+                        if let Some(anchor) = anchor_node
+                            && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                                this, anchor, offset,
+                            )
+                        {
+                            continue;
+                        }
+
                         ctx.diagnostics.push(Diagnostic {
-                            range,
+                            range: anchor_node
+                                .map(|n| this.translate_to_file_range(n, offset))
+                                .unwrap_or(operation_range),
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!(
                                 "Required field '{}' must be selected in {} operations",
@@ -220,8 +232,24 @@ pub(super) fn check_required_fields(
                     }
 
                     if !is_selected {
+                        let anchor_node = find_root_selection_anchor_for_response_key(
+                            this,
+                            node,
+                            offset,
+                            Some(response_key.as_ref()),
+                        );
+                        if let Some(anchor) = anchor_node
+                            && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                                this, anchor, offset,
+                            )
+                        {
+                            continue;
+                        }
+
                         ctx.diagnostics.push(Diagnostic {
-                            range,
+                            range: anchor_node
+                                .map(|n| this.translate_to_file_range(n, offset))
+                                .unwrap_or(operation_range),
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!(
                                 "Required field '{}' must be selected in '{}'",
@@ -262,8 +290,24 @@ pub(super) fn check_required_fields(
                                 || base_selected_fields.is_some_and(|f| f.contains(field_name_str));
 
                             if !is_selected {
+                                let anchor_node = find_root_selection_anchor_for_response_key(
+                                    this,
+                                    node,
+                                    offset,
+                                    Some(response_key.as_ref()),
+                                );
+                                if let Some(anchor) = anchor_node
+                                    && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                                        this, anchor, offset,
+                                    )
+                                {
+                                    continue;
+                                }
+
                                 ctx.diagnostics.push(Diagnostic {
-                                    range,
+                                    range: anchor_node
+                                        .map(|n| this.translate_to_file_range(n, offset))
+                                        .unwrap_or(operation_range),
                                     severity: Some(DiagnosticSeverity::ERROR),
                                     message: format!(
                                         "Required field '{}' must be selected in '... on {}'",
@@ -281,6 +325,55 @@ pub(super) fn check_required_fields(
             }
         }
     }
+}
+
+fn find_root_selection_anchor_for_response_key<'a>(
+    this: &DocumentState,
+    operation_node: Node<'a>,
+    offset: usize,
+    response_key: Option<&str>,
+) -> Option<Node<'a>> {
+    let mut op_cursor = operation_node.walk();
+    for child in operation_node.children(&mut op_cursor) {
+        if child.kind() != "selection_set" {
+            continue;
+        }
+
+        let mut sel_cursor = child.walk();
+        for selection in child.children(&mut sel_cursor) {
+            let field_node = if selection.kind() == "selection" {
+                this.find_child_by_kind(selection, "field")
+            } else if selection.kind() == "field" {
+                Some(selection)
+            } else {
+                None
+            };
+
+            let Some(field) = field_node else {
+                continue;
+            };
+
+            let components = this.extract_field_components(field);
+            let Some(name_node) = components.name else {
+                continue;
+            };
+
+            let mut key = this.get_node_text(name_node, offset);
+            let mut anchor_node = name_node;
+            if let Some(alias_node) = components.alias
+                && let Some(alias_name_node) = this.find_child_by_kind(alias_node, "name")
+            {
+                key = this.get_node_text(alias_name_node, offset);
+                anchor_node = alias_name_node;
+            }
+
+            if response_key.is_none() || response_key == Some(key.as_str()) {
+                return Some(anchor_node);
+            }
+        }
+    }
+
+    None
 }
 
 pub(super) fn validate_type_node(

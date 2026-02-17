@@ -144,6 +144,10 @@ async fn test_lsp_required_field_code_action() {
         required_field_diagnostic.message.contains("requestId"),
         "Diagnostic should mention 'requestId'"
     );
+    assert_eq!(
+        required_field_diagnostic.range,
+        Range::new(Position::new(1, 2), Position::new(1, 4))
+    );
 
     // Request code actions for the diagnostic
     let params = CodeActionParams {
@@ -182,5 +186,18 @@ async fn test_lsp_required_field_code_action() {
         text_edit.new_text.contains("requestId"),
         "Edit should add 'requestId', got: {}",
         text_edit.new_text
+    );
+
+    let ignore_ca =
+        find_code_action_by_title(&actions, "Ignore required field with # graphox-ignore")
+            .expect("Should find ignore required field action");
+    let ignore_edit = ignore_ca.edit.as_ref().unwrap();
+    let ignore_changes = ignore_edit.changes.as_ref().unwrap();
+    let ignore_file_changes = ignore_changes.get(&query_uri).unwrap();
+    assert_eq!(ignore_file_changes.len(), 1);
+    assert_eq!(ignore_file_changes[0].new_text, " # graphox-ignore");
+    assert_eq!(
+        ignore_file_changes[0].range,
+        Range::new(Position::new(1, 6), Position::new(1, 6))
     );
 }

@@ -121,6 +121,18 @@ rules:
 - `false` - Disabled (field not required)
 - `["query", "mutation", "subscription"]` - Required only in specified operation types
 
+**Inline ignore comments:**
+
+You can suppress a specific `required_fields` diagnostic by adding `# graphox-ignore` on the same line as the parent selection field.
+
+```graphql
+query GetUser {
+  user { # graphox-ignore
+    name
+  }
+}
+```
+
 **Disallows:**
 ```graphql
 # With rule: required_fields: { id: true, requestId: true }

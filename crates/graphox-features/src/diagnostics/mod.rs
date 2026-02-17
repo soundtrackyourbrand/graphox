@@ -61,6 +61,8 @@ pub trait DocumentDiagnostics {
         reason: &str,
     );
 
+    fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool;
+
     fn collect_gql_errors(
         &self,
         root: tree_sitter::Node,
@@ -263,23 +265,8 @@ impl DocumentDiagnostics for DocumentState {
         reason: &str,
     ) {
         let is_ignored_in_config = self.is_deprecation_ignored(reason, ctx.config);
-        let mut is_ignored_by_comment = false;
-
-        if !is_ignored_in_config {
-            let start_byte = node.start_byte() + offset;
-            let line_idx = self.rope.byte_to_line(start_byte);
-            if line_idx < self.rope.len_lines() {
-                let line = self.rope.line(line_idx).to_string();
-                let line_start_byte = self.rope.line_to_byte(line_idx);
-                let relative_end_byte = node.end_byte() + offset - line_start_byte;
-                if relative_end_byte < line.len()
-                    && let Some(after_text) = line.get(relative_end_byte..)
-                    && after_text.contains("# graphox-ignore")
-                {
-                    is_ignored_by_comment = true;
-                }
-            }
-        }
+        let is_ignored_by_comment =
+            !is_ignored_in_config && self.has_inline_ignore_comment(node, offset);
 
         if !is_ignored_in_config && !is_ignored_by_comment {
             ctx.diagnostics.push(Diagnostic {
@@ -298,6 +285,24 @@ impl DocumentDiagnostics for DocumentState {
                 ..Default::default()
             });
         }
+    }
+
+    fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
+        let start_byte = node.start_byte() + offset;
+        let line_idx = self.rope.byte_to_line(start_byte);
+        if line_idx >= self.rope.len_lines() {
+            return false;
+        }
+
+        let line = self.rope.line(line_idx).to_string();
+        let line_start_byte = self.rope.line_to_byte(line_idx);
+        let relative_end_byte = node.end_byte() + offset - line_start_byte;
+        if relative_end_byte >= line.len() {
+            return false;
+        }
+
+        line.get(relative_end_byte..)
+            .is_some_and(|after_text| after_text.contains("# graphox-ignore"))
     }
 
     fn collect_gql_errors(
