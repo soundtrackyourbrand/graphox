@@ -245,6 +245,7 @@ impl Engine {
                         .unwrap_or_else(|_| full_path.clone())
                 };
                 let uri = Url::from_file_path(&abs_path).ok()?;
+                let uri = crate::utils::normalize_uri(uri);
                 let language = DocumentLanguage::from_uri(&uri);
 
                 if language.is_host_language() {
@@ -652,6 +653,7 @@ impl Engine {
         let content = std::fs::read_to_string(path).ok()?;
         let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let uri = Url::from_file_path(&abs_path).ok()?;
+        let uri = crate::utils::normalize_uri(uri);
         let language = DocumentLanguage::from_uri(&uri);
 
         if language.is_host_language() {

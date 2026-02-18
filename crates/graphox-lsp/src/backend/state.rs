@@ -548,6 +548,75 @@ impl Backend {
         self.validated_schemas.clear();
         graphox_core::schema_cache::clear_memory_cache();
 
+        // Preserve open documents to keep unsaved changes and ensure they are re-validated
+        // with the new configuration.
+        let open_docs: Vec<_> = self
+            .documents
+            .iter()
+            .filter(|entry| self.open_documents.contains(entry.key()))
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
+
+        // Clear all state
+        self.schemas.clear();
+        self.validated_schemas.clear();
+        graphox_core::schema_cache::clear_memory_cache();
+
+        self.documents.clear();
+        self.fragment_defs.clear();
+        self.fragment_spreads.clear();
+        self.fragment_dependents.clear();
+        self.fragment_definitions.clear();
+        self.package_roots.clear();
+        self.type_caches.clear();
+        self.diagnostic_cache.clear();
+        self.operation_names.clear();
+
+        // Restore open documents AND re-index them
+        for (uri, doc) in open_docs {
+            self.documents.insert(uri.clone(), doc.clone());
+
+            // Re-index
+            self.fragment_defs
+                .insert(uri.clone(), doc.fragments().to_vec());
+            self.fragment_spreads
+                .insert(uri.clone(), doc.fragment_spreads.clone());
+            self.package_roots
+                .insert(uri.clone(), doc.package_root.clone());
+
+            self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
+            self.update_definition_indices(
+                &uri,
+                None,
+                doc.fragments().iter().map(|f| f.name.clone()).collect(),
+            );
+
+            // Re-index operations for duplicate detection
+            let config = self.config.read().unwrap().clone();
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = config.get_schema_for_path(&path)
+            {
+                let project_key = config
+                    .get_project_for_path(&path)
+                    .map(|p| p.include().as_key())
+                    .unwrap_or_else(|| schema_key);
+                let project_key_arc: Arc<str> = project_key.into();
+
+                for op in doc.operations() {
+                    if let Some(name) = &op.name {
+                        self.operation_names
+                            .entry(name.clone())
+                            .or_default()
+                            .push((project_key_arc.clone(), uri.clone()));
+                    }
+                }
+            }
+        }
+
+        // Reset workspace version
+        self.workspace_version.store(1, Ordering::SeqCst);
+        self.last_full_validation_version.store(0, Ordering::SeqCst);
+
         // Reload schemas from the new configuration
         {
             let config = self.config.read().unwrap().clone();
@@ -591,35 +660,6 @@ impl Backend {
                 }
             }
         }
-
-        // Preserve open documents to keep unsaved changes and ensure they are re-validated
-        // with the new configuration.
-        let open_docs: Vec<_> = self
-            .documents
-            .iter()
-            .filter(|entry| self.open_documents.contains(entry.key()))
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect();
-
-        // Clear all documents
-        self.documents.clear();
-
-        // Restore open documents
-        for (uri, doc) in open_docs {
-            self.documents.insert(uri, doc);
-        }
-
-        self.fragment_defs.clear();
-        self.fragment_spreads.clear();
-        self.fragment_dependents.clear();
-        self.fragment_definitions.clear();
-        self.package_roots.clear();
-        self.type_caches.clear();
-        self.diagnostic_cache.clear();
-
-        // Reset workspace version
-        self.workspace_version.store(1, Ordering::SeqCst);
-        self.last_full_validation_version.store(0, Ordering::SeqCst);
 
         // Re-register file watchers with new config
         {

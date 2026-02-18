@@ -814,6 +814,20 @@ pub fn to_posix_path(path: &Path) -> String {
     }
 }
 
+pub fn normalize_uri(uri: Url) -> Url {
+    if let Ok(path) = uri.to_file_path() {
+        // Try to canonicalize to resolve symlinks
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let path_str = path.to_string_lossy();
+
+        #[cfg(windows)]
+        let path_str = normalize_windows_path(&path_str);
+
+        return Url::from_file_path(Path::new(&*path_str)).unwrap_or(uri);
+    }
+    uri
+}
+
 pub fn normalize_line_endings(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
