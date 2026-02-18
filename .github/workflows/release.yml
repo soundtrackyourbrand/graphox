@@ -51,11 +51,11 @@ jobs:
             target: aarch64-unknown-linux-gnu
             archive: tar.gz
           # macOS x86_64
-          - os: warp-macos-26-arm64-6x,
+          - os: warp-macos-26-arm64-6x
             target: x86_64-apple-darwin
             archive: tar.gz
           # macOS ARM64
-          - os: warp-macos-26-arm64-6x,
+          - os: warp-macos-26-arm64-6x
             target: aarch64-apple-darwin
             archive: tar.gz
           # Windows x86_64
