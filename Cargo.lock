@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "graphox"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "ahash",
  "apollo-compiler",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "graphox-swc-plugin"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "graphox",
  "ntest",
