@@ -1,6 +1,6 @@
 {
   "name": "@soundtrackyourbrand/graphox-swc",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "SWC plugin for GraphQL Rust codesplitting",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
