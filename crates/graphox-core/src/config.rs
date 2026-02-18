@@ -1001,21 +1001,9 @@ impl Config {
 
         #[cfg(windows)]
         let relative_path = {
-            // Normalize paths to handle potential UNC prefix mismatches on Windows
-            let s_abs = abs_path.to_string_lossy().replace('/', "\\");
-            let s_base = self.base_dir.to_string_lossy().replace('/', "\\");
-
-            let normalized_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
-                format!("\\\\{}", s)
-            } else {
-                s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
-            };
-
-            let normalized_base = if let Some(s) = s_base.strip_prefix(r"\\?\UNC\") {
-                format!("\\\\{}", s)
-            } else {
-                s_base.strip_prefix(r"\\?\").unwrap_or(&s_base).to_string()
-            };
+            let normalized_abs = crate::utils::normalize_windows_path(&abs_path.to_string_lossy());
+            let normalized_base =
+                crate::utils::normalize_windows_path(&self.base_dir.to_string_lossy());
 
             pathdiff::diff_paths(&normalized_abs, &normalized_base)
         };
@@ -1417,25 +1405,7 @@ impl Config {
             node["codegen_watch_debounce_ms"].as_i64().map(|v| v as u64);
         config.enable_schema_cache = node["enable_schema_cache"].as_bool();
 
-        let rules_node = &node["rules"];
-        if !rules_node.is_badvalue() && !rules_node.is_null() {
-            let mut rules = RulesConfig::default();
-            if let Some(rf_hash) = rules_node["required_fields"].as_hash() {
-                let mut required_fields = AHashMap::default();
-                for (k, v) in rf_hash {
-                    if let (Some(k), Some(rule)) = (k.as_str(), RequiredFieldRule::from_yaml(v)) {
-                        required_fields.insert(k.to_string(), rule);
-                    }
-                }
-                rules.required_fields = Some(required_fields);
-            }
-            rules.unique_operation_name = rules_node["unique_operation_name"].as_bool();
-            rules.no_duplicate_fields = rules_node["no_duplicate_fields"].as_bool();
-            rules.no_unused_fragments = rules_node["no_unused_fragments"].as_bool();
-            config.rules = Some(rules);
-        }
-
-        config.codegen = CodegenConfig::from_yaml(&node["codegen"]);
+        config.rules = RulesConfig::from_yaml(&node["rules"]);
 
         Some(config)
     }

@@ -56,8 +56,8 @@ fn test_format_cramped_query() {
         format_graphql_from_file(&fixture, "file:///test.ts").expect("Should find GraphQL block");
 
     assert_eq!(
-        formatted.trim(),
-        expected.trim(),
+        graphox_core::utils::normalize_line_endings(formatted.trim()),
+        graphox_core::utils::normalize_line_endings(expected.trim()),
         "Formatted query should match baseline"
     );
 }
@@ -72,8 +72,8 @@ fn test_format_cramped_mutation() {
         format_graphql_from_file(&fixture, "file:///test.tsx").expect("Should find GraphQL block");
 
     assert_eq!(
-        formatted.trim(),
-        expected.trim(),
+        graphox_core::utils::normalize_line_endings(formatted.trim()),
+        graphox_core::utils::normalize_line_endings(expected.trim()),
         "Formatted mutation should match baseline"
     );
 }
@@ -107,8 +107,8 @@ fn test_format_fragment_spread() {
     };
 
     assert_eq!(
-        formatted1.trim(),
-        expected_fragment.trim(),
+        graphox_core::utils::normalize_line_endings(formatted1.trim()),
+        graphox_core::utils::normalize_line_endings(expected_fragment.trim()),
         "Formatted fragment should match baseline"
     );
 
@@ -128,8 +128,8 @@ fn test_format_fragment_spread() {
     };
 
     assert_eq!(
-        formatted2.trim(),
-        expected_query.trim(),
+        graphox_core::utils::normalize_line_endings(formatted2.trim()),
+        graphox_core::utils::normalize_line_endings(expected_query.trim()),
         "Formatted query should match baseline"
     );
 }
@@ -194,8 +194,8 @@ async fn test_format_code_action_with_baseline() {
         let expected = load_baseline("cramped_query.expected.graphql");
 
         assert_eq!(
-            formatted_text.trim(),
-            expected.trim(),
+            graphox_core::utils::normalize_line_endings(formatted_text.trim()),
+            graphox_core::utils::normalize_line_endings(expected.trim()),
             "Format action should produce baseline-matching output"
         );
     }
@@ -291,7 +291,8 @@ async fn test_format_code_action_preserves_comments_and_template_indentation() {
 "#;
 
         assert_eq!(
-            formatted_text, expected,
+            graphox_core::utils::normalize_line_endings(formatted_text),
+            graphox_core::utils::normalize_line_endings(expected),
             "Format action should preserve GraphQL comments and embedded indentation"
         );
     }

@@ -294,21 +294,11 @@ pub fn paths_match(a: Option<&Path>, b: Option<&Path>) -> bool {
 
             #[cfg(windows)]
             {
-                let sa = pa.to_string_lossy().replace('/', "\\");
-                let sb = pb.to_string_lossy().replace('/', "\\");
+                let sa = pa.to_string_lossy();
+                let sb = pb.to_string_lossy();
 
-                let normalize_win = |s: &str| {
-                    if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
-                        format!("\\\\{}", stripped)
-                    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
-                        stripped.to_string()
-                    } else {
-                        s.to_string()
-                    }
-                };
-
-                let ca = normalize_win(&sa);
-                let cb = normalize_win(&sb);
+                let ca = normalize_windows_path(&sa);
+                let cb = normalize_windows_path(&sb);
                 return ca.eq_ignore_ascii_case(&cb);
             }
 
@@ -378,10 +368,9 @@ pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
             match (p_comps.next(), pre_comps.next()) {
                 (Some(p), Some(pre)) => {
                     let match_comp = match (p, pre) {
-                        (Component::Normal(s1), Component::Normal(s2)) => {
-                            s1.to_string_lossy()
-                                .eq_ignore_ascii_case(&s2.to_string_lossy())
-                        }
+                        (Component::Normal(s1), Component::Normal(s2)) => s1
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case(&s2.to_string_lossy()),
                         (Component::Prefix(p1), Component::Prefix(p2)) => {
                             let normalize_prefix = |kind: std::path::Prefix| {
                                 use std::path::Prefix::*;
@@ -449,22 +438,11 @@ pub fn get_output_path(
         #[cfg(windows)]
         {
             // Robustly calculate relative path by stripping Windows prefixes if necessary
-            let s_abs = abs_path.to_string_lossy().replace('/', "\\");
-            let s_target = diff_target.to_string_lossy().replace('/', "\\");
+            let s_abs = abs_path.to_string_lossy();
+            let s_target = diff_target.to_string_lossy();
 
-            let clean_abs = if let Some(s) = s_abs.strip_prefix(r"\\?\UNC\") {
-                format!("\\\\{}", s)
-            } else {
-                s_abs.strip_prefix(r"\\?\").unwrap_or(&s_abs).to_string()
-            };
-            let clean_target = if let Some(s) = s_target.strip_prefix(r"\\?\UNC\") {
-                format!("\\\\{}", s)
-            } else {
-                s_target
-                    .strip_prefix(r"\\?\")
-                    .unwrap_or(&s_target)
-                    .to_string()
-            };
+            let clean_abs = normalize_windows_path(&s_abs);
+            let clean_target = normalize_windows_path(&s_target);
 
             pathdiff::diff_paths(&clean_abs, &clean_target).unwrap_or_else(|| abs_path.clone())
         }
@@ -830,12 +808,7 @@ pub fn push_duplicate_operation_diagnostic(
 pub fn to_posix_path(path: &Path) -> String {
     let s = path.to_string_lossy();
     if cfg!(windows) {
-        let s = if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
-            format!("\\\\{}", stripped)
-        } else {
-            s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
-        };
-        s.replace('\\', "/")
+        normalize_windows_path(&s).replace('\\', "/")
     } else {
         s.into_owned()
     }
@@ -843,6 +816,29 @@ pub fn to_posix_path(path: &Path) -> String {
 
 pub fn normalize_line_endings(text: &str) -> String {
     text.replace("\r\n", "\n")
+}
+
+pub fn normalize_windows_path(s: &str) -> String {
+    let s = if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+        format!("\\\\{}", stripped)
+    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        stripped.to_string()
+    } else {
+        s.to_string()
+    };
+
+    // Replace all forward slashes with backslashes for consistency before processing
+    let mut s = s.replace('/', "\\");
+
+    // Handle drive letter casing: "c:\" -> "C:\"
+    if s.len() >= 2 && s.as_bytes()[1] == b':' {
+        let drive = s.as_bytes()[0] as char;
+        if drive.is_ascii_lowercase() {
+            s = format!("{}{}", drive.to_ascii_uppercase(), &s[1..]);
+        }
+    }
+
+    s
 }
 
 #[cfg(test)]
