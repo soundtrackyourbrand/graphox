@@ -16,7 +16,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/soundtrackyourbrand/graphox"
+    "url": "https://github.com/soundtrackyourbrand/graphox",
+    "directory": "npm/platforms"
   },
   "license": "UNLICENSED"
 }

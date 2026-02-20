@@ -136,7 +136,7 @@ jobs:
     runs-on: ubicloud-standard-4-ubuntu-2404
     permissions:
       contents: read
-      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -190,7 +190,7 @@ jobs:
 
       - name: Publish SWC Plugin
         working-directory: plugins/swc/node
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -208,7 +208,7 @@ jobs:
     runs-on: ubicloud-standard-2-ubuntu-2404
     permissions:
       contents: read
-      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -243,7 +243,7 @@ jobs:
 
       - name: Publish Babel Plugin
         working-directory: plugins/babel
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -294,7 +294,7 @@ jobs:
     runs-on: ubicloud-standard-2-ubuntu-2404
     permissions:
       contents: read
-      packages: write
+      id-token: write
     strategy:
       matrix:
         include:
@@ -363,7 +363,7 @@ jobs:
 
       - name: Publish
         working-directory: package
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -373,7 +373,7 @@ jobs:
     runs-on: ubicloud-standard-2-ubuntu-2404
     permissions:
       contents: read
-      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -407,7 +407,7 @@ jobs:
 
       - name: Publish CLI Wrapper
         working-directory: npm/graphox-cli
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
