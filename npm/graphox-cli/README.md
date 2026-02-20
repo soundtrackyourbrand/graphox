@@ -62,6 +62,24 @@ This package automatically downloads the correct binary for your platform:
 
 Create a `graphox.yaml` file in your project root. See the [main documentation](https://github.com/soundtrackyourbrand/graphox#configuration) for details.
 
+### Editor Support
+
+To get validation and autocomplete in your editor, add the following line at the top of your `graphox.yaml` file:
+
+```yaml
+# yaml-language-server: $schema=node_modules/@soundtrackyourbrand/graphox-cli/graphox.schema.json
+```
+
+Or, if you use VS Code with the [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml), you can add the following to your workspace settings:
+
+```json
+{
+  "yaml.schemas": {
+    "node_modules/@soundtrackyourbrand/graphox-cli/graphox.schema.json": "graphox.yaml"
+  }
+}
+```
+
 ## Local Development
 
 If you're developing the CLI itself, you can use a local build instead of downloading from releases:

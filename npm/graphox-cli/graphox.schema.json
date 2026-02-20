@@ -1,0 +1,306 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Graphox Configuration",
+  "description": "Configuration for Graphox, a high-performance GraphQL toolset.",
+  "type": "object",
+  "properties": {
+    "projects": {
+      "type": "array",
+      "description": "Project configurations. Projects are matched in order; the first matching project is used for each file.",
+      "items": { "$ref": "#/definitions/ProjectConfig" }
+    },
+    "schema_types": {
+      "type": "array",
+      "description": "Generate standalone TypeScript types from the schema without operations.",
+      "items": { "$ref": "#/definitions/SchemaTypeConfig" }
+    },
+    "scalars": {
+      "type": "object",
+      "description": "Map GraphQL scalar types to TypeScript types.",
+      "additionalProperties": { "type": "string" }
+    },
+    "ignore_deprecations": {
+      "type": "array",
+      "description": "Suppress warnings for deprecated fields or types globally.",
+      "items": { "type": "string" }
+    },
+    "tracing": { "$ref": "#/definitions/TracingConfig" },
+    "timeouts": { "$ref": "#/definitions/TimeoutConfig" },
+    "watch_all_files": {
+      "type": "boolean",
+      "description": "Whether to watch all workspace files for changes. If false, only GraphQL files are watched.",
+      "default": true
+    },
+    "lsp_automatic_codegen": {
+      "type": "boolean",
+      "description": "Whether to automatically run codegen on file changes in the LSP.",
+      "default": true
+    },
+    "lsp_codegen_throttle_ms": {
+      "type": "integer",
+      "description": "Throttle automatic codegen in the LSP (ms).",
+      "default": 300
+    },
+    "codegen_watch_debounce_ms": {
+      "type": "integer",
+      "description": "Debounce file changes in watch mode (ms).",
+      "default": 200
+    },
+    "enable_schema_cache": {
+      "type": "boolean",
+      "description": "Enable two-tier schema cache for better performance.",
+      "default": true
+    },
+    "rules": { "$ref": "#/definitions/RulesConfig" },
+    "codegen": { "$ref": "#/definitions/CodegenConfig" }
+  },
+  "definitions": {
+    "ProjectConfig": {
+      "type": "object",
+      "required": ["schema", "include"],
+      "properties": {
+        "schema": {
+          "description": "Single schema file path or an array of paths for multi-file schemas.",
+          "$ref": "#/definitions/SchemaSource"
+        },
+        "include": {
+          "description": "Glob pattern(s) for GraphQL operations to include in this project.",
+          "$ref": "#/definitions/GlobPattern"
+        },
+        "documents": {
+          "description": "Legacy alias for include.",
+          "$ref": "#/definitions/GlobPattern"
+        },
+        "exclude": {
+          "description": "Glob pattern(s) for files to exclude from this project.",
+          "$ref": "#/definitions/GlobPattern"
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Directory where generated files will be placed."
+        },
+        "import": {
+          "type": "string",
+          "description": "The import path used by other projects to reference fragments from this project."
+        },
+        "codegen": {
+          "description": "Codegen configuration for this project. Set to false to disable codegen.",
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/definitions/CodegenConfig" }
+          ]
+        },
+        "possible_types": {
+          "type": "string",
+          "description": "Path to generate possibleTypes introspection data for Apollo Client's InMemoryCache."
+        },
+        "type_policies": {
+          "type": "string",
+          "description": "Path to generate strict TypeScript types for Apollo Client TypePolicies."
+        },
+        "rules": { "$ref": "#/definitions/RulesConfig" }
+      }
+    },
+    "SchemaSource": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "GlobPattern": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "SchemaTypeConfig": {
+      "type": "object",
+      "required": ["schema", "output"],
+      "properties": {
+        "schema": { "$ref": "#/definitions/SchemaSource" },
+        "output": {
+          "type": "string",
+          "description": "File path where schema types will be generated."
+        },
+        "import": {
+          "type": "string",
+          "description": "How generated files import these types."
+        },
+        "possible_types": {
+          "type": "string",
+          "description": "Path to generate possibleTypes introspection data for Apollo Client."
+        },
+        "type_policies": {
+          "type": "string",
+          "description": "Path to generate Apollo Client TypePolicies."
+        }
+      }
+    },
+    "RulesConfig": {
+      "type": "object",
+      "properties": {
+        "required_fields": {
+          "description": "Enforce required fields in selections. Can be a boolean shorthand or a map of field names to rules.",
+          "oneOf": [
+            { "type": "boolean", "const": false, "description": "Disable all required field rules." },
+            {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/definitions/RequiredFieldRule" }
+            }
+          ]
+        },
+        "unique_operation_name": {
+          "type": "boolean",
+          "description": "Enforce unique names for all operations across the project.",
+          "default": false
+        },
+        "no_duplicate_fields": {
+          "type": "boolean",
+          "description": "Prevent selecting the same field multiple times in a single selection set.",
+          "default": false
+        },
+        "no_unused_fragments": {
+          "type": "boolean",
+          "description": "Identify and error on fragments that are defined but not used.",
+          "default": false
+        }
+      }
+    },
+    "RequiredFieldRule": {
+      "oneOf": [
+        { "type": "boolean", "description": "Whether this field is always required." },
+        {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of operation types (query, mutation, subscription) where this field is required."
+        }
+      ]
+    },
+    "CodegenConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "document_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated document constant.",
+          "default": "Document"
+        },
+        "variables_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated variables type.",
+          "default": "Variables"
+        },
+        "fragment_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated fragment type.",
+          "default": ""
+        },
+        "fragment_document_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated fragment document constant.",
+          "default": ""
+        },
+        "query_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated query type.",
+          "default": "Query"
+        },
+        "mutation_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated mutation type.",
+          "default": "Mutation"
+        },
+        "subscription_suffix": {
+          "type": "string",
+          "description": "Suffix for the generated subscription type.",
+          "default": "Subscription"
+        },
+        "naming_convention": {
+          "type": "string",
+          "enum": ["pascal_case", "pascalcase", "pascal", "preserve"],
+          "default": "pascal_case",
+          "description": "Naming convention for generated types."
+        },
+        "fragment_masking": {
+          "description": "Enable fragment masking to prevent fragment fields from 'leaking' into parent operation types.",
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["enabled", "true", "disabled", "false"] },
+            {
+              "type": "object",
+              "properties": {
+                "unmask_function_name": {
+                  "type": "string",
+                  "description": "Custom function name for unmasking fragment data.",
+                  "default": "getFragmentData"
+                }
+              }
+            }
+          ]
+        },
+        "emit_extensions": {
+          "type": "string",
+          "enum": ["ts", "dts", "d.ts", "js", "javascript"],
+          "description": "File extension for generated files."
+        },
+        "generate_ast_for_fragments": {
+          "type": "boolean",
+          "description": "Generate and reuse AST nodes for fragments to reduce bundle sizes.",
+          "default": false
+        },
+        "re_exports": {
+          "type": "boolean",
+          "description": "Re-export all operation and fragment types/documents from the root graphql.ts file.",
+          "default": false
+        },
+        "emit_permission_data": {
+          "type": "boolean",
+          "description": "Generate permission metadata for operations.",
+          "default": false
+        },
+        "emit_ast_directives": { "type": "boolean", "default": false },
+        "emit_ast_aliases": { "type": "boolean", "default": true },
+        "emit_ast_arguments": { "type": "boolean", "default": true },
+        "emit_ast_variable_defaults": { "type": "boolean", "default": true },
+        "inline_fragments": { "type": "boolean", "default": false },
+        "default_scalar_type": {
+          "type": "string",
+          "description": "Default type for scalars not defined in 'scalars' mapping.",
+          "default": "any"
+        },
+        "schema_import": {
+          "type": "string",
+          "description": "The import path used in generated operation files to reference schema types."
+        }
+      }
+    },
+    "TracingConfig": {
+      "type": "object",
+      "description": "LSP request tracing configuration.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "threshold_ms": {
+          "type": "integer",
+          "description": "Only trace requests exceeding this threshold in milliseconds.",
+          "default": 20
+        }
+      }
+    },
+    "TimeoutConfig": {
+      "type": "object",
+      "description": "Configuration for various operation timeouts.",
+      "properties": {
+        "workspace_scan_ms": {
+          "type": "integer",
+          "description": "Timeout for initial workspace scan (ms).",
+          "default": 60000
+        },
+        "lsp_request_ms": {
+          "type": "integer",
+          "description": "Timeout for individual LSP requests (ms).",
+          "default": 1000
+        }
+      }
+    }
+  }
+}
