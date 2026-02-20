@@ -35,7 +35,8 @@
   "license": "MIT",
   "files": [
     "postinstall.js",
-    "README.md"
+    "README.md",
+    "graphox.schema.json"
   ],
   "engines": {
     "node": ">=14"

@@ -71,6 +71,16 @@
           ".graphql"
         ]
       }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": "graphox.yaml",
+        "url": "./out/graphox.schema.json"
+      },
+      {
+        "fileMatch": "graphox.yml",
+        "url": "./out/graphox.schema.json"
+      }
     ]
   },
   "scripts": {
