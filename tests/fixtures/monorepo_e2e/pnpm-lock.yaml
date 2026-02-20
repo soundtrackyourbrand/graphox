@@ -83,10 +83,10 @@ importers:
       '@monorepo-e2e/schema':
         specifier: workspace:*
         version: link:../schema
-      '@soundtrackyourbrand/graphox-babel':
+      '@graphox/babel-plugin-plugin':
         specifier: link:../../../../../plugins/babel
         version: link:../../../../../plugins/babel
-      '@soundtrackyourbrand/graphox-swc':
+      '@graphox/swc-plugin-plugin':
         specifier: link:../../../../../plugins/swc/node
         version: link:../../../../../plugins/swc/node
     devDependencies:

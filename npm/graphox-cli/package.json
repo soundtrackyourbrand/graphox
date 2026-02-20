@@ -1,5 +1,5 @@
 {
-  "name": "@soundtrackyourbrand/graphox-cli",
+  "name": "@graphox/cli",
   "version": "0.1.12",
   "description": "Graphox CLI - High-performance GraphQL toolset",
   "bin": {
@@ -9,15 +9,15 @@
     "postinstall": "node postinstall.js"
   },
   "optionalDependencies": {
-    "@soundtrackyourbrand/graphox-darwin-arm64": "0.1.12",
-    "@soundtrackyourbrand/graphox-darwin-x64": "0.1.12",
-    "@soundtrackyourbrand/graphox-linux-arm64": "0.1.12",
-    "@soundtrackyourbrand/graphox-linux-x64": "0.1.12",
-    "@soundtrackyourbrand/graphox-win32-arm64": "0.1.12",
-    "@soundtrackyourbrand/graphox-win32-x64": "0.1.12"
+    "@graphox/darwin-arm64": "0.1.12",
+    "@graphox/darwin-x64": "0.1.12",
+    "@graphox/linux-arm64": "0.1.12",
+    "@graphox/linux-x64": "0.1.12",
+    "@graphox/win32-arm64": "0.1.12",
+    "@graphox/win32-x64": "0.1.12"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "repository": {
     "type": "git",
@@ -32,7 +32,7 @@
     "rust"
   ],
   "author": "soundtrackyourbrand",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "files": [
     "postinstall.js",
     "README.md",

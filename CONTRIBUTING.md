@@ -65,7 +65,7 @@ pnpm link --global
 Now you can link it in any test project:
 ```bash
 cd /path/to/test/project
-pnpm link --global @soundtrackyourbrand/graphox-cli
+pnpm link --global @graphox/cli
 graphox check
 ```
 
@@ -149,7 +149,7 @@ git push && git push --tags
 - Builds binaries for Windows (x86_64, ARM64)
 - Builds SWC plugin for all platforms
 - Builds VSCode extension (.vsix)
-- Publishes NPM package to GitHub Packages
+- Publishes NPM packages to the NPM registry
 - Creates a GitHub Release with all artifacts attached
 
 The release will be available at: `https://github.com/soundtrackyourbrand/graphox/releases`

@@ -12,7 +12,7 @@ BINARY="$SCRIPT_DIR/graphox-bin"
 if [ ! -x "$BINARY" ]; then
     echo "Error: Graphox native binary not found at $BINARY"
     echo "This usually means the postinstall script was skipped (for pnpm, check ignored builds)."
-    echo "Try: pnpm approve-builds @soundtrackyourbrand/graphox-cli && pnpm rebuild @soundtrackyourbrand/graphox-cli"
+    echo "Try: pnpm approve-builds @graphox/cli && pnpm rebuild @graphox/cli"
     exit 1
 fi
 

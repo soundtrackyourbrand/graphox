@@ -21,7 +21,7 @@ graphox/
 │   │   └── README.md        # User documentation
 │   │
 │   └── swc/                 # SWC transformation plugin
-│       ├── node/            # Node.js package (@soundtrackyourbrand/graphox-swc)
+│       ├── node/            # Node.js package (@graphox/swc-plugin)
 │       │   ├── package.json
 │       │   ├── src/
 │       │   ├── test/
@@ -115,19 +115,6 @@ describe('Babel Plugin', () => {
 2. Run `pnpm test` to verify
 3. Add to CI test matrix
 
-### Publishing to GitHub Packages
-
-```bash
-# Update version
-# Edit package.json version
-
-# Build
-pnpm build
-
-# Publish
-pnpm publish --registry https://npm.pkg.github.com
-```
-
 ## SWC Plugin Development
 
 The SWC plugin is structured as a WASM wrapper with a Rust implementation and Node.js bindings:
@@ -200,15 +187,6 @@ cargo test
 
 # Integration tests (requires wasm32-wasip1)
 cargo test --include-ignored
-```
-
-### Publishing to GitHub Packages
-
-The Node.js package is published to GitHub Packages:
-
-```bash
-cd plugins/swc/node
-npm publish --registry https://npm.pkg.github.com
 ```
 
 ### Building
@@ -295,22 +273,10 @@ cargo test --test swc_cli --include-ignored
 When you push a version tag (e.g., `v0.2.0`), the `release.yml` workflow automatically:
 1. Creates a GitHub release
 2. Builds all artifacts
-3. Publishes NPM packages to GitHub Packages
-
-**Manual Publishing (Development/Testing):**
-
-```bash
-# Run from workspace root to bump versions
-./scripts/release.sh bump 0.2.0
-
-# Manual build and publish (not recommended for production)
-cd plugins/swc/node
-pnpm run build:all
-npm publish --registry https://npm.pkg.github.com
-```
+3. Publishes NPM packages to the NPM registry
 
 **Distribution:**
-- **NPM Package**: `@soundtrackyourbrand/graphox-swc` (published to GitHub Packages)
+- **NPM Package**: `@graphox/swc-plugin`
 - **Release Asset**: Standalone WASM file (`graphox_swc_plugin.wasm`)
 - **Version**: Always synced with main project via `release.sh`
 
@@ -334,9 +300,9 @@ Three workflows handle the project:
 - Creates GitHub release
 - Builds binaries for all platforms (6 targets)
 - Builds SWC WASM plugin
-- Publishes to GitHub Packages:
-  - `@soundtrackyourbrand/graphox-cli`
-  - `@soundtrackyourbrand/graphox-swc`
+- Publishes to the NPM registry:
+  - `@graphox/cli`
+  - `@graphox/swc-plugin`
 - Uploads assets to release:
   - Platform binaries
   - WASM file
@@ -355,7 +321,7 @@ Three workflows handle the project:
 │ Formatting  │     │ Node Tests  │     │ 2. Build Binaries (6x)   │
 │ Clippy      │     │             │     │ 3. Build SWC WASM        │
 └─────────────┘     └─────────────┘     │ 4. Build VSCode Extension│
-                                        │ 5. Publish GitHub Packages│
+                                        │ 5. Publish to NPM        │
                                         │ 6. Upload Assets         │
                                         └──────────────────────────┘
 ```

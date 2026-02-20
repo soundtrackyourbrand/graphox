@@ -1,9 +1,10 @@
 {
-  "name": "graphox",
+  "name": "@graphox/vscode",
   "displayName": "Graphox",
   "description": "Rust-powered GraphQL language server, validation, and codegen for VS Code",
   "version": "0.1.12",
   "publisher": "soundtrack",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/soundtrackyourbrand/graphox.git"

@@ -1,4 +1,4 @@
-# @soundtrackyourbrand/graphox-babel
+# @graphox/babel-plugin
 
 ## Overview
 
@@ -23,7 +23,7 @@ Lazy chunks: each operation in its chunk
 ## Installation
 
 ```bash
-pnpm add --save-dev @soundtrackyourbrand/graphox-babel
+pnpm add --save-dev @graphox/babel-plugin
 ```
 
 ## Quick Start
@@ -53,7 +53,7 @@ const path = require('path');
 module.exports = {
   presets: ['@babel/preset-typescript'],
   plugins: [
-    ['@soundtrackyourbrand/graphox-babel', {
+    ['@graphox/babel-plugin', {
       manifestPath: path.resolve(__dirname, '__generated__/manifest.json'),
       outputDir: path.resolve(__dirname, '__generated__'),
       graphqlImportPaths: ['@/graphql']
@@ -70,7 +70,7 @@ Metro uses Babel transformers under the hood. Configure in `metro.config.js`:
 // metro.config.js
 module.exports = {
   transformer: {
-    babelTransformerPath: require.resolve('@soundtrackyourbrand/graphox-babel'),
+    babelTransformerPath: require.resolve('@graphox/babel-plugin'),
   },
 };
 ```

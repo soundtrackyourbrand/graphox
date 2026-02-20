@@ -47,10 +47,10 @@ Lazy chunks: ~1KB each (operations in their chunks)
 
 Choose your build tool:
 
-### [Babel Plugin →](../plugins/babel/README.md)
+### [@graphox/babel-plugin →](../plugins/babel/README.md)
 For Webpack-based projects and React Native (Metro)
 
-### [@soundtrackyourbrand/graphox-swc →](../plugins/swc/node/README.md)
+### [@graphox/swc-plugin →](../plugins/swc/node/README.md)
 For rsbuild, Turbopack, or native SWC
 
 ## See Also

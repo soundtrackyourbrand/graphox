@@ -1,5 +1,5 @@
 {
-  "name": "@soundtrackyourbrand/graphox-swc",
+  "name": "@graphox/swc-plugin-plugin",
   "version": "0.1.12",
   "description": "SWC plugin for GraphQL Rust codesplitting",
   "main": "dist/index.js",
@@ -32,12 +32,12 @@
     "vitest": "^1.0.0"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/soundtrackyourbrand/graphox",
     "directory": "plugins/swc/node"
   },
-  "license": "MIT"
+  "license": "UNLICENSED"
 }

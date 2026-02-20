@@ -7,7 +7,7 @@ SWC plugin for Graphox codesplitting.
 **For TypeScript/JavaScript users:**
 
 ```bash
-pnpm add @soundtrackyourbrand/graphox-swc
+pnpm add @graphox/swc-plugin
 ```
 
 See [node/README.md](node/README.md) for usage instructions.
@@ -16,7 +16,7 @@ See [node/README.md](node/README.md) for usage instructions.
 
 ```
 swc/
-├── node/          # Node.js package (@soundtrackyourbrand/graphox-swc)
+├── node/          # Node.js package (@graphox/swc-plugin)
 │   ├── package.json
 │   ├── src/
 │   └── wasm/      # Bundled WASM
@@ -33,6 +33,6 @@ See [rust/README.md](rust/README.md) for Rust development instructions.
 
 ## See Also
 
-- [@soundtrackyourbrand/graphox-swc (npm)](node/README.md)
+- [@graphox/swc-plugin (npm)](node/README.md)
 - [Babel Plugin](../babel/README.md)
 - [graphox CLI](../../README.md)

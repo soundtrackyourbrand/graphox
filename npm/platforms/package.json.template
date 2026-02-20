@@ -1,5 +1,5 @@
 {
-  "name": "@soundtrackyourbrand/graphox-${platform}",
+  "name": "@graphox/${platform}",
   "version": "${version}",
   "description": "Graphox CLI binary for ${platform}",
   "os": [
@@ -12,11 +12,11 @@
     "bin/graphox${ext}"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/soundtrackyourbrand/graphox"
   },
-  "license": "MIT"
+  "license": "UNLICENSED"
 }

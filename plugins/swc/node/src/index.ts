@@ -7,7 +7,7 @@
  * @example
  * // rsbuild.config.ts
  * import { defineConfig } from '@rsbuild/core';
- * import { createSWCPlugin } from '@soundtrackyourbrand/graphox-swc';
+ * import { createSWCPlugin } from '@graphox/swc-plugin';
  * 
  * export default defineConfig({
  *   tools: {

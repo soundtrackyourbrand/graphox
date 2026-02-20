@@ -44,7 +44,7 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 
 1. **Install the CLI**
    ```bash
-   pnpm add @soundtrackyourbrand/graphox-cli
+   pnpm add @graphox/cli
    ```
 
 2. **Create configuration**
@@ -74,9 +74,9 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 Install via pnpm to automatically download the correct binary for your platform:
 
 ```bash
-pnpm add @soundtrackyourbrand/graphox-cli
-npm install @soundtrackyourbrand/graphox-cli
-yarn add @soundtrackyourbrand/graphox-cli
+pnpm add @graphox/cli
+npm install @graphox/cli
+yarn add @graphox/cli
 ```
 
 Then use with pnpm:
@@ -90,16 +90,10 @@ pnpm graphox codegen
 Or install globally:
 
 ```bash
-pnpm add -g @soundtrackyourbrand/graphox-cli
+pnpm add -g @graphox/cli
 graphox lsp
 graphox check
 graphox codegen
-```
-
-**GitHub Packages:**
-
-```bash
-pnpm add @soundtrackyourbrand/graphox-cli --registry=https://npm.pkg.github.com
 ```
 
 ### Manual Binary Installation

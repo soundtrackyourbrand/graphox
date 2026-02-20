@@ -116,7 +116,7 @@ async function showBinaryNotFoundMessage(serverPath: string, usedNpm: boolean): 
   if (usedNpm) {
     message = `graphox binary from npm package was found but failed to start. Check the Output panel for details.`;
   } else {
-    message = `graphox binary not found. Install via 'pnpm add @soundtrackyourbrand/graphox-cli' or build from source.`;
+    message = `graphox binary not found. Install via 'pnpm add @graphox/cli' or build from source.`;
   }
 
   const action = await window.showErrorMessage(
