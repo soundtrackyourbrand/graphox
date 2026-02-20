@@ -124,10 +124,6 @@ If automatic installation fails, you can manually download binaries from the [re
 - `GRAPHOX_LOCAL_BUILD`: Path to a local binary to use instead of downloading (useful for development)
 - `GRAPHOX_DOWNLOAD_URL`: Override the download URL for the binary (useful for mirrors or custom builds)
 
-## License
-
-MIT
-
 ## Repository
 
 https://github.com/soundtrackyourbrand/graphox
