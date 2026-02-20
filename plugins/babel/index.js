@@ -30,7 +30,7 @@ module.exports = function (babel) {
   const { types: t } = babel;
 
   return {
-    name: '@soundtrackyourbrand/graphox-babel',
+    name: '@graphox/babel-plugin',
     visitor: {
       Program: {
         enter(programPath, state) {
@@ -43,7 +43,7 @@ module.exports = function (babel) {
           } = state.opts;
 
           if (!outputDir) {
-            throw new Error('outputDir is required for @soundtrackyourbrand/graphox-babel');
+            throw new Error('outputDir is required for @graphox/babel-plugin');
           }
 
           const extension = getExtension(emitExtensions);

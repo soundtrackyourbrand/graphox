@@ -1,15 +1,15 @@
-# @soundtrackyourbrand/graphox-cli
+# @graphox/cli
 
 NPM package for installing the `Graphox` CLI - a high-performance GraphQL toolset for TypeScript monorepos.
 
 ## Installation
 
 ```bash
-pnpm add @soundtrackyourbrand/graphox-cli
+pnpm add @graphox/cli
 # or
-npm install @soundtrackyourbrand/graphox-cli
+npm install @graphox/cli
 # or
-yarn add @soundtrackyourbrand/graphox-cli
+yarn add @graphox/cli
 ```
 
 ## Usage
@@ -35,7 +35,7 @@ pnpm graphox benchmark
 ### Global Installation
 
 ```bash
-pnpm add -g @soundtrackyourbrand/graphox-cli
+pnpm add -g @graphox/cli
 
 # Now you can use it directly
 graphox lsp
@@ -67,7 +67,7 @@ Create a `graphox.yaml` file in your project root. See the [main documentation](
 To get validation and autocomplete in your editor, add the following line at the top of your `graphox.yaml` file:
 
 ```yaml
-# yaml-language-server: $schema=node_modules/@soundtrackyourbrand/graphox-cli/graphox.schema.json
+# yaml-language-server: $schema=node_modules/@graphox/cli/graphox.schema.json
 ```
 
 Or, if you use VS Code with the [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml), you can add the following to your workspace settings:
@@ -75,7 +75,7 @@ Or, if you use VS Code with the [YAML extension](https://marketplace.visualstudi
 ```json
 {
   "yaml.schemas": {
-    "node_modules/@soundtrackyourbrand/graphox-cli/graphox.schema.json": "graphox.yaml"
+    "node_modules/@graphox/cli/graphox.schema.json": "graphox.yaml"
   }
 }
 ```

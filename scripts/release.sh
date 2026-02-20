@@ -90,7 +90,7 @@ if [ -f "npm/graphox-cli/package.json" ]; then
     # Update main version
     sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/graphox-cli/package.json
     # Update optionalDependencies versions
-    sed -i.bak "s/\"@soundtrackyourbrand\/graphox-\(.*\)\": \"$CURRENT_VERSION\"/\"@soundtrackyourbrand\/graphox-\1\": \"$NEW_VERSION\"/g" npm/graphox-cli/package.json
+    sed -i.bak "s/\"@graphox\/\(.*\)\": \"$CURRENT_VERSION\"/\"@graphox\/\1\": \"$NEW_VERSION\"/g" npm/graphox-cli/package.json
     rm npm/graphox-cli/package.json.bak
 fi
 

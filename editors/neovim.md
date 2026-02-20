@@ -4,7 +4,7 @@ To use the `Graphox` LSP with Neovim, you can configure it either using `nvim-ls
 
 ## Quick Start
 
-If you have `@soundtrackyourbrand/graphox-cli` installed via npm/pnpm in your project, use this simple setup:
+If you have `@graphox/cli` installed via npm/pnpm in your project, use this simple setup:
 
 ```lua
 local lspconfig = require('lspconfig')
@@ -28,7 +28,7 @@ lspconfig.graphox.setup({})
 
 ### Option 1: Using npm/pnpm Package (Recommended for Projects)
 
-This is the easiest setup if you're working on a project that already uses `@soundtrackyourbrand/graphox-cli`:
+This is the easiest setup if you're working on a project that already uses `@graphox/cli`:
 
 ```lua
 -- Using pnpm

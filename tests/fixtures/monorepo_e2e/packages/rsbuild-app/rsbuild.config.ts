@@ -1,7 +1,7 @@
 import { defineConfig } from '@rsbuild/core';
 import { pluginBabel } from '@rsbuild/plugin-babel';
-import { createSWCPlugin } from '@soundtrackyourbrand/graphox-swc';
-import graphoxBabel from '@soundtrackyourbrand/graphox-babel';
+import { createSWCPlugin } from '@graphox/swc-plugin';
+import graphoxBabel from '@graphox/babel-plugin';
 import * as path from 'path';
 
 const mode = process.env.RSBUILD_MODE || 'swc';

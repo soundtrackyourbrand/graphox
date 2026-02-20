@@ -1,11 +1,11 @@
 {
-  "name": "@soundtrackyourbrand/graphox-babel",
+  "name": "@graphox/babel-plugin-plugin",
   "version": "0.1.12",
   "description": "Babel plugin for Graphox codesplitting",
   "main": "index.js",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "repository": {
     "type": "git",

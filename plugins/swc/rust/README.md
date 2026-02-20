@@ -7,10 +7,10 @@ This is the Rust source for the SWC plugin. It compiles to WASM for use with Nod
 **For TypeScript/JavaScript users, use the Node.js package:**
 
 ```bash
-pnpm add @soundtrackyourbrand/graphox-swc
+pnpm add @graphox/swc-plugin
 ```
 
-See [@soundtrackyourbrand/graphox-swc](../node/README.md) for usage instructions.
+See [@graphox/swc-plugin](../node/README.md) for usage instructions.
 
 ## For Contributors
 
@@ -45,10 +45,10 @@ cargo test --include-ignored
 
 ### Version
 
-This crate version must match the Node.js package version (`@soundtrackyourbrand/graphox-swc`).
+This crate version must match the Node.js package version (`@graphox/swc-plugin`).
 
 ## See Also
 
-- [@soundtrackyourbrand/graphox-swc (npm)](../node/README.md)
+- [@graphox/swc-plugin (npm)](../node/README.md)
 - [Babel Plugin](../../babel/README.md)
 - [graphox CLI](../../../README.md)

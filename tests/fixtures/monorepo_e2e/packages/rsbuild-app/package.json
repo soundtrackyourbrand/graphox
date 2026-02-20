@@ -10,8 +10,8 @@
   "dependencies": {
     "@monorepo-e2e/app": "workspace:*",
     "@monorepo-e2e/schema": "workspace:*",
-    "@soundtrackyourbrand/graphox-babel": "link:../../plugins/babel",
-    "@soundtrackyourbrand/graphox-swc": "link:../../plugins/swc/node"
+    "@graphox/babel-plugin": "link:../../plugins/babel",
+    "@graphox/swc-plugin": "link:../../plugins/swc/node"
   },
   "devDependencies": {
     "@rsbuild/core": "^1.0.0",
