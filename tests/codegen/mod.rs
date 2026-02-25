@@ -5,4 +5,5 @@ mod fragment_import_test;
 mod lsp_automatic_codegen;
 mod self_import_fix;
 mod throttle;
+mod transitive_fragment_import_test;
 mod union_fragment_codegen;

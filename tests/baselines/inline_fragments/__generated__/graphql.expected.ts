@@ -4,12 +4,15 @@
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+import type { AddressFields } from "./query.codegen";
 import type { CreatePostMutation, CreatePostMutationVariables } from "./query.codegen";
 import type { GetAllUsersQuery, GetAllUsersQueryVariables } from "./query.codegen";
 import type { GetPostsWithFragmentQuery, GetPostsWithFragmentQueryVariables } from "./query.codegen";
 import type { GetUserByIdQuery, GetUserByIdQueryVariables } from "./query.codegen";
 import type { GetUsersWithAddressesQuery, GetUsersWithAddressesQueryVariables } from "./query.codegen";
+import type { PostFields } from "./query.codegen";
 import type { UserFields } from "./query.codegen";
+import type { UserWithAddress } from "./query.codegen";
 import { CreatePostMutationDocument } from "./query.codegen";
 import { GetAllUsersQueryDocument } from "./query.codegen";
 import { GetPostsWithFragmentQueryDocument } from "./query.codegen";

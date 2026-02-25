@@ -262,6 +262,16 @@ fn test_cli_include_strip_baselines() {
     );
 }
 
+#[test]
+#[ntest::timeout(10000)]
+fn test_cli_union_merging_baselines() {
+    run_baseline_test(
+        "tests/fixtures/union_merging",
+        "tests/baselines/union_merging",
+        None,
+    );
+}
+
 pub(crate) fn run_baseline_test(
     fixture_dir_str: &str,
     baseline_dir_str: &str,

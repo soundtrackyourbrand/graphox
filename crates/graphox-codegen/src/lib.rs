@@ -214,33 +214,6 @@ mod tests {
     }
 
     #[test]
-    fn test_abstract_members_interface_returns_with_quotes() {
-        use apollo_compiler::Schema;
-
-        let schema_text = r#"
-            type Query {
-                node: Node
-            }
-            interface Node {
-                id: ID!
-            }
-            type A implements Node { id: ID! }
-            type B implements Node { id: ID! }
-        "#;
-
-        let schema = Schema::parse(schema_text, "test.graphql").unwrap();
-        let members = crate::helpers::compute_abstract_members("Node", &schema);
-        assert!(!members.is_empty(), "Interface should have implementors");
-        for member in &members {
-            assert!(
-                member.starts_with('"'),
-                "Interface implementor '{}' SHOULD have quotes",
-                member
-            );
-        }
-    }
-
-    #[test]
     fn test_typename_value_for_type_union_uses_default() {
         use apollo_compiler::Schema;
 

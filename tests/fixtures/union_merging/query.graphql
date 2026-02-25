@@ -1,0 +1,17 @@
+query GetPlayback {
+  playback {
+    id
+    playable {
+      __typename
+      ... on Node {
+        id
+      }
+      ... on Displayable {
+        title
+      }
+      ... on Track {
+        durationMs
+      }
+    }
+  }
+}

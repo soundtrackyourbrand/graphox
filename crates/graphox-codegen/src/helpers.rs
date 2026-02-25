@@ -206,7 +206,7 @@ pub fn get_interface_implementors(interface_name: &str, schema: &Schema) -> Vec<
                     .iter()
                     .any(|i| i.as_str() == interface_name)
                 {
-                    Some(format!("\"{}\"", n).into())
+                    Some(n.as_str().into())
                 } else {
                     None
                 }
@@ -242,7 +242,11 @@ pub fn get_typename_value_for_type(parent_type: &ExtendedType, schema: &Schema) 
             if implementors.is_empty() {
                 "string".to_string()
             } else {
-                implementors.join(" | ")
+                implementors
+                    .iter()
+                    .map(|m| format!("\"{}\"", m))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
             }
         }
         _ => format!("\"{}\"", parent_type.name()),

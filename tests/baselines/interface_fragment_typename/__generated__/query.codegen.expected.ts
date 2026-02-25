@@ -11,10 +11,7 @@ export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K]
 export interface TestQueryQuery {
   __typename: "Query";
   items: Array<({
-      __typename: "Schedule";
-    } & DisplayableInfo)
-    | ({
-      __typename: "Curator";
+      __typename: "Schedule" | "Curator";
     } & DisplayableInfo)>;
 }
 

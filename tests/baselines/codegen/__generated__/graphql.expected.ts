@@ -11,6 +11,7 @@ import type { GetNonNullUsersQuery, GetNonNullUsersQueryVariables } from "./non_
 import type { GetUserByIdQuery, GetUserByIdQueryVariables } from "./variables.codegen";
 import type { GetUsersQuery, GetUsersQueryVariables } from "./simple_query.codegen";
 import type { GetUsersWithFragmentQuery, GetUsersWithFragmentQueryVariables } from "./fragment_usage.codegen";
+import type { InternalFields } from "./fragment_definition.codegen";
 import type { UserFields } from "./fragment_definition.codegen";
 import { GetNodePolymorphicQueryDocument } from "./union_query.codegen";
 import { GetNodeQueryDocument } from "./query_with_variables.codegen";
@@ -37,7 +38,7 @@ export function graphql(source: "query GetUserById($id: ID!, $tags: [String!]!) 
 export function graphql(source: "query GetUsers {\n  users {\n    id\n    username\n  }\n}\n"): typeof GetUsersQueryDocument;
 export function graphql(source: "query GetUsersWithFragment {\n  users {\n    ...UserFields\n    email\n  }\n}\n"): typeof GetUsersWithFragmentQueryDocument;
 export function graphql(source: "fragment AccountInfo on Account {\n  __typename\n  ... on User {\n    username\n  }\n  ... on Admin {\n    role\n  }\n}\n"): DocumentNode<AccountInfo, unknown>;
-export function graphql(source: "fragment UserFields on User @public {\n  id\n  username\n}\n\nfragment InternalFields on User {\n  email\n}\n"): DocumentNode<UserFields, unknown>;
+export function graphql(source: "fragment UserFields on User @public {\n  id\n  username\n}\n\nfragment InternalFields on User {\n  email\n}\n"): DocumentNode<InternalFields, unknown>;
 export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;
 export function graphql(source: string): any {
   return documents[source] || {};

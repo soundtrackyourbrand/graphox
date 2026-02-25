@@ -585,9 +585,16 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                             && a.source_text == b.source_text
                     });
 
-                    // Deduplicate fragments by source
-                    frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
-                    frags.dedup_by(|a, b| a.source_text == b.source_text);
+                    // Deduplicate fragments by name and source
+                    frags.sort_by(|a, b| {
+                        a.fragment_type_name
+                            .cmp(&b.fragment_type_name)
+                            .then_with(|| a.source_text.cmp(&b.source_text))
+                    });
+                    frags.dedup_by(|a, b| {
+                        a.fragment_type_name == b.fragment_type_name
+                            && a.source_text == b.source_text
+                    });
 
                     // Check if path exists but is a file (blocks directory creation)
                     if out_dir_path.exists() && out_dir_path.is_file() {

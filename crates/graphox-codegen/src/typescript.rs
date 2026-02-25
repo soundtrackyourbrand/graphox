@@ -258,7 +258,6 @@ pub fn generate_typescript_with_profile(
                 .copied()
                 .unwrap_or(false);
 
-            let mut used_fragments_inner = HashSet::default();
             let root_type = ctx
                 .schema
                 .types
@@ -271,13 +270,8 @@ pub fn generate_typescript_with_profile(
                 })?;
 
             let sel_start = Instant::now();
-            let result = generate_selection_set(
-                &frag.selection_set,
-                root_type,
-                ctx,
-                0,
-                &mut used_fragments_inner,
-            );
+            let result =
+                generate_selection_set(&frag.selection_set, root_type, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
             if !bodies.is_empty() {
@@ -446,6 +440,28 @@ pub fn generate_typescript_with_profile(
         import_section.push_str(&ctx.masking_import_path);
         import_section.push_str("\";\n");
     }
+
+    let mut final_used_fragments = HashSet::default();
+    let mut to_expand: Vec<Arc<str>> = used_fragments.iter().cloned().collect();
+
+    while let Some(frag_name) = to_expand.pop() {
+        if final_used_fragments.insert(frag_name.clone()) {
+            if let Some(deps) = ctx.fragment_dependencies.get(frag_name.as_ref()) {
+                for dep in deps {
+                    to_expand.push(dep.clone());
+                }
+            } else if let Some(frag) = ctx.all_fragments.get(frag_name.as_ref()) {
+                let deps = graphox_core::apollo_ast::get_fragment_fragment_dependencies(
+                    frag,
+                    ctx.all_fragments,
+                );
+                for dep in deps {
+                    to_expand.push(dep);
+                }
+            }
+        }
+    }
+    *used_fragments = final_used_fragments.into();
 
     let mut used_frag_names: Vec<_> = used_fragments.iter().cloned().collect();
     used_frag_names.sort_unstable();

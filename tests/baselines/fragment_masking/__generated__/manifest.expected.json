@@ -15,6 +15,11 @@
     "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n    ...UserEmail\n  }\n}\n\nquery GetUserWithPosts($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    posts {\n      ...UserPosts\n    }\n  }\n}\n"
   },
   {
+    "name": "UserEmailDocument",
+    "path": "./fragments.codegen",
+    "source": "fragment UserFields on User @public {\n  id\n  name\n}\n\nfragment UserEmail on User @public {\n  email\n}\n"
+  },
+  {
     "name": "UserFieldsDocument",
     "path": "./fragments.codegen",
     "source": "fragment UserFields on User @public {\n  id\n  name\n}\n\nfragment UserEmail on User @public {\n  email\n}\n"

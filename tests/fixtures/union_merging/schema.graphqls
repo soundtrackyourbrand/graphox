@@ -1,0 +1,34 @@
+interface Node {
+  id: ID!
+}
+
+interface Displayable {
+  title: String!
+}
+
+type Track implements Node & Displayable {
+  id: ID!
+  title: String!
+  durationMs: Int
+}
+
+type Artist implements Node & Displayable {
+  id: ID!
+  title: String!
+}
+
+type Playlist implements Node & Displayable {
+  id: ID!
+  title: String!
+}
+
+union Playable = Track | Artist
+
+type Playback {
+  id: ID!
+  playable: Playable
+}
+
+type Query {
+  playback: Playback
+}

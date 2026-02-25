@@ -4,13 +4,14 @@
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
 type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
+import type { PrivateFrag } from "./fragment.codegen";
 import type { PublicFrag } from "./fragment.codegen";
 
 const documents: { [key: string]: any } = {
   "fragment PublicFrag on User @public { id }\nfragment PrivateFrag on User { id }\n": {},
 };
 
-export function graphql(source: "fragment PublicFrag on User @public { id }\nfragment PrivateFrag on User { id }\n"): DocumentNode<PublicFrag, unknown>;
+export function graphql(source: "fragment PublicFrag on User @public { id }\nfragment PrivateFrag on User { id }\n"): DocumentNode<PrivateFrag, unknown>;
 export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;
 export function graphql(source: string): any {
   return documents[source] || {};

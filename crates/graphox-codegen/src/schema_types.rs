@@ -175,7 +175,12 @@ pub fn generate_schema_types(
             implementors.sort();
 
             if !implementors.is_empty() {
-                output.push_str(&format!("  __typename: {};\n", implementors.join(" | ")));
+                let quoted_implementors = implementors
+                    .iter()
+                    .map(|m| format!("\"{}\"", m))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                output.push_str(&format!("  __typename: {};\n", quoted_implementors));
             } else {
                 output.push_str("  __typename: string;\n");
             }

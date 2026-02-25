@@ -1,0 +1,4 @@
+projects:
+  - include: "."
+    schema: schema.graphqls
+    output_dir: "__generated__"

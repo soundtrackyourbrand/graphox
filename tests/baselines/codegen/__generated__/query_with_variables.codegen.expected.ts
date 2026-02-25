@@ -16,10 +16,7 @@ export interface GetNodeQuery {
       username: string;
     }
     | {
-      __typename: "Post";
-      id: string;
-    } | {
-      __typename: "Comment";
+      __typename: "Post" | "Comment";
       id: string;
     } | null;
 }

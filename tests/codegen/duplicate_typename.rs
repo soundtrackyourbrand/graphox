@@ -87,22 +87,10 @@ projects:
     let gen_file = temp_dir.join("fragment.codegen.ts");
     let content = std::fs::read_to_string(gen_file).unwrap();
 
-    // Check for duplicate __typename in the generated TypeScript for each union constituent
-    let count_manual = content
-        .matches(r#"__typename: "ManuallyQueuedOrigin""#)
-        .count();
-    assert_eq!(
-        count_manual, 1,
-        "Should only have one __typename for ManuallyQueuedOrigin. Content:\n{}",
-        content
-    );
-
-    let count_smart = content
-        .matches(r#"__typename: "SmartShuffleOrigin""#)
-        .count();
-    assert_eq!(
-        count_smart, 1,
-        "Should only have one __typename for SmartShuffleOrigin. Content:\n{}",
+    // Check for grouping of types with identical selection sets
+    assert!(
+        content.contains(r#"__typename: "ManuallyQueuedOrigin" | "SmartShuffleOrigin";"#),
+        "Types with identical selections should be grouped. Content:\n{}",
         content
     );
 

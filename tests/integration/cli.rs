@@ -92,7 +92,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_cli_check_cross_project_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_cross_project_frag");

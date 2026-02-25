@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetPlaybackQueryDocument",
+    "path": "./query.codegen",
+    "source": "query GetPlayback {\n  playback {\n    id\n    playable {\n      __typename\n      ... on Node {\n        id\n      }\n      ... on Displayable {\n        title\n      }\n      ... on Track {\n        durationMs\n      }\n    }\n  }\n}\n"
+  }
+]

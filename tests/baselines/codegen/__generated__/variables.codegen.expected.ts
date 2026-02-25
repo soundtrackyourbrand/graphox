@@ -16,9 +16,7 @@ export interface GetUserByIdQuery {
       username: string;
     }
     | {
-      __typename: "Post";
-    } | {
-      __typename: "Comment";
+      __typename: "Post" | "Comment";
     } | null;
 }
 

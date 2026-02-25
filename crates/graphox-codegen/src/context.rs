@@ -286,11 +286,54 @@ impl<'a> CodegenContext<'a> {
                 if implementors.is_empty() {
                     "string".to_string()
                 } else {
-                    implementors.join(" | ")
+                    implementors
+                        .iter()
+                        .map(|m| format!("\"{}\"", m))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
                 }
             }
             _ => format!("\"{}\"", parent_type.name()),
         }
+    }
+
+    pub fn get_abstract_members_intersection(&self, type_a: &str, type_b: &str) -> Vec<Arc<str>> {
+        let members_a = self.get_abstract_members(type_a);
+        let members_b = self.get_abstract_members(type_b);
+
+        let set_b: HashSet<Arc<str>> = members_b.into_iter().collect();
+        members_a
+            .into_iter()
+            .filter(|m| set_b.contains(m))
+            .collect()
+    }
+
+    pub fn get_typename_value_for_type_with_context(
+        &self,
+        current_type: &ExtendedType,
+        expected_type: &ExtendedType,
+    ) -> String {
+        let intersection =
+            self.get_abstract_members_intersection(current_type.name(), expected_type.name());
+        if intersection.is_empty() {
+            // This shouldn't happen if we filter branches correctly, but as a fallback:
+            self.get_typename_value_for_type(current_type)
+        } else {
+            intersection
+                .iter()
+                .map(|m| format!("\"{}\"", m))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        }
+    }
+
+    /// Check if a concrete type matches or implements a target type condition
+    pub fn is_type_applicable(&self, member_type_name: &str, target_type_name: &str) -> bool {
+        if member_type_name == target_type_name {
+            return true;
+        }
+        let members = self.get_abstract_members(target_type_name);
+        members.iter().any(|m| m.as_ref() == member_type_name)
     }
 }
 
