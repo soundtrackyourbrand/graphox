@@ -190,7 +190,7 @@ jobs:
 
       - name: Publish SWC Plugin
         working-directory: plugins/swc/node
-        run: pnpm publish --no-git-checks --provenance
+        run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -243,7 +243,7 @@ jobs:
 
       - name: Publish Babel Plugin
         working-directory: plugins/babel
-        run: pnpm publish --no-git-checks --provenance
+        run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -363,7 +363,7 @@ jobs:
 
       - name: Publish
         working-directory: package
-        run: pnpm publish --no-git-checks --provenance
+        run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -407,7 +407,7 @@ jobs:
 
       - name: Publish CLI Wrapper
         working-directory: npm/graphox-cli
-        run: pnpm publish --no-git-checks --provenance
+        run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
