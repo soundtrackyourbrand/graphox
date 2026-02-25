@@ -52,7 +52,13 @@
       "default": true
     },
     "rules": { "$ref": "#/definitions/RulesConfig" },
-    "codegen": { "$ref": "#/definitions/CodegenConfig" }
+    "codegen": {
+      "description": "Codegen configuration. Set to false to disable codegen globally.",
+      "oneOf": [
+        { "type": "boolean" },
+        { "$ref": "#/definitions/CodegenConfig" }
+      ]
+    }
   },
   "definitions": {
     "ProjectConfig": {
