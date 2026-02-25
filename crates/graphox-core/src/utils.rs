@@ -15,6 +15,8 @@ pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
     SemanticTokenType::ENUM,
 ];
 
+pub const DIAGNOSTIC_SOURCE: Option<&'static str> = Some("graphox");
+
 #[repr(u32)]
 pub enum SemanticTokenKind {
     Variable = 0,
@@ -809,6 +811,7 @@ pub fn push_duplicate_operation_diagnostic(
         severity: Some(DiagnosticSeverity::ERROR),
         message,
         code: Some(NumberOrString::String("duplicate_operation".to_string())),
+        source: DIAGNOSTIC_SOURCE.map(String::from),
         ..Default::default()
     });
 }

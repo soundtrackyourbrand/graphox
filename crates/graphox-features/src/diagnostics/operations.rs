@@ -1,3 +1,4 @@
+use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::ast::OperationType;
 use apollo_compiler::schema::ExtendedType;
@@ -130,6 +131,7 @@ pub(super) fn validate_operation(
                                                     "unused_variable".to_string(),
                                                 )),
                                                 tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                                                source: DIAGNOSTIC_SOURCE.map(String::from),
                                                 ..Default::default()
                                             });
                                         }
@@ -228,6 +230,7 @@ pub(super) fn check_required_fields(
                                     "required_field_missing".to_string(),
                                 )),
                                 data: Some(serde_json::json!({ "scope": "operation" })),
+                                source: DIAGNOSTIC_SOURCE.map(String::from),
                                 ..Default::default()
                             },
                         );
@@ -300,6 +303,7 @@ pub(super) fn check_required_fields(
                                     "scope": "response_key",
                                     "response_key": response_key.as_ref()
                                 })),
+                                source: DIAGNOSTIC_SOURCE.map(String::from),
                                 ..Default::default()
                             },
                         );
@@ -374,6 +378,7 @@ pub(super) fn check_required_fields(
                                             "required_field_missing".to_string(),
                                         )),
                                         data: Some(serde_json::json!({ "scope": "response_key" })),
+                                        source: DIAGNOSTIC_SOURCE.map(String::from),
                                         ..Default::default()
                                     },
                                 );

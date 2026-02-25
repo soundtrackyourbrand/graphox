@@ -1,3 +1,4 @@
+use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::{ExtendedType, InputValueDefinition};
 use graphox_core::document::DocumentState;
@@ -133,6 +134,7 @@ pub(super) fn validate_value(
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!("Undefined variable: ${}", name),
                             code: Some(NumberOrString::String("undefined_variable".to_string())),
+                            source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
                         });
                     }

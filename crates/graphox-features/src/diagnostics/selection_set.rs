@@ -1,3 +1,4 @@
+use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
@@ -262,6 +263,7 @@ pub(super) fn validate_field(
                                 "args": field_args_text,
                                 "selection": field_sel_text,
                             })),
+                            source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
                         });
                     }
@@ -415,6 +417,7 @@ pub(super) fn validate_field(
                 data: Some(serde_json::json!({
                     "similar_fields": similar_fields,
                 })),
+                source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });
         }

@@ -3,7 +3,8 @@ use graphox_core::Config;
 use graphox_core::document::DocumentState;
 use graphox_core::queries::*;
 use graphox_core::utils::{
-    find_operation_range, mask_interpolations, push_duplicate_operation_diagnostic,
+    DIAGNOSTIC_SOURCE, find_operation_range, mask_interpolations,
+    push_duplicate_operation_diagnostic,
 };
 use lsp_types::*;
 use tree_sitter::{Node, QueryCursor, StreamingIterator};
@@ -182,6 +183,7 @@ impl DocumentDiagnostics for DocumentState {
                         range,
                         severity: Some(DiagnosticSeverity::ERROR),
                         message: format!("Apollo Validation Error: {}", err_str),
+                        source: DIAGNOSTIC_SOURCE.map(String::from),
                         ..Default::default()
                     });
                 }
@@ -274,6 +276,7 @@ impl DocumentDiagnostics for DocumentState {
                 severity: Some(DiagnosticSeverity::WARNING),
                 message,
                 code: Some(lsp_types::NumberOrString::String("deprecated".to_string())),
+                source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });
         } else if ctx.include_ignored {
@@ -282,6 +285,7 @@ impl DocumentDiagnostics for DocumentState {
                 severity: Some(DiagnosticSeverity::INFORMATION),
                 message: format!("[Ignored] {}", message),
                 code: Some(lsp_types::NumberOrString::String("deprecated".to_string())),
+                source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });
         }
@@ -320,6 +324,7 @@ impl DocumentDiagnostics for DocumentState {
                     range,
                     severity: Some(DiagnosticSeverity::ERROR),
                     message: format!("GraphQL Syntax Error: unexpected '{}'", node.kind()),
+                    source: DIAGNOSTIC_SOURCE.map(String::from),
                     ..Default::default()
                 });
             }

@@ -1,3 +1,4 @@
+use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
@@ -61,6 +62,7 @@ pub(super) fn validate_fragment(
                 message: format!("Unused fragment: {}", name),
                 code: Some(NumberOrString::String("unused_fragment".to_string())),
                 tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });
         }
@@ -91,6 +93,7 @@ pub(super) fn validate_fragment(
                 severity: Some(DiagnosticSeverity::WARNING),
                 message: format!("Fragment '{}' is used but marked with @type_only. Remove @type_only to resolve this warning.", name),
                 code: Some(NumberOrString::String("type_only_used".to_string())),
+                source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });
         }
@@ -106,6 +109,7 @@ pub(super) fn validate_fragment(
                             range: this.translate_to_file_range(name_node, offset),
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!("Duplicate public fragment name: '{}'. Public fragments must have unique names across the workspace.", name),
+                            source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
                         });
                         break;
@@ -123,6 +127,7 @@ pub(super) fn validate_fragment(
                                 "Duplicate fragment name: '{}' in the same project.",
                                 name
                             ),
+                            source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
                         });
                         break;
@@ -134,6 +139,7 @@ pub(super) fn validate_fragment(
                                 "Private fragment '{}' shadows a public fragment defined in {}.",
                                 name, other.uri
                             ),
+                            source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
                         });
                     }
@@ -286,6 +292,7 @@ pub(super) fn validate_fragment_spread(
                             range: this.translate_to_file_range(name_child, offset),
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!("Unknown fragment: {}", name),
+                            source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
                         });
                     }
@@ -309,6 +316,7 @@ pub(super) fn validate_fragment_spread(
                                         "def_uri": meta.uri.to_string(),
                                         "fragment": name,
                                     })),
+                                    source: DIAGNOSTIC_SOURCE.map(String::from),
                                     ..Default::default()
                                 });
                             }
@@ -387,6 +395,7 @@ pub(super) fn validate_fragment_spread(
                                     "def_uri": this.uri.to_string(),
                                     "fragment": name,
                                 })),
+                                source: DIAGNOSTIC_SOURCE.map(String::from),
                                 ..Default::default()
                             };
 
@@ -505,6 +514,7 @@ fn mark_used_variables_recursive(
                     severity: Some(DiagnosticSeverity::ERROR),
                     message: format!("Circular fragment reference: {}", cycle),
                     code: Some(NumberOrString::String("circular_fragment".to_string())),
+                    source: DIAGNOSTIC_SOURCE.map(String::from),
                     ..Default::default()
                 });
             }
@@ -553,6 +563,7 @@ fn mark_used_variables_recursive(
                             var, name
                         ),
                         code: Some(NumberOrString::String("undefined_variable".to_string())),
+                        source: DIAGNOSTIC_SOURCE.map(String::from),
                         ..Default::default()
                     });
                 }
