@@ -73,6 +73,9 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                         if config_for_watcher.is_output_file(&e.path) {
                             return false;
                         }
+                        if !should_trigger_codegen_for_path(&e.path) {
+                            return false;
+                        }
                         true
                     });
                     if has_relevant_change {
@@ -158,6 +161,24 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
             }
         }
     }
+}
+
+fn should_trigger_codegen_for_path(path: &Path) -> bool {
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let is_host_file = matches!(
+        ext,
+        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
+    );
+    if !is_host_file {
+        return true;
+    }
+
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return true;
+    };
+    let bytes = content.as_bytes();
+    bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
 }
 
 async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {

@@ -558,3 +558,149 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         "Codegen loop detected: output file changes triggered additional codegen runs"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! } type Query { me: User }",
+    )
+    .unwrap();
+    let query_path = base_dir.join("query.graphql");
+    fs::write(&query_path, "query GetMe { me { id } }").unwrap();
+    let plain_path = base_dir.join("plain.ts");
+    fs::write(&plain_path, "export const value = 1;\n").unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
+                if params.message.starts_with("Workspace scan complete") {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
+
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+    service
+        .call(
+            Request::build("workspace/didChangeWatchedFiles")
+                .params(
+                    serde_json::to_value(DidChangeWatchedFilesParams {
+                        changes: vec![FileEvent {
+                            uri: query_uri,
+                            typ: FileChangeType::CHANGED,
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let gen_path = base_dir.join("gen/query.codegen.ts");
+    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+    fs::write(
+        &gen_path,
+        "// touched by formatter\nexport const untouched = true;\n",
+    )
+    .unwrap();
+
+    let plain_uri = Url::from_file_path(&plain_path).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: plain_uri.clone(),
+                            language_id: "typescript".to_string(),
+                            version: 1,
+                            text: "export const value = 1;\n".to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    fs::write(&plain_path, "export const value = 2;\n").unwrap();
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: plain_uri,
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: "export const value = 2;\n".to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    sleep(Duration::from_millis(200)).await;
+    let content = fs::read_to_string(&gen_path).unwrap();
+    assert!(
+        content.starts_with("// touched by formatter"),
+        "Non-GraphQL host edit should not trigger codegen"
+    );
+}

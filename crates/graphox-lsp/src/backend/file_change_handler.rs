@@ -65,7 +65,16 @@ pub async fn process_file_created_or_changed(
         });
     }
 
+    if params.config.is_output_file(&path) {
+        return None;
+    }
+
     let is_schema = is_schema_file(&path, params.config);
+    let old_has_graphql = params
+        .documents
+        .get(&uri)
+        .map(|doc| !doc.get_graphql_trees().is_empty())
+        .unwrap_or(false);
 
     // Read file content
     let content = match std::fs::read_to_string(&path) {
@@ -91,6 +100,11 @@ pub async fn process_file_created_or_changed(
         &content,
         params.position_encoding.clone(),
     );
+    let new_has_graphql = !new_doc.get_graphql_trees().is_empty();
+
+    if !is_schema && !old_has_graphql && !new_has_graphql {
+        return None;
+    }
 
     let mut affected_fragment_names = AHashSet::default();
     let mut affected_spread_names = AHashSet::default();
@@ -200,7 +214,7 @@ pub async fn process_file_created_or_changed(
         params.operation_names,
     );
 
-    let should_run_codegen = !is_schema;
+    let should_run_codegen = !is_schema && (old_has_graphql || new_has_graphql);
 
     Some(FileChangeResult {
         uris_to_validate,

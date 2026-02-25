@@ -26,6 +26,7 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
         &params.text_document.text,
         position_encoding,
     );
+    let should_run_codegen = !doc.get_graphql_trees().is_empty();
 
     let mut affected_fragment_names = AHashSet::default();
     let mut affected_operation_names = AHashSet::default();
@@ -96,7 +97,7 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     backend.validate_uris(uris_to_validate).await;
 
     // Request throttled codegen if enabled
-    if let Some(throttle) = &backend.codegen_throttle {
+    if should_run_codegen && let Some(throttle) = &backend.codegen_throttle {
         throttle.request_codegen();
     }
 }
@@ -145,7 +146,9 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
         backend.validate_uris(result.uris_to_validate).await;
 
         // Request throttled codegen if enabled
-        if let Some(throttle) = &backend.codegen_throttle {
+        if result.should_run_codegen
+            && let Some(throttle) = &backend.codegen_throttle
+        {
             throttle.request_codegen();
         }
     }

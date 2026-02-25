@@ -347,6 +347,68 @@ schema_types:
     assert!(!config.is_output_file(&base_dir.join("schema.graphql")));
 }
 
+#[test]
+#[ntest::timeout(30000)]
+fn test_codegen_watch_ignores_non_graphql_host_edits() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let dir = tempdir().unwrap();
+    let base_dir = fs::canonicalize(dir.path()).unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type Query { me: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
+    let query_path = base_dir.join("query.graphql");
+    fs::write(&query_path, "query GetMe { me { id } }").unwrap();
+    let plain_path = base_dir.join("plain.ts");
+    fs::write(&plain_path, "export const value = 1;\n").unwrap();
+
+    let config_path = base_dir.join("graphox.yaml");
+    fs::write(
+        &config_path,
+        "enable_schema_cache: false\ncodegen_watch_debounce_ms: 10\nprojects:\n  - schema: \"schema.graphql\"\n    include: \"query.graphql\"\n    output_dir: \"gen\"",
+    )
+    .unwrap();
+
+    let mut child = Command::new(bin_path)
+        .arg("codegen")
+        .arg("--watch")
+        .arg("--verbose")
+        .current_dir(&base_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("Failed to spawn codegen watcher");
+
+    let gen_file = base_dir.join("gen/query.codegen.ts");
+    if !wait_for_file(&gen_file, Duration::from_secs(10)) {
+        child.kill().ok();
+        panic!("Initial codegen file not created in time");
+    }
+
+    fs::write(
+        &gen_file,
+        "// touched by formatter\nexport const untouched = true;\n",
+    )
+    .unwrap();
+    thread::sleep(Duration::from_millis(200));
+
+    fs::write(&plain_path, "export const value = 2;\n").unwrap();
+    thread::sleep(Duration::from_millis(400));
+
+    let content = fs::read_to_string(&gen_file).unwrap();
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    assert!(
+        content.starts_with("// touched by formatter"),
+        "Non-GraphQL host edit should not trigger watch-mode codegen"
+    );
+}
+
 fn wait_for_file(path: &std::path::Path, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {

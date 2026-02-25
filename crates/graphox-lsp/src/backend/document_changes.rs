@@ -16,6 +16,7 @@ use tower_lsp::lsp_types::*;
 /// Result of processing document changes
 pub struct ChangeResult {
     pub uris_to_validate: Vec<Url>,
+    pub should_run_codegen: bool,
 }
 
 /// Parameters for processing document changes
@@ -42,6 +43,8 @@ pub fn process_document_change(
     let mut old_fragment_names = Vec::new();
     let mut affected_operation_names = AHashSet::default();
     let old_spreads: Vec<Arc<str>>;
+    let had_graphql_before: bool;
+    let has_graphql_after: bool;
 
     let new_fragments: Vec<graphox_core::document::FragmentDef>;
     let new_spreads: Vec<Arc<str>>;
@@ -52,6 +55,7 @@ pub fn process_document_change(
     // Get document and apply changes
     if let Some(doc_arc) = params.documents.get(uri).map(|r| r.value().clone()) {
         let mut doc = (*doc_arc).clone();
+        had_graphql_before = !doc.get_graphql_trees().is_empty();
 
         // Collect fragments before change
         for f in doc.fragments() {
@@ -72,6 +76,7 @@ pub fn process_document_change(
 
         new_fragments = doc.fragments().to_vec();
         new_spreads = doc.fragment_spreads.clone();
+        has_graphql_after = !doc.get_graphql_trees().is_empty();
 
         // Compute affected spreads (added or removed)
         let mut aff_spreads = AHashSet::default();
@@ -172,5 +177,8 @@ pub fn process_document_change(
         params.operation_names,
     );
 
-    Some(ChangeResult { uris_to_validate })
+    Some(ChangeResult {
+        uris_to_validate,
+        should_run_codegen: had_graphql_before || has_graphql_after,
+    })
 }
