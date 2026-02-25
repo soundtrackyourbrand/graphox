@@ -9,6 +9,10 @@ pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
     SemanticTokenType::VARIABLE,
     SemanticTokenType::TYPE,
     SemanticTokenType::STRING,
+    SemanticTokenType::KEYWORD,
+    SemanticTokenType::PROPERTY,
+    SemanticTokenType::FUNCTION,
+    SemanticTokenType::ENUM,
 ];
 
 #[repr(u32)]
@@ -16,6 +20,10 @@ pub enum SemanticTokenKind {
     Variable = 0,
     Type = 1,
     String = 2,
+    Keyword = 3,
+    Property = 4,
+    Function = 5,
+    Enum = 6,
 }
 
 pub fn is_relevant_file(path: &Path) -> bool {

@@ -60,30 +60,134 @@ impl DocumentSemanticTokens for DocumentState {
         let kind = node.kind();
         let mut captured = false;
 
-        if kind == "named_type" {
+        // Keyword: operation_type (query, mutation, subscription)
+        if kind == "operation_type" {
             tokens.push(RawToken {
                 range: self.translate_to_file_range(node, offset),
-                token_type: SemanticTokenKind::Type as u32,
+                token_type: SemanticTokenKind::Keyword as u32,
             });
             captured = true;
-        } else if kind == "string_value" {
+        }
+        // Enum value: enum_value
+        else if kind == "enum_value" {
+            tokens.push(RawToken {
+                range: self.translate_to_file_range(node, offset),
+                token_type: SemanticTokenKind::Enum as u32,
+            });
+            captured = true;
+        }
+        // String value
+        else if kind == "string_value" {
             tokens.push(RawToken {
                 range: self.translate_to_file_range(node, offset),
                 token_type: SemanticTokenKind::String as u32,
             });
             captured = true;
-        } else if kind == "name"
-            && let Some(parent) = node.parent()
-            && parent.kind() != "named_type"
-        {
+        }
+        // Named type
+        else if kind == "named_type" {
+            tokens.push(RawToken {
+                range: self.translate_to_file_range(node, offset),
+                token_type: SemanticTokenKind::Type as u32,
+            });
+            captured = true;
+        }
+        // Field name in selections (e.g., user, soundZoneUpdate)
+        else if kind == "field" {
+            // Get the name child of the field
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "name" {
+                    tokens.push(RawToken {
+                        range: self.translate_to_file_range(child, offset),
+                        token_type: SemanticTokenKind::Property as u32,
+                    });
+                    break;
+                }
+            }
+            captured = true;
+        }
+        // Variable: variable node (the $name part)
+        else if kind == "variable" {
             tokens.push(RawToken {
                 range: self.translate_to_file_range(node, offset),
                 token_type: SemanticTokenKind::Variable as u32,
             });
             captured = true;
         }
+        // Name in different contexts - determine based on parent
+        else if kind == "name" {
+            let parent = node.parent();
+            let grandparent = parent.and_then(|p| p.parent());
 
-        if !captured || kind == "named_type" {
+            // Skip if parent is named_type (we handle that above)
+            if parent.map(|p| p.kind() == "named_type").unwrap_or(false) {
+                // Don't capture - named_type handler does this
+            }
+            // Operation definition name (e.g., SonarZone in `subscription SonarZone`)
+            else if parent
+                .map(|p| p.kind() == "operation_definition")
+                .unwrap_or(false)
+            {
+                tokens.push(RawToken {
+                    range: self.translate_to_file_range(node, offset),
+                    token_type: SemanticTokenKind::Function as u32,
+                });
+                captured = true;
+            }
+            // Fragment definition name (e.g., UserFields in `fragment UserFields on User`)
+            else if parent.map(|p| p.kind() == "fragment_name").unwrap_or(false) {
+                tokens.push(RawToken {
+                    range: self.translate_to_file_range(node, offset),
+                    token_type: SemanticTokenKind::Function as u32,
+                });
+                captured = true;
+            }
+            // Fragment spread name (e.g., ...UserFields)
+            else if parent
+                .map(|p| p.kind() == "fragment_spread")
+                .unwrap_or(false)
+            {
+                // The fragment_spread has a fragment_name child which has a name child
+                // This is already handled by the name->fragment_name->fragment_spread path above
+            }
+            // Argument name in field arguments (e.g., id: $id)
+            else if parent.map(|p| p.kind() == "argument").unwrap_or(false) {
+                tokens.push(RawToken {
+                    range: self.translate_to_file_range(node, offset),
+                    token_type: SemanticTokenKind::Property as u32,
+                });
+                captured = true;
+            }
+            // Directive name (e.g., @skip, @include)
+            else if parent.map(|p| p.kind() == "directive").unwrap_or(false) {
+                tokens.push(RawToken {
+                    range: self.translate_to_file_range(node, offset),
+                    token_type: SemanticTokenKind::Property as u32,
+                });
+                captured = true;
+            }
+            // Variable definition (in ($id: ID!))
+            else if parent
+                .map(|p| p.kind() == "variable_definition")
+                .unwrap_or(false)
+                || grandparent
+                    .map(|p| p.kind() == "variable_definition")
+                    .unwrap_or(false)
+            {
+                // Already handled by variable node above, skip
+            }
+            // Default to Variable for other name contexts
+            else {
+                tokens.push(RawToken {
+                    range: self.translate_to_file_range(node, offset),
+                    token_type: SemanticTokenKind::Variable as u32,
+                });
+                captured = true;
+            }
+        }
+
+        if !captured || kind == "named_type" || kind == "field" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 self.collect_tokens_manual(child, offset, tokens);
