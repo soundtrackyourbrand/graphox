@@ -248,7 +248,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<serde_json::Value>> {
         self.with_tracing("execute_command", async move {
             match params.command.as_str() {
-                "graphql.runCodegen" => {
+                "graphox.runCodegen" => {
                     self.client
                         .log_message(MessageType::INFO, "Running codegen...")
                         .await;
@@ -258,7 +258,7 @@ impl LanguageServer for Backend {
                         .await;
                     Ok(None)
                 }
-                "graphql.clearCache" => {
+                "graphox.clearCache" => {
                     self.clear_cache().await;
                     Ok(None)
                 }

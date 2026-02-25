@@ -31,15 +31,15 @@
   "contributes": {
     "commands": [
       {
-        "command": "graphql.runCodegen",
+        "command": "graphox.runCodegen",
         "title": "Graphox: Run Codegen"
       },
       {
-        "command": "graphql.clearCache",
+        "command": "graphox.clearCache",
         "title": "Graphox: Clear Cache"
       },
       {
-        "command": "graphql.restartServer",
+        "command": "graphox.restartServer",
         "title": "Graphox: Restart Server"
       }
     ],

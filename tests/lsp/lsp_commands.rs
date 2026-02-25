@@ -72,7 +72,7 @@ async fn test_lsp_command_clear_cache() {
 
     // Trigger clear cache
     let params = ExecuteCommandParams {
-        command: "graphql.clearCache".to_string(),
+        command: "graphox.clearCache".to_string(),
         arguments: vec![],
         ..Default::default()
     };
@@ -134,7 +134,7 @@ async fn test_lsp_command_run_codegen() {
 
     // Trigger run codegen
     let params = ExecuteCommandParams {
-        command: "graphql.runCodegen".to_string(),
+        command: "graphox.runCodegen".to_string(),
         arguments: vec![],
         ..Default::default()
     };

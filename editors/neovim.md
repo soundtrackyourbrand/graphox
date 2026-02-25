@@ -94,11 +94,11 @@ lspconfig.graphox.setup({
     end
 
     vim.api.nvim_buf_create_user_command(bufnr, 'GraphQLCodegen', function()
-      execute_command('graphql.runCodegen')
+      execute_command('graphox.runCodegen')
     end, { desc = 'Run GraphQL code generation' })
 
     vim.api.nvim_buf_create_user_command(bufnr, 'GraphQLClearCache', function()
-      execute_command('graphql.clearCache')
+      execute_command('graphox.clearCache')
     end, { desc = 'Clear GraphQL LSP cache and reload schemas' })
 
     vim.api.nvim_buf_create_user_command(bufnr, 'GraphQLRestart', function()
@@ -118,8 +118,8 @@ lspconfig.graphox.setup({
 
 The server currently supports two primary custom workspace commands:
 
-- **`graphql.runCodegen`**: Manually triggers the TypeScript type generation for all operations and fragments in the workspace.
-- **`graphql.clearCache`**: Clears all parsed schemas and re-validates all open documents. This is useful if you've made manual changes to a schema file that wasn't picked up by the file watcher.
+- **`graphox.clearCache`**: Manually triggers the TypeScript type generation for all operations and fragments in the workspace.
+- **`graphox.clearCache`**: Clears all parsed schemas and re-validates all open documents. This is useful if you've made manual changes to a schema file that wasn't picked up by the file watcher.
 
 ## Automatic Code Actions
 

@@ -197,16 +197,16 @@ async function startServer(context: ExtensionContext): Promise<void> {
       executeCommand: async (command, args, next) => {
         try {
           const result = await next(command, args);
-          if (command === 'graphql.runCodegen') {
+          if (command === 'graphox.runCodegen') {
             window.showInformationMessage('GraphQL Codegen completed!');
-          } else if (command === 'graphql.clearCache') {
+          } else if (command === 'graphox.clearCache') {
             window.showInformationMessage('GraphQL Cache cleared!');
           }
           return result;
         } catch (err) {
-          if (command === 'graphql.runCodegen') {
+          if (command === 'graphox.runCodegen') {
             window.showErrorMessage(`GraphQL Codegen failed: ${err}`);
-          } else if (command === 'graphql.clearCache') {
+          } else if (command === 'graphox.clearCache') {
             window.showErrorMessage(`Failed to clear GraphQL Cache: ${err}`);
           }
           throw err;
@@ -250,9 +250,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
   // automatically by the LanguageClient via executeCommandProvider.
 
   context.subscriptions.push(
-    commands.registerCommand('graphql.restartServer', async () => {
+    commands.registerCommand('graphox.restartServer', async () => {
       await startServer(context);
-      window.showInformationMessage(`GraphQL Rust server restarted.`);
+      window.showInformationMessage(`Graphox server restarted.`);
     })
   );
 

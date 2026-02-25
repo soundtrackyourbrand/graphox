@@ -138,8 +138,8 @@ pub fn build_server_capabilities(client_caps: &ClientCapabilities) -> ServerCapa
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         execute_command_provider: Some(ExecuteCommandOptions {
             commands: vec![
-                "graphql.runCodegen".to_string(),
-                "graphql.clearCache".to_string(),
+                "graphox.runCodegen".to_string(),
+                "graphox.clearCache".to_string(),
             ],
             ..Default::default()
         }),

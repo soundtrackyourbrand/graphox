@@ -303,7 +303,7 @@ async fn test_progress_on_codegen() {
 
     // Trigger codegen
     let params = ExecuteCommandParams {
-        command: "graphql.runCodegen".to_string(),
+        command: "graphox.runCodegen".to_string(),
         arguments: vec![],
         ..Default::default()
     };
