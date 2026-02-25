@@ -579,7 +579,8 @@ async fn validate_all_documents_cancellable(
                     let effective_config = if let Some(project) = project_config
                         && let Some(project_rules) = project.rules()
                     {
-                        config_clone.clone().with_rules(project_rules.clone())
+                        let merged_rules = config_clone.rules().merge(project_rules);
+                        config_clone.clone().with_rules(merged_rules)
                     } else {
                         config_clone.clone()
                     };

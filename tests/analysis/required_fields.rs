@@ -1013,3 +1013,83 @@ async fn test_project_level_rules_without_override_uses_global() {
         diagnostics[0]
     );
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_project_level_field_override_replaces_global() {
+    // Test that project-level field overrides replace global rules entirely
+    let dir = tempfile::TempDir::new().expect("failed to create tempdir");
+    let schema_text = r#"
+        type Query {
+            users: [User]
+        }
+        type User {
+            id: ID!
+            permissions: [String]
+            name: String!
+        }
+    "#;
+    let schema_path = dir.path().join("schema.graphql");
+    std::fs::write(&schema_path, schema_text).expect("write schema");
+
+    // Query that selects ONLY 'name'
+    let query_text = r#"
+        query GetUsers {
+            users {
+                name
+            }
+        }
+    "#;
+    let query_uri = crate::support::write_project_file(&dir, "query.graphql", query_text);
+
+    // Create config with:
+    // 1. Global rules: required_fields { id: true, permissions: true }
+    // 2. Project rules: required_fields: { permissions: false }
+    // Result should be ONLY: { permissions: false }
+    // 'id' should NOT be required anymore for this project.
+    let mut global_required_fields = ahash::AHashMap::default();
+    global_required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    global_required_fields.insert("permissions".to_string(), RequiredFieldRule::Always(true));
+
+    let mut project_required_fields = ahash::AHashMap::default();
+    project_required_fields.insert("permissions".to_string(), RequiredFieldRule::Always(false));
+
+    let config = Config::new_test(
+        dir.path().to_path_buf(),
+        vec![
+            graphox::config::ProjectConfig::default()
+                .with_schema(graphox::config::SchemaSource::Single(
+                    "schema.graphql".to_string(),
+                ))
+                .with_include(graphox::config::GlobPattern::Single(
+                    "**/*.graphql".to_string(),
+                ))
+                .with_rules(RulesConfig::default().with_required_fields(project_required_fields)),
+        ],
+    )
+    .with_rules(RulesConfig::default().with_required_fields(global_required_fields))
+    .with_enable_schema_cache(false)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = crate::support::create_initialized_lsp_service(config).await;
+
+    crate::support::lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let result = crate::support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    let mut diagnostics = Vec::new();
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+        result
+    {
+        diagnostics = full_report.full_document_diagnostic_report.items;
+    }
+
+    // Should be empty because:
+    // - Project-level rules replaced global rules.
+    // - Project-level rules only say 'permissions' is false (not required).
+    // - 'id' is no longer required because it was only in global.
+    assert!(
+        diagnostics.is_empty(),
+        "Should not report missing 'id' or 'permissions' because project rules replaced global rules. Diagnostics: {:?}",
+        diagnostics
+    );
+}

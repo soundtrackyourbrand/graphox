@@ -144,7 +144,8 @@ pub async fn validate_uris(
             let effective_config = if let Some(project) = project_config
                 && let Some(project_rules) = project.rules()
             {
-                params.config.clone().with_rules(project_rules.clone())
+                let merged_rules = params.config.rules().merge(project_rules);
+                params.config.clone().with_rules(merged_rules)
             } else {
                 params.config.clone()
             };

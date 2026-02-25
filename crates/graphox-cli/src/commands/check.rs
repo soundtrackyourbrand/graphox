@@ -194,10 +194,9 @@ async fn execute_project_check(
 
         // Use project-specific rules if defined, otherwise fall back to global rules
         let project_rules = project_config.rules();
-        let effective_config = if project_rules.is_some() {
-            config
-                .clone()
-                .with_rules(project_rules.cloned().unwrap_or_default())
+        let effective_config = if let Some(project_rules) = project_rules {
+            let merged_rules = config.rules().merge(project_rules);
+            config.clone().with_rules(merged_rules)
         } else {
             config.clone()
         };

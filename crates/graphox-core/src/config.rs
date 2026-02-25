@@ -80,6 +80,26 @@ impl RulesConfig {
         self.no_unused_fragments.unwrap_or(false)
     }
 
+    pub fn merge(&self, other: &Self) -> Self {
+        let mut merged = self.clone();
+
+        if other.required_fields.is_some() {
+            merged.required_fields = other.required_fields.clone();
+        }
+
+        if other.unique_operation_name.is_some() {
+            merged.unique_operation_name = other.unique_operation_name;
+        }
+        if other.no_duplicate_fields.is_some() {
+            merged.no_duplicate_fields = other.no_duplicate_fields;
+        }
+        if other.no_unused_fragments.is_some() {
+            merged.no_unused_fragments = other.no_unused_fragments;
+        }
+
+        merged
+    }
+
     pub fn from_yaml(node: &Yaml) -> Option<Self> {
         if node.is_null() || node.is_badvalue() {
             return None;
