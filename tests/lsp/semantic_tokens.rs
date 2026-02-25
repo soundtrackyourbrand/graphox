@@ -3,6 +3,7 @@ use tower_lsp::lsp_types::{Position, Range, SemanticToken, SemanticTokenType};
 
 use crate::support::create_doc;
 use crate::support::fixtures::{user_schema, user_with_deprecated_field_schema};
+use crate::support::{pos, pos_for_token, range};
 use graphox::features::semantic_tokens::DocumentSemanticTokens;
 
 // Token type indices matching SemanticTokenKind enum
@@ -515,4 +516,121 @@ fn test_semantic_tokens_inline_fragment() {
 
     // Should have tokens for fields
     assert!(!tokens.is_empty());
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_semantic_tokens_embedded_ts() {
+    // Test embedded GraphQL in .ts file with TypeScript code before and after
+    // to verify ranges are correctly translated
+    let text = r#"
+import type { ResultOf } from '@graphql-typed-document-node/core'
+import type { Get } from '@soundtrackyourbrand/object-utils.js'
+import { graphql } from '@/src/graphql/gql'
+
+export const NearbySoundZonesDoc = graphql(/* GraphQL */ `
+  query NearbySoundZones($latitude: Float!, $longitude: Float!, $first: Int!, $radius: Int!, $online: Boolean) {
+    nearbySoundZones(latitude: $latitude, longitude: $longitude, first: $first, radius: $radius, online: $online) {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+`)
+
+export type TestType = {
+    field: string
+}
+"#;
+    let doc = create_doc("file:///test.ts", text);
+    let tokens = doc.get_semantic_tokens();
+
+    // Verify we get tokens from embedded GraphQL
+    assert!(
+        !tokens.is_empty(),
+        "Expected tokens from embedded GraphQL in .ts file"
+    );
+
+    // Should have FUNCTION token for operation name "NearbySoundZones"
+    let fn_count = count_tokens_by_type(&tokens, TOKEN_FUNCTION);
+    assert!(
+        fn_count >= 1,
+        "Expected function token for operation name, got {}",
+        fn_count
+    );
+
+    // Should have VARIABLE token for $latitude, $longitude, etc.
+    let var_count = count_tokens_by_type(&tokens, TOKEN_VARIABLE);
+    assert!(
+        var_count >= 5,
+        "Expected variable tokens (5 vars), got {}",
+        var_count
+    );
+
+    // Should have TYPE token for Float, Int, Boolean
+    let type_count = count_tokens_by_type(&tokens, TOKEN_TYPE);
+    assert!(
+        type_count >= 3,
+        "Expected type tokens (Float, Int, Boolean), got {}",
+        type_count
+    );
+
+    // Should have PROPERTY tokens for field names (id, name, edges, node, etc.)
+    let prop_count = count_tokens_by_type(&tokens, TOKEN_PROPERTY);
+    assert!(
+        prop_count >= 5,
+        "Expected property tokens for field names, got {}",
+        prop_count
+    );
+
+    // Verify token ranges by decoding delta-encoded positions
+    // The GraphQL content starts at line 6 (0-indexed: line 5) after the `graphql(` call
+    // and ends around line 21 (0-indexed: line 20)
+    let mut last_line: u32 = 0;
+    let mut last_col: u32 = 0;
+
+    for token in &tokens {
+        let abs_line = last_line + token.delta_line;
+        let abs_col = if token.delta_line == 0 {
+            last_col + token.delta_start
+        } else {
+            token.delta_start
+        };
+
+        // All GraphQL tokens should be within lines 5-21 (where the embedded GraphQL is)
+        // Lines 0-4 are TypeScript imports, line 5 is "graphql(/* GraphQL */",
+        // lines 6-20 are the GraphQL query body, lines 22+ is TypeScript after
+        assert!(
+            abs_line >= 5 && abs_line <= 21,
+            "Token at line {} should be in GraphQL range (lines 5-21)",
+            abs_line
+        );
+
+        last_line = abs_line;
+        last_col = abs_col;
+    }
+
+    // Verify we have the expected token counts
+    assert!(
+        fn_count >= 1,
+        "Should have function token for operation name 'NearbySoundZones'"
+    );
+
+    assert!(
+        var_count >= 5,
+        "Should have 5 variable tokens ($latitude, $longitude, $first, $radius, $online)"
+    );
+
+    assert!(
+        type_count >= 3,
+        "Should have type tokens for Float, Int, Boolean"
+    );
+
+    assert!(
+        prop_count >= 5,
+        "Should have property tokens for field names (edges, node, id, name, etc.)"
+    );
 }
