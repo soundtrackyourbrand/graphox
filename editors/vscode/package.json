@@ -25,7 +25,13 @@
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onLanguage:javascript",
-    "onLanguage:javascriptreact"
+    "onLanguage:javascriptreact",
+    "onLanguage:yaml",
+    "workspaceContains:**/graphox.yaml",
+    "workspaceContains:**/graphox.yml"
+  ],
+  "extensionDependencies": [
+    "redhat.vscode-yaml"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -71,15 +77,40 @@
         "extensions": [
           ".graphql"
         ]
+      },
+      {
+        "id": "yaml",
+        "filenames": [
+          "graphox.yaml",
+          "graphox.yml"
+        ]
       }
     ],
     "jsonValidation": [
+      {
+        "fileMatch": "**/graphox.yaml",
+        "url": "./out/graphox.schema.json"
+      },
+      {
+        "fileMatch": "**/graphox.yml",
+        "url": "./out/graphox.schema.json"
+      }
+    ],
+    "yamlValidation": [
       {
         "fileMatch": "graphox.yaml",
         "url": "./out/graphox.schema.json"
       },
       {
         "fileMatch": "graphox.yml",
+        "url": "./out/graphox.schema.json"
+      },
+      {
+        "fileMatch": "**/graphox.yaml",
+        "url": "./out/graphox.schema.json"
+      },
+      {
+        "fileMatch": "**/graphox.yml",
         "url": "./out/graphox.schema.json"
       }
     ]
