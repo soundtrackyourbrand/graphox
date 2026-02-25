@@ -454,8 +454,10 @@ fn generate_union_type(
     }
 
     let type_str = format_union_branches(&branches, &pad);
+    let needs_type_declaration = branches.len() > 1 || branches.iter().any(|b| b.contains('&'));
+
     SelectionSetType {
         type_str,
-        needs_type_declaration: false,
+        needs_type_declaration,
     }
 }

@@ -4,11 +4,11 @@
 
 type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 
-export interface AccountInfo {
+export type AccountInfo = {
     __typename: "User";
     username: string;
   }
   | {
     __typename: "Admin";
     role: string;
-  }
+  };
