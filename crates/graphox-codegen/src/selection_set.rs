@@ -335,9 +335,12 @@ fn generate_union_type(
 ) -> SelectionSetType {
     let pad = "  ".repeat(indent);
 
-    // Group members by their selection sets to produce concise unions
-    // Key: (FieldsList, SpreadsString), Value: Vec of member typenames
-    let mut groups: Vec<((Vec<String>, String), Vec<Arc<str>>)> = Vec::new();
+    struct SelectionGroup {
+        fields_list: Vec<String>,
+        spreads_str: String,
+        members: Vec<Arc<str>>,
+    }
+    let mut groups: Vec<SelectionGroup> = Vec::new();
 
     let all_members = ctx.get_abstract_members(parent_type.name());
 
@@ -416,20 +419,27 @@ fn generate_union_type(
             format_intersection(&[], &member_spreads, ctx)
         };
 
-        let key = (fields_list, spreads_str);
-        if let Some(existing) = groups.iter_mut().find(|(k, _)| *k == key) {
-            existing.1.push(member_name.clone());
+        if let Some(existing) = groups
+            .iter_mut()
+            .find(|g| g.fields_list == fields_list && g.spreads_str == spreads_str)
+        {
+            existing.members.push(member_name.clone());
         } else {
-            groups.push((key, vec![member_name.clone()]));
+            groups.push(SelectionGroup {
+                fields_list,
+                spreads_str,
+                members: vec![member_name.clone()],
+            });
         }
     }
 
     let mut branches = Vec::new();
-    for ((fields_list, spreads_str), members) in groups {
-        let mut final_fields = fields_list;
+    for group in groups {
+        let mut final_fields = group.fields_list;
 
         // Prepend the combined __typename for this group
-        let typename_value = members
+        let typename_value = group
+            .members
             .iter()
             .map(|m| format!("\"{}\"", m))
             .collect::<Vec<_>>()
@@ -437,8 +447,8 @@ fn generate_union_type(
         final_fields.insert(0, format!("__typename: {}", typename_value));
 
         let mut type_str = format_multiline_object(&final_fields, indent + 1);
-        if !spreads_str.is_empty() {
-            type_str = format!("({} & {})", type_str, spreads_str);
+        if !group.spreads_str.is_empty() {
+            type_str = format!("({} & {})", type_str, group.spreads_str);
         }
         branches.push(type_str);
     }
