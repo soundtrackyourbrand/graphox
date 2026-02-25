@@ -133,7 +133,7 @@ jobs:
   build-and-publish-swc-plugin:
     name: Build and Publish SWC Plugin
     needs: create-release
-    runs-on: ubicloud-standard-4-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
@@ -205,7 +205,7 @@ jobs:
   publish-babel-plugin:
     name: Publish Babel Plugin
     needs: create-release
-    runs-on: ubicloud-standard-2-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
@@ -291,7 +291,7 @@ jobs:
   publish-platform-packages:
     name: Publish Platform Packages
     needs: [create-release, build-binaries]
-    runs-on: ubicloud-standard-2-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
@@ -370,7 +370,7 @@ jobs:
   publish-cli-wrapper:
     name: Publish CLI Wrapper
     needs: [create-release, publish-platform-packages]
-    runs-on: ubicloud-standard-2-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
