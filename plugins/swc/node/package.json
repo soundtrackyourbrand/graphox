@@ -1,6 +1,6 @@
 {
   "name": "@graphox/swc-plugin-plugin",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "SWC plugin for GraphQL Rust codesplitting",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
