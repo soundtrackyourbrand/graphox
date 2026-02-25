@@ -400,7 +400,6 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                             );
                         }
                     }
-                    Ok(())
                 } else {
                     if !clean && verbose {
                         println!("Generating types for schema: {}", st.output().blue());
@@ -492,8 +491,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                             }
                         }
                     }
-                    Ok(())
                 }
+                Ok(())
             })
             .collect();
 

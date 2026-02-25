@@ -465,10 +465,8 @@ pub fn get_output_path(
 
     if let Some(out_dir) = output_dir {
         output_path.push(out_dir);
-        output_path.push(rel_path);
-    } else {
-        output_path.push(rel_path);
     }
+    output_path.push(rel_path);
 
     output_path.set_extension("codegen.ts");
     output_path

@@ -255,12 +255,13 @@ impl DocumentReferences for DocumentState {
                         .to_string();
 
                     if name == field_name {
+                        let Some(parent) = name_node.parent() else {
+                            continue;
+                        };
+
                         // For definitions, we need to check if this is specifically a field_definition
                         if is_definition {
                             // Check if the parent is field_definition
-                            let Some(parent) = name_node.parent() else {
-                                continue;
-                            };
                             if parent.kind() != "field_definition" {
                                 // Not a field definition, skip it
                                 continue;
@@ -283,9 +284,6 @@ impl DocumentReferences for DocumentState {
                             }
                         } else {
                             // For references, check if this is a field selection
-                            let Some(parent) = name_node.parent() else {
-                                continue;
-                            };
                             if parent.kind() != "field" {
                                 // Not a field selection, skip it
                                 continue;

@@ -105,10 +105,10 @@ pub fn generate_typescript_with_profile(
                 generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
+            if !bodies.is_empty() {
+                bodies.push('\n');
+            }
             if result.needs_type_declaration {
-                if !bodies.is_empty() {
-                    bodies.push('\n');
-                }
                 bodies.push_str("export type ");
                 bodies.push_str(&name);
                 bodies.push_str(suffix);
@@ -116,9 +116,6 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str(&result.type_str);
                 bodies.push_str(";\n");
             } else {
-                if !bodies.is_empty() {
-                    bodies.push('\n');
-                }
                 bodies.push_str("export interface ");
                 bodies.push_str(&name);
                 bodies.push_str(suffix);
@@ -387,25 +384,21 @@ pub fn generate_typescript_with_profile(
                     content_arc.to_string()
                 };
 
+                doc_export.push_str("export const ");
+                doc_export.push_str(&fragment_document_name);
+                doc_export.push_str(" = ");
+                doc_export.push_str(&ast_content);
+                doc_export.push_str(" as unknown as DocumentNode<");
+                doc_export.push_str(&fragment_type_name);
+                doc_export.push_str(", unknown>");
+
                 if ctx.fragment_masking().is_enabled() {
-                    doc_export.push_str("export const ");
-                    doc_export.push_str(&fragment_document_name);
-                    doc_export.push_str(" = ");
-                    doc_export.push_str(&ast_content);
-                    doc_export.push_str(" as unknown as DocumentNode<");
-                    doc_export.push_str(&fragment_type_name);
-                    doc_export.push_str(", unknown> & {\n");
+                    doc_export.push_str(" & {\n");
                     doc_export.push_str("  __fragment: ");
                     doc_export.push_str(&fragment_type_name);
                     doc_export.push_str(";\n};\n");
                 } else {
-                    doc_export.push_str("export const ");
-                    doc_export.push_str(&fragment_document_name);
-                    doc_export.push_str(" = ");
-                    doc_export.push_str(&ast_content);
-                    doc_export.push_str(" as unknown as DocumentNode<");
-                    doc_export.push_str(&fragment_type_name);
-                    doc_export.push_str(", unknown>;\n");
+                    doc_export.push_str(";\n");
                 }
                 profile.ast_serialization_time += ast_start.elapsed();
             } else if ctx.fragment_masking().is_enabled() {
@@ -513,17 +506,13 @@ pub fn generate_typescript_with_profile(
 
         if ctx.fragment_masking().is_enabled() {
             import_section.push_str("import { ");
-            import_section.push_str(&type_imports.join(", "));
-            import_section.push_str(" } from \"");
-            import_section.push_str(&final_import_path);
-            import_section.push_str("\";\n");
         } else {
             import_section.push_str("import type { ");
-            import_section.push_str(&type_imports.join(", "));
-            import_section.push_str(" } from \"");
-            import_section.push_str(&final_import_path);
-            import_section.push_str("\";\n");
         }
+        import_section.push_str(&type_imports.join(", "));
+        import_section.push_str(" } from \"");
+        import_section.push_str(&final_import_path);
+        import_section.push_str("\";\n");
 
         if !doc_imports.is_empty() {
             import_section.push_str("import { ");

@@ -604,7 +604,7 @@ export type TestType = {
         // Lines 0-4 are TypeScript imports, line 5 is "graphql(/* GraphQL */",
         // lines 6-20 are the GraphQL query body, lines 22+ is TypeScript after
         assert!(
-            abs_line >= 5 && abs_line <= 21,
+            (5..=21).contains(&abs_line),
             "Token at line {} should be in GraphQL range (lines 5-21)",
             abs_line
         );

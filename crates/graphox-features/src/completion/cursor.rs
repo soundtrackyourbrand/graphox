@@ -45,17 +45,14 @@ pub fn is_after_on(doc: &DocumentState, cursor_offset: usize) -> bool {
                 curr -= 1;
                 continue;
             }
-            return false;
-        } else {
-            if c == 'o' || c == 'O' {
-                if curr > 1 {
-                    let prev = doc.rope.char(doc.rope.byte_to_char(curr - 2));
-                    return !is_name_char(prev);
-                }
-                return true;
+        } else if c == 'o' || c == 'O' {
+            if curr > 1 {
+                let prev = doc.rope.char(doc.rope.byte_to_char(curr - 2));
+                return !is_name_char(prev);
             }
-            return false;
+            return true;
         }
+        return false;
     }
     false
 }

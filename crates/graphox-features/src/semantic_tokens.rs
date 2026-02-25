@@ -125,18 +125,11 @@ impl DocumentSemanticTokens for DocumentState {
                 // Don't capture - named_type handler does this
             }
             // Operation definition name (e.g., SonarZone in `subscription SonarZone`)
+            // or Fragment definition name (e.g., UserFields in `fragment UserFields on User`)
             else if parent
-                .map(|p| p.kind() == "operation_definition")
+                .map(|p| p.kind() == "operation_definition" || p.kind() == "fragment_name")
                 .unwrap_or(false)
             {
-                tokens.push(RawToken {
-                    range: self.translate_to_file_range(node, offset),
-                    token_type: SemanticTokenKind::Function as u32,
-                });
-                captured = true;
-            }
-            // Fragment definition name (e.g., UserFields in `fragment UserFields on User`)
-            else if parent.map(|p| p.kind() == "fragment_name").unwrap_or(false) {
                 tokens.push(RawToken {
                     range: self.translate_to_file_range(node, offset),
                     token_type: SemanticTokenKind::Function as u32,
@@ -152,15 +145,11 @@ impl DocumentSemanticTokens for DocumentState {
                 // This is already handled by the name->fragment_name->fragment_spread path above
             }
             // Argument name in field arguments (e.g., id: $id)
-            else if parent.map(|p| p.kind() == "argument").unwrap_or(false) {
-                tokens.push(RawToken {
-                    range: self.translate_to_file_range(node, offset),
-                    token_type: SemanticTokenKind::Property as u32,
-                });
-                captured = true;
-            }
-            // Directive name (e.g., @skip, @include)
-            else if parent.map(|p| p.kind() == "directive").unwrap_or(false) {
+            // or Directive name (e.g., @skip, @include)
+            else if parent
+                .map(|p| p.kind() == "argument" || p.kind() == "directive")
+                .unwrap_or(false)
+            {
                 tokens.push(RawToken {
                     range: self.translate_to_file_range(node, offset),
                     token_type: SemanticTokenKind::Property as u32,
