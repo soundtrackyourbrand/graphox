@@ -15,6 +15,7 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 - [Validation Rules](./docs/rules.md)
 - [Architecture](./docs/architecture.md)
 - [Common Configurations](./docs/configurations.md)
+- [Comparison with GraphQL Code Generator](./docs/comparison-graphql-codegen.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Plugin Development](./docs/plugin-development.md)
 - [License](#license)
