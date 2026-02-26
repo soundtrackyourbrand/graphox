@@ -1,0 +1,22 @@
+[
+  {
+    "name": "AppQueryQueryDocument",
+    "path": "../fragments.codegen",
+    "source": "fragment FragC on User {\n  id\n}\n\nfragment FragB on User {\n  name\n  ...FragC\n}\n\nfragment FragA on User {\n  email\n  ...FragB\n  ...FragC\n}\n\nquery AppQuery($id: ID!) {\n  user(id: $id) {\n    ...FragA\n  }\n}\n"
+  },
+  {
+    "name": "FragADocument",
+    "path": "../fragments.codegen",
+    "source": "fragment FragC on User {\n  id\n}\n\nfragment FragB on User {\n  name\n  ...FragC\n}\n\nfragment FragA on User {\n  email\n  ...FragB\n  ...FragC\n}\n\nquery AppQuery($id: ID!) {\n  user(id: $id) {\n    ...FragA\n  }\n}\n"
+  },
+  {
+    "name": "FragBDocument",
+    "path": "../fragments.codegen",
+    "source": "fragment FragC on User {\n  id\n}\n\nfragment FragB on User {\n  name\n  ...FragC\n}\n\nfragment FragA on User {\n  email\n  ...FragB\n  ...FragC\n}\n\nquery AppQuery($id: ID!) {\n  user(id: $id) {\n    ...FragA\n  }\n}\n"
+  },
+  {
+    "name": "FragCDocument",
+    "path": "../fragments.codegen",
+    "source": "fragment FragC on User {\n  id\n}\n\nfragment FragB on User {\n  name\n  ...FragC\n}\n\nfragment FragA on User {\n  email\n  ...FragB\n  ...FragC\n}\n\nquery AppQuery($id: ID!) {\n  user(id: $id) {\n    ...FragA\n  }\n}\n"
+  }
+]

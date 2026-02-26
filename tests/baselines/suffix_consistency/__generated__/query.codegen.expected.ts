@@ -17,4 +17,4 @@ export interface GetUserQuery {
 
 export type GetUserQueryVariables = Exact<{
 }>;
-export const GetUserQueryDoc = { kind: 'Document', definitions: [{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUser"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"UserFields"}}]}}]}}, ...UserFieldsFragFragmentDoc.definitions] } as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;
+export const GetUserQueryDoc = { kind: 'Document', definitions: [{"kind":"OperationDefinition","name":{"kind":"Name","value":"GetUser"},"operation":"query","selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"UserFields"}}]}}]}}, UserFieldsFragFragmentDoc.definitions[0]] } as unknown as DocumentNode<GetUserQuery, GetUserQueryVariables>;

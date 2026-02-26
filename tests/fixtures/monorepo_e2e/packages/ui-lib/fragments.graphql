@@ -13,3 +13,18 @@ fragment UserFields on User @public {
     language
   }
 }
+
+fragment FragC on User @public {
+  id
+}
+
+fragment FragB on User @public {
+  name
+  ...FragC
+}
+
+fragment FragA on User @public {
+  email
+  ...FragB
+  ...FragC
+}

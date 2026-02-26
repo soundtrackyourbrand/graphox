@@ -215,6 +215,10 @@ def main():
         ("tests/fixtures/inline_fragments", "tests/baselines/inline_fragments"),
         ("tests/fixtures/typename_strictness", "tests/baselines/typename_strictness"),
         ("tests/fixtures/union_merging", "tests/baselines/union_merging"),
+        (
+            "tests/fixtures/fragment_spread_ast",
+            "tests/baselines/fragment_spread_ast",
+        ),
     ]
 
     for fixture, baseline in tasks:

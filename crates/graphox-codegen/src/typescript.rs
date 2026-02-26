@@ -151,18 +151,9 @@ pub fn generate_typescript_with_profile(
                 get_operation_deps_cached(op, ctx)
             };
 
-            let op_direct_deps = if ctx.generate_ast_for_fragments && !ctx.config.inline_fragments()
-            {
-                let mut direct = HashSet::default();
-                crate::helpers::collect_direct_fragment_spreads(&op.selection_set, &mut direct);
-                direct
-            } else {
-                HashSet::default()
-            };
-
             let ast_content = if ctx.generate_ast_for_fragments {
                 let op_def = serialize_operation_definition(op, ctx.all_fragments, ctx.config);
-                let deps = &op_direct_deps;
+                let deps = &op_deps;
 
                 let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
                 definitions_parts.push(op_def.to_string());
@@ -188,15 +179,15 @@ pub fn generate_typescript_with_profile(
                         });
 
                     if !is_type_only {
-                        let mut spread = String::with_capacity(dep.len() + 23);
-                        spread.push_str("...");
                         let dep_name =
                             apply_naming_convention(dep.as_ref(), &ctx.naming_convention());
-                        spread.push_str(&dep_name);
-                        spread.push_str(ctx.fragment_suffix());
-                        spread.push_str(ctx.fragment_document_suffix());
-                        spread.push_str(".definitions");
-                        definitions_parts.push(spread);
+                        let name = format!(
+                            "{}{}{}.definitions[0]",
+                            dep_name,
+                            ctx.fragment_suffix(),
+                            ctx.fragment_document_suffix()
+                        );
+                        definitions_parts.push(name);
                     }
                 }
 
@@ -356,15 +347,15 @@ pub fn generate_typescript_with_profile(
                             });
 
                         if !is_dep_type_only {
-                            let mut spread = String::with_capacity(dep.len() + 23);
-                            spread.push_str("...");
                             let dep_name =
                                 apply_naming_convention(dep.as_ref(), &ctx.naming_convention());
-                            spread.push_str(&dep_name);
-                            spread.push_str(ctx.fragment_suffix());
-                            spread.push_str(ctx.fragment_document_suffix());
-                            spread.push_str(".definitions");
-                            definitions_parts.push(spread);
+                            let name = format!(
+                                "{}{}{}.definitions[0]",
+                                dep_name,
+                                ctx.fragment_suffix(),
+                                ctx.fragment_document_suffix()
+                            );
+                            definitions_parts.push(name);
                         }
                     }
 

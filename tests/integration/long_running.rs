@@ -490,6 +490,20 @@ async function run() {{
            continue;
         }}
 
+        // Verify no duplicate fragment definitions in goxDoc
+        if (goxDoc.definitions) {{
+          const seenFragments = new Set();
+          for (const def of goxDoc.definitions) {{
+            if (def.kind === 'FragmentDefinition') {{
+              const fragName = def.name.value;
+              if (seenFragments.has(fragName)) {{
+                throw new Error(`Duplicate fragment definition found in goxDoc: ${{fragName}}`);
+              }}
+              seenFragments.add(fragName);
+            }}
+          }}
+        }}
+
         // We only compare kind and definitions
         const cleanGox = normalize(goxDoc);
         const cleanCod = normalize(codDoc);

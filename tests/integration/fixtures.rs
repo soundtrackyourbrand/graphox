@@ -272,6 +272,16 @@ fn test_cli_union_merging_baselines() {
     );
 }
 
+#[test]
+#[ntest::timeout(10000)]
+fn test_cli_fragment_spread_ast_baselines() {
+    run_baseline_test(
+        "tests/fixtures/fragment_spread_ast",
+        "tests/baselines/fragment_spread_ast",
+        None,
+    );
+}
+
 pub(crate) fn run_baseline_test(
     fixture_dir_str: &str,
     baseline_dir_str: &str,

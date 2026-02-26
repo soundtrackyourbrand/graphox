@@ -602,7 +602,7 @@ projects:
     assert!(query_content.contains("import { UserFieldsDocument } from \"./fragment.codegen\";"));
 
     // Check that it uses the fragment document definitions
-    assert!(query_content.contains("...UserFieldsDocument.definitions"));
+    assert!(query_content.contains("UserFieldsDocument.definitions[0]"));
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();

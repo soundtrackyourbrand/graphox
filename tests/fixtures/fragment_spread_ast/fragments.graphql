@@ -1,0 +1,20 @@
+fragment FragC on User {
+  id
+}
+
+fragment FragB on User {
+  name
+  ...FragC
+}
+
+fragment FragA on User {
+  email
+  ...FragB
+  ...FragC
+}
+
+query AppQuery($id: ID!) {
+  user(id: $id) {
+    ...FragA
+  }
+}

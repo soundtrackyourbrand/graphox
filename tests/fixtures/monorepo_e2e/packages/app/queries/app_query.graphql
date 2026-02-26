@@ -1,16 +1,6 @@
-query AppQuery($first: Int = 10, $after: String) {
-  me {
+query AppQuery($id: ID!) {
+  user(id: $id) {
     ...UserFields
-    unmappedField
-  }
-  posts(first: $first, after: $after) {
-    nodes {
-      ...PostFields
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-    totalCount
+    ...FragA
   }
 }
