@@ -277,6 +277,16 @@
         "schema_import": {
           "type": "string",
           "description": "The import path used in generated operation files to reference schema types."
+        },
+        "nullable_fields_as_optional": {
+          "type": "boolean",
+          "description": "Generate nullable fields as optional properties (with '?') in TypeScript interfaces.",
+          "default": false
+        },
+        "graphql_tag_fallback": {
+          "type": "boolean",
+          "description": "Use graphql-tag as a fallback for the generated graphql function. Useful for development when not all literals are codegen yet.",
+          "default": false
         }
       }
     },

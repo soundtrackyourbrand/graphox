@@ -12,7 +12,10 @@ This document provides ready-to-use configuration examples for common use cases,
 - [Custom Scalars](#custom-scalars)
 - [Schema Types Only](#schema-types-only)
 - [Apollo Client possibleTypes](#apollo-client-possibletypes)
+- [Apollo Client TypePolicies](#apollo-client-typepolicies)
 - [Selective Codegen](#selective-codegen)
+- [GraphQL Tag Fallback](#graphql-tag-fallback)
+- [Nullable Fields as Optional](#nullable-fields-as-optional)
 - [Ignoring Deprecations](#ignoring-deprecations)
 - [Performance Tuning](#performance-tuning)
 - [LSP Request Tracing](#lsp-request-tracing)
@@ -62,6 +65,14 @@ codegen:
   
   # File extensions
   emit_extensions: "ts"  # or: "js", "tsx"
+
+  # Development options
+  # Use graphql-tag as a fallback for the generated graphql function
+  graphql_tag_fallback: false
+
+  # Type generation options
+  # Generate nullable fields as optional properties (with '?')
+  nullable_fields_as_optional: false
 
 # Project configurations (required)
 projects:
@@ -697,6 +708,64 @@ projects:
   - schema: "packages/api/schema.graphql"  # Reuse API schema
     include: "packages/web/src/**/*.{ts,tsx}"
     output_dir: "__generated__"
+```
+
+---
+
+## GraphQL Tag Fallback
+
+Enable `graphql-tag` fallback for the generated `graphql` function. This is useful during development when you are adding new GraphQL literals that haven't been codegen yet.
+
+### Configuration
+
+```yaml
+# graphox.yaml
+codegen:
+  graphql_tag_fallback: true
+```
+
+When enabled, the generated `graphql` function will use `gql` from `graphql-tag` as a fallback:
+
+```typescript
+import gqlTag from "graphql-tag";
+
+// ...
+
+export function graphql(source: string): any {
+  return documents[source] || gqlTag(source);
+}
+```
+
+This allows you to continue development without waiting for the codegen to finish or when you have operations that are not yet matched by any project configuration.
+
+---
+
+## Nullable Fields as Optional
+
+Generate nullable GraphQL fields as optional properties in TypeScript interfaces using the `?` suffix.
+
+### Configuration
+
+```yaml
+# graphox.yaml
+codegen:
+  nullable_fields_as_optional: true
+```
+
+**Without `nullable_fields_as_optional` (default):**
+```typescript
+export interface User {
+  id: string;
+  name: string | null;
+}
+```
+
+**With `nullable_fields_as_optional: true`:**
+```typescript
+export interface User {
+  id: string;
+  name?: string | null;
+}
 ```
 
 ---

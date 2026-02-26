@@ -218,6 +218,7 @@ pub struct CodegenConfig {
     pub default_scalar_type: Option<String>,
     pub schema_import: Option<String>,
     pub nullable_fields_as_optional: Option<bool>,
+    pub graphql_tag_fallback: Option<bool>,
 }
 
 impl CodegenConfig {
@@ -303,6 +304,11 @@ impl CodegenConfig {
         self
     }
 
+    pub fn with_graphql_tag_fallback(mut self, enabled: bool) -> Self {
+        self.graphql_tag_fallback = Some(enabled);
+        self
+    }
+
     pub fn from_yaml(node: &Yaml) -> Option<Self> {
         if node.is_null() || node.is_badvalue() {
             return None;
@@ -343,6 +349,7 @@ impl CodegenConfig {
             default_scalar_type: node["default_scalar_type"].as_str().map(String::from),
             schema_import: node["schema_import"].as_str().map(String::from),
             nullable_fields_as_optional: node["nullable_fields_as_optional"].as_bool(),
+            graphql_tag_fallback: node["graphql_tag_fallback"].as_bool(),
         })
     }
 
@@ -458,6 +465,10 @@ impl CodegenConfig {
 
     pub fn nullable_fields_as_optional(&self) -> bool {
         self.nullable_fields_as_optional.unwrap_or(false)
+    }
+
+    pub fn graphql_tag_fallback(&self) -> bool {
+        self.graphql_tag_fallback.unwrap_or(false)
     }
 }
 
@@ -1008,6 +1019,9 @@ impl Config {
             }
             if project_codegen.nullable_fields_as_optional.is_some() {
                 result.nullable_fields_as_optional = project_codegen.nullable_fields_as_optional;
+            }
+            if project_codegen.graphql_tag_fallback.is_some() {
+                result.graphql_tag_fallback = project_codegen.graphql_tag_fallback;
             }
         }
 
