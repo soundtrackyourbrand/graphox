@@ -188,9 +188,8 @@ impl Engine {
                         crate::utils::to_posix_path(&abs)
                     })
                     .collect();
-                let output_dir = p.output_dir();
                 (
-                    get_project_files(&abs_includes, &abs_excludes, config.base_dir(), output_dir),
+                    get_project_files(&abs_includes, &abs_excludes, config.base_dir()),
                     p.import().map(String::from),
                 )
             })

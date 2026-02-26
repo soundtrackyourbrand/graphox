@@ -6,7 +6,6 @@
 
 use ahash::AHashSet;
 use graphox_core::DocumentState;
-use graphox_core::document::DocumentLanguage;
 use graphox_core::types::{
     DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
     FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
@@ -96,7 +95,6 @@ pub async fn process_file_created_or_changed(
         return None;
     }
 
-    let _language = DocumentLanguage::from_uri(&uri);
     let new_doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &content,

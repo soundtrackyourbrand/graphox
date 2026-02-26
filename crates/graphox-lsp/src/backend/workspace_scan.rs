@@ -123,20 +123,12 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         let uri = entry.key();
         let frags = entry.value();
 
-        let (import_path, _schema_key): (Option<String>, Option<Arc<str>>) =
-            if let Ok(p) = uri.to_file_path() {
-                let project = params.config.get_project_for_path(&p);
-                (
-                    project.and_then(|proj| proj.import().map(|s| s.to_string())),
-                    project.map(|proj| Arc::from(proj.schema().as_key())),
-                )
-            } else {
-                (None, None)
-            };
-        let _package_root = params
-            .package_roots
-            .get(uri)
-            .and_then(|r| r.value().clone());
+        let import_path: Option<String> = if let Ok(p) = uri.to_file_path() {
+            let project = params.config.get_project_for_path(&p);
+            project.and_then(|proj| proj.import().map(|s| s.to_string()))
+        } else {
+            None
+        };
 
         for frag in frags {
             fragments_meta.push(graphox_core::engine::FragmentMetadata {

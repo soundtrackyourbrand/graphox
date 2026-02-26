@@ -2,7 +2,7 @@ use graphox_core::config::CodegenConfig;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::context::{FragmentGenerated, FragmentMasking, OperationGenerated};
+use crate::context::{FragmentGenerated, OperationGenerated};
 
 #[allow(clippy::too_many_arguments)]
 pub fn generate_entrypoint_content(
@@ -13,7 +13,6 @@ pub fn generate_entrypoint_content(
     re_exports: bool,
     schema_import: Option<&str>,
 ) -> String {
-    let _fragment_masking = FragmentMasking::from_core_config(&codegen_config.fragment_masking());
     let emit_extensions = codegen_config.emit_extensions();
     let generate_ast_for_fragments = codegen_config.generate_ast_for_fragments();
     let op_count = operations.len();

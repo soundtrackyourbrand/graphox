@@ -182,6 +182,11 @@ impl CacheMetadata {
 
         Some((Self { file_mtimes }, offset))
     }
+
+    /// Manual binary deserialization for CacheMetadata (simple version)
+    fn from_bytes_simple(bytes: &[u8]) -> Option<Self> {
+        Self::from_bytes(bytes).map(|(metadata, _)| metadata)
+    }
 }
 
 fn try_remove_file<P: AsRef<Path>>(p: P) {
@@ -225,7 +230,7 @@ impl CacheEntry {
         let merged_schema = String::from_utf8(bytes[offset..offset + schema_len].to_vec()).ok()?;
         offset += schema_len;
 
-        let (metadata, _) = CacheMetadata::from_bytes(&bytes[offset..])?;
+        let metadata = CacheMetadata::from_bytes_simple(&bytes[offset..])?;
         Some(Self {
             merged_schema,
             metadata,

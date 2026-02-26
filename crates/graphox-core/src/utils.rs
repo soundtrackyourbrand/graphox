@@ -91,7 +91,6 @@ pub fn get_project_files(
     include_patterns: &[String],
     exclude_patterns: &[String],
     base_dir: &Path,
-    _output_dir: Option<&str>,
 ) -> Vec<PathBuf> {
     use globset::{Glob, GlobSetBuilder};
     use ignore::WalkBuilder;

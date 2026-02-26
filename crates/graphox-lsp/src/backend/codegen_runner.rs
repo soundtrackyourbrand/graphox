@@ -148,7 +148,6 @@ pub async fn run_codegen(
             .or_insert_with(|| Arc::new(graphox_codegen::SchemaAnalysisCaches::new()))
             .clone();
 
-        let _total_files = project_files.len();
         let mut project_ops = Vec::new();
         let mut project_frags: Vec<graphox_codegen::FragmentGenerated> = Vec::new();
 
@@ -167,8 +166,6 @@ pub async fn run_codegen(
                 Some(doc) if !doc.get_graphql_trees().is_empty() => doc,
                 _ => return,
             };
-
-            let _codegen_config = config.get_codegen_config(Some(project));
 
             let patterns = project.include().patterns();
             let include_prefix_path = patterns

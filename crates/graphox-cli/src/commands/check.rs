@@ -1,6 +1,5 @@
 use crate::reporters::Reporter;
 use ahash::AHashMap as HashMap;
-use apollo_compiler::Schema;
 use colored::*;
 use graphox_core::config::SchemaSource;
 use graphox_core::engine::Engine;
@@ -59,11 +58,6 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
             }
         }
     }
-
-    let _shared_schema_cache: ahash::AHashMap<
-        String,
-        Arc<apollo_compiler::validation::Valid<Schema>>,
-    > = ahash::AHashMap::new();
 
     for (project_config, project_meta) in cfg.projects().iter().zip(&workspace_metadata.projects) {
         reporter.report_project_start(&project_config.include().as_key());

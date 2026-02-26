@@ -35,7 +35,6 @@ pub fn generate_selection_set(
     if use_union_gen {
         generate_union_type(
             &categorized.fields,
-            categorized.has_explicit_typename,
             &categorized.inline_fragments,
             &categorized.fragment_spreads,
             parent_type,
@@ -338,7 +337,6 @@ fn format_intersection(
 #[allow(clippy::too_many_arguments)]
 fn generate_union_type(
     fields: &[&Node<executable::Field>],
-    _has_explicit_typename: bool,
     inline_fragments: &[&Node<executable::InlineFragment>],
     fragment_spreads: &[&Node<executable::FragmentSpread>],
     parent_type: &ExtendedType,

@@ -1,7 +1,6 @@
 use crate::backend::state::Backend;
 use crate::backend::{document_changes, error_logging, file_change_handler};
 use graphox_core::DocumentState;
-use graphox_core::document::DocumentLanguage;
 
 use ahash::AHashSet;
 use std::sync::Arc;
@@ -14,7 +13,6 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     }
     let uri = backend.normalize_uri(params.text_document.uri.clone());
     backend.open_documents.insert(uri.clone());
-    let _language = DocumentLanguage::from_uri(&uri);
     let position_encoding = if let Ok(caps) = backend.client_capabilities.read() {
         caps.negotiated_encoding()
     } else {
