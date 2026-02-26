@@ -167,15 +167,21 @@ pub async fn run_codegen(
 
             let _codegen_config = config.get_codegen_config(Some(project));
 
-            let glob_pattern = project.include().patterns().first().cloned();
-            let include_prefix_path = glob_pattern
-                .as_ref()
-                .map(|p| graphox_core::utils::get_glob_root(p));
+            let patterns = project.include().patterns();
+            let include_prefix_path = patterns
+                .iter()
+                .map(|p| graphox_core::utils::get_glob_root(p))
+                .find(|root| {
+                    let abs_root = config.base_dir().join(root);
+                    let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
+                    graphox_core::utils::path_starts_with(path, &abs_root)
+                })
+                .unwrap_or_default();
             let out_path = graphox_core::utils::get_output_path(
                 path,
                 config.base_dir(),
                 project_output_dir.map(Path::new),
-                include_prefix_path.as_deref(),
+                Some(&include_prefix_path),
             );
             let abs_out_path = if out_path.is_absolute() {
                 out_path
@@ -202,13 +208,11 @@ pub async fn run_codegen(
                 &codegen_config,
                 {
                     if let Some(out_dir) = project_output_dir {
-                        let include_root_path =
-                            graphox_core::utils::get_glob_root(&project.include().as_key());
                         let out_path = graphox_core::utils::get_output_path(
                             path,
                             config.base_dir(),
                             project_output_dir.map(Path::new),
-                            Some(&include_root_path),
+                            Some(&include_prefix_path),
                         );
                         let abs_out_dir = if out_path.is_absolute() {
                             out_path.parent().unwrap().to_path_buf()

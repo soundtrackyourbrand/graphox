@@ -303,71 +303,61 @@ pub fn generate_typescript_with_profile(
             if ctx.generate_ast_for_fragments && !is_type_only {
                 has_fragment_asts = true;
                 let ast_start = Instant::now();
+                let mut deps = get_fragment_deps_cached(&frag.name, ctx);
+                deps.extend(
+                    graphox_core::apollo_ast::get_fragment_fragment_dependencies(
+                        frag,
+                        ctx.all_fragments,
+                    ),
+                );
+                doc_deps = deps.clone();
 
-                let ast_content = if let Some(cached) = ctx.get_fragment_ast(&Arc::from(raw_name)) {
-                    cached.to_string()
-                } else {
-                    let frag_def =
-                        serialize_fragment_definition(frag, ctx.all_fragments, ctx.config);
+                let frag_def = serialize_fragment_definition(frag, ctx.all_fragments, ctx.config);
 
-                    let mut deps = get_fragment_deps_cached(&frag.name, ctx);
-                    if deps.is_empty() {
-                        deps = graphox_core::apollo_ast::get_fragment_fragment_dependencies(
-                            frag,
-                            ctx.all_fragments,
+                let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
+                definitions_parts.push(frag_def.to_string());
+
+                let mut deps_list: Vec<_> = deps.iter().collect();
+                deps_list.sort_unstable();
+
+                for dep in deps_list {
+                    if dep.as_ref() == raw_name {
+                        continue;
+                    }
+
+                    let is_dep_type_only = ctx
+                        .fragment_to_type_only
+                        .get(dep.as_ref())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            ctx.all_fragments
+                                .get(dep.as_ref())
+                                .map(|f| {
+                                    ctx.fragment_to_type_only
+                                        .get(f.name.as_str())
+                                        .copied()
+                                        .unwrap_or(false)
+                                })
+                                .unwrap_or(false)
+                        });
+
+                    if !is_dep_type_only {
+                        let dep_name =
+                            apply_naming_convention(dep.as_ref(), &ctx.naming_convention());
+                        let name = format!(
+                            "{}{}{}.definitions[0]",
+                            dep_name,
+                            ctx.fragment_suffix(),
+                            ctx.fragment_document_suffix()
                         );
+                        definitions_parts.push(name);
                     }
-                    doc_deps = deps.clone();
+                }
 
-                    let mut definitions_parts = Vec::with_capacity(deps.len() + 1);
-                    definitions_parts.push(frag_def.to_string());
-
-                    let mut deps_list: Vec<_> = deps.iter().collect();
-                    deps_list.sort_unstable();
-
-                    for dep in deps_list {
-                        if dep.as_ref() == raw_name {
-                            continue;
-                        }
-
-                        let is_dep_type_only = ctx
-                            .fragment_to_type_only
-                            .get(dep.as_ref())
-                            .copied()
-                            .unwrap_or_else(|| {
-                                ctx.all_fragments
-                                    .get(dep.as_ref())
-                                    .map(|f| {
-                                        ctx.fragment_to_type_only
-                                            .get(f.name.as_str())
-                                            .copied()
-                                            .unwrap_or(false)
-                                    })
-                                    .unwrap_or(false)
-                            });
-
-                        if !is_dep_type_only {
-                            let dep_name =
-                                apply_naming_convention(dep.as_ref(), &ctx.naming_convention());
-                            let name = format!(
-                                "{}{}{}.definitions[0]",
-                                dep_name,
-                                ctx.fragment_suffix(),
-                                ctx.fragment_document_suffix()
-                            );
-                            definitions_parts.push(name);
-                        }
-                    }
-
-                    let mut content = String::with_capacity(definitions_parts.len() * 100 + 40);
-                    content.push_str("{ kind: 'Document', definitions: [");
-                    content.push_str(&definitions_parts.join(", "));
-                    content.push_str("] }");
-
-                    let content_arc: Arc<str> = content.into();
-                    ctx.insert_fragment_ast(Arc::from(raw_name), content_arc.clone());
-                    content_arc.to_string()
-                };
+                let mut ast_content = String::with_capacity(definitions_parts.len() * 100 + 40);
+                ast_content.push_str("{ kind: 'Document', definitions: [");
+                ast_content.push_str(&definitions_parts.join(", "));
+                ast_content.push_str("] }");
 
                 doc_export.push_str("export const ");
                 doc_export.push_str(&fragment_document_name);
@@ -588,66 +578,77 @@ pub fn generate_typescript_with_profile(
 }
 
 fn topological_sort_documents(docs: &[DocumentAstInfo]) -> Vec<&DocumentAstInfo> {
-    use std::collections::VecDeque;
     let mut frag_name_to_doc_name = HashMap::default();
     for doc in docs {
         if doc.is_fragment {
             frag_name_to_doc_name.insert(doc.raw_name.as_str(), doc.document_name.as_str());
         }
     }
+
     let doc_names: HashSet<&str> = docs.iter().map(|d| d.document_name.as_str()).collect();
-    let mut in_degree: HashMap<&str, usize> = HashMap::default();
-    let mut graph: HashMap<&str, Vec<&str>> = HashMap::default();
+    let mut dependencies_map: HashMap<&str, Vec<&str>> = HashMap::default();
     for doc in docs {
         let name = doc.document_name.as_str();
-        in_degree.entry(name).or_insert(0);
-        graph.entry(name).or_default();
+        let mut deps = Vec::new();
         for dep in &doc.dependencies {
             if let Some(dep_doc_name) = frag_name_to_doc_name.get(dep.as_ref())
                 && *dep_doc_name != name
                 && doc_names.contains(dep_doc_name)
             {
-                graph.entry(dep_doc_name).or_default().push(name);
-                *in_degree.entry(name).or_insert(0) += 1;
+                deps.push(*dep_doc_name);
             }
         }
+        deps.sort_unstable();
+        dependencies_map.insert(name, deps);
     }
-    let mut initial_nodes: Vec<&str> = in_degree
-        .iter()
-        .filter(|&(_, &d)| d == 0)
-        .map(|(&n, _)| n)
-        .collect();
-    initial_nodes.sort_unstable();
-    let mut queue: VecDeque<&str> = initial_nodes.into_iter().collect();
-    let mut sorted_names = Vec::with_capacity(docs.len());
-    while let Some(name) = queue.pop_front() {
-        sorted_names.push(name);
-        if let Some(dependents) = graph.get(name) {
-            let mut sorted_dependents = dependents.clone();
-            sorted_dependents.sort_unstable();
-            for dependent in sorted_dependents {
-                if let Some(degree) = in_degree.get_mut(dependent) {
-                    *degree -= 1;
-                    if *degree == 0 {
-                        queue.push_back(dependent);
-                    }
-                }
+
+    let mut result_names = Vec::with_capacity(docs.len());
+    let mut visited = HashSet::default();
+    let mut visiting = HashSet::default();
+
+    // Sort docs by name initially to have stable output for independent nodes
+    let mut sorted_docs: Vec<&DocumentAstInfo> = docs.iter().collect();
+    sorted_docs.sort_by_key(|d| d.document_name.as_str());
+
+    fn visit<'a>(
+        name: &'a str,
+        dependencies_map: &HashMap<&'a str, Vec<&'a str>>,
+        visited: &mut HashSet<&'a str>,
+        visiting: &mut HashSet<&'a str>,
+        result: &mut Vec<&'a str>,
+    ) {
+        if visiting.contains(name) {
+            return; // Cycle detected
+        }
+        if visited.contains(name) {
+            return;
+        }
+        visiting.insert(name);
+        if let Some(deps) = dependencies_map.get(name) {
+            for dep in deps {
+                visit(dep, dependencies_map, visited, visiting, result);
             }
         }
+        visiting.remove(name);
+        visited.insert(name);
+        result.push(name);
     }
-    let mut remaining: Vec<&DocumentAstInfo> = docs
-        .iter()
-        .filter(|d| !sorted_names.contains(&d.document_name.as_str()))
-        .collect();
-    remaining.sort_by_key(|d| d.document_name.as_str());
+
+    for doc in &sorted_docs {
+        visit(
+            doc.document_name.as_str(),
+            &dependencies_map,
+            &mut visited,
+            &mut visiting,
+            &mut result_names,
+        );
+    }
+
     let name_to_doc: HashMap<&str, &DocumentAstInfo> =
         docs.iter().map(|d| (d.document_name.as_str(), d)).collect();
-    let mut result = Vec::with_capacity(docs.len());
-    for name in sorted_names {
-        if let Some(doc) = name_to_doc.get(name) {
-            result.push(*doc);
-        }
-    }
-    result.extend(remaining);
-    result
+
+    result_names
+        .into_iter()
+        .filter_map(|name| name_to_doc.get(name).copied())
+        .collect::<Vec<_>>()
 }

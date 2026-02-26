@@ -49,13 +49,6 @@ pub async fn process_file_created_or_changed(
     let path = uri.to_file_path().ok()?;
     let path_str = path.to_string_lossy().to_string();
 
-    // Skip ignored files
-    if !graphox_core::utils::is_relevant_file(&path)
-        || graphox_core::utils::is_path_ignored(&path, params.gitignore)
-    {
-        return None;
-    }
-
     // Check if this is the config file
     if is_config_file(&path, params.config) {
         return Some(FileChangeResult {
@@ -65,6 +58,13 @@ pub async fn process_file_created_or_changed(
             should_run_codegen: false,
             should_reload_config: true,
         });
+    }
+
+    // Skip ignored files
+    if !graphox_core::utils::is_relevant_file(&path)
+        || graphox_core::utils::is_path_ignored(&path, params.gitignore)
+    {
+        return None;
     }
 
     if params.config.is_output_file(&path) {
@@ -235,6 +235,17 @@ pub fn process_file_deleted(
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
     let path = uri.to_file_path().ok()?;
+
+    // Check if this is the config file
+    if is_config_file(&path, params.config) {
+        return Some(FileChangeResult {
+            uris_to_validate: vec![],
+            should_reload_schema: false,
+            schema_path: None,
+            should_run_codegen: false,
+            should_reload_config: true,
+        });
+    }
 
     if !graphox_core::utils::is_relevant_file(&path)
         || graphox_core::utils::is_path_ignored(&path, params.gitignore)

@@ -270,10 +270,10 @@ pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
         .git_ignore(false)
         .build()
     {
-        if let Ok(entry) = entry {
-            if entry.file_name() == ".gitignore" {
-                let _ = builder.add(entry.path());
-            }
+        if let Ok(entry) = entry
+            && entry.file_name() == ".gitignore"
+        {
+            let _ = builder.add(entry.path());
         }
     }
 

@@ -485,7 +485,7 @@ impl Engine {
 
     /// Compute transitive fragment dependencies for all fragments
     /// This is called once during workspace scan to cache dependencies
-    fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
+    pub fn compute_fragment_dependencies(fragments: &mut [FragmentMetadata]) {
         let n = fragments.len();
         if n == 0 {
             return;

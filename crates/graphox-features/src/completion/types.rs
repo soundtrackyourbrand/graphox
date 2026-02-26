@@ -16,6 +16,7 @@ pub struct FragmentCompletionInfo {
     pub package_root: Option<std::path::PathBuf>,
     pub used_variables: Vec<Arc<str>>,
     pub used_fragments: Vec<Arc<str>>,
+    pub transitive_deps: Vec<Arc<str>>,
     pub selected_fields: Vec<Arc<str>>,
     pub type_fields: Vec<(Arc<str>, Arc<str>)>,
     pub requirements: FragmentRequirements,

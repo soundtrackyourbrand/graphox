@@ -81,6 +81,7 @@ pub struct FragmentDef {
     pub source_hash: u64,
     pub used_variables: Vec<Arc<str>>,
     pub used_fragments: Vec<Arc<str>>,
+    pub transitive_deps: Vec<Arc<str>>,
     pub selected_fields: Vec<Arc<str>>,
     pub type_fields: Vec<(Arc<str>, Arc<str>)>,
 }
@@ -869,6 +870,7 @@ impl DocumentState {
                             source_hash,
                             used_variables: Vec::new(),
                             used_fragments: Vec::new(),
+                            transitive_deps: Vec::new(),
                             selected_fields,
                             type_fields,
                         },

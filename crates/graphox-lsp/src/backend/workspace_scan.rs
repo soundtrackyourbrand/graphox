@@ -117,7 +117,56 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         .await;
     let workspace_metadata = scan_and_index_workspace(&params, &cancelled);
 
+    // Compute transitive fragment dependencies
+    let mut fragments_meta = Vec::new();
+    for entry in params.fragment_defs.iter() {
+        let uri = entry.key();
+        let frags = entry.value();
+
+        let (import_path, _schema_key): (Option<String>, Option<Arc<str>>) =
+            if let Ok(p) = uri.to_file_path() {
+                let project = params.config.get_project_for_path(&p);
+                (
+                    project.and_then(|proj| proj.import().map(|s| s.to_string())),
+                    project.map(|proj| Arc::from(proj.schema().as_key())),
+                )
+            } else {
+                (None, None)
+            };
+        let _package_root = params
+            .package_roots
+            .get(uri)
+            .and_then(|r| r.value().clone());
+
+        for frag in frags {
+            fragments_meta.push(graphox_core::engine::FragmentMetadata {
+                name: frag.name.clone(),
+                path: Arc::from(uri.to_string()),
+                import_alias: import_path.as_deref().map(Arc::from),
+                is_public: frag.is_public,
+                is_type_only: frag.is_type_only,
+                masked_source: Arc::from(""), // Not needed for dep computation
+                direct_deps: frag.used_fragments.clone(),
+                transitive_deps: Vec::new(),
+                type_fields: frag.type_fields.clone(),
+            });
+        }
+    }
+
+    graphox_core::engine::Engine::compute_fragment_dependencies(&mut fragments_meta);
+
+    // Update fragment_defs with computed transitive deps
+    for meta in &fragments_meta {
+        let uri = Url::parse(meta.path.as_ref()).unwrap();
+        if let Some(mut entry) = params.fragment_defs.get_mut(&uri)
+            && let Some(frag) = entry.value_mut().iter_mut().find(|f| f.name == meta.name)
+        {
+            frag.transitive_deps = meta.transitive_deps.clone();
+        }
+    }
+
     // Invalidate fragment cache after indexing
+
     if let Ok(mut cache) = params.fragment_metadata_cache.write() {
         *cache = None;
     }

@@ -1120,28 +1120,28 @@ impl Config {
             } else {
                 // Check default __generated__ directory when output_dir is not set
                 let abs_output = self.base_dir.join("__generated__");
-                if let Ok(abs_output) = fs::canonicalize(abs_output) {
-                    if crate::utils::path_starts_with(&abs_path, &abs_output) {
-                        return true;
-                    }
+                if let Ok(abs_output) = fs::canonicalize(abs_output)
+                    && crate::utils::path_starts_with(&abs_path, &abs_output)
+                {
+                    return true;
                 }
             }
 
             // Check per-project generated files
             if let Some(pt) = project.possible_types() {
                 let abs_pt = self.base_dir.join(pt);
-                if let Ok(abs_pt) = fs::canonicalize(abs_pt) {
-                    if crate::utils::paths_match(Some(&abs_path), Some(&abs_pt)) {
-                        return true;
-                    }
+                if let Ok(abs_pt) = fs::canonicalize(abs_pt)
+                    && crate::utils::paths_match(Some(&abs_path), Some(&abs_pt))
+                {
+                    return true;
                 }
             }
             if let Some(tp) = project.type_policies() {
                 let abs_tp = self.base_dir.join(tp);
-                if let Ok(abs_tp) = fs::canonicalize(abs_tp) {
-                    if crate::utils::paths_match(Some(&abs_path), Some(&abs_tp)) {
-                        return true;
-                    }
+                if let Ok(abs_tp) = fs::canonicalize(abs_tp)
+                    && crate::utils::paths_match(Some(&abs_path), Some(&abs_tp))
+                {
+                    return true;
                 }
             }
         }
