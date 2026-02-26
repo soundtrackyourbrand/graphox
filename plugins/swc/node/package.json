@@ -1,9 +1,15 @@
 {
   "name": "@graphox/swc-plugin",
   "version": "0.2.1",
-  "description": "SWC plugin for GraphQL Rust codesplitting",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "build:wasm": "cargo build --manifest-path ../rust/Cargo.toml --target wasm32-wasip1 --release && mkdir -p wasm && cp ../../../target/wasm32-wasip1/release/graphox_swc_plugin.wasm wasm/",

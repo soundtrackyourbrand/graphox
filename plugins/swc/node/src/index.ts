@@ -29,6 +29,15 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { fileURLToPath } from 'url';
+
+/**
+ * Robust way to get __dirname equivalent in both CJS and ESM.
+ */
+// @ts-ignore
+const _dirname = typeof import.meta.url !== 'undefined'
+  ? path.dirname(fileURLToPath(import.meta.url))
+  : __dirname;
 
 /**
  * Configuration options for the SWC GraphQL plugin.
@@ -78,7 +87,7 @@ export interface PluginConfig {
 function getWasmPath(): string {
   // The WASM file is built using cargo build --target wasm32-wasip1
   // and placed in the wasm/ directory.
-  const wasmPath = path.join(__dirname, '..', 'wasm', 'graphox_swc_plugin.wasm');
+  const wasmPath = path.join(_dirname, '..', 'wasm', 'graphox_swc_plugin.wasm');
   
   if (!fs.existsSync(wasmPath)) {
     throw new Error(

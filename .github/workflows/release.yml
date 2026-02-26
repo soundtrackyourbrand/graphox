@@ -178,12 +178,17 @@ jobs:
         working-directory: plugins/swc/node
         run: |
           node -e "
-          const { isWasmAvailable } = require('./dist/index.js');
-          if (!isWasmAvailable()) {
-            console.error('Smoke test failed: WASM plugin not found in built package');
+          import('./dist/index.js').then((mod) => {
+            const isAvailable = mod.isWasmAvailable();
+            if (!isAvailable) {
+              console.error('Smoke test failed: WASM plugin not found in built package');
+              process.exit(1);
+            }
+            console.log('Smoke test passed: WASM plugin is available');
+          }).catch(err => {
+            console.error('Smoke test failed to run:', err);
             process.exit(1);
-          }
-          console.log('Smoke test passed: WASM plugin is available');
+          });
           "
 
       - name: Sync package version

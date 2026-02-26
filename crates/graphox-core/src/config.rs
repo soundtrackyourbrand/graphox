@@ -1098,13 +1098,50 @@ impl Config {
     pub fn is_output_file(&self, path: &Path) -> bool {
         let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
+        // Check for common generated file extensions
+        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+            if ext == "json" && path.file_name().is_some_and(|n| n == "manifest.json") {
+                return true;
+            }
+            if path.to_string_lossy().ends_with(".codegen.ts") {
+                return true;
+            }
+        }
+
         // Check project output directories
         for project in &self.projects {
+            // Check explicit output_dir
             if let Some(output_dir) = project.output_dir() {
                 let abs_output = self.base_dir.join(output_dir);
                 let abs_output = fs::canonicalize(&abs_output).unwrap_or(abs_output);
                 if crate::utils::path_starts_with(&abs_path, &abs_output) {
                     return true;
+                }
+            } else {
+                // Check default __generated__ directory when output_dir is not set
+                let abs_output = self.base_dir.join("__generated__");
+                if let Ok(abs_output) = fs::canonicalize(abs_output) {
+                    if crate::utils::path_starts_with(&abs_path, &abs_output) {
+                        return true;
+                    }
+                }
+            }
+
+            // Check per-project generated files
+            if let Some(pt) = project.possible_types() {
+                let abs_pt = self.base_dir.join(pt);
+                if let Ok(abs_pt) = fs::canonicalize(abs_pt) {
+                    if crate::utils::paths_match(Some(&abs_path), Some(&abs_pt)) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(tp) = project.type_policies() {
+                let abs_tp = self.base_dir.join(tp);
+                if let Ok(abs_tp) = fs::canonicalize(abs_tp) {
+                    if crate::utils::paths_match(Some(&abs_path), Some(&abs_tp)) {
+                        return true;
+                    }
                 }
             }
         }

@@ -240,7 +240,17 @@ fn build_plugins() {
         .expect("Failed to build SWC Node wrapper");
     assert!(swc_node_build.status.success(), "SWC Node build failed: {}", String::from_utf8_lossy(&swc_node_build.stderr));
 
-    // 4. (Optional) Babel dependencies
+    // 4. Verify the built plugin is functional (Smoke Test)
+    println!("[Setup] Running SWC plugin smoke test...");
+    let smoke_test = Command::new("node")
+        .arg("-e")
+        .arg("import('./dist/index.js').then(m => { if(!m.isWasmAvailable()) process.exit(1); })")
+        .current_dir(&swc_node_dir)
+        .output()
+        .expect("Failed to run SWC plugin smoke test");
+    assert!(smoke_test.status.success(), "SWC plugin smoke test failed - WASM not available after build");
+
+    // 5. (Optional) Babel dependencies
     let babel_dir = root_dir.join("plugins").join("babel");
     println!("[Setup] Installing Babel plugin dependencies...");
     let babel_install = Command::new("pnpm")
