@@ -1032,6 +1032,8 @@ impl Config {
         } else {
             self.base_dir.join(path)
         };
+        // Canonicalize to resolve symlinks (e.g. /var vs /private/var on macOS)
+        let abs_path = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
 
         #[cfg(windows)]
         let relative_path = {
@@ -1045,13 +1047,37 @@ impl Config {
         #[cfg(not(windows))]
         let relative_path = pathdiff::diff_paths(&abs_path, &self.base_dir);
 
+        // First pass: Check if this is exactly a schema file for any project (Highest Priority)
+        for (idx, project) in self.projects.iter().enumerate() {
+            for schema_file in project.schema().files() {
+                let abs_schema = self.base_dir.join(schema_file);
+                // Canonicalize schema file path too
+                let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
+                if crate::utils::paths_match(Some(&abs_path), Some(&abs_schema)) {
+                    self.project_cache.insert(path.to_path_buf(), Some(idx));
+                    return Some(project);
+                }
+            }
+        }
+
+        let mut best_idx = None;
+        let mut max_specificity = -1;
+
         for (idx, project) in self.projects.iter().enumerate() {
             let mut matched = false;
+            let mut current_specificity = 0;
+
             if let Some(rel_path) = &relative_path {
                 let posix_rel_path = crate::utils::to_posix_path(rel_path);
                 let include_set = get_glob_set(&project.include().patterns());
                 if include_set.is_match(&posix_rel_path) || include_set.is_match(rel_path) {
                     matched = true;
+                    // Calculate specificity: max depth of glob roots in this project
+                    for pattern in project.include().patterns() {
+                        let root = crate::utils::get_glob_root(&pattern);
+                        let root_len = root.components().count() as i32;
+                        current_specificity = current_specificity.max(root_len);
+                    }
                 } else {
                     for pattern in project.include().patterns() {
                         if !pattern.contains('*')
@@ -1064,6 +1090,8 @@ impl Config {
                                 || posix_rel_path.starts_with(&pattern)
                             {
                                 matched = true;
+                                current_specificity = current_specificity
+                                    .max(pattern_path.components().count() as i32);
                                 break;
                             }
                         }
@@ -1083,6 +1111,8 @@ impl Config {
                         && crate::utils::path_starts_with(&abs_path, &include_path)
                     {
                         matched = true;
+                        current_specificity =
+                            current_specificity.max(include_path.components().count() as i32);
                         break;
                     }
                 }
@@ -1099,10 +1129,15 @@ impl Config {
                 }
             }
 
-            if matched {
-                self.project_cache.insert(path.to_path_buf(), Some(idx));
-                return Some(project);
+            if matched && current_specificity > max_specificity {
+                max_specificity = current_specificity;
+                best_idx = Some(idx);
             }
+        }
+
+        if let Some(idx) = best_idx {
+            self.project_cache.insert(path.to_path_buf(), Some(idx));
+            return Some(&self.projects[idx]);
         }
 
         self.project_cache.insert(path.to_path_buf(), None);
