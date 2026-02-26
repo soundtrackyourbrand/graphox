@@ -262,10 +262,21 @@ pub fn get_project_files(
 
 pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
     let mut builder = ignore::gitignore::GitignoreBuilder::new(base_dir);
-    let gitignore_path = base_dir.join(".gitignore");
-    if gitignore_path.exists() {
-        builder.add(gitignore_path);
+
+    // Recursively find and add all .gitignore files in the project
+    // This allows the matcher to handle nested gitignores correctly
+    for entry in ignore::WalkBuilder::new(base_dir)
+        .hidden(false)
+        .git_ignore(false)
+        .build()
+    {
+        if let Ok(entry) = entry {
+            if entry.file_name() == ".gitignore" {
+                let _ = builder.add(entry.path());
+            }
+        }
     }
+
     builder
         .build()
         .unwrap_or_else(|_| ignore::gitignore::Gitignore::empty())

@@ -50,7 +50,9 @@ pub async fn process_file_created_or_changed(
     let path_str = path.to_string_lossy().to_string();
 
     // Skip ignored files
-    if graphox_core::utils::is_path_ignored(&path, params.gitignore) {
+    if !graphox_core::utils::is_relevant_file(&path)
+        || graphox_core::utils::is_path_ignored(&path, params.gitignore)
+    {
         return None;
     }
 
@@ -232,6 +234,14 @@ pub fn process_file_deleted(
     normalize_uri: impl Fn(Url) -> Url,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
+    let path = uri.to_file_path().ok()?;
+
+    if !graphox_core::utils::is_relevant_file(&path)
+        || graphox_core::utils::is_path_ignored(&path, params.gitignore)
+    {
+        return None;
+    }
+
     let mut affected_fragment_names = AHashSet::default();
     let mut affected_spread_names = AHashSet::default();
     let mut affected_operation_names = AHashSet::default();
