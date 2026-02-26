@@ -1,0 +1,6 @@
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+    output_dir: "__generated__"
+    codegen:
+      nullable_fields_as_optional: true

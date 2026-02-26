@@ -12,6 +12,16 @@ fn test_cli_codegen_baselines() {
 
 #[test]
 #[ntest::timeout(250)]
+fn test_cli_nullable_fields_as_optional_baselines() {
+    run_baseline_test(
+        "tests/fixtures/nullable_fields_as_optional",
+        "tests/baselines/nullable_fields_as_optional",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(250)]
 fn test_cli_operation_suffixes_baselines() {
     run_baseline_test(
         "tests/fixtures/operation_suffixes",

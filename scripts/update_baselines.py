@@ -219,6 +219,10 @@ def main():
             "tests/fixtures/fragment_spread_ast",
             "tests/baselines/fragment_spread_ast",
         ),
+        (
+            "tests/fixtures/nullable_fields_as_optional",
+            "tests/baselines/nullable_fields_as_optional",
+        ),
     ]
 
     for fixture, baseline in tasks:

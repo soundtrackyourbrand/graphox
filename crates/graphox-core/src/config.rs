@@ -217,6 +217,7 @@ pub struct CodegenConfig {
     pub inline_fragments: Option<bool>,
     pub default_scalar_type: Option<String>,
     pub schema_import: Option<String>,
+    pub nullable_fields_as_optional: Option<bool>,
 }
 
 impl CodegenConfig {
@@ -297,6 +298,11 @@ impl CodegenConfig {
         self
     }
 
+    pub fn with_nullable_fields_as_optional(mut self, enabled: bool) -> Self {
+        self.nullable_fields_as_optional = Some(enabled);
+        self
+    }
+
     pub fn from_yaml(node: &Yaml) -> Option<Self> {
         if node.is_null() || node.is_badvalue() {
             return None;
@@ -336,6 +342,7 @@ impl CodegenConfig {
             inline_fragments: node["inline_fragments"].as_bool(),
             default_scalar_type: node["default_scalar_type"].as_str().map(String::from),
             schema_import: node["schema_import"].as_str().map(String::from),
+            nullable_fields_as_optional: node["nullable_fields_as_optional"].as_bool(),
         })
     }
 
@@ -447,6 +454,10 @@ impl CodegenConfig {
 
     pub fn inline_fragments(&self) -> bool {
         self.inline_fragments.unwrap_or(false)
+    }
+
+    pub fn nullable_fields_as_optional(&self) -> bool {
+        self.nullable_fields_as_optional.unwrap_or(false)
     }
 }
 
@@ -988,6 +999,9 @@ impl Config {
             }
             if project_codegen.schema_import.is_some() {
                 result.schema_import = project_codegen.schema_import.clone();
+            }
+            if project_codegen.nullable_fields_as_optional.is_some() {
+                result.nullable_fields_as_optional = project_codegen.nullable_fields_as_optional;
             }
         }
 

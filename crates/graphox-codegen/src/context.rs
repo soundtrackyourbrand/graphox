@@ -159,6 +159,10 @@ impl<'a> CodegenContext<'a> {
         self.config.re_exports()
     }
 
+    pub fn nullable_fields_as_optional(&self) -> bool {
+        self.config.nullable_fields_as_optional()
+    }
+
     /// Get relative path from cache or compute it
     pub fn diff_paths(&self, from: &Path, to: &Path) -> Option<PathBuf> {
         let key = (from.to_path_buf(), to.to_path_buf());

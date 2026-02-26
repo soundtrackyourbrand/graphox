@@ -216,11 +216,24 @@ fn generate_field_list(
                 wrap_in_list_and_nullability(&ts_type, &fd.ty)
             };
 
+            let optional_marker = if matches!(
+                &fd.ty,
+                apollo_compiler::schema::Type::Named(_) | apollo_compiler::schema::Type::List(_)
+            ) && ctx.nullable_fields_as_optional()
+            {
+                "?"
+            } else {
+                ""
+            };
+
             let field_line = if jsdoc.is_empty() {
-                format!("{}: {}", name, wrapped_type)
+                format!("{}{}: {}", name, optional_marker, wrapped_type)
             } else {
                 let inner_pad = "  ".repeat(indent + 1);
-                format!("{}{}{}: {}", jsdoc, inner_pad, name, wrapped_type)
+                format!(
+                    "{}{}{}{}: {}",
+                    jsdoc, inner_pad, name, optional_marker, wrapped_type
+                )
             };
             local_fields_list.push(field_line);
         }

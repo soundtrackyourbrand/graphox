@@ -1,0 +1,11 @@
+query GetUser {
+  user {
+    id
+    name
+    email
+    bio
+    age
+    tags
+    nicknames
+  }
+}
