@@ -205,11 +205,16 @@ fn build_plugins() {
     // 1. Install SWC Node dependencies first so we can run build scripts
     println!("[Setup] Installing SWC Node wrapper dependencies...");
     let swc_node_install = Command::new("pnpm")
-        .arg("install")
+        .args(["install", "--no-frozen-lockfile", "--force"])
         .current_dir(&swc_node_dir)
         .output()
         .expect("Failed to install SWC Node wrapper dependencies");
-    assert!(swc_node_install.status.success(), "SWC Node install failed: {}", String::from_utf8_lossy(&swc_node_install.stderr));
+    assert!(
+        swc_node_install.status.success(),
+        "SWC Node install failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&swc_node_install.stdout),
+        String::from_utf8_lossy(&swc_node_install.stderr)
+    );
 
     // 2. Build SWC Rust plugin to WASM using the npm script
     println!("[Setup] Building SWC Rust plugin via npm script...");
@@ -222,9 +227,7 @@ fn build_plugins() {
     if !swc_wasm_build.status.success() {
         let stderr = String::from_utf8_lossy(&swc_wasm_build.stderr);
         if stderr.contains("wasm32-wasip1") && stderr.contains("target may not be installed") {
-            println!(
-                "[Setup] Skipping SWC plugin build: wasm32-wasip1 target is not installed"
-            );
+            println!("[Setup] Skipping SWC plugin build: wasm32-wasip1 target is not installed");
         } else {
             panic!("SWC WASM build failed: {}", stderr);
         }
@@ -238,7 +241,11 @@ fn build_plugins() {
         .current_dir(&swc_node_dir)
         .output()
         .expect("Failed to build SWC Node wrapper");
-    assert!(swc_node_build.status.success(), "SWC Node build failed: {}", String::from_utf8_lossy(&swc_node_build.stderr));
+    assert!(
+        swc_node_build.status.success(),
+        "SWC Node build failed: {}",
+        String::from_utf8_lossy(&swc_node_build.stderr)
+    );
 
     // 4. Verify the built plugin is functional (Smoke Test)
     println!("[Setup] Running SWC plugin smoke test...");
@@ -248,17 +255,25 @@ fn build_plugins() {
         .current_dir(&swc_node_dir)
         .output()
         .expect("Failed to run SWC plugin smoke test");
-    assert!(smoke_test.status.success(), "SWC plugin smoke test failed - WASM not available after build");
+    assert!(
+        smoke_test.status.success(),
+        "SWC plugin smoke test failed - WASM not available after build"
+    );
 
     // 5. (Optional) Babel dependencies
     let babel_dir = root_dir.join("plugins").join("babel");
     println!("[Setup] Installing Babel plugin dependencies...");
     let babel_install = Command::new("pnpm")
-        .arg("install")
+        .args(["install", "--no-frozen-lockfile", "--force"])
         .current_dir(&babel_dir)
         .output()
         .expect("Failed to install Babel plugin dependencies");
-    assert!(babel_install.status.success(), "Babel install failed");
+    assert!(
+        babel_install.status.success(),
+        "Babel install failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&babel_install.stdout),
+        String::from_utf8_lossy(&babel_install.stderr)
+    );
 }
 
 fn verify_rsbuild_bundles(temp_dir: &Path) {
@@ -307,6 +322,10 @@ fn verify_rsbuild_bundles(temp_dir: &Path) {
         stdout.contains("Mutation: {"),
         "Mutation was not transformed"
     );
+    assert!(
+        stdout.contains("Alias Query:"),
+        "Alias query runtime path regressed"
+    );
     println!("✅ Babel bundle verified successfully");
 
     // 3. Build SWC mode (if WASM is available)
@@ -352,6 +371,10 @@ fn verify_rsbuild_bundles(temp_dir: &Path) {
         assert!(
             stdout_swc.contains("Query 1: {"),
             "Query 1 was not transformed (SWC)"
+        );
+        assert!(
+            stdout_swc.contains("Alias Query:"),
+            "Alias query runtime path regressed (SWC)"
         );
         println!("✅ SWC bundle verified successfully");
     } else {

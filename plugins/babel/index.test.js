@@ -93,6 +93,18 @@ describe('@graphox/babel-plugin', () => {
     expect(output).toContain('import { MyQueryDocument } from "../gen/src/query.codegen";');
   });
 
+  it('resolves absolute import paths against outputDir', () => {
+    const outputDir = path.resolve('/root/gen');
+    const options = { manifestData: defaultManifest, outputDir };
+    const filename = '/root/app/test.ts';
+    const code = "import { graphql } from '/root/gen/graphql.ts'; const q = graphql(`query { me { id } }`);";
+    const output = transform(code, options, filename);
+
+    expect(output).toContain('import { MyQueryDocument } from "../gen/query.codegen";');
+    expect(output).toContain('const q = MyQueryDocument;');
+    expect(output).not.toContain("from '/root/gen/graphql.ts'");
+  });
+
   it('supports gql tag', () => {
     const code = "import { gql } from './gen/graphql'; const q = gql(`query { me { id } }`);";
     const output = transform(code, defaultOptions);
@@ -124,12 +136,25 @@ describe('@graphox/babel-plugin', () => {
     expect(output).not.toContain('MyQueryDocument');
   });
 
-  it('supports subpath imports (#graphql)', () => {
+  it('supports configured subpath imports (#graphql)', () => {
+    const options = {
+      ...defaultOptions,
+      graphqlImportPaths: ['#graphql/graphql'],
+    };
     const code = "import { graphql } from '#graphql/graphql'; const q = graphql(`query { me { id } }`);";
-    const output = transform(code, defaultOptions);
+    const output = transform(code, options);
 
     expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
     expect(output).toContain('const q = MyQueryDocument;');
+  });
+
+  it('does not transform unrelated aliases containing graphql', () => {
+    const code = "import { graphql } from '#app/graphql/gql'; const q = graphql(`query { me { id } }`);";
+    const output = transform(code, defaultOptions);
+
+    expect(output).toContain("import { graphql } from '#app/graphql/gql';");
+    expect(output).toContain('graphql(');
+    expect(output).not.toContain('MyQueryDocument');
   });
 
   it('supports explicit import paths', () => {

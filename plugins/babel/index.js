@@ -5,6 +5,10 @@ function normalize(s) {
   return s.replace(/\s+/g, '');
 }
 
+function stripScriptExtension(filePath) {
+  return filePath.replace(/(\.d)?\.(mjs|cjs|js|jsx|ts|tsx)$/, '');
+}
+
 /**
  * Convert emitExtensions config to file extension string
  * @param {string|undefined} emitExtensions - One of: "none", "ts", "dts", "js"
@@ -73,6 +77,7 @@ module.exports = function (babel) {
           const absoluteOutputDir = path.resolve(outputDir);
           const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
           const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
+          const currentDir = currentFile ? path.dirname(currentFile) : null;
 
           // If processing the entrypoint itself, clear it
           if (currentFile) {
@@ -99,21 +104,33 @@ module.exports = function (babel) {
 
           const isOurGraphqlPath = (src) => {
             if (graphqlImportPaths.includes(src)) return true;
-            const srcNoExt = src.replace(/\.(js|ts)x?$/, '');
+            const srcNoExt = stripScriptExtension(src);
             if (graphqlImportPaths.includes(srcNoExt)) return true;
 
-            if (src.startsWith('#') && src.includes('graphql')) return true;
+            if (currentDir) {
+              let absoluteSrc = null;
+              try {
+                if (src.startsWith('.') || src.startsWith('/')) {
+                  absoluteSrc = path.resolve(currentDir, srcNoExt);
+                } else {
+                  absoluteSrc = stripScriptExtension(
+                    require.resolve(src, { paths: [currentDir] }),
+                  );
+                }
+              } catch (_) {}
 
-            if (currentFile && (src.startsWith('.') || src.startsWith('/'))) {
-              const absoluteSrc = path.resolve(path.dirname(currentFile), srcNoExt);
-              if (absoluteSrc === absoluteEntrypointPath || absoluteSrc === absoluteIndexPath) {
-
-                return true;
-              }
-              // Handle directory import resolving to index
-              const absoluteSrcIndex = path.join(absoluteSrc, 'index');
-              if (absoluteSrcIndex === absoluteIndexPath) {
-                return true;
+              if (absoluteSrc) {
+                if (
+                  absoluteSrc === absoluteEntrypointPath ||
+                  absoluteSrc === absoluteIndexPath
+                ) {
+                  return true;
+                }
+                // Handle directory import resolving to index
+                const absoluteSrcIndex = path.join(absoluteSrc, 'index');
+                if (absoluteSrcIndex === absoluteIndexPath) {
+                  return true;
+                }
               }
             }
 

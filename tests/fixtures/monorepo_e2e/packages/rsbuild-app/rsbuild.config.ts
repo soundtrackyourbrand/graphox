@@ -30,6 +30,13 @@ export default defineConfig({
     }),
   ] : [],
   tools: {
+    rspack: {
+      resolve: {
+        alias: {
+          '#app/graphql/gql': path.resolve(__dirname, '../app/src/__generated__/graphql.ts'),
+        },
+      },
+    },
     swc: (mode === 'swc' && swcPlugin) ? {
       jsc: {
         experimental: {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::visit::{VisitMut, VisitMutWith};
@@ -64,6 +64,22 @@ pub struct TransformVisitor {
 
 fn normalize(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+fn strip_script_extension(s: &str) -> String {
+    s.strip_suffix(".d.ts")
+        .or_else(|| s.strip_suffix(".tsx"))
+        .or_else(|| s.strip_suffix(".jsx"))
+        .or_else(|| s.strip_suffix(".mjs"))
+        .or_else(|| s.strip_suffix(".cjs"))
+        .or_else(|| s.strip_suffix(".ts"))
+        .or_else(|| s.strip_suffix(".js"))
+        .unwrap_or(s)
+        .to_string()
+}
+
+fn strip_script_extension_path(path: &Path) -> PathBuf {
+    PathBuf::from(strip_script_extension(&path.to_string_lossy()))
 }
 
 impl TransformVisitor {
@@ -132,25 +148,41 @@ impl TransformVisitor {
             src.to_string()
         };
         let src = src.as_str();
+        let src_no_ext = strip_script_extension(src);
 
         for path in &self.graphql_import_paths {
-            if src == path
-                || src.strip_suffix(".js") == Some(path)
-                || src.strip_suffix(".ts") == Some(path)
-                || path.strip_suffix(".js") == Some(src)
-                || path.strip_suffix(".ts") == Some(src)
-            {
+            if src == path || src_no_ext == strip_script_extension(path) {
                 return true;
             }
-        }
-
-        if src.starts_with('#') && src.contains("graphql") {
-            return true;
         }
 
         if let Some(current_file) = &self.current_file {
             let entrypoint_abs_path = self.output_dir.join("graphql");
             let index_abs_path = self.output_dir.join("index");
+            let entrypoint_abs_no_ext = strip_script_extension_path(&entrypoint_abs_path);
+            let index_abs_no_ext = strip_script_extension_path(&index_abs_path);
+
+            if let Some(parent) = current_file.parent() {
+                let src_path = Path::new(src);
+                let resolved_abs = if src.starts_with('.') {
+                    Some(parent.join(src_path))
+                } else if src_path.is_absolute() {
+                    Some(src_path.to_path_buf())
+                } else {
+                    None
+                };
+
+                if let Some(resolved_abs) = resolved_abs {
+                    let resolved_no_ext = strip_script_extension_path(&resolved_abs);
+                    if resolved_no_ext == entrypoint_abs_no_ext
+                        || resolved_no_ext == index_abs_no_ext
+                        || resolved_no_ext.join("index") == index_abs_no_ext
+                    {
+                        return true;
+                    }
+                }
+            }
+
             if let Some(parent) = current_file.parent()
                 && let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent)
                 && let Some(rel_index_path) = pathdiff::diff_paths(&index_abs_path, parent)
@@ -172,21 +204,9 @@ impl TransformVisitor {
                 }
 
                 // Normalize both source and our paths to compare without extensions
-                let src_normalized = src
-                    .strip_suffix(".js")
-                    .unwrap_or(src)
-                    .strip_suffix(".ts")
-                    .unwrap_or(src);
-                let our_normalized = s
-                    .strip_suffix(".js")
-                    .unwrap_or(&s)
-                    .strip_suffix(".ts")
-                    .unwrap_or(&s);
-                let our_index_normalized = s_index
-                    .strip_suffix(".js")
-                    .unwrap_or(&s_index)
-                    .strip_suffix(".ts")
-                    .unwrap_or(&s_index);
+                let src_normalized = src_no_ext.as_str();
+                let our_normalized = strip_script_extension(&s);
+                let our_index_normalized = strip_script_extension(&s_index);
 
                 if src_normalized == our_normalized || src_normalized == our_index_normalized {
                     return true;
@@ -196,10 +216,9 @@ impl TransformVisitor {
                 if format!("{}/index", src_normalized) == our_index_normalized {
                     return true;
                 }
-
-                return false;
             }
         }
+
         false
     }
 }
@@ -785,7 +804,7 @@ mod tests {
             manifest_path: None,
             manifest_data: Some(manifest),
             output_dir: ".".to_string(),
-            graphql_import_paths: None,
+            graphql_import_paths: Some(vec!["#graphql/graphql".to_string()]),
             emit_extensions: EmitExtensions::None,
         };
 
@@ -798,6 +817,60 @@ mod tests {
         assert!(output.contains("import { MyQueryDocument } from \"./query.codegen\";"));
         assert!(output.contains("const q = MyQueryDocument;"));
         assert!(!output.contains("import { graphql }"));
+    }
+
+    #[test]
+    fn test_does_not_transform_unrelated_aliases_containing_graphql() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            "import { graphql } from '#app/graphql/gql'; const q = graphql(`query { me { id } }`);",
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("import { graphql } from '#app/graphql/gql';"));
+        assert!(output.contains("graphql(`query { me { id } }`)"));
+        assert!(!output.contains("MyQueryDocument"));
+    }
+
+    #[test]
+    fn test_resolves_absolute_import_paths_against_output_dir() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            "import { graphql } from '/root/gen/graphql.ts'; const q = graphql(`query { me { id } }`);",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { MyQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(output.contains("const q = MyQueryDocument;"));
+        assert!(!output.contains("from '/root/gen/graphql.ts'"));
     }
 
     #[test]
