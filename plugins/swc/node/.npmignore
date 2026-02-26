@@ -1,0 +1,9 @@
+# Ignore source files
+src/
+test/
+tsconfig.json
+pnpm-lock.yaml
+
+# Do NOT ignore wasm (even if it is in .gitignore)
+!wasm/
+!wasm/*.wasm
