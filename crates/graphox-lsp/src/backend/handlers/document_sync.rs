@@ -1,5 +1,5 @@
 use crate::backend::state::Backend;
-use crate::backend::{document_changes, file_change_handler};
+use crate::backend::{document_changes, error_logging, file_change_handler};
 use graphox_core::DocumentState;
 use graphox_core::document::DocumentLanguage;
 
@@ -144,12 +144,93 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
 
         // Validate affected documents
         backend.validate_uris(result.uris_to_validate).await;
+    }
+}
 
-        // Request throttled codegen if enabled
-        if result.should_run_codegen
-            && let Some(throttle) = &backend.codegen_throttle
+pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParams) {
+    let uri = backend.normalize_uri(params.text_document.uri.clone());
+
+    if let Ok(path) = uri.to_file_path() {
+        let latest_text = params
+            .text
+            .clone()
+            .or_else(|| backend.documents.get(&uri).map(|doc| doc.rope.to_string()));
+
+        if let Some(latest_text) = latest_text {
+            let should_sync_disk = std::fs::read_to_string(&path)
+                .map(|disk_text| disk_text != latest_text)
+                .unwrap_or(true);
+
+            if should_sync_disk && let Err(e) = std::fs::write(&path, &latest_text) {
+                error_logging::log_warning(
+                    &backend.client,
+                    "didSave",
+                    format!(
+                        "Failed to sync saved document to disk {}: {}",
+                        path.display(),
+                        e
+                    ),
+                )
+                .await;
+            }
+        }
+    }
+
+    let position_encoding = if let Ok(caps) = backend.client_capabilities.read() {
+        caps.negotiated_encoding()
+    } else {
+        PositionEncodingKind::UTF16
+    };
+
+    let config = backend.config.read().unwrap().clone();
+    let change_params = file_change_handler::FileChangeParams {
+        client: &backend.client,
+        config: &config,
+        documents: &backend.documents,
+        fragment_defs: &backend.fragment_defs,
+        fragment_spreads: &backend.fragment_spreads,
+        package_roots: &backend.package_roots,
+        fragment_dependents: &backend.fragment_dependents,
+        fragment_definitions: &backend.fragment_definitions,
+        operation_names: &backend.operation_names,
+        gitignore: &backend.gitignore,
+        position_encoding,
+    };
+
+    let result = file_change_handler::process_file_created_or_changed(uri, &change_params, |uri| {
+        backend.normalize_uri(uri)
+    })
+    .await;
+
+    if let Some(result) = result {
+        backend.invalidate_fragment_cache();
+        backend.increment_workspace_version();
+
+        if result.should_reload_config {
+            backend.reload_config().await;
+            return;
+        }
+
+        if result.should_reload_schema
+            && let Some(schema_path) = result.schema_path
         {
-            throttle.request_codegen();
+            backend.reload_schema(&schema_path).await;
+        }
+
+        if !result.uris_to_validate.is_empty() {
+            backend.validate_uris(result.uris_to_validate).await;
+        }
+
+        if result.should_run_codegen {
+            if backend.workspace_loaded.load(Ordering::SeqCst) {
+                if let Some(throttle) = &backend.codegen_throttle {
+                    throttle.request_codegen();
+                }
+            } else {
+                backend
+                    .codegen_requested_during_scan
+                    .store(true, Ordering::SeqCst);
+            }
         }
     }
 }

@@ -114,10 +114,8 @@ async fn test_lsp_automatic_codegen() {
         content
     );
 
-    // 2. Test didChange triggers codegen
+    // 2. didChange alone should not trigger codegen
     let query_text_new = "query GetMe { me { id name } }";
-    // In this implementation, codegen currently reads from disk, so we must save the file
-    // In a real editor, this happens on save or via auto-save.
     fs::write(&query_path, query_text_new).unwrap();
     service
         .call(
@@ -141,7 +139,31 @@ async fn test_lsp_automatic_codegen() {
         .await
         .unwrap();
 
-    // Wait for updated codegen
+    sleep(Duration::from_millis(100)).await;
+    let unchanged_content = fs::read_to_string(&gen_path).unwrap();
+    assert!(
+        !unchanged_content.contains("name: string | null"),
+        "didChange should not trigger codegen without save"
+    );
+
+    // 3. didSave should trigger codegen
+    service
+        .call(
+            Request::build("textDocument/didSave")
+                .params(
+                    serde_json::to_value(DidSaveTextDocumentParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                        },
+                        text: None,
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
     let mut updated = false;
     for _ in 0..40 {
         if let Ok(c) = fs::read_to_string(&gen_path)
@@ -150,11 +172,11 @@ async fn test_lsp_automatic_codegen() {
             updated = true;
             break;
         }
-        sleep(Duration::from_millis(1)).await;
+        sleep(Duration::from_millis(10)).await;
     }
-    assert!(updated, "Codegen was not updated after didChange");
+    assert!(updated, "Codegen was not updated after didSave");
 
-    // 3. Test didChangeWatchedFiles triggers codegen
+    // 4. Test didChangeWatchedFiles triggers codegen
     fs::remove_file(&gen_path).unwrap();
     let query_text_watched = "query GetMe { me { name } }";
     fs::write(&query_path, query_text_watched).unwrap();
@@ -334,7 +356,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         disabled_gen_path.display()
     );
 
-    // Test didChange on disabled project - should still not generate
+    // Test didChange + didSave on disabled project - should still not generate
     let disabled_query_text_new = "query GetUsers { users { id name } }";
     fs::write(&disabled_query_path, disabled_query_text_new).unwrap();
     service
@@ -359,14 +381,31 @@ async fn test_lsp_automatic_codegen_disabled() {
         .await
         .unwrap();
 
+    service
+        .call(
+            Request::build("textDocument/didSave")
+                .params(
+                    serde_json::to_value(DidSaveTextDocumentParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: disabled_uri.clone(),
+                        },
+                        text: None,
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
     // Wait again to ensure no codegen happens
     sleep(Duration::from_millis(150)).await;
     assert!(
         !disabled_gen_path.exists(),
-        "Should still not generate files after didChange for disabled project"
+        "Should still not generate files after didSave for disabled project"
     );
 
-    // Verify enabled project still works
+    // Verify enabled project still works on save
     let enabled_query_text_new = "query GetMe { me { id name } }";
     fs::write(&enabled_query_path, enabled_query_text_new).unwrap();
     service
@@ -391,6 +430,30 @@ async fn test_lsp_automatic_codegen_disabled() {
         .await
         .unwrap();
 
+    sleep(Duration::from_millis(100)).await;
+    let unchanged_enabled = fs::read_to_string(&enabled_gen_path).unwrap();
+    assert!(
+        !unchanged_enabled.contains("name: string | null"),
+        "didChange should not trigger enabled project codegen without save"
+    );
+
+    service
+        .call(
+            Request::build("textDocument/didSave")
+                .params(
+                    serde_json::to_value(DidSaveTextDocumentParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: enabled_uri.clone(),
+                        },
+                        text: None,
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
     // Wait for updated codegen on enabled project
     let mut updated = false;
     for _ in 0..20 {
@@ -404,7 +467,422 @@ async fn test_lsp_automatic_codegen_disabled() {
     }
     assert!(
         updated,
-        "Enabled project codegen was not updated after didChange"
+        "Enabled project codegen was not updated after didSave"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_disabled_project_before_enabled_keeps_entrypoint_alignment() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    let disabled_path = base_dir.join("disabled.ts");
+    fs::write(
+        &disabled_path,
+        r#"
+        import { graphql } from "./disabled_gen/graphql";
+        export const DisabledDoc = graphql(/* GraphQL */ `
+          query DisabledDoc {
+            me { id }
+          }
+        `);
+        "#,
+    )
+    .unwrap();
+
+    let enabled_path = base_dir.join("enabled.ts");
+    fs::write(
+        &enabled_path,
+        r#"
+        import { graphql } from "./enabled_gen/graphql";
+        export const EnabledDoc = graphql(/* GraphQL */ `
+          query EnabledDoc {
+            me {
+              id
+              markerName: name
+            }
+          }
+        `);
+        "#,
+    )
+    .unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("disabled.ts".to_string()))
+                .with_output_dir("disabled_gen".to_string())
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("enabled.ts".to_string()))
+                .with_output_dir("enabled_gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
+                if params.message.starts_with("Workspace scan complete") {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let _ = tokio::time::timeout(Duration::from_millis(300), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
+
+    let enabled_uri = Url::from_file_path(&enabled_path).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didSave")
+                .params(
+                    serde_json::to_value(DidSaveTextDocumentParams {
+                        text_document: TextDocumentIdentifier { uri: enabled_uri },
+                        text: None,
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let enabled_entrypoint = base_dir.join("enabled_gen/graphql.ts");
+    wait_for_file(&enabled_entrypoint, Duration::from_millis(1000)).await;
+
+    let enabled_content = fs::read_to_string(&enabled_entrypoint).unwrap();
+    assert!(
+        enabled_content.contains("markerName: name"),
+        "Enabled project entrypoint should include the enabled operation source"
+    );
+
+    let disabled_entrypoint = base_dir.join("disabled_gen/graphql.ts");
+    if disabled_entrypoint.exists() {
+        let disabled_content = fs::read_to_string(&disabled_entrypoint).unwrap();
+        assert!(
+            !disabled_content.contains("markerName: name"),
+            "Disabled project entrypoint must not receive enabled project fragments/operations"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_didsave_uses_disk_state_for_ts_host() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    let host_path = base_dir.join("query.ts");
+    fs::write(
+        &host_path,
+        r#"
+        import { graphql } from "./gen/graphql";
+
+        export const GetMe = graphql(/* GraphQL */ `
+          query GetMe {
+            me { id }
+          }
+        `);
+        "#,
+    )
+    .unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.ts".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
+                if params.message.starts_with("Workspace scan complete") {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
+
+    let host_uri = Url::from_file_path(&host_path).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didSave")
+                .params(
+                    serde_json::to_value(DidSaveTextDocumentParams {
+                        text_document: TextDocumentIdentifier { uri: host_uri },
+                        text: None,
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let gen_path = base_dir.join("gen/query.codegen.ts");
+    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+    let content = fs::read_to_string(&gen_path).unwrap();
+    assert!(content.contains("GetMeQuery"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    let query_path = base_dir.join("query.ts");
+    let query_text = r#"
+      import { graphql } from "./gen/graphql";
+      export const GetMe = graphql(/* GraphQL */ `
+        query GetMe {
+          me { id }
+        }
+      `);
+    "#;
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.ts".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
+                if params.message.starts_with("Workspace scan complete") {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
+
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: query_uri.clone(),
+                            language_id: "typescript".to_string(),
+                            version: 1,
+                            text: query_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let changed_text = r#"
+      import { graphql } from "./gen/graphql";
+      export const GetMe = graphql(/* GraphQL */ `
+        query GetMe {
+          me { id name }
+        }
+      `);
+    "#;
+
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: changed_text.to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("textDocument/didSave")
+                .params(
+                    serde_json::to_value(DidSaveTextDocumentParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                        },
+                        text: None,
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let gen_path = base_dir.join("gen/query.codegen.ts");
+    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+
+    let mut content = fs::read_to_string(&gen_path).unwrap();
+    for _ in 0..40 {
+        if content.contains("name: string | null") {
+            break;
+        }
+        sleep(Duration::from_millis(20)).await;
+        content = fs::read_to_string(&gen_path).unwrap();
+    }
+    assert!(
+        content.contains("name: string | null"),
+        "didSave should use latest in-memory text even if disk was stale"
+    );
+
+    let mut disk_text = fs::read_to_string(&query_path).unwrap();
+    for _ in 0..20 {
+        if disk_text.contains("id name") {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+        disk_text = fs::read_to_string(&query_path).unwrap();
+    }
+    assert!(
+        disk_text.contains("id name"),
+        "didSave should persist latest in-memory content to disk before codegen"
     );
 }
 

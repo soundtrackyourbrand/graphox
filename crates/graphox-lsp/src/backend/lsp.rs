@@ -160,6 +160,10 @@ impl LanguageServer for Backend {
         document_sync::handle_did_change(self, params).await;
     }
 
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        document_sync::handle_did_save(self, params).await;
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,

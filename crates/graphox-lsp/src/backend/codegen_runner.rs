@@ -52,6 +52,7 @@ pub async fn run_codegen(
         // Skip projects with codegen disabled
         if !config.get_project_codegen_enabled(project) {
             project_operations_list.push(Vec::new());
+            project_fragments_list.push(Vec::new());
             continue;
         }
 
@@ -110,6 +111,7 @@ pub async fn run_codegen(
                     .log_message(MessageType::ERROR, format!("Failed to load schema: {}", e))
                     .await;
                 project_operations_list.push(Vec::new());
+                project_fragments_list.push(Vec::new());
                 continue;
             }
         };
@@ -128,6 +130,7 @@ pub async fn run_codegen(
                     )
                     .await;
                 project_operations_list.push(Vec::new());
+                project_fragments_list.push(Vec::new());
                 continue;
             }
         };
