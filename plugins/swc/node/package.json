@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "build:wasm": "wasm-pack build ../rust --target nodejs --out-dir $PWD/wasm --no-pack",
+    "build:wasm": "cargo build --manifest-path ../rust/Cargo.toml --target wasm32-wasip1 --release && mkdir -p wasm && cp ../../../target/wasm32-wasip1/release/graphox_swc_plugin.wasm wasm/",
     "build:all": "pnpm run build:wasm && pnpm run build",
     "test": "vitest run",
     "prepublishOnly": "pnpm run build"

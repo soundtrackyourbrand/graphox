@@ -1,9 +1,10 @@
-# Ignore source files
+# Ignore source files and config
 src/
 test/
 tsconfig.json
 pnpm-lock.yaml
 
-# Do NOT ignore wasm (even if it is in .gitignore)
+# Explicitly include the WASM directory and binary
+# This overrides the root .gitignore during npm publish
 !wasm/
 !wasm/*.wasm

@@ -76,7 +76,8 @@ export interface PluginConfig {
  * and bundled with this package.
  */
 function getWasmPath(): string {
-  // The WASM file should be in the wasm/ directory after building
+  // The WASM file is built using cargo build --target wasm32-wasip1
+  // and placed in the wasm/ directory.
   const wasmPath = path.join(__dirname, '..', 'wasm', 'graphox_swc_plugin.wasm');
   
   if (!fs.existsSync(wasmPath)) {
