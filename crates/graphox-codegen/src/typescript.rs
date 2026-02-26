@@ -599,6 +599,7 @@ fn topological_sort_documents(docs: &[DocumentAstInfo]) -> Vec<&DocumentAstInfo>
             }
         }
         deps.sort_unstable();
+        deps.dedup();
         dependencies_map.insert(name, deps);
     }
 

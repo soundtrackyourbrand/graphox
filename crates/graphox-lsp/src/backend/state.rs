@@ -62,13 +62,24 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(client: Client, config: Config) -> Self {
-        let schemas = DashMap::with_hasher(ahash::RandomState::default());
-        let validated_schemas = DashMap::with_hasher(ahash::RandomState::default());
-        let documents: DashMap<Url, Arc<DocumentState>, ahash::RandomState> =
-            DashMap::with_hasher(ahash::RandomState::default());
-        let fragment_definitions: DashMap<Arc<str>, AHashSet<Url>, ahash::RandomState> =
-            DashMap::with_hasher(ahash::RandomState::default());
+    pub fn new(client: Client, config: Config) -> Arc<Self> {
+        let schemas = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let validated_schemas = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let documents: DocumentsMap = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let fragment_defs: FragmentDefsMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let fragment_spreads: FragmentSpreadsMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let package_roots: PackageRootsMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let fragment_dependents: FragmentDependentsMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let fragment_definitions: FragmentDefinitionsMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let operation_names: OperationNamesMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let diagnostic_cache: DiagnosticCacheMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
 
         let empty_schema = Arc::new(
             Schema::parse("type Query { _empty: String }", "empty.graphql").unwrap_or_else(|e| {
@@ -125,49 +136,57 @@ impl Backend {
 
         let config_arc = Arc::new(std::sync::RwLock::new(config));
         let type_caches = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let workspace_loaded = Arc::new(AtomicBool::new(false));
+        let codegen_requested_during_scan = Arc::new(AtomicBool::new(false));
+        let open_documents = Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default()));
+        let workspace_scan_cancelled = Arc::new(AtomicBool::new(false));
+        let client_capabilities = Arc::new(std::sync::RwLock::new(ClientCapabilities::default()));
+        let workspace_version = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let last_full_validation_version = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fragment_metadata_cache = Arc::new(std::sync::RwLock::new(None));
 
-        // Create codegen throttle if automatic codegen is enabled
-        let codegen_throttle = {
-            let cfg = config_arc.read().unwrap();
-            if cfg.lsp_automatic_codegen() {
-                Some(Arc::new(super::codegen_throttle::CodegenThrottle::new(
-                    client.clone(),
-                    config_arc.clone(),
-                    type_caches.clone(),
-                )))
-            } else {
-                None
+        Arc::new_cyclic(|this| {
+            // Create codegen throttle if automatic codegen is enabled
+            let codegen_throttle = {
+                let cfg = config_arc.read().unwrap();
+                if cfg.lsp_automatic_codegen() {
+                    Some(Arc::new(super::codegen_throttle::CodegenThrottle::new(
+                        this.clone(),
+                    )))
+                } else {
+                    None
+                }
+            };
+
+            Self {
+                client,
+                documents,
+                config: config_arc.clone(),
+
+                schemas,
+                validated_schemas,
+                empty_schema,
+                valid_empty_schema,
+                fragment_defs,
+                fragment_spreads,
+                package_roots,
+                fragment_dependents,
+                fragment_definitions,
+                operation_names,
+                workspace_loaded,
+                codegen_requested_during_scan,
+                open_documents,
+                workspace_scan_cancelled,
+                gitignore,
+                type_caches,
+                client_capabilities,
+                diagnostic_cache,
+                workspace_version,
+                last_full_validation_version,
+                codegen_throttle,
+                fragment_metadata_cache,
             }
-        };
-
-        Self {
-            client,
-            documents: Arc::new(documents),
-            config: config_arc,
-
-            schemas: Arc::new(schemas),
-            validated_schemas: Arc::new(validated_schemas),
-            empty_schema,
-            valid_empty_schema,
-            fragment_defs: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
-            fragment_spreads: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
-            package_roots: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
-            fragment_dependents: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
-            fragment_definitions: Arc::new(fragment_definitions),
-            operation_names: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
-            workspace_loaded: Arc::new(AtomicBool::new(false)),
-            codegen_requested_during_scan: Arc::new(AtomicBool::new(false)),
-            open_documents: Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default())),
-            workspace_scan_cancelled: Arc::new(AtomicBool::new(false)),
-            gitignore,
-            type_caches,
-            client_capabilities: Arc::new(std::sync::RwLock::new(ClientCapabilities::default())),
-            diagnostic_cache: Arc::new(DashMap::with_hasher(ahash::RandomState::default())),
-            workspace_version: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
-            last_full_validation_version: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            codegen_throttle,
-            fragment_metadata_cache: Arc::new(std::sync::RwLock::new(None)),
-        }
+        })
     }
 
     fn load_schema_source(
@@ -179,6 +198,14 @@ impl Backend {
 
     pub fn normalize_uri(&self, uri: Url) -> Url {
         super::helpers::normalize_uri(uri)
+    }
+
+    pub fn get_position_encoding(&self) -> PositionEncodingKind {
+        if let Ok(caps) = self.client_capabilities.read() {
+            caps.negotiated_encoding()
+        } else {
+            PositionEncodingKind::UTF16
+        }
     }
 
     pub fn increment_workspace_version(&self) {
@@ -430,7 +457,7 @@ impl Backend {
         self.diagnostic_cache.clear();
 
         // Reset workspace version
-        self.workspace_version.store(1, Ordering::SeqCst);
+        self.increment_workspace_version();
         self.last_full_validation_version.store(0, Ordering::SeqCst);
 
         // Trigger workspace scan to re-index everything
@@ -494,7 +521,10 @@ impl Backend {
             self.client.clone(),
             config,
             self.type_caches.clone(),
+            self.documents.clone(),
+            self.fragment_defs.clone(),
             supports_progress,
+            None,
         )
         .await;
     }
@@ -557,19 +587,14 @@ impl Backend {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
-        // Clear all state
-        self.schemas.clear();
-        self.validated_schemas.clear();
-        graphox_core::schema_cache::clear_memory_cache();
-
-        self.documents.clear();
+        // Clear only what's necessary - we keep documents and diagnostic_cache
+        // but we'll re-index everything to match the new config.
         self.fragment_defs.clear();
         self.fragment_spreads.clear();
         self.fragment_dependents.clear();
         self.fragment_definitions.clear();
         self.package_roots.clear();
         self.type_caches.clear();
-        self.diagnostic_cache.clear();
         self.operation_names.clear();
 
         // Restore open documents AND re-index them
@@ -614,7 +639,7 @@ impl Backend {
         }
 
         // Reset workspace version
-        self.workspace_version.store(1, Ordering::SeqCst);
+        self.increment_workspace_version();
         self.last_full_validation_version.store(0, Ordering::SeqCst);
 
         // Reload schemas from the new configuration

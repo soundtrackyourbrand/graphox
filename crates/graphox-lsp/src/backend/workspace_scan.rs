@@ -179,7 +179,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
             .codegen_requested_during_scan
             .store(false, Ordering::SeqCst);
         if let Some(throttle) = &params.codegen_throttle {
-            throttle.request_codegen();
+            throttle.request_codegen(None);
         }
     }
 

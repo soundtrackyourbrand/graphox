@@ -3,7 +3,9 @@
 use crate::support::lsp_did_open;
 use crate::support::lsp_initialize_sequence;
 use crate::support::lsp_send_notification;
-use graphox::Backend as LspBackend;
+use graphox::Backend;
+use std::sync::Arc;
+pub type LspBackend = Arc<Backend>;
 use std::path::Path;
 use tempfile::TempDir;
 use tower_lsp::LspService;
@@ -115,7 +117,7 @@ impl LspTestScenario {
         let base_dir = self.write_files().unwrap();
         let config = self.build_config(&base_dir);
 
-        let (mut service, _) = LspService::new(|client| LspBackend::new(client, config));
+        let (mut service, _) = LspService::new(|client| Backend::new(client, config));
         lsp_initialize_sequence(&mut service).await;
 
         // Open all files
