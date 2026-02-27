@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetUserQueryDocument",
+    "path": "./query.codegen",
+    "source": "query GetUser {\n  user {\n    id\n    name\n    email\n    bio\n    age\n    tags\n    nicknames\n  }\n}\n"
+  }
+]

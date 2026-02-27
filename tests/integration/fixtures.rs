@@ -292,6 +292,16 @@ fn test_cli_fragment_spread_ast_baselines() {
     );
 }
 
+#[test]
+#[ntest::timeout(10000)]
+fn test_cli_embedded_fragments_baselines() {
+    run_baseline_test(
+        "tests/fixtures/embedded_fragments",
+        "tests/baselines/embedded_fragments",
+        None,
+    );
+}
+
 pub(crate) fn run_baseline_test(
     fixture_dir_str: &str,
     baseline_dir_str: &str,

@@ -87,13 +87,9 @@ pub fn generate_entrypoint_content(
         map_entries.push_str(&format!("  {:?}: {},\n", op.source_text, op.document_name));
     }
 
-    let mut unique_frags_by_source = BTreeMap::new();
     let mut unique_frags_by_name = BTreeMap::new();
 
     for frag in fragments {
-        unique_frags_by_source
-            .entry(&frag.source_text)
-            .or_insert(frag);
         unique_frags_by_name.entry(&frag.name).or_insert(frag);
     }
 
@@ -126,7 +122,7 @@ pub fn generate_entrypoint_content(
         }
     }
 
-    for frag in unique_frags_by_source.values() {
+    for frag in unique_frags_by_name.values() {
         // Skip if this source text was already added (from an operation)
         if added_source_texts.contains(&&frag.source_text) {
             continue;

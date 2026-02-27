@@ -223,6 +223,10 @@ def main():
             "tests/fixtures/nullable_fields_as_optional",
             "tests/baselines/nullable_fields_as_optional",
         ),
+        (
+            "tests/fixtures/embedded_fragments",
+            "tests/baselines/embedded_fragments",
+        ),
     ]
 
     for fixture, baseline in tasks:

@@ -1,0 +1,8 @@
+projects:
+  - name: default
+    schema: schema.graphql
+    include: "**/*.ts"
+    output_dir: __generated__
+    codegen:
+      generate_ast_for_fragments: true
+      re_exports: true
