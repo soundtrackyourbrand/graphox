@@ -358,5 +358,25 @@ describe('@graphox/babel-plugin', () => {
       expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
       expect(output).not.toContain("from './gen'");
     });
+
+    it('rewrites graphql function import from index.ts barrel', () => {
+      const code = "import { graphql } from './gen/index'; const q = graphql(`query GetUser { user { id } }`);";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).toContain("const q = GetUserDocument;");
+      expect(output).not.toContain("from './gen/index'");
+      expect(output).not.toContain('graphql');
+    });
+
+    it('rewrites gql function import from index.ts barrel', () => {
+      const code = "import { gql } from './gen/index'; const q = gql(`query GetUser { user { id } }`);";
+      const output = transform(code, reExportOptions);
+
+      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
+      expect(output).toContain("const q = GetUserDocument;");
+      expect(output).not.toContain("from './gen/index'");
+      expect(output).not.toContain('gql');
+    });
   });
 });

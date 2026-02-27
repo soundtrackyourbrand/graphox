@@ -1121,6 +1121,60 @@ mod tests {
     }
 
     #[test]
+    fn test_visitor_graphql_import_from_index() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            "import { graphql } from '../gen/index'; const q = graphql(`query { me { id } }`);",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { MyQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(output.contains("const q = MyQueryDocument;"));
+        assert!(!output.contains("from '../gen/index'"));
+    }
+
+    #[test]
+    fn test_visitor_gql_import_from_index() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            "import { gql } from '../gen/index'; const q = gql(`query { me { id } }`);",
+            config,
+            "/root/app/test.ts",
+        );
+
+        assert!(output.contains("import { MyQueryDocument } from \"../gen/query.codegen\";"));
+        assert!(output.contains("const q = MyQueryDocument;"));
+        assert!(!output.contains("from '../gen/index'"));
+    }
+
+    #[test]
     fn test_fragment_document_with_emit_extensions() {
         // Test that fragment documents (when generate_ast_for_fragments is enabled) work
         let manifest = vec![
