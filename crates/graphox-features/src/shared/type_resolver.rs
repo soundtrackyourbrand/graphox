@@ -180,20 +180,37 @@ pub fn resolve_symbol_at_node(
     let mut curr = Some(node);
     while let Some(current_node) = curr {
         match current_node.kind() {
-            "field" => {
-                let components = doc.extract_field_components(current_node);
+            "field" | "field_definition" => {
+                let (components, is_definition) = if current_node.kind() == "field_definition" {
+                    (doc.extract_field_definition_components(current_node), true)
+                } else {
+                    (doc.extract_field_components(current_node), false)
+                };
+
                 if let Some(name_node) = components.name {
                     let name_range =
                         (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
                     if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
                         let field_name = doc.get_node_text(name_node, offset);
-                        let parent_type =
-                            doc.find_parent_type_for_node(current_node, offset, schema)?;
+
+                        let parent_type = if is_definition {
+                            // Find the containing type for this definition
+                            let parent_node = doc.find_ancestor_by_kinds(
+                                current_node,
+                                &["object_type_definition", "interface_type_definition"],
+                            )?;
+                            let name_node = doc.find_child_by_kind(parent_node, "name")?;
+                            let name = doc.get_node_text(name_node, offset);
+                            schema.types.get(name.as_str()).cloned()?
+                        } else {
+                            doc.find_parent_type_for_node(current_node, offset, schema)?
+                        };
 
                         // Check for built-in fields
-                        if field_name == "__typename"
-                            || field_name == "__schema"
-                            || field_name == "__type"
+                        if !is_definition
+                            && (field_name == "__typename"
+                                || field_name == "__schema"
+                                || field_name == "__type")
                         {
                             return Some(SemanticSymbol::BuiltinField {
                                 name: field_name,
@@ -221,8 +238,8 @@ pub fn resolve_symbol_at_node(
                     }
                 }
 
-                // If we are in alias
-                if let Some(alias_node) = components.alias {
+                // If we are in alias (only for usage)
+                if !is_definition && let Some(alias_node) = components.alias {
                     let alias_range =
                         (alias_node.start_byte() + offset)..(alias_node.end_byte() + offset);
                     if cursor_offset >= alias_range.start && cursor_offset <= alias_range.end {

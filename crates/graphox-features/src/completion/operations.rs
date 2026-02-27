@@ -52,6 +52,7 @@ pub fn complete_operation(
     offset: usize,
     cursor_offset: usize,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     fragments: &[FragmentCompletionInfo],
     resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
@@ -75,6 +76,7 @@ pub fn complete_operation(
             cursor_offset,
             root_type,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         );

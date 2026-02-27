@@ -89,6 +89,7 @@ impl LanguageServer for Backend {
             trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
+            subgraphs: self.subgraphs.clone(),
             validated_schemas: self.validated_schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             codegen_throttle: self.codegen_throttle.clone(),

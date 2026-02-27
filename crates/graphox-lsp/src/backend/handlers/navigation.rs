@@ -32,9 +32,22 @@ pub async fn handle_goto_definition(
 
             // 1. Try unified definition lookup using the shared resolver
             let preferred_uris = backend.get_preferred_schema_uris(&uri);
-            if let Some(location) =
-                doc_arc.get_definition(position, &schema, &backend.documents, &preferred_uris)
-            {
+
+            let project_subgraphs = if let Ok(path) = uri.to_file_path() {
+                let config = backend.config.read().unwrap();
+                let schema_key = config.get_schema_for_path(&path);
+                schema_key.and_then(|key| backend.subgraphs.get(&key).map(|r| r.value().clone()))
+            } else {
+                None
+            };
+
+            if let Some(location) = doc_arc.get_definition(
+                position,
+                &schema,
+                project_subgraphs.as_deref(),
+                &backend.documents,
+                &preferred_uris,
+            ) {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
