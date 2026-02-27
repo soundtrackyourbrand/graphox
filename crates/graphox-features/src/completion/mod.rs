@@ -46,6 +46,7 @@ pub trait DocumentCompletion {
         &self,
         position: Position,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Vec<CompletionItem>;
@@ -56,6 +57,7 @@ pub trait DocumentCompletion {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -86,6 +88,7 @@ pub trait DocumentCompletion {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -130,6 +133,7 @@ pub trait DocumentCompletion {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -147,6 +151,7 @@ pub trait DocumentCompletion {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -157,6 +162,7 @@ pub trait DocumentCompletion {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -167,6 +173,7 @@ pub trait DocumentCompletion {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -178,6 +185,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -189,6 +197,7 @@ pub trait DocumentCompletion {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>>;
@@ -205,6 +214,7 @@ pub trait DocumentCompletion {
         &self,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         add_braces: bool,
         cursor_offset: usize,
     ) -> Vec<CompletionItem>;
@@ -299,6 +309,7 @@ impl DocumentCompletion for DocumentState {
         &self,
         position: Position,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Vec<CompletionItem> {
@@ -359,6 +370,7 @@ impl DocumentCompletion for DocumentState {
                     offset,
                     byte_offset,
                     schema,
+                    subgraphs,
                     fragments,
                     resolve_requirements.clone(),
                 )
@@ -376,6 +388,7 @@ impl DocumentCompletion for DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -492,6 +505,7 @@ impl DocumentCompletion for DocumentState {
                     offset,
                     cursor_offset,
                     schema,
+                    subgraphs,
                     fragments,
                     resolve_requirements.clone(),
                 )
@@ -521,6 +535,7 @@ impl DocumentCompletion for DocumentState {
                 offset,
                 cursor_offset,
                 schema,
+                subgraphs,
                 fragments,
                 resolve_requirements.clone(),
             ) {
@@ -540,6 +555,7 @@ impl DocumentCompletion for DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -816,6 +832,7 @@ impl DocumentCompletion for DocumentState {
                     offset,
                     cursor_offset,
                     schema,
+                    subgraphs,
                     fragments,
                     resolve_requirements,
                 )
@@ -825,6 +842,7 @@ impl DocumentCompletion for DocumentState {
                 offset,
                 cursor_offset,
                 schema,
+                subgraphs,
                 fragments,
                 resolve_requirements,
             ),
@@ -934,6 +952,7 @@ impl DocumentCompletion for DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -943,6 +962,7 @@ impl DocumentCompletion for DocumentState {
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         )
@@ -963,6 +983,7 @@ impl DocumentCompletion for DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -972,6 +993,7 @@ impl DocumentCompletion for DocumentState {
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         )
@@ -983,6 +1005,7 @@ impl DocumentCompletion for DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -992,6 +1015,7 @@ impl DocumentCompletion for DocumentState {
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         )
@@ -1003,6 +1027,7 @@ impl DocumentCompletion for DocumentState {
         offset: usize,
         cursor_offset: usize,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -1012,6 +1037,7 @@ impl DocumentCompletion for DocumentState {
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         )
@@ -1024,6 +1050,7 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -1034,6 +1061,7 @@ impl DocumentCompletion for DocumentState {
             cursor_offset,
             parent_type,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         )
@@ -1046,6 +1074,7 @@ impl DocumentCompletion for DocumentState {
         cursor_offset: usize,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         fragments: &[FragmentCompletionInfo],
         resolve_requirements: FragmentRequirementsResolver,
     ) -> Option<Vec<CompletionItem>> {
@@ -1056,6 +1085,7 @@ impl DocumentCompletion for DocumentState {
             cursor_offset,
             parent_type,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         )
@@ -1081,10 +1111,18 @@ impl DocumentCompletion for DocumentState {
         &self,
         parent_type: &schema::ExtendedType,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         add_braces: bool,
         cursor_offset: usize,
     ) -> Vec<CompletionItem> {
-        fields::get_field_completions(self, parent_type, schema, add_braces, cursor_offset)
+        fields::get_field_completions(
+            self,
+            parent_type,
+            schema,
+            subgraphs,
+            add_braces,
+            cursor_offset,
+        )
     }
 
     fn is_query_root(&self, ty: &schema::ExtendedType, schema: &Schema) -> bool {

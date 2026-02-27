@@ -17,6 +17,7 @@ pub async fn reload_schema(
     changed_path: &str,
     config: &Config,
     schemas: &Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
+    subgraphs: &Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
     validated_schemas: &Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     client: &Client,
     supports_progress: bool,
@@ -27,6 +28,14 @@ pub async fn reload_schema(
     for project in config.projects() {
         if schema_contains_file(project.schema(), changed_path, config.base_dir()) {
             sources_to_reload.push(project.schema().clone());
+        } else if let Some(subgraphs_dir) = project.subgraphs_dir() {
+            let subgraphs_path = config.base_dir().join(subgraphs_dir);
+            if let Ok(path) = Path::new(changed_path).canonicalize()
+                && let Ok(subgraphs_path) = subgraphs_path.canonicalize()
+                && path.starts_with(subgraphs_path)
+            {
+                sources_to_reload.push(project.schema().clone());
+            }
         }
     }
 
@@ -79,6 +88,21 @@ pub async fn reload_schema(
                         .await;
                 }
                 schemas.insert(key.clone(), new_schema.clone());
+
+                // Also reload subgraphs if configured for this project
+                for project in config.projects() {
+                    if project.schema().as_key() == key
+                        && let Some(subgraphs_dir) = project.subgraphs_dir()
+                    {
+                        let project_subgraphs = graphox_core::schema::load_subgraphs(
+                            config.base_dir(),
+                            subgraphs_dir,
+                            project.subgraph_owners(),
+                        );
+                        subgraphs.insert(key.clone(), project_subgraphs);
+                    }
+                }
+
                 client
                     .log_message(
                         MessageType::INFO,
@@ -109,10 +133,12 @@ pub async fn reload_schema(
 pub async fn clear_cache(
     config: &Config,
     schemas: &Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
+    subgraphs: &Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
     validated_schemas: &Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     client: &Client,
 ) {
     schemas.clear();
+    subgraphs.clear();
     validated_schemas.clear();
 
     // Reload project schemas from config
@@ -133,7 +159,16 @@ pub async fn clear_cache(
                             )
                             .await;
                     }
-                    schemas.insert(key, schema);
+                    schemas.insert(key.clone(), schema);
+
+                    if let Some(subgraphs_dir) = project.subgraphs_dir() {
+                        let project_subgraphs = graphox_core::schema::load_subgraphs(
+                            config.base_dir(),
+                            subgraphs_dir,
+                            project.subgraph_owners(),
+                        );
+                        subgraphs.insert(key, project_subgraphs);
+                    }
                 }
                 None => {
                     client

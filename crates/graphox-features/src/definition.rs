@@ -46,6 +46,7 @@ pub trait DocumentDefinition {
         &self,
         position: Position,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
         preferred_uris: &[Url],
     ) -> Option<Location>;
@@ -439,6 +440,7 @@ impl DocumentDefinition for DocumentState {
         &self,
         position: Position,
         schema: &Schema,
+        subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
         documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
         preferred_uris: &[Url],
     ) -> Option<Location> {
@@ -453,6 +455,39 @@ impl DocumentDefinition for DocumentState {
                 let local_byte = cursor_offset - offset;
                 let node = root.descendant_for_byte_range(local_byte, local_byte)?;
 
+                let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
+                    let lang = tree_sitter_graphql::LANGUAGE.into();
+                    tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
+                });
+
+                // Special check for field definition in schema to go to subgraphs
+                if node.kind() == "name"
+                    && let Some(parent) = node.parent()
+                    && parent.kind() == "field_definition"
+                    && let Some(subgraphs) = subgraphs
+                {
+                    let field_name = self.get_node_text(node, offset);
+                    let parent_type_node = self.find_ancestor_by_kinds(
+                        parent,
+                        &["object_type_definition", "interface_type_definition"],
+                    )?;
+                    if let Some(name_node) = self.find_child_by_kind(parent_type_node, "name") {
+                        let parent_type_name = self.get_node_text(name_node, offset);
+
+                        for sg in subgraphs {
+                            if let Some(doc) = documents.get(&sg.uri).map(|r| r.value().clone())
+                                && let Some(loc) = doc.find_field_in_type_definition(
+                                    &parent_type_name,
+                                    &field_name,
+                                    symbol_query,
+                                )
+                            {
+                                return Some(loc);
+                            }
+                        }
+                    }
+                }
+
                 let symbol = type_resolver::resolve_symbol_at_node(
                     self,
                     node,
@@ -460,11 +495,6 @@ impl DocumentDefinition for DocumentState {
                     cursor_offset,
                     schema,
                 )?;
-
-                let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
-                    let lang = tree_sitter_graphql::LANGUAGE.into();
-                    tree_sitter::Query::new(&lang, GQL_SYMBOL_QUERY).unwrap()
-                });
 
                 match symbol {
                     SemanticSymbol::Field {

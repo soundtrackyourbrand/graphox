@@ -33,6 +33,7 @@ mod schema_scoping;
 mod selection_ranges;
 mod semantic_tokens;
 mod signature_help;
+mod subgraphs;
 mod symbols;
 mod timeouts;
 mod workspace_symbols;
