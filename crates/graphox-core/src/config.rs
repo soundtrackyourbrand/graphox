@@ -437,7 +437,7 @@ impl CodegenConfig {
     }
 
     pub fn emit_ast_directives(&self) -> bool {
-        self.emit_ast_directives.unwrap_or(false)
+        self.emit_ast_directives.unwrap_or(true)
     }
 
     pub fn emit_ast_aliases(&self) -> bool {

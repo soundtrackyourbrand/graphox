@@ -738,3 +738,76 @@ projects:
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }
+
+#[test]
+fn test_codegen_directives_in_ast() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_repro_directives");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    // Create schema
+    let schema_file = temp_dir.join("schema.graphql");
+    std::fs::write(
+        &schema_file,
+        "type Query { account(id: ID!): Account location(id: ID!): Location } type Account { id: ID! } type Location { id: ID! }",
+    )
+    .unwrap();
+
+    // Create a query file with @skip directive
+    let query_file = temp_dir.join("query.ts");
+    std::fs::write(
+        &query_file,
+        "const q = graphql(`
+          query GetSessionData($accountId: ID!, $locationId: ID!, $skipLocation: Boolean!) {
+            account(id: $accountId) {
+              id
+            }
+            location(id: $locationId) @skip(if: $skipLocation) {
+              id
+            }
+          }
+        `);",
+    )
+    .unwrap();
+
+    // Create config
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.ts"
+    output_dir: "."
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let gen_file = temp_dir.join("query.codegen.ts");
+    let content = std::fs::read_to_string(gen_file).unwrap();
+
+    // Check if @skip directive is in the AST
+    assert!(
+        content.contains(r#""kind":"Directive","name":{"kind":"Name","value":"skip"}"#),
+        "Missing @skip directive in AST. Content:
+{}",
+        content
+    );
+
+    // Cleanup
+    std::fs::remove_dir_all(temp_dir).ok();
+}
