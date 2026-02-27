@@ -4,9 +4,51 @@
 //! duplicated across backend.rs, engine.rs, and commands/codegen.rs
 
 use crate::config::SchemaSource;
+use ahash::AHashMap;
 use apollo_compiler::Schema;
 use std::path::Path;
 use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct SubgraphInfo {
+    pub name: String,
+    pub owner: Option<String>,
+    pub schema: Arc<Schema>,
+    pub uri: lsp_types::Url,
+}
+
+/// Load subgraphs from a directory
+pub fn load_subgraphs(
+    base_dir: &Path,
+    subgraphs_dir: &str,
+    owners: Option<&AHashMap<String, String>>,
+) -> Vec<SubgraphInfo> {
+    let mut subgraphs = Vec::new();
+    let subgraphs_path = base_dir.join(subgraphs_dir);
+
+    if let Ok(entries) = std::fs::read_dir(subgraphs_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "graphql")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+                && let Ok(content) = std::fs::read_to_string(&path)
+                && let Ok(schema) = Schema::parse(&content, &path)
+            {
+                let owner = owners.and_then(|m| m.get(name).cloned());
+                if let Ok(uri) = lsp_types::Url::from_file_path(&path) {
+                    subgraphs.push(SubgraphInfo {
+                        name: name.to_string(),
+                        owner,
+                        schema: Arc::new(schema),
+                        uri,
+                    });
+                }
+            }
+        }
+    }
+
+    subgraphs
+}
 
 /// Load a schema from the given source files
 ///

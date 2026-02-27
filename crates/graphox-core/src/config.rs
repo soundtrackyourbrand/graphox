@@ -707,6 +707,8 @@ impl GlobPattern {
 #[derive(Debug, Clone, Default)]
 pub struct ProjectConfig {
     schema: SchemaSource,
+    subgraphs_dir: Option<String>,
+    subgraph_owners: Option<AHashMap<String, String>>,
     include: GlobPattern,
     exclude: Option<GlobPattern>,
     output_dir: Option<String>,
@@ -721,6 +723,16 @@ pub struct ProjectConfig {
 impl ProjectConfig {
     pub fn with_schema(mut self, schema: SchemaSource) -> Self {
         self.schema = schema;
+        self
+    }
+
+    pub fn with_subgraphs_dir(mut self, subgraphs_dir: String) -> Self {
+        self.subgraphs_dir = Some(subgraphs_dir);
+        self
+    }
+
+    pub fn with_subgraph_owners(mut self, subgraph_owners: AHashMap<String, String>) -> Self {
+        self.subgraph_owners = Some(subgraph_owners);
         self
     }
 
@@ -751,6 +763,14 @@ impl ProjectConfig {
 
     pub fn schema(&self) -> &SchemaSource {
         &self.schema
+    }
+
+    pub fn subgraphs_dir(&self) -> Option<&str> {
+        self.subgraphs_dir.as_deref()
+    }
+
+    pub fn subgraph_owners(&self) -> Option<&AHashMap<String, String>> {
+        self.subgraph_owners.as_ref()
     }
 
     pub fn include(&self) -> &GlobPattern {
@@ -1424,6 +1444,19 @@ impl Config {
         if let Some(projects_node) = node["projects"].as_vec() {
             for p_node in projects_node {
                 let schema = SchemaSource::from_yaml(&p_node["schema"])?;
+                let subgraphs_dir = p_node["subgraphs"].as_str().map(String::from);
+                let subgraph_owners = if let Some(owners_hash) = p_node["subgraph_owners"].as_hash()
+                {
+                    let mut owners = AHashMap::default();
+                    for (k, v) in owners_hash {
+                        if let (Some(k), Some(v)) = (k.as_str(), v.as_str()) {
+                            owners.insert(k.to_string(), v.to_string());
+                        }
+                    }
+                    Some(owners)
+                } else {
+                    None
+                };
                 let include = GlobPattern::from_yaml(&p_node["include"])
                     .or_else(|| GlobPattern::from_yaml(&p_node["documents"]))?;
                 let exclude = GlobPattern::from_yaml(&p_node["exclude"]);
@@ -1437,6 +1470,8 @@ impl Config {
 
                 config.projects.push(ProjectConfig {
                     schema,
+                    subgraphs_dir,
+                    subgraph_owners,
                     include,
                     exclude,
                     output_dir,

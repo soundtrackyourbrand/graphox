@@ -1,12 +1,11 @@
 //! Large workspace performance tests.
 //! These tests verify performance with many files and complex workspace structures.
 
-use crate::support::lsp::{LspTestInitialized, LspTestScenario};
 use crate::support::{
-    create_deep_fragment_chain, create_large_schema, create_many_fragments, timed,
+    create_deep_fragment_chain, create_large_schema, create_many_fragments, lsp_initialize_sequence,
 };
 use graphox::Config;
-use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -16,79 +15,63 @@ use tower_lsp::lsp_types::Url;
 const MAX_SCAN_TIME: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn create_100_file_config(base_dir: &PathBuf) -> Config {
-    Config {
-        base_dir: base_dir.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(CodegenConfig::disabled()),
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false)
 }
 
 fn create_500_file_config(base_dir: &PathBuf) -> Config {
-    Config {
-        base_dir: base_dir.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(CodegenConfig::disabled()),
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false)
 }
 
 fn create_1000_file_config(base_dir: &PathBuf) -> Config {
-    Config {
-        base_dir: base_dir.clone(),
-        projects: vec![ProjectConfig {
-            schema: SchemaSource::Single("schema.graphql".to_string()),
-            include: GlobPattern::Single("**/*.graphql".to_string()),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(CodegenConfig::disabled()),
-        }],
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false)
 }
 
 fn create_10_project_config(base_dir: &PathBuf) -> Config {
     let mut projects = Vec::new();
     for i in 0..10 {
-        projects.push(ProjectConfig {
-            schema: SchemaSource::Single(format!("project_{}/schema.graphql", i)),
-            include: GlobPattern::Single(format!("project_{}/**/*.graphql", i)),
-            exclude: None,
-            output_dir: None,
-            import: None,
-            emit_permission_data: None,
-            codegen: Some(CodegenConfig::disabled()),
-        });
+        projects.push(
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single(format!(
+                    "project_{}/schema.graphql",
+                    i
+                )))
+                .with_include(GlobPattern::Single(format!("project_{}/**/*.graphql", i)))
+                .with_codegen(CodegenConfig::disabled()),
+        );
     }
-    Config {
-        base_dir: base_dir.clone(),
-        projects,
-        enable_schema_cache: Some(true),
-        lsp_automatic_codegen: Some(false),
-        ..Config::new_empty()
-    }
+    Config::new_test(base_dir.clone(), projects)
+        .with_enable_schema_cache(true)
+        .with_lsp_automatic_codegen(false)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -105,18 +88,10 @@ async fn test_workspace_scan_100_files() {
     }
 
     let config = create_100_file_config(&base_dir);
-    let (duration, _) = timed(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let (mut service, _) =
-                LspService::new(|client| graphox::Backend::new(client, config.clone()));
-            crate::support::lsp_initialize_sequence(&mut service).await;
-            service
-        });
-    });
+    let start = std::time::Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    lsp_initialize_sequence(&mut service).await;
+    let duration = start.elapsed();
 
     println!("Workspace scan (100 files) took: {:?}", duration);
     assert!(
@@ -140,18 +115,10 @@ async fn test_workspace_scan_500_files() {
     }
 
     let config = create_500_file_config(&base_dir);
-    let (duration, _) = timed(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let (mut service, _) =
-                LspService::new(|client| graphox::Backend::new(client, config.clone()));
-            crate::support::lsp_initialize_sequence(&mut service).await;
-            service
-        });
-    });
+    let start = std::time::Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    lsp_initialize_sequence(&mut service).await;
+    let duration = start.elapsed();
 
     println!("Workspace scan (500 files) took: {:?}", duration);
     assert!(
@@ -175,18 +142,10 @@ async fn test_workspace_scan_1000_files() {
     }
 
     let config = create_1000_file_config(&base_dir);
-    let (duration, _) = timed(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let (mut service, _) =
-                LspService::new(|client| graphox::Backend::new(client, config.clone()));
-            crate::support::lsp_initialize_sequence(&mut service).await;
-            service
-        });
-    });
+    let start = std::time::Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    lsp_initialize_sequence(&mut service).await;
+    let duration = start.elapsed();
 
     println!("Workspace scan (1000 files) took: {:?}", duration);
     assert!(
@@ -208,22 +167,13 @@ async fn test_fragment_resolution_chain() {
     fs::write(base_dir.join("deep_chain.graphql"), deep_chain).unwrap();
 
     let config = create_100_file_config(&base_dir);
-    let (duration, _) = timed(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let (mut service, _) =
-                LspService::new(|client| graphox::Backend::new(client, config.clone()));
-            crate::support::lsp_initialize_sequence(&mut service).await;
+    let start = std::time::Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    lsp_initialize_sequence(&mut service).await;
 
-            let uri = Url::from_file_path(base_dir.join("deep_chain.graphql")).unwrap();
-            crate::support::lsp_request_hover(&mut service, uri, crate::support::pos(0, 0)).await;
-
-            service
-        });
-    });
+    let uri = Url::from_file_path(base_dir.join("deep_chain.graphql")).unwrap();
+    crate::support::lsp_request_hover(&mut service, uri, crate::support::pos(0, 0)).await;
+    let duration = start.elapsed();
 
     println!(
         "Deep fragment chain resolution (50 levels) took: {:?}",
@@ -255,18 +205,10 @@ async fn test_many_projects() {
     }
 
     let config = create_10_project_config(&base_dir);
-    let (duration, _) = timed(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let (mut service, _) =
-                LspService::new(|client| graphox::Backend::new(client, config.clone()));
-            crate::support::lsp_initialize_sequence(&mut service).await;
-            service
-        });
-    });
+    let start = std::time::Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    lsp_initialize_sequence(&mut service).await;
+    let duration = start.elapsed();
 
     println!("10-project workspace scan took: {:?}", duration);
     assert!(
@@ -288,18 +230,10 @@ async fn test_many_fragments_index() {
     fs::write(base_dir.join("fragments.graphql"), fragments).unwrap();
 
     let config = create_100_file_config(&base_dir);
-    let (duration, _) = timed(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let (mut service, _) =
-                LspService::new(|client| graphox::Backend::new(client, config.clone()));
-            crate::support::lsp_initialize_sequence(&mut service).await;
-            service
-        });
-    });
+    let start = std::time::Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    lsp_initialize_sequence(&mut service).await;
+    let duration = start.elapsed();
 
     println!("500 fragment index build took: {:?}", duration);
     assert!(
