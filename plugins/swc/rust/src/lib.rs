@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use swc_core::common::{DUMMY_SP, SyntaxContext};
 use swc_core::ecma::ast::*;
-use swc_core::ecma::visit::{VisitMut, VisitMutWith};
+use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 use swc_core::plugin::{metadata::TransformPluginProgramMetadata, plugin_transform};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -55,11 +55,13 @@ pub struct TransformVisitor {
     name_to_entry: HashMap<String, ManifestEntry>,
     output_dir: PathBuf,
     current_file: Option<PathBuf>,
-    new_imports: HashMap<String, String>, // local_name -> source_path
+    new_imports: HashMap<String, (String, String)>, // local_name -> (imported_name, source_path)
     graphql_ids: std::collections::HashSet<Id>,
     graphql_import_paths: Vec<String>,
-    document_name_imports: HashMap<Id, String>, // local_name id -> source_path (non-type-only only)
     emit_extensions: EmitExtensions,
+    existing_names: std::collections::HashSet<String>,
+    document_name_to_local_name: HashMap<String, String>,
+    id_renames: HashMap<Id, String>,
 }
 
 fn normalize(s: &str) -> String {
@@ -109,9 +111,33 @@ impl TransformVisitor {
             new_imports: HashMap::new(),
             graphql_ids: std::collections::HashSet::new(),
             graphql_import_paths: config.graphql_import_paths.clone().unwrap_or_default(),
-            document_name_imports: HashMap::new(),
             emit_extensions: config.emit_extensions.clone(),
+            existing_names: std::collections::HashSet::new(),
+            document_name_to_local_name: HashMap::new(),
+            id_renames: HashMap::new(),
         }
+    }
+
+    fn get_local_name(&mut self, document_name: &str) -> String {
+        if let Some(local_name) = self.document_name_to_local_name.get(document_name) {
+            return local_name.clone();
+        }
+
+        let mut unique_name = document_name.to_string();
+        if self.existing_names.contains(&unique_name) {
+            let mut i = 1;
+            while self
+                .existing_names
+                .contains(&format!("{}{}", document_name, i))
+            {
+                i += 1;
+            }
+            unique_name = format!("{}{}", document_name, i);
+        }
+
+        self.document_name_to_local_name
+            .insert(document_name.to_string(), unique_name.clone());
+        unique_name
     }
 
     fn get_relative_import_path(&self, codegen_rel_path: &str) -> String {
@@ -300,6 +326,8 @@ impl VisitMut for TransformVisitor {
             }
         }
 
+        let mut our_import_ids = std::collections::HashSet::new();
+
         // First pass: identify imports from our graphql.ts or index.ts
         for item in &n.body {
             if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
@@ -308,20 +336,47 @@ impl VisitMut for TransformVisitor {
                     let import_is_type_only = import.type_only;
                     for specifier in &import.specifiers {
                         if let ImportSpecifier::Named(named) = specifier {
-                            let name = named.local.sym.as_str();
+                            let local_name = named.local.sym.as_str();
+                            let imported_name = named
+                                .imported
+                                .as_ref()
+                                .map(|i| match i {
+                                    ModuleExportName::Ident(id) => id.sym.as_str(),
+                                    ModuleExportName::Str(s) => s.value.as_str().unwrap_or(""),
+                                })
+                                .unwrap_or(local_name);
+
                             let specifier_is_type_only = import_is_type_only || named.is_type_only;
 
-                            if name == "graphql" || name == "gql" {
+                            our_import_ids.insert(named.local.to_id());
+
+                            if imported_name == "graphql" || imported_name == "gql" {
                                 self.graphql_ids.insert(named.local.to_id());
-                            } else if self.name_to_entry.contains_key(name)
+                            } else if self.name_to_entry.contains_key(imported_name)
                                 && !specifier_is_type_only
                             {
                                 // Only track non-type-only imports of document names
-                                // Type-only imports are removed (they don't exist in minified JS)
-                                let entry = self.name_to_entry.get(name).unwrap();
+                                let entry = self.name_to_entry.get(imported_name).unwrap();
                                 let rel_path = self.get_relative_import_path(&entry.path);
-                                self.document_name_imports
-                                    .insert(named.local.to_id(), rel_path);
+
+                                let target_local_name = if local_name != imported_name {
+                                    // Aliased, keep it and register it
+                                    self.document_name_to_local_name
+                                        .insert(imported_name.to_string(), local_name.to_string());
+                                    local_name.to_string()
+                                } else {
+                                    self.get_local_name(imported_name)
+                                };
+
+                                self.new_imports.insert(
+                                    target_local_name.clone(),
+                                    (imported_name.to_string(), rel_path),
+                                );
+
+                                if target_local_name != local_name {
+                                    self.id_renames
+                                        .insert(named.local.to_id(), target_local_name);
+                                }
                             }
                         }
                     }
@@ -329,13 +384,23 @@ impl VisitMut for TransformVisitor {
             }
         }
 
-        n.visit_mut_children_with(self);
-
-        // Add document name imports to new_imports
-        for (id, path) in self.document_name_imports.iter() {
-            let name = id.0.as_str();
-            self.new_imports.insert(name.to_string(), path.clone());
+        // Collect all names EXCEPT those from our imports
+        let mut colliding_names = std::collections::HashSet::new();
+        struct IdCollector<'a, 'b>(
+            &'a mut std::collections::HashSet<String>,
+            &'b std::collections::HashSet<Id>,
+        );
+        impl Visit for IdCollector<'_, '_> {
+            fn visit_ident(&mut self, n: &Ident) {
+                if !self.1.contains(&n.to_id()) {
+                    self.0.insert(n.sym.to_string());
+                }
+            }
         }
+        n.visit_with(&mut IdCollector(&mut colliding_names, &our_import_ids));
+        self.existing_names = colliding_names;
+
+        n.visit_mut_children_with(self);
 
         // Remove ALL imports from graphql.ts/index.ts (it's cleared to stubs)
         n.body.retain_mut(|item| {
@@ -348,11 +413,21 @@ impl VisitMut for TransformVisitor {
             true
         });
 
-        // Add new imports at the top (sorted alphabetically)
+        // Add new imports at the top (sorted alphabetically by local name)
         let mut imports: Vec<_> = self.new_imports.iter().collect();
         imports.sort_by(|a, b| a.0.cmp(b.0));
 
-        for (i, (local_name, source_path)) in imports.into_iter().enumerate() {
+        for (i, (local_name, (imported_name, source_path))) in imports.into_iter().enumerate() {
+            let imported = if local_name != imported_name {
+                Some(ModuleExportName::Ident(Ident::new(
+                    imported_name.clone().into(),
+                    DUMMY_SP,
+                    Default::default(),
+                )))
+            } else {
+                None
+            };
+
             n.body.insert(
                 i,
                 ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
@@ -360,7 +435,7 @@ impl VisitMut for TransformVisitor {
                     specifiers: vec![ImportSpecifier::Named(ImportNamedSpecifier {
                         span: DUMMY_SP,
                         local: Ident::new(local_name.clone().into(), DUMMY_SP, Default::default()),
-                        imported: None,
+                        imported,
                         is_type_only: false,
                     })],
                     src: Box::new(Str {
@@ -373,6 +448,12 @@ impl VisitMut for TransformVisitor {
                     phase: Default::default(),
                 })),
             );
+        }
+    }
+
+    fn visit_mut_ident(&mut self, n: &mut Ident) {
+        if let Some(new_name) = self.id_renames.get(&n.to_id()) {
+            n.sym = new_name.clone().into();
         }
     }
 
@@ -407,10 +488,14 @@ impl VisitMut for TransformVisitor {
             if let Some(source) = source
                 && let Some(entry) = self.manifest.get(&source)
             {
-                let rel_path = self.get_relative_import_path(&entry.path);
-                self.new_imports.insert(entry.name.clone(), rel_path);
+                let entry_name = entry.name.clone();
+                let entry_path = entry.path.clone();
+                let rel_path = self.get_relative_import_path(&entry_path);
+                let target_local_name = self.get_local_name(&entry_name);
+                self.new_imports
+                    .insert(target_local_name.clone(), (entry_name, rel_path));
                 *n = Expr::Ident(Ident::new(
-                    entry.name.clone().into(),
+                    target_local_name.into(),
                     DUMMY_SP,
                     Default::default(),
                 ));
@@ -1211,5 +1296,33 @@ mod tests {
             "import { UserFieldsFragmentDocument } from \"../gen/userFields.codegen.ts\";"
         ));
         assert!(!output.contains("from '../gen/graphql'"));
+    }
+
+    #[test]
+    fn test_collision() {
+        let manifest = vec![ManifestEntry {
+            source: "query q { me { id } }".to_string(),
+            path: "./q.codegen".to_string(),
+            name: "q".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            "import { graphql } from './graphql'; const q = graphql(`query q { me { id } }`);",
+            config,
+            "test.ts",
+        );
+
+        // Should NOT be "const q = q;"
+        assert!(!output.contains("const q = q;"));
+        assert!(output.contains("const q = q1;"));
+        assert!(output.contains("import { q as q1 } from \"./q.codegen\";"));
     }
 }

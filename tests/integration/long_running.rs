@@ -14,7 +14,7 @@ use graphox_core::config;
 use graphox_core::schema_cache;
 
 #[tokio::test]
-#[ntest::timeout(300000)]
+#[ntest::timeout(600000)]
 #[ignore] // Slow test - runs full monorepo setup with pnpm install and multiple typechecks
 async fn test_cli_monorepo_e2e_typecheck_and_compare() {
     test_monorepo_typecheck_and_compare("tests/fixtures/monorepo_e2e").await;

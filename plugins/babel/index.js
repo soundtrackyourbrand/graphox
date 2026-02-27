@@ -139,8 +139,43 @@ module.exports = function (babel) {
 
           const graphqlIds = new Set();
           // newImports stores: localName -> { sourcePath, importedName }
-          // importedName is needed for aliased imports like { GetUserDocument as MyDoc }
           const newImports = new Map();
+          // Map from original document name to unique local name in this file
+          const documentNameToLocalName = new Map();
+
+          const getLocalName = (documentName, scope) => {
+            if (documentNameToLocalName.has(documentName)) {
+              return documentNameToLocalName.get(documentName);
+            }
+
+            let uniqueName = documentName;
+            // If the name is already in scope, we MUST generate a unique one.
+            // We check if it's a binding that is NOT one of our graphql imports.
+            const binding = scope.getBinding(documentName);
+            let isColliding = false;
+
+            if (binding) {
+              // It's a collision if it's NOT an import from our graphql path
+              const isOurImport =
+                (t.isImportSpecifier(binding.path.node) || t.isImportDefaultSpecifier(binding.path.node) || t.isImportNamespaceSpecifier(binding.path.node)) &&
+                isOurGraphqlPath(binding.path.parent.source.value);
+
+              if (!isOurImport) {
+                isColliding = true;
+              }
+            } else if (scope.hasReference(documentName)) {
+              // If there's a reference but no binding, it might be a global or
+              // something Babel doesn't fully track as a binding yet.
+              isColliding = true;
+            }
+
+            if (isColliding) {
+              uniqueName = scope.generateUid(documentName);
+            }
+
+            documentNameToLocalName.set(documentName, uniqueName);
+            return uniqueName;
+          };
 
           // First pass: identify imports from our graphql.ts or index.ts
           programPath.traverse({
@@ -169,7 +204,24 @@ module.exports = function (babel) {
                       }
                       // Append the emit extension
                       relPath += extension;
-                      newImports.set(localName, { sourcePath: relPath, importedName });
+
+                      // If the original import was aliased (e.g. import { D as MyD }),
+                      // we want to keep that alias if possible.
+                      let targetLocalName = localName;
+                      if (localName === importedName) {
+                        // It was NOT aliased, check for collisions
+                        targetLocalName = getLocalName(importedName, programPath.scope);
+                      } else {
+                        // It WAS aliased. We should keep the alias but ensure it's recorded
+                        // so that subsequent graphql(`...`) calls use the same alias.
+                        documentNameToLocalName.set(importedName, localName);
+                      }
+
+                      newImports.set(targetLocalName, { sourcePath: relPath, importedName });
+
+                      if (localName !== targetLocalName) {
+                        specifier.scope.rename(localName, targetLocalName);
+                      }
                     }
                   }
                 });
@@ -207,8 +259,9 @@ module.exports = function (babel) {
                       // Append the emit extension
                       relPath += extension;
 
-                      newImports.set(entry.name, { sourcePath: relPath, importedName: entry.name });
-                      callPath.replaceWith(t.identifier(entry.name));
+                      const uniqueLocalName = getLocalName(entry.name, callPath.scope);
+                      newImports.set(uniqueLocalName, { sourcePath: relPath, importedName: entry.name });
+                      callPath.replaceWith(t.identifier(uniqueLocalName));
                     }
                   }
                 }
