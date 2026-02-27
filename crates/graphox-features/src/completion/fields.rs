@@ -98,6 +98,7 @@ pub fn complete_selection_set_at_node(
     offset: usize,
     cursor_offset: usize,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     fragments: &[FragmentCompletionInfo],
     resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
@@ -108,6 +109,7 @@ pub fn complete_selection_set_at_node(
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements.clone(),
         ),
@@ -117,6 +119,7 @@ pub fn complete_selection_set_at_node(
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements.clone(),
         ),
@@ -126,6 +129,7 @@ pub fn complete_selection_set_at_node(
             offset,
             cursor_offset,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements.clone(),
         ),
@@ -139,6 +143,7 @@ pub fn complete_selection_set_at_node(
                             offset,
                             cursor_offset,
                             schema,
+                            subgraphs,
                             fragments,
                             resolve_requirements.clone(),
                         );
@@ -150,6 +155,7 @@ pub fn complete_selection_set_at_node(
                             offset,
                             cursor_offset,
                             schema,
+                            subgraphs,
                             fragments,
                             resolve_requirements.clone(),
                         );
@@ -161,6 +167,7 @@ pub fn complete_selection_set_at_node(
                             offset,
                             cursor_offset,
                             schema,
+                            subgraphs,
                             fragments,
                             resolve_requirements.clone(),
                         );
@@ -185,6 +192,7 @@ pub fn complete_selection_set_at_node(
                                     cursor_offset,
                                     field_type_def,
                                     schema,
+                                    subgraphs,
                                     fragments,
                                     resolve_requirements.clone(),
                                 );
@@ -209,6 +217,7 @@ pub fn complete_selection_set_recursive(
     cursor_offset: usize,
     parent_type: &schema::ExtendedType,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     fragments_info: &[FragmentCompletionInfo],
     resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
@@ -237,6 +246,7 @@ pub fn complete_selection_set_recursive(
                             cursor_offset,
                             parent_type,
                             schema,
+                            subgraphs,
                             fragments_info,
                             resolve_requirements.clone(),
                         ) {
@@ -261,6 +271,7 @@ pub fn complete_selection_set_recursive(
                     cursor_offset,
                     parent_type,
                     schema,
+                    subgraphs,
                     fragments_info,
                     resolve_requirements.clone(),
                 ) {
@@ -283,6 +294,7 @@ pub fn complete_selection_set_recursive(
         doc,
         parent_type,
         schema,
+        subgraphs,
         !has_selection_set,
         cursor_offset,
     ))
@@ -296,6 +308,7 @@ pub fn complete_field(
     cursor_offset: usize,
     parent_type: &schema::ExtendedType,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     fragments: &[FragmentCompletionInfo],
     resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
@@ -330,6 +343,7 @@ pub fn complete_field(
                         cursor_offset,
                         field_type_def,
                         schema,
+                        subgraphs,
                         fragments,
                         resolve_requirements,
                     );
@@ -344,6 +358,7 @@ pub fn get_field_completions(
     doc: &DocumentState,
     parent_type: &schema::ExtendedType,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     add_braces: bool,
     cursor_offset: usize,
 ) -> Vec<CompletionItem> {
@@ -351,18 +366,45 @@ pub fn get_field_completions(
     match parent_type {
         schema::ExtendedType::Object(obj) => {
             for (name, def) in &obj.fields {
+                let mut detail = Some(def.ty.to_string());
+                let mut documentation_value = markdown_utils::describe_field_markdown(
+                    obj.name.as_str(),
+                    name,
+                    def.ty.to_string().as_str(),
+                    def.description.as_deref(),
+                );
+
+                if let Some(subgraphs) = subgraphs {
+                    let mut found_subgraphs = Vec::new();
+                    for sg in subgraphs {
+                        if let Some(sg_ty) = sg.schema.types.get(obj.name.as_str())
+                            && let schema::ExtendedType::Object(sg_obj) = sg_ty
+                            && sg_obj.fields.contains_key(name.as_str())
+                        {
+                            let mut sg_info = sg.name.clone();
+                            if let Some(owner) = &sg.owner {
+                                sg_info.push_str(" (");
+                                sg_info.push_str(owner);
+                                sg_info.push(')');
+                            }
+                            found_subgraphs.push(sg_info);
+                        }
+                    }
+                    if !found_subgraphs.is_empty() {
+                        let subgraphs_str = found_subgraphs.join(", ");
+                        detail = Some(format!("{} [{}]", def.ty, subgraphs_str));
+                        documentation_value.push_str("\n\n**Subgraphs:** ");
+                        documentation_value.push_str(&subgraphs_str);
+                    }
+                }
+
                 let mut item = CompletionItem {
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::FIELD),
-                    detail: Some(def.ty.to_string()),
+                    detail,
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: markdown_utils::describe_field_markdown(
-                            obj.name.as_str(),
-                            name,
-                            def.ty.to_string().as_str(),
-                            def.description.as_deref(),
-                        ),
+                        value: documentation_value,
                     })),
                     ..Default::default()
                 };
@@ -389,18 +431,45 @@ pub fn get_field_completions(
         }
         schema::ExtendedType::Interface(iface) => {
             for (name, def) in &iface.fields {
+                let mut detail = Some(def.ty.to_string());
+                let mut documentation_value = markdown_utils::describe_field_markdown(
+                    iface.name.as_str(),
+                    name,
+                    def.ty.to_string().as_str(),
+                    def.description.as_deref(),
+                );
+
+                if let Some(subgraphs) = subgraphs {
+                    let mut found_subgraphs = Vec::new();
+                    for sg in subgraphs {
+                        if let Some(sg_ty) = sg.schema.types.get(iface.name.as_str())
+                            && let schema::ExtendedType::Interface(sg_iface) = sg_ty
+                            && sg_iface.fields.contains_key(name.as_str())
+                        {
+                            let mut sg_info = sg.name.clone();
+                            if let Some(owner) = &sg.owner {
+                                sg_info.push_str(" (");
+                                sg_info.push_str(owner);
+                                sg_info.push(')');
+                            }
+                            found_subgraphs.push(sg_info);
+                        }
+                    }
+                    if !found_subgraphs.is_empty() {
+                        let subgraphs_str = found_subgraphs.join(", ");
+                        detail = Some(format!("{} [{}]", def.ty, subgraphs_str));
+                        documentation_value.push_str("\n\n**Subgraphs:** ");
+                        documentation_value.push_str(&subgraphs_str);
+                    }
+                }
+
                 let mut item = CompletionItem {
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::FIELD),
-                    detail: Some(def.ty.to_string()),
+                    detail,
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: markdown_utils::describe_field_markdown(
-                            iface.name.as_str(),
-                            name,
-                            def.ty.to_string().as_str(),
-                            def.description.as_deref(),
-                        ),
+                        value: documentation_value,
                     })),
                     ..Default::default()
                 };

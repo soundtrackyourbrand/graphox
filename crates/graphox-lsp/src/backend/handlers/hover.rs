@@ -16,7 +16,17 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
 
             if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = backend.get_schema_for_doc(&uri);
-                if let Some(hover) = doc.get_hover_info(position, &schema) {
+
+                let project_subgraphs = {
+                    let config = backend.config.read().unwrap();
+                    let schema_key = config.get_schema_for_path(&uri.to_file_path().unwrap());
+                    schema_key
+                        .and_then(|key| backend.subgraphs.get(&key).map(|r| r.value().clone()))
+                };
+
+                if let Some(hover) =
+                    doc.get_hover_info(position, &schema, project_subgraphs.as_deref())
+                {
                     return Ok(Some(hover));
                 }
 

@@ -14,6 +14,7 @@ pub fn complete_fragment(
     offset: usize,
     cursor_offset: usize,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     fragments: &[FragmentCompletionInfo],
     resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
@@ -35,6 +36,7 @@ pub fn complete_fragment(
             cursor_offset,
             type_def,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         );
@@ -48,6 +50,7 @@ pub fn complete_inline_fragment(
     offset: usize,
     cursor_offset: usize,
     schema: &Schema,
+    subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
     fragments: &[FragmentCompletionInfo],
     resolve_requirements: FragmentRequirementsResolver,
 ) -> Option<Vec<CompletionItem>> {
@@ -72,6 +75,7 @@ pub fn complete_inline_fragment(
             cursor_offset,
             &type_def,
             schema,
+            subgraphs,
             fragments,
             resolve_requirements,
         );

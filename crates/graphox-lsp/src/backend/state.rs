@@ -24,6 +24,8 @@ pub struct Backend {
     pub documents: DocumentsMap,
     pub config: Arc<std::sync::RwLock<Config>>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
+    pub subgraphs:
+        Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
     pub empty_schema: Arc<Schema>,
     pub valid_empty_schema: Arc<apollo_compiler::validation::Valid<Schema>>,
     pub validated_schemas:
@@ -64,6 +66,7 @@ pub struct Backend {
 impl Backend {
     pub fn new(client: Client, config: Config) -> Arc<Self> {
         let schemas = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let subgraphs = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let validated_schemas = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let documents: DocumentsMap = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let fragment_defs: FragmentDefsMap =
@@ -118,7 +121,16 @@ impl Backend {
                                 key
                             ));
                         }
-                        schemas.insert(key, schema);
+                        schemas.insert(key.clone(), schema);
+
+                        if let Some(subgraphs_dir) = project.subgraphs_dir() {
+                            let project_subgraphs = graphox_core::schema::load_subgraphs(
+                                config.base_dir(),
+                                subgraphs_dir,
+                                project.subgraph_owners(),
+                            );
+                            subgraphs.insert(key, project_subgraphs);
+                        }
                     }
                     None => {
                         super::error_logging::log_error_sync(format!(
@@ -164,6 +176,7 @@ impl Backend {
                 config: config_arc.clone(),
 
                 schemas,
+                subgraphs,
                 validated_schemas,
                 empty_schema,
                 valid_empty_schema,
@@ -406,6 +419,7 @@ impl Backend {
             changed_path,
             &config,
             &self.schemas,
+            &self.subgraphs,
             &self.validated_schemas,
             &self.client,
             supports_progress,
@@ -443,6 +457,7 @@ impl Backend {
 
         // Clear all internal state
         self.schemas.clear();
+        self.subgraphs.clear();
         self.validated_schemas.clear();
 
         // Clear all documents (including open ones) to ensure full re-load
@@ -491,6 +506,7 @@ impl Backend {
             trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
+            subgraphs: self.subgraphs.clone(),
             validated_schemas: self.validated_schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             codegen_throttle: self.codegen_throttle.clone(),
@@ -724,6 +740,7 @@ impl Backend {
             trigger_codegen_after_scan: None,
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
+            subgraphs: self.subgraphs.clone(),
             validated_schemas: self.validated_schemas.clone(),
             workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
             codegen_throttle: self.codegen_throttle.clone(),

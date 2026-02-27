@@ -45,6 +45,8 @@ pub struct WorkspaceScanParams {
     pub trigger_codegen_after_scan: Option<Arc<dyn Fn() + Send + Sync>>,
     pub empty_schema: Arc<Schema>,
     pub schemas: Arc<DashMap<String, Arc<Schema>, ahash::RandomState>>,
+    pub subgraphs:
+        Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
     pub validated_schemas:
         Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
@@ -201,7 +203,13 @@ fn scan_and_index_workspace(
     params: &WorkspaceScanParams,
     cancelled: &Arc<AtomicBool>,
 ) -> graphox_core::engine::WorkspaceMetadata {
-    // Index all schema files as documents for navigation
+    let definition_query = graphox_core::queries::GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
+        let lang = tree_sitter_graphql::LANGUAGE.into();
+        tree_sitter::Query::new(&lang, graphox_core::queries::GQL_DEFINITION_QUERY)
+            .expect("GQL_DEFINITION_QUERY should be a valid tree-sitter query")
+    });
+
+    // Index all schema files as documents for navigation and symbols
     for project in params.config.projects() {
         for schema_file in project.schema().files() {
             let schema_path = params.config.base_dir().join(schema_file);
@@ -210,6 +218,7 @@ fn scan_and_index_workspace(
                 params.position_encoding.clone(),
             ) {
                 let uri = doc.uri.clone();
+                index_document_definitions(&doc, &params.fragment_definitions, definition_query);
                 if !params.documents.contains_key(&uri) {
                     params.documents.insert(uri, Arc::new(doc));
                 }
@@ -225,8 +234,37 @@ fn scan_and_index_workspace(
                 params.position_encoding.clone(),
             ) {
                 let uri = doc.uri.clone();
+                index_document_definitions(&doc, &params.fragment_definitions, definition_query);
                 if !params.documents.contains_key(&uri) {
                     params.documents.insert(uri, Arc::new(doc));
+                }
+            }
+        }
+    }
+
+    // Index subgraphs for navigation and symbols
+    for project in params.config.projects() {
+        if let Some(subgraphs_dir) = project.subgraphs_dir() {
+            let subgraphs_path = params.config.base_dir().join(subgraphs_dir);
+            if let Ok(entries) = std::fs::read_dir(subgraphs_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|ext| ext == "graphql")
+                        && let Some(doc) = graphox_core::engine::Engine::parse_doc(
+                            &path,
+                            params.position_encoding.clone(),
+                        )
+                    {
+                        let uri = doc.uri.clone();
+                        index_document_definitions(
+                            &doc,
+                            &params.fragment_definitions,
+                            definition_query,
+                        );
+                        if !params.documents.contains_key(&uri) {
+                            params.documents.insert(uri, Arc::new(doc));
+                        }
+                    }
                 }
             }
         }
@@ -256,61 +294,6 @@ fn scan_and_index_workspace(
                     .entry(frag.name.clone())
                     .or_default()
                     .insert(uri.clone());
-            }
-
-            // Also index type definitions (for Go to Definition)
-            // Add timeout protection and max matches limit to prevent slow queries
-            const MAX_QUERY_MATCHES: usize = 1000;
-            const QUERY_TIMEOUT_MS: u64 = 100;
-
-            let query = graphox_core::queries::GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
-                let lang = tree_sitter_graphql::LANGUAGE.into();
-                tree_sitter::Query::new(&lang, graphox_core::queries::GQL_DEFINITION_QUERY)
-                    .expect("GQL_DEFINITION_QUERY should be a valid tree-sitter query")
-            });
-            let mut cursor = tree_sitter::QueryCursor::new();
-            let query_start = std::time::Instant::now();
-
-            for block in doc.get_graphql_trees() {
-                // Check timeout
-                if query_start.elapsed().as_millis() as u64 > QUERY_TIMEOUT_MS {
-                    eprintln!(
-                        "[graphox] Tree-sitter query timed out for URI {}, skipping remaining blocks",
-                        uri
-                    );
-                    break;
-                }
-
-                let mut matches =
-                    cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                        doc.rope
-                            .byte_slice(
-                                (node.start_byte() + block.offset)
-                                    ..(node.end_byte() + block.offset),
-                            )
-                            .chunks()
-                    });
-                let mut match_count = 0;
-
-                while let Some(m) = matches.next() {
-                    // Check max matches limit
-                    if match_count >= MAX_QUERY_MATCHES {
-                        eprintln!(
-                            "[graphox] Too many query matches for URI {}, stopping at {}",
-                            uri, MAX_QUERY_MATCHES
-                        );
-                        break;
-                    }
-                    match_count += 1;
-
-                    let name_node = m.captures[0].node;
-                    let name = doc.get_node_text(name_node, block.offset);
-                    params
-                        .fragment_definitions
-                        .entry(name.into())
-                        .or_default()
-                        .insert(uri.clone());
-                }
             }
 
             for spread in &doc.fragment_spreads {
@@ -356,6 +339,36 @@ fn scan_and_index_workspace(
         params.position_encoding.clone(),
         None,
     )
+}
+
+/// Helper function to index definitions within a document for Go to Definition and Workspace Symbols.
+/// Use GQL_DEFINITION_QUERY to index types, interfaces, enums, etc.
+fn index_document_definitions(
+    doc: &DocumentState,
+    fragment_definitions: &FragmentDefinitionsMap,
+    query: &tree_sitter::Query,
+) {
+    let mut cursor = tree_sitter::QueryCursor::new();
+    let uri = &doc.uri;
+
+    for block in doc.get_graphql_trees() {
+        let mut matches = cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
+            doc.rope
+                .byte_slice(
+                    (node.start_byte() + block.offset)..(node.end_byte() + block.offset),
+                )
+                .chunks()
+        });
+
+        while let Some(m) = matches.next() {
+            let name_node = m.captures[0].node;
+            let name = doc.get_node_text(name_node, block.offset);
+            fragment_definitions
+                .entry(name.into())
+                .or_default()
+                .insert(uri.clone());
+        }
+    }
 }
 
 /// Validates all documents in the workspace with cancellation support

@@ -78,6 +78,17 @@ pub async fn handle_completion(
 
             if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = backend.get_schema_for_doc(&uri);
+
+                let project_subgraphs = if let Ok(path) = uri.to_file_path()
+                    && let Ok(config) = backend.config.read()
+                {
+                    let schema_key = config.get_schema_for_path(&path);
+                    schema_key
+                        .and_then(|key| backend.subgraphs.get(&key).map(|r| r.value().clone()))
+                } else {
+                    None
+                };
+
                 let all_fragments = backend.get_all_fragments_info();
 
                 let fragments = backend.get_fragments_for_doc(&doc, &all_fragments);
@@ -164,8 +175,6 @@ pub async fn handle_completion(
                     requirements
                 });
 
-                let mut items =
-                    doc.get_completion_items(position, &schema, &fragments, resolve_requirements);
                 sanitize_completion_items(&doc, &mut items);
                 log::trace!(
                     "completion: produced items = {:?}",

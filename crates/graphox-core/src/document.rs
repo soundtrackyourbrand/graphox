@@ -651,6 +651,25 @@ impl DocumentState {
         components
     }
 
+    pub fn extract_field_definition_components<'a>(
+        &self,
+        field_node: Node<'a>,
+    ) -> FieldComponents<'a> {
+        let mut components = FieldComponents::default();
+        let mut cursor = field_node.walk();
+
+        for child in field_node.children(&mut cursor) {
+            match child.kind() {
+                "name" => components.name = Some(child),
+                "arguments_definition" => components.arguments = Some(child),
+                "directives" => components.directives = Some(child),
+                _ => {}
+            }
+        }
+
+        components
+    }
+
     pub fn extract_variable_definition_components<'a>(
         &self,
         vd_node: Node<'a>,
