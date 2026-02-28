@@ -1,4 +1,4 @@
-use apollo_compiler::{Name, Schema, ast, schema};
+use apollo_compiler::{Schema, ast, schema};
 use graphox_core::document::DocumentState;
 use tree_sitter::Node;
 
@@ -7,7 +7,7 @@ use crate::shared::{ast_utils, doc_utils};
 pub enum SemanticSymbol {
     Field {
         parent_type: schema::ExtendedType,
-        field_def: apollo_compiler::Node<schema::FieldDefinition>,
+        field_def: ast::FieldDefinition,
         alias: Option<String>,
     },
     BuiltinField {
@@ -15,12 +15,12 @@ pub enum SemanticSymbol {
         parent_type: schema::ExtendedType,
     },
     Argument {
-        parent_type_name: String,
+        parent_type: String,
         field_name: Option<String>,
-        arg_def: apollo_compiler::Node<schema::InputValueDefinition>,
+        arg_def: ast::InputValueDefinition,
     },
     Directive {
-        dir_def: apollo_compiler::Node<schema::DirectiveDefinition>,
+        dir_def: ast::DirectiveDefinition,
     },
     Type(schema::ExtendedType),
     Variable {
@@ -29,11 +29,11 @@ pub enum SemanticSymbol {
     },
     EnumValue {
         enum_name: String,
-        val_def: apollo_compiler::Node<schema::EnumValueDefinition>,
+        val_def: ast::EnumValueDefinition,
     },
     InputObjectField {
         parent_type: schema::ExtendedType,
-        field_def: apollo_compiler::Node<schema::InputValueDefinition>,
+        field_def: ast::InputValueDefinition,
     },
     Literal {
         kind: String,
@@ -220,19 +220,18 @@ pub fn resolve_symbol_at_node(
 
                         let field_def = match &parent_type {
                             schema::ExtendedType::Object(obj) => {
-                                obj.fields.get(field_name.as_str()).map(|c| c.node.clone())
+                                obj.fields.get(field_name.as_str()).map(|c| &c.node)
                             }
-                            schema::ExtendedType::Interface(iface) => iface
-                                .fields
-                                .get(field_name.as_str())
-                                .map(|c| c.node.clone()),
+                            schema::ExtendedType::Interface(iface) => {
+                                iface.fields.get(field_name.as_str()).map(|c| &**c)
+                            }
                             _ => None,
                         }?;
                         let alias = components.alias.map(|a| doc.get_node_text(a, offset));
 
                         return Some(SemanticSymbol::Field {
-                            parent_type,
-                            field_def,
+                            parent_type: parent_type.clone(),
+                            field_def: (**field_def).clone(),
                             alias,
                         });
                     }
@@ -249,19 +248,18 @@ pub fn resolve_symbol_at_node(
                         let field_name = doc.get_node_text(name_node, offset);
                         let field_def = match &parent_type {
                             schema::ExtendedType::Object(obj) => {
-                                obj.fields.get(field_name.as_str()).map(|c| c.node.clone())
+                                obj.fields.get(field_name.as_str()).map(|c| &c.node)
                             }
-                            schema::ExtendedType::Interface(iface) => iface
-                                .fields
-                                .get(field_name.as_str())
-                                .map(|c| c.node.clone()),
+                            schema::ExtendedType::Interface(iface) => {
+                                iface.fields.get(field_name.as_str()).map(|c| &c.node)
+                            }
                             _ => None,
                         }?;
                         let alias = Some(doc.get_node_text(alias_node, offset));
 
                         return Some(SemanticSymbol::Field {
-                            parent_type,
-                            field_def,
+                            parent_type: parent_type.clone(),
+                            field_def: (**field_def).clone(),
                             alias,
                         });
                     }
@@ -296,12 +294,11 @@ pub fn resolve_symbol_at_node(
                         let arg_def = field_def
                             .arguments
                             .iter()
-                            .find(|a| a.name.as_str() == arg_name)?
-                            .clone();
+                            .find(|a| a.name.as_str() == arg_name)?;
                         return Some(SemanticSymbol::Argument {
-                            parent_type_name: parent_type.name().to_string(),
+                            parent_type: parent_type.name().to_string(),
                             field_name: Some(field_name),
-                            arg_def,
+                            arg_def: (**arg_def).clone(),
                         });
                     } else if target_node.kind() == "directive" {
                         let dir_name_node = doc.find_child_by_kind(target_node, "name")?;
@@ -310,12 +307,11 @@ pub fn resolve_symbol_at_node(
                         let arg_def = dir_def
                             .arguments
                             .iter()
-                            .find(|a| a.name.as_str() == arg_name)?
-                            .clone();
+                            .find(|a| a.name.as_str() == arg_name)?;
                         return Some(SemanticSymbol::Argument {
-                            parent_type_name: dir_name,
+                            parent_type: dir_name,
                             field_name: None,
-                            arg_def,
+                            arg_def: (**arg_def).clone(),
                         });
                     }
                 }
@@ -327,7 +323,7 @@ pub fn resolve_symbol_at_node(
                     let dir_name = doc.get_node_text(name_node, offset);
                     let dir_def = schema.directive_definitions.get(dir_name.as_str())?;
                     return Some(SemanticSymbol::Directive {
-                        dir_def: dir_def.clone(),
+                        dir_def: (**dir_def).clone(),
                     });
                 }
             }
@@ -338,10 +334,10 @@ pub fn resolve_symbol_at_node(
                 if let Some(schema::ExtendedType::Enum(enm)) =
                     schema.types.get(enum_type_name.as_str())
                 {
-                    let val_def = enm.values.get(val_name.as_str())?.node.clone();
+                    let val_def = enm.values.get(val_name.as_str())?;
                     return Some(SemanticSymbol::EnumValue {
                         enum_name: enum_type_name,
-                        val_def,
+                        val_def: val_def.as_ref().clone(),
                     });
                 }
             }
@@ -363,14 +359,12 @@ pub fn resolve_symbol_at_node(
                                     find_expected_type_for_node(doc, parent, offset, None, schema)
                                     && let schema::ExtendedType::InputObject(input_obj) =
                                         parent_input_type.clone()
-                                    && let Some(field_def) = input_obj
-                                        .fields
-                                        .get(field_name.as_str())
-                                        .map(|f| f.node.clone())
+                                    && let Some(field_def) =
+                                        input_obj.fields.get(field_name.as_str())
                                 {
                                     return Some(SemanticSymbol::InputObjectField {
                                         parent_type: parent_input_type,
-                                        field_def,
+                                        field_def: (*field_def.node).clone(),
                                     });
                                 }
                                 return None;
@@ -552,21 +546,8 @@ pub fn resolve_fragment_spread_at_node(
     None
 }
 
-pub fn parse_type_string(text: &str) -> ast::Type {
-    let text = text.trim();
-    if let Some(inner) = text.strip_suffix('!') {
-        let inner_type = parse_type_string(inner);
-        match inner_type {
-            ast::Type::Named(n) => ast::Type::NonNullNamed(n),
-            ast::Type::List(l) => ast::Type::NonNullList(l),
-            _ => inner_type,
-        }
-    } else if text.starts_with('[') && text.ends_with(']') {
-        let inner = &text[1..text.len() - 1];
-        ast::Type::List(Box::new(parse_type_string(inner)))
-    } else {
-        ast::Type::Named(Name::new(text).unwrap_or_else(|_| Name::new("String").unwrap()))
-    }
+pub fn parse_type_string(text: &str) -> Option<ast::Type> {
+    ast::Type::parse(text, "type.graphql").ok()
 }
 
 pub fn find_expected_type_for_node(

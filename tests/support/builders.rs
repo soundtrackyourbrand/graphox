@@ -235,6 +235,7 @@ impl FragmentInfoBuilder {
             selected_fields: Vec::new(),
             type_fields: Vec::new(),
             requirements: BTreeMap::new(),
+            worst_slo: None,
         }
     }
 }

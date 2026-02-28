@@ -7,7 +7,7 @@
 use ahash::AHashMap;
 use ahash::AHashSet;
 use apollo_compiler::Schema;
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use graphox_core::Config;
 use graphox_core::document::DocumentState;
 use graphox_core::types::{
@@ -56,6 +56,7 @@ pub struct WorkspaceScanParams {
     pub position_encoding: PositionEncodingKind,
     pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
     pub last_full_validation_version: Arc<std::sync::atomic::AtomicUsize>,
+    pub open_documents: Arc<DashSet<Url, ahash::RandomState>>,
 }
 
 /// Spawns a background workspace scan task
@@ -352,13 +353,14 @@ fn index_document_definitions(
     let uri = &doc.uri;
 
     for block in doc.get_graphql_trees() {
-        let mut matches = cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-            doc.rope
-                .byte_slice(
-                    (node.start_byte() + block.offset)..(node.end_byte() + block.offset),
-                )
-                .chunks()
-        });
+        let mut matches =
+            cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
+                doc.rope
+                    .byte_slice(
+                        (node.start_byte() + block.offset)..(node.end_byte() + block.offset),
+                    )
+                    .chunks()
+            });
 
         while let Some(m) = matches.next() {
             let name_node = m.captures[0].node;
@@ -433,6 +435,9 @@ async fn validate_all_documents_cancellable(
             fragment_defs,
             config,
             package_roots,
+            &params.subgraphs,
+            &params.documents,
+            &params.schemas,
         );
 
     // PRE-INDEX FRAGMENTS BY PACKAGE AND SCHEMA (CRITICAL OPTIMIZATION)

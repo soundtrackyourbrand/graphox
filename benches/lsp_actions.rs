@@ -381,6 +381,8 @@ fn bench_lsp_actions(c: &mut Criterion) {
                 fragment_dependents: &fragment_dependents,
                 fragment_definitions: &fragment_definitions,
                 operation_names: &operation_names,
+                subgraphs: &backend.subgraphs,
+                schemas: &backend.schemas,
                 supports_progress: false,
                 position_encoding: PositionEncodingKind::UTF16,
             };
