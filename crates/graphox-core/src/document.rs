@@ -555,6 +555,22 @@ impl DocumentState {
             .map(|name| self.get_node_text(name, offset))
     }
 
+    pub fn extract_fragment_variables(&self, node: Node, offset: usize) -> Vec<Arc<str>> {
+        let mut vars = Vec::new();
+        if let Some(defs) = self.find_child_by_kind(node, "variable_definitions") {
+            let mut cursor = defs.walk();
+            for vd in defs.children(&mut cursor) {
+                if vd.kind() == "variable_definition"
+                    && let Some(v) = self.find_child_by_kind(vd, "variable")
+                    && let Some(n) = self.find_child_by_kind(v, "name")
+                {
+                    vars.push(self.get_node_text(n, offset).into());
+                }
+            }
+        }
+        vars
+    }
+
     // ========================================================================
     // Tree-sitter Helper Functions
     // ========================================================================

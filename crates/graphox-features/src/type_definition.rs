@@ -109,7 +109,7 @@ pub fn get_codegen_type_name(
     match symbol {
         SemanticSymbol::Operation { op_type, name, .. } => {
             let name = name.as_ref()?;
-            let suffix = match op_type.as_str() {
+            let suffix = match op_type.as_ref() {
                 "query" => codegen_config.query_suffix(),
                 "mutation" => codegen_config.mutation_suffix(),
                 "subscription" => codegen_config.subscription_suffix(),

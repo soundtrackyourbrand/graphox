@@ -10,6 +10,7 @@ mod config_reload_preserves_state;
 mod cross_file_def;
 mod did_open_reconciliation;
 mod document_highlight;
+mod document_tracking;
 mod duplicate_operations;
 mod duplicate_operations_cross_project;
 mod extended_references;

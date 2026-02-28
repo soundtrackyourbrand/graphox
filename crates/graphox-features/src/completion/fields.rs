@@ -92,6 +92,7 @@ pub fn find_field_node_before_offset<'a>(
     last_field
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_selection_set_at_node(
     doc: &DocumentState,
     node: Node,
@@ -354,6 +355,48 @@ pub fn complete_field(
     None
 }
 
+fn build_subgraph_field_info(
+    subgraphs: &[graphox_core::schema::SubgraphInfo],
+    type_name: &str,
+    field_name: &str,
+) -> Vec<String> {
+    let mut found_subgraphs = Vec::new();
+    for sg in subgraphs {
+        if let Some(sg_ty) = sg.schema.types.get(type_name) {
+            let has_field = match sg_ty {
+                schema::ExtendedType::Object(obj) => obj.fields.contains_key(field_name),
+                schema::ExtendedType::Interface(iface) => iface.fields.contains_key(field_name),
+                _ => false,
+            };
+
+            if has_field {
+                let mut sg_info = sg.name.clone();
+                if let Some(owner) = &sg.owner {
+                    sg_info.push_str(" (");
+                    sg_info.push_str(owner);
+                    sg_info.push(')');
+                }
+
+                // Add SLO info if available
+                let slo = sg
+                    .field_slos
+                    .get(type_name)
+                    .and_then(|type_slos| type_slos.get(field_name).copied())
+                    .or(sg.schema_slo);
+
+                if let Some(slo) = slo {
+                    sg_info.push_str(" [SLO: ");
+                    sg_info.push_str(slo.as_str());
+                    sg_info.push(']');
+                }
+
+                found_subgraphs.push(sg_info);
+            }
+        }
+    }
+    found_subgraphs
+}
+
 pub fn get_field_completions(
     doc: &DocumentState,
     parent_type: &schema::ExtendedType,
@@ -375,21 +418,8 @@ pub fn get_field_completions(
                 );
 
                 if let Some(subgraphs) = subgraphs {
-                    let mut found_subgraphs = Vec::new();
-                    for sg in subgraphs {
-                        if let Some(sg_ty) = sg.schema.types.get(obj.name.as_str())
-                            && let schema::ExtendedType::Object(sg_obj) = sg_ty
-                            && sg_obj.fields.contains_key(name.as_str())
-                        {
-                            let mut sg_info = sg.name.clone();
-                            if let Some(owner) = &sg.owner {
-                                sg_info.push_str(" (");
-                                sg_info.push_str(owner);
-                                sg_info.push(')');
-                            }
-                            found_subgraphs.push(sg_info);
-                        }
-                    }
+                    let found_subgraphs =
+                        build_subgraph_field_info(subgraphs, obj.name.as_str(), name);
                     if !found_subgraphs.is_empty() {
                         let subgraphs_str = found_subgraphs.join(", ");
                         detail = Some(format!("{} [{}]", def.ty, subgraphs_str));
@@ -440,21 +470,8 @@ pub fn get_field_completions(
                 );
 
                 if let Some(subgraphs) = subgraphs {
-                    let mut found_subgraphs = Vec::new();
-                    for sg in subgraphs {
-                        if let Some(sg_ty) = sg.schema.types.get(iface.name.as_str())
-                            && let schema::ExtendedType::Interface(sg_iface) = sg_ty
-                            && sg_iface.fields.contains_key(name.as_str())
-                        {
-                            let mut sg_info = sg.name.clone();
-                            if let Some(owner) = &sg.owner {
-                                sg_info.push_str(" (");
-                                sg_info.push_str(owner);
-                                sg_info.push(')');
-                            }
-                            found_subgraphs.push(sg_info);
-                        }
-                    }
+                    let found_subgraphs =
+                        build_subgraph_field_info(subgraphs, iface.name.as_str(), name);
                     if !found_subgraphs.is_empty() {
                         let subgraphs_str = found_subgraphs.join(", ");
                         detail = Some(format!("{} [{}]", def.ty, subgraphs_str));

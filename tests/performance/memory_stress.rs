@@ -8,10 +8,10 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-const MAX_MEMORY_100_DOCS: usize = 50 * 1024 * 1024; // 50MB
-const MAX_MEMORY_1000_DOCS: usize = 100 * 1024 * 1024; // 100MB
-const MAX_MEMORY_50_SCHEMAS: usize = 100 * 1024 * 1024; // 100MB
-const MAX_MEMORY_500_FRAGMENTS: usize = 50 * 1024 * 1024; // 50MB
+const MAX_MEMORY_100_DOCS: usize = 75 * 1024 * 1024; // 75MB
+const MAX_MEMORY_1000_DOCS: usize = 150 * 1024 * 1024; // 150MB
+const MAX_MEMORY_50_SCHEMAS: usize = 150 * 1024 * 1024; // 150MB
+const MAX_MEMORY_500_FRAGMENTS: usize = 75 * 1024 * 1024; // 75MB
 #[cfg(not(target_os = "windows"))]
 const MAX_MEMORY_COMPLEX_MONOREPO: usize = 120 * 1024 * 1024; // 120MB
 

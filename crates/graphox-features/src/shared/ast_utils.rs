@@ -70,13 +70,11 @@ pub fn find_variable_definition_node<'a>(
     if let Some(defs) = doc.find_child_by_kind(parent, "variable_definitions") {
         let mut def_walker = defs.walk();
         for def in defs.children(&mut def_walker) {
-            if def.kind() == "variable_definition" {
-                let components = doc.extract_variable_definition_components(def);
-                if let Some(var_node) = components.variable
-                    && doc.get_node_text(var_node, offset) == name
-                {
-                    return Some(var_node);
-                }
+            if def.kind() == "variable_definition"
+                && let Some(var_node) = doc.extract_variable_definition_components(def).variable
+                && doc.get_node_text(var_node, offset) == name
+            {
+                return Some(var_node);
             }
         }
     }

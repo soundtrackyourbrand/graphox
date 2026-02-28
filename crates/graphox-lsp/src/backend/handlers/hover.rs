@@ -9,28 +9,40 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 
 pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Option<Hover>> {
-    backend
-        .with_tracing("hover", async move {
-            let uri = backend.normalize_uri(params.text_document_position_params.text_document.uri);
-            let position = params.text_document_position_params.position;
+    let uri = backend.normalize_uri(
+        params
+            .text_document_position_params
+            .text_document
+            .uri
+            .clone(),
+    );
+    let position = params.text_document_position_params.position;
 
-            if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
-                let schema = backend.get_schema_for_doc(&uri);
+    if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
+        let schema = backend.get_schema_for_doc(&uri);
 
-                let project_subgraphs = {
-                    let config = backend.config.read().unwrap();
-                    let schema_key = config.get_schema_for_path(&uri.to_file_path().unwrap());
-                    schema_key
-                        .and_then(|key| backend.subgraphs.get(&key).map(|r| r.value().clone()))
-                };
+        let project_subgraphs = if let Ok(path) = uri.to_file_path() {
+            let config = backend.config.read().unwrap();
+            let schema_key = config.get_schema_for_path(&path);
+            schema_key.and_then(|key| backend.subgraphs.get(&key).map(|r| r.value().clone()))
+        } else {
+            None
+        };
+        let doc_ref: &DocumentState = doc.as_ref();
+        if let Some(hover) = doc_ref.get_hover_info(
+            position,
+            &schema,
+            project_subgraphs.as_deref(),
+            &backend.documents,
+        ) {
+            return Ok(Some(hover));
+        }
 
-                if let Some(hover) =
-                    doc.get_hover_info(position, &schema, project_subgraphs.as_deref())
-                {
-                    return Ok(Some(hover));
-                }
+        let symbol_at_pos = doc.get_symbol_at_position(position);
 
-                if let Some(symbol_name) = doc.get_symbol_at_position(position) {
+        return backend
+            .with_tracing("hover", async move {
+                if let Some(symbol_name) = symbol_at_pos {
                     // Collect documents first to avoid holding DashMap locks during processing
                     let doc_arcs: Vec<Arc<DocumentState>> = backend
                         .documents
@@ -120,9 +132,10 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                         }
                     }
                 }
-            }
+                Ok(None)
+            })
+            .await;
+    }
 
-            Ok(None)
-        })
-        .await
+    Ok(None)
 }

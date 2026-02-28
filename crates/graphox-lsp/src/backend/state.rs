@@ -250,6 +250,9 @@ impl Backend {
             &self.fragment_defs,
             &config,
             &self.package_roots,
+            &self.subgraphs,
+            &self.documents,
+            &self.schemas,
         ));
 
         if let Ok(mut cache) = self.fragment_metadata_cache.write() {
@@ -515,6 +518,7 @@ impl Backend {
             position_encoding,
             workspace_version: self.workspace_version.clone(),
             last_full_validation_version: self.last_full_validation_version.clone(),
+            open_documents: self.open_documents.clone(),
         });
 
         self.client
@@ -603,8 +607,8 @@ impl Backend {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
-        // Clear only what's necessary - we keep documents and diagnostic_cache
-        // but we'll re-index everything to match the new config.
+        // Clear only what's necessary - we re-index everything to match the new config.
+        self.documents.clear();
         self.fragment_defs.clear();
         self.fragment_spreads.clear();
         self.fragment_dependents.clear();
@@ -749,6 +753,7 @@ impl Backend {
             position_encoding,
             workspace_version: self.workspace_version.clone(),
             last_full_validation_version: self.last_full_validation_version.clone(),
+            open_documents: self.open_documents.clone(),
         });
 
         self.client
@@ -811,6 +816,8 @@ impl Backend {
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
             operation_names: &self.operation_names,
+            subgraphs: &self.subgraphs,
+            schemas: &self.schemas,
             supports_progress,
             position_encoding,
         };
@@ -852,6 +859,8 @@ impl Backend {
             fragment_dependents: &self.fragment_dependents,
             fragment_definitions: &self.fragment_definitions,
             operation_names: &self.operation_names,
+            subgraphs: &self.subgraphs,
+            schemas: &self.schemas,
             supports_progress,
             position_encoding,
         };

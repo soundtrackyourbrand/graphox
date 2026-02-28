@@ -48,7 +48,7 @@ pub fn get_type_before_equals(doc: &DocumentState, cursor_offset: usize) -> Opti
         return None;
     }
 
-    Some(crate::shared::type_resolver::parse_type_string(type_text))
+    apollo_compiler::ast::Type::parse(type_text, "type.graphql").ok()
 }
 
 pub fn create_braced_snippet(
