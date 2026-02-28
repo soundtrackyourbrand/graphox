@@ -521,7 +521,7 @@ impl DocumentDefinition for DocumentState {
                         );
                     }
                     SemanticSymbol::Argument {
-                        parent_type_name,
+                        parent_type,
                         field_name,
                         arg_def,
                     } => {
@@ -529,8 +529,8 @@ impl DocumentDefinition for DocumentState {
                         for p_uri in preferred_uris {
                             if let Some(doc) = documents.get(p_uri).map(|r| r.value().clone())
                                 && let Some(loc) = doc.find_argument_in_field_definition(
-                                    &parent_type_name,
-                                    field_name.as_deref().unwrap_or(""),
+                                    &parent_type,
+                                    &field_name,
                                     arg_name,
                                     symbol_query,
                                 )
@@ -539,8 +539,8 @@ impl DocumentDefinition for DocumentState {
                             }
                         }
                         return self.find_argument_in_field_definition(
-                            &parent_type_name,
-                            field_name.as_deref().unwrap_or(""),
+                            &parent_type,
+                            &field_name,
                             arg_name,
                             symbol_query,
                         );

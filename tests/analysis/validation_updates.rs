@@ -93,6 +93,7 @@ fn test_diagnostics_update_on_fragment_change() {
         selected_fields: Vec::new(),
         type_fields: Vec::new(),
         requirements: std::collections::BTreeMap::new(),
+        worst_slo: None,
     }];
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);
@@ -118,6 +119,7 @@ fn test_diagnostics_update_on_fragment_change() {
         selected_fields: Vec::new(),
         type_fields: Vec::new(),
         requirements: std::collections::BTreeMap::new(),
+        worst_slo: None,
     }];
     let diagnostics =
         query_doc.get_semantic_diagnostics(&schema, &fragments, None, None, false, true);

@@ -20,4 +20,5 @@ pub struct FragmentCompletionInfo {
     pub selected_fields: Vec<Arc<str>>,
     pub type_fields: Vec<(Arc<str>, Arc<str>)>,
     pub requirements: FragmentRequirements,
+    pub worst_slo: Option<graphox_core::schema::SloClass>,
 }

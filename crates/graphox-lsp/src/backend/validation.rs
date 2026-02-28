@@ -40,6 +40,9 @@ pub struct ValidationParams<'a> {
     pub fragment_dependents: &'a FragmentDependentsMap,
     pub fragment_definitions: &'a FragmentDefinitionsMap,
     pub operation_names: &'a OperationNamesMap,
+    pub subgraphs:
+        &'a Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
+    pub schemas: &'a Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
     pub supports_progress: bool,
     pub position_encoding: PositionEncodingKind,
 }
@@ -81,6 +84,9 @@ pub async fn validate_uris(
         params.fragment_defs,
         params.config,
         params.package_roots,
+        params.subgraphs,
+        params.documents,
+        params.schemas,
     );
 
     // Pre-collect documents and their package roots to optimize fragment filtering
@@ -309,9 +315,18 @@ pub fn get_fragments_for_doc(
     config: &Config,
     fragment_defs: &FragmentDefsMap,
     package_roots: &PackageRootsMap,
+    subgraphs: &Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
+    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
 ) -> Vec<FragmentCompletionInfo> {
-    let all_fragments =
-        super::fragment_manager::collect_fragment_metadata(fragment_defs, config, package_roots);
+    let all_fragments = super::fragment_manager::collect_fragment_metadata(
+        fragment_defs,
+        config,
+        package_roots,
+        subgraphs,
+        documents,
+        schemas,
+    );
 
     get_fragments_for_doc_with_metadata(doc.package_root.as_deref(), &all_fragments)
 }

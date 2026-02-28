@@ -98,6 +98,7 @@ impl LanguageServer for Backend {
             position_encoding,
             workspace_version: self.workspace_version.clone(),
             last_full_validation_version: self.last_full_validation_version.clone(),
+            open_documents: self.open_documents.clone(),
         });
 
         // Register file watchers
