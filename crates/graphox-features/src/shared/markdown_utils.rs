@@ -135,6 +135,22 @@ pub fn describe_directive_markdown(
     info
 }
 
+pub fn describe_fragment_markdown(
+    name: &str,
+    type_condition: &str,
+    description: Option<&str>,
+) -> String {
+    let mut info = format!(
+        "### fragment {}\n---\nOn type: `{}`\n",
+        name, type_condition
+    );
+    if let Some(desc) = description {
+        info.push_str("\n---\n");
+        info.push_str(desc);
+    }
+    info
+}
+
 pub fn describe_operation_markdown(
     op_type: &str,
     op_name: Option<&str>,

@@ -46,6 +46,7 @@ pub fn get_operation_variables(
     Vec::new()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_operation(
     doc: &DocumentState,
     node: Node,

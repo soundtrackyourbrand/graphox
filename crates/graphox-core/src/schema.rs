@@ -9,12 +9,86 @@ use apollo_compiler::Schema;
 use std::path::Path;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SloClass {
+    Critical = 0,
+    HighFast = 1,
+    HighSlow = 2,
+    Low = 3,
+    NoSlo = 4,
+}
+
+impl std::str::FromStr for SloClass {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "CRITICAL" => Ok(SloClass::Critical),
+            "HIGH_FAST" => Ok(SloClass::HighFast),
+            "HIGH_SLOW" => Ok(SloClass::HighSlow),
+            "LOW" => Ok(SloClass::Low),
+            "NO_SLO" => Ok(SloClass::NoSlo),
+            _ => Err(()),
+        }
+    }
+}
+
+impl SloClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SloClass::Critical => "CRITICAL",
+            SloClass::HighFast => "HIGH_FAST",
+            SloClass::HighSlow => "HIGH_SLOW",
+            SloClass::Low => "LOW",
+            SloClass::NoSlo => "NO_SLO",
+        }
+    }
+
+    pub fn worst(self, other: Self) -> Self {
+        std::cmp::max(self, other)
+    }
+}
+
 #[derive(Clone)]
 pub struct SubgraphInfo {
     pub name: String,
     pub owner: Option<String>,
     pub schema: Arc<Schema>,
     pub uri: lsp_types::Url,
+    /// Overall SLO class for the subgraph (from schema definition)
+    pub schema_slo: Option<SloClass>,
+    /// Maps TypeName -> FieldName -> SloClass
+    pub field_slos: AHashMap<String, AHashMap<String, SloClass>>,
+}
+
+fn extract_slo_from_directives(
+    directives: &[apollo_compiler::Node<apollo_compiler::ast::Directive>],
+    schema: &Schema,
+) -> Option<SloClass> {
+    let slo_directive = directives.iter().find(|d| d.name == "slo")?;
+    let class_arg = slo_directive.argument_by_name("class", schema).ok()?;
+
+    // Handle both string and enum values
+    let class_str = class_arg
+        .as_str()
+        .or_else(|| class_arg.as_enum().map(|e| e.as_str()))?;
+
+    class_str.parse::<SloClass>().ok()
+}
+
+fn extract_slo_from_component_directives(
+    directives: &apollo_compiler::schema::DirectiveList,
+    schema: &Schema,
+) -> Option<SloClass> {
+    let slo_directive = directives.iter().find(|d| d.name == "slo")?;
+    let class_arg = slo_directive.argument_by_name("class", schema).ok()?;
+
+    // Handle both string and enum values
+    let class_str = class_arg
+        .as_str()
+        .or_else(|| class_arg.as_enum().map(|e| e.as_str()))?;
+
+    class_str.parse::<SloClass>().ok()
 }
 
 /// Load subgraphs from a directory
@@ -34,6 +108,41 @@ pub fn load_subgraphs(
                 && let Ok(content) = std::fs::read_to_string(&path)
                 && let Ok(schema) = Schema::parse(&content, &path)
             {
+                let mut field_slos = AHashMap::default();
+
+                // Extract schema-level SLO
+                let schema_slo = extract_slo_from_component_directives(
+                    &schema.schema_definition.directives,
+                    &schema,
+                );
+
+                // Extract SLO classes from the schema types
+                for (type_name, type_def) in schema.types.iter() {
+                    let mut type_fields_slo = AHashMap::default();
+
+                    if let Some(obj) = type_def.as_object() {
+                        for (field_name, field_def) in obj.fields.iter() {
+                            if let Some(slo) =
+                                extract_slo_from_directives(&field_def.directives, &schema)
+                            {
+                                type_fields_slo.insert(field_name.to_string(), slo);
+                            }
+                        }
+                    } else if let Some(intf) = type_def.as_interface() {
+                        for (field_name, field_def) in intf.fields.iter() {
+                            if let Some(slo) =
+                                extract_slo_from_directives(&field_def.directives, &schema)
+                            {
+                                type_fields_slo.insert(field_name.to_string(), slo);
+                            }
+                        }
+                    }
+
+                    if !type_fields_slo.is_empty() {
+                        field_slos.insert(type_name.to_string(), type_fields_slo);
+                    }
+                }
+
                 let owner = owners.and_then(|m| m.get(name).cloned());
                 if let Ok(uri) = lsp_types::Url::from_file_path(&path) {
                     subgraphs.push(SubgraphInfo {
@@ -41,6 +150,8 @@ pub fn load_subgraphs(
                         owner,
                         schema: Arc::new(schema),
                         uri,
+                        schema_slo,
+                        field_slos,
                     });
                 }
             }

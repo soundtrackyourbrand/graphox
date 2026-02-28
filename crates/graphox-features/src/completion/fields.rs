@@ -92,6 +92,7 @@ pub fn find_field_node_before_offset<'a>(
     last_field
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_selection_set_at_node(
     doc: &DocumentState,
     node: Node,
@@ -387,6 +388,20 @@ pub fn get_field_completions(
                                 sg_info.push_str(owner);
                                 sg_info.push(')');
                             }
+
+                            // Add SLO info if available
+                            let slo = sg
+                                .field_slos
+                                .get(obj.name.as_str())
+                                .and_then(|type_slos| type_slos.get(name.as_str()).copied())
+                                .or(sg.schema_slo);
+
+                            if let Some(slo) = slo {
+                                sg_info.push_str(" [SLO: ");
+                                sg_info.push_str(slo.as_str());
+                                sg_info.push(']');
+                            }
+
                             found_subgraphs.push(sg_info);
                         }
                     }
@@ -452,6 +467,20 @@ pub fn get_field_completions(
                                 sg_info.push_str(owner);
                                 sg_info.push(')');
                             }
+
+                            // Add SLO info if available
+                            let slo = sg
+                                .field_slos
+                                .get(iface.name.as_str())
+                                .and_then(|type_slos| type_slos.get(name.as_str()).copied())
+                                .or(sg.schema_slo);
+
+                            if let Some(slo) = slo {
+                                sg_info.push_str(" [SLO: ");
+                                sg_info.push_str(slo.as_str());
+                                sg_info.push(']');
+                            }
+
                             found_subgraphs.push(sg_info);
                         }
                     }

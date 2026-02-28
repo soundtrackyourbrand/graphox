@@ -355,12 +355,16 @@ fn resolve_symbol_at_position(
                     value_name: val_def.value.to_string(),
                 },
                 SemanticSymbol::Argument {
-                    parent_type_name,
+                    parent_type,
                     field_name,
                     arg_def,
                 } => ResolvedSymbol::Argument {
-                    parent_type_name,
-                    field_name,
+                    parent_type_name: parent_type,
+                    field_name: if field_name.is_empty() {
+                        None
+                    } else {
+                        Some(field_name)
+                    },
                     arg_name: arg_def.name.to_string(),
                 },
                 SemanticSymbol::InputObjectField {

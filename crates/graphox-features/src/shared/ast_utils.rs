@@ -1,3 +1,5 @@
+use apollo_compiler::Schema;
+use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
 use tree_sitter::Node;
 
@@ -70,15 +72,46 @@ pub fn find_variable_definition_node<'a>(
     if let Some(defs) = doc.find_child_by_kind(parent, "variable_definitions") {
         let mut def_walker = defs.walk();
         for def in defs.children(&mut def_walker) {
-            if def.kind() == "variable_definition" {
-                let components = doc.extract_variable_definition_components(def);
-                if let Some(var_node) = components.variable
-                    && doc.get_node_text(var_node, offset) == name
-                {
-                    return Some(var_node);
-                }
+            if def.kind() == "variable_definition"
+                && let Some(var_node) = doc.extract_variable_definition_components(def).variable
+                && doc.get_node_text(var_node, offset) == name
+            {
+                return Some(var_node);
             }
         }
     }
     None
+}
+
+pub fn get_parent_type_for_node(
+    _node: Node,
+    _offset: usize,
+    schema: &Schema,
+) -> Option<ExtendedType> {
+    // This is now also in DocumentState, but we keep a compatible version here for features
+    let mut curr = _node.parent();
+    while let Some(parent) = curr {
+        if parent.kind() == "operation_definition" {
+            let op_type_node = find_child_by_kind(parent, "operation_type");
+            let _op_type = if let Some(_ot) = op_type_node {
+                // We don't have doc here, so we can't get text easily
+                // But we can check kind or assume Query
+                "query"
+            } else {
+                "query"
+            };
+            // Fallback to query for now, or improve if we pass doc
+            return schema
+                .root_operation(apollo_compiler::ast::OperationType::Query)
+                .and_then(|t| schema.types.get(t.as_str()))
+                .cloned();
+        }
+        curr = parent.parent();
+    }
+    None
+}
+
+pub fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+    let mut walker = node.walk();
+    node.children(&mut walker).find(|c| c.kind() == kind)
 }

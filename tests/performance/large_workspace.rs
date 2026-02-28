@@ -7,16 +7,15 @@ use crate::support::{
 use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
-use std::path::PathBuf;
 use tempfile::TempDir;
 use tower_lsp::LspService;
 use tower_lsp::lsp_types::Url;
 
 const MAX_SCAN_TIME: std::time::Duration = std::time::Duration::from_secs(2);
 
-fn create_100_file_config(base_dir: &PathBuf) -> Config {
+fn create_100_file_config(base_dir: &std::path::Path) -> Config {
     Config::new_test(
-        base_dir.clone(),
+        base_dir.to_path_buf(),
         vec![
             ProjectConfig::default()
                 .with_schema(SchemaSource::Single("schema.graphql".to_string()))
@@ -28,9 +27,9 @@ fn create_100_file_config(base_dir: &PathBuf) -> Config {
     .with_lsp_automatic_codegen(false)
 }
 
-fn create_500_file_config(base_dir: &PathBuf) -> Config {
+fn create_500_file_config(base_dir: &std::path::Path) -> Config {
     Config::new_test(
-        base_dir.clone(),
+        base_dir.to_path_buf(),
         vec![
             ProjectConfig::default()
                 .with_schema(SchemaSource::Single("schema.graphql".to_string()))
@@ -42,9 +41,9 @@ fn create_500_file_config(base_dir: &PathBuf) -> Config {
     .with_lsp_automatic_codegen(false)
 }
 
-fn create_1000_file_config(base_dir: &PathBuf) -> Config {
+fn create_1000_file_config(base_dir: &std::path::Path) -> Config {
     Config::new_test(
-        base_dir.clone(),
+        base_dir.to_path_buf(),
         vec![
             ProjectConfig::default()
                 .with_schema(SchemaSource::Single("schema.graphql".to_string()))
@@ -56,7 +55,7 @@ fn create_1000_file_config(base_dir: &PathBuf) -> Config {
     .with_lsp_automatic_codegen(false)
 }
 
-fn create_10_project_config(base_dir: &PathBuf) -> Config {
+fn create_10_project_config(base_dir: &std::path::Path) -> Config {
     let mut projects = Vec::new();
     for i in 0..10 {
         projects.push(
@@ -69,7 +68,7 @@ fn create_10_project_config(base_dir: &PathBuf) -> Config {
                 .with_codegen(CodegenConfig::disabled()),
         );
     }
-    Config::new_test(base_dir.clone(), projects)
+    Config::new_test(base_dir.to_path_buf(), projects)
         .with_enable_schema_cache(true)
         .with_lsp_automatic_codegen(false)
 }

@@ -8,6 +8,7 @@ use crate::completion::types::{FragmentCompletionInfo, FragmentRequirementsResol
 use crate::completion::values;
 use crate::shared::markdown_utils::describe_fragment_completion_markdown;
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_fragment(
     doc: &DocumentState,
     node: Node,
@@ -44,6 +45,7 @@ pub fn complete_fragment(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn complete_inline_fragment(
     doc: &DocumentState,
     node: Node,
@@ -146,14 +148,27 @@ pub fn get_fragment_name_completions(
         })
         .map(|f| {
             let requirements_map = resolve_requirements(&f.name);
-            let documentation = describe_fragment_completion_markdown(
+            let mut documentation = describe_fragment_completion_markdown(
                 f.description.as_deref(),
                 requirements_map.iter(),
                 f.import_path.as_deref(),
             );
+
+            let mut detail = None;
+            if let Some(slo) = f.worst_slo {
+                detail = Some(format!("Worst SLO: {}", slo.as_str()));
+                if documentation.is_empty() {
+                    documentation = format!("**Worst SLO:** {}", slo.as_str());
+                } else {
+                    documentation.push_str("\n\n---\n\n**Worst SLO:** ");
+                    documentation.push_str(slo.as_str());
+                }
+            }
+
             CompletionItem {
                 label: f.name.to_string(),
                 kind: Some(CompletionItemKind::SNIPPET),
+                detail,
                 documentation: if documentation.is_empty() {
                     None
                 } else {
