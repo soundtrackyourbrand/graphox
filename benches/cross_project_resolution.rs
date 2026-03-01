@@ -4,6 +4,7 @@ use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
 use graphox_lsp::backend::state::Backend;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 
 pub fn bench_cross_project_resolution(c: &mut Criterion) {
@@ -13,7 +14,8 @@ pub fn bench_cross_project_resolution(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let base_dir = std::env::current_dir().unwrap();
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
 
     // Setup 10 projects
     let mut projects = Vec::new();
