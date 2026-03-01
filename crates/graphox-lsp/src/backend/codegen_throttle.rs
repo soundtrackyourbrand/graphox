@@ -42,8 +42,9 @@ impl CodegenThrottle {
                     client,
                     type_caches,
                     documents,
-                    fragment_defs,
+                    metadata,
                     supports_progress,
+                    position_encoding,
                 ) = {
                     if let Some(backend) = backend_weak.upgrade() {
                         let cfg = backend.config.read().unwrap();
@@ -53,12 +54,13 @@ impl CodegenThrottle {
                             backend.client.clone(),
                             backend.type_caches.clone(),
                             backend.documents.clone(),
-                            backend.fragment_defs.clone(),
+                            backend.metadata.clone(),
                             backend
                                 .client_capabilities
                                 .read()
                                 .unwrap()
                                 .supports_progress,
+                            backend.get_position_encoding(),
                         )
                     } else {
                         break;
@@ -118,9 +120,10 @@ impl CodegenThrottle {
                     config,
                     type_caches,
                     documents,
-                    fragment_defs,
+                    metadata,
                     supports_progress,
                     final_projects,
+                    position_encoding,
                 )
                 .await;
 

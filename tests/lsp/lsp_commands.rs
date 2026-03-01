@@ -87,24 +87,34 @@ async fn test_lsp_command_clear_cache() {
         .unwrap();
 
     // Wait for re-validation diagnostics
+    let mut found_query_diag = false;
     for _ in 0..200 {
         sleep(Duration::from_millis(10)).await;
         let diags = received_diags.lock().unwrap();
-        if diags.len() > 1 {
-            // We have new diagnostics after cache clear
+        // Check if we received diagnostics for the query file that contain the expected error
+        if diags.iter().any(|d| {
+            d["uri"].as_str().unwrap_or("") == query_uri.as_str()
+                && d["diagnostics"]
+                    .as_array()
+                    .map(|diags| {
+                        diags.iter().any(|diag| {
+                            diag["message"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_lowercase()
+                                .contains("me")
+                        })
+                    })
+                    .unwrap_or(false)
+        }) {
+            found_query_diag = true;
             break;
         }
     }
-    {
-        let diags = received_diags.lock().unwrap();
-        let last = diags.last().unwrap();
-        let d_list = last["diagnostics"].as_array().unwrap();
-        assert!(
-            !d_list.is_empty(),
-            "Should have diagnostics after clearCache reloads schema"
-        );
-        assert!(d_list[0]["message"].as_str().unwrap().contains("me"));
-    }
+    assert!(
+        found_query_diag,
+        "Should have diagnostics for query.graphql after clearCache reloads schema"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

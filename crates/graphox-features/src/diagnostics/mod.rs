@@ -199,7 +199,7 @@ impl DocumentDiagnostics for DocumentState {
         {
             // Detect duplicate operation names within this document and report diagnostics.
             let mut counts: ahash::AHashMap<Arc<str>, usize> = ahash::AHashMap::default();
-            for op in &self.operations {
+            for op in self.operations.iter() {
                 if let Some(name) = &op.name {
                     *counts.entry(name.clone()).or_insert(0) += 1;
                 }

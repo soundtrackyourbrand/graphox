@@ -45,7 +45,7 @@ impl DocumentHover for DocumentState {
         current_type: &apollo_compiler::schema::ExtendedType,
         schema: &Schema,
         subgraphs: &[graphox_core::schema::SubgraphInfo],
-        fragment_index: &ahash::AHashMap<Arc<str>, (Arc<DocumentState>, FragmentDef)>,
+        fragment_index: &ahash::AHashMap<Arc<str>, Vec<(Arc<DocumentState>, FragmentDef)>>,
         _documents: &graphox_core::types::DocumentsMap,
         visited_fragments: &mut AHashSet<Arc<str>>,
     ) -> Option<SloClass> {
@@ -118,23 +118,24 @@ impl DocumentHover for DocumentState {
                                     }
                                 }
 
-                            // Recurse into sub-selection if present
-                            if let Some(sub_selection) =
-                                self.find_child_by_kind(selection, "selection_set")
-                                && let Some(field_type) =
-                                    schema.types.get(field_def.ty.inner_named_type().as_str())
-                                && let Some(slo) = self.calculate_worst_slo_for_selection_set(
-                                    sub_selection,
-                                    offset,
-                                    field_type,
-                                    schema,
-                                    subgraphs,
-                                    fragment_index,
-                                    _documents,
-                                    visited_fragments,
-                                )
-                            {
-                                worst = Some(worst.map_or(slo, |w| w.worst(slo)));
+                                // Recurse into sub-selection if present
+                                if let Some(sub_selection) =
+                                    self.find_child_by_kind(selection, "selection_set")
+                                    && let Some(field_type) =
+                                        schema.types.get(field_def.ty.inner_named_type().as_str())
+                                    && let Some(slo) = self.calculate_worst_slo_for_selection_set(
+                                        sub_selection,
+                                        offset,
+                                        field_type,
+                                        schema,
+                                        subgraphs,
+                                        fragment_index,
+                                        _documents,
+                                        visited_fragments,
+                                    )
+                                {
+                                    worst = Some(worst.map_or(slo, |w| w.worst(slo)));
+                                }
                             }
                         }
                         "fragment_spread" => {
@@ -154,36 +155,40 @@ impl DocumentHover for DocumentState {
                             }
 
                             // Find fragment definition using indexed map
-                            if let Some((doc, frag)) = fragment_index.get(&frag_name) {
-                                for block in doc.get_graphql_trees() {
-                                    let block: &GraphQLBlock = block;
-                                    let root = block.tree.root_node();
-                                    let mut cursor = root.walk();
-                                    for node in root.children(&mut cursor) {
-                                        if node.kind() == "fragment_definition" {
-                                            let name = doc
-                                                .find_child_by_kind(node, "fragment_name")
-                                                .and_then(|n| doc.find_child_by_kind(n, "name"))
-                                                .map(|n| doc.get_node_text(n, block.offset));
+                            if let Some(candidates) = fragment_index.get(&frag_name) {
+                                for (doc, frag) in candidates {
+                                    for block in doc.get_graphql_trees() {
+                                        let block: &GraphQLBlock = block;
+                                        let root = block.tree.root_node();
+                                        let mut cursor = root.walk();
+                                        for node in root.children(&mut cursor) {
+                                            if node.kind() == "fragment_definition" {
+                                                let name = doc
+                                                    .find_child_by_kind(node, "fragment_name")
+                                                    .and_then(|n| doc.find_child_by_kind(n, "name"))
+                                                    .map(|n| doc.get_node_text(n, block.offset));
 
-                                            if name.as_deref() == Some(frag.name.as_ref())
-                                                && let Some(selection) =
-                                                    doc.find_child_by_kind(node, "selection_set")
-                                                && let Some(type_cond) =
-                                                    schema.types.get(frag.type_condition.as_ref())
-                                                && let Some(slo) = doc
-                                                    .calculate_worst_slo_for_selection_set(
-                                                        selection,
-                                                        block.offset,
-                                                        type_cond,
-                                                        schema,
-                                                        subgraphs,
-                                                        fragment_index,
-                                                        _documents,
-                                                        visited_fragments,
-                                                    )
-                                            {
-                                                worst = Some(worst.map_or(slo, |w| w.worst(slo)));
+                                                if name.as_deref() == Some(frag.name.as_ref())
+                                                    && let Some(selection) = doc
+                                                        .find_child_by_kind(node, "selection_set")
+                                                    && let Some(type_cond) = schema
+                                                        .types
+                                                        .get(frag.type_condition.as_ref())
+                                                    && let Some(slo) = doc
+                                                        .calculate_worst_slo_for_selection_set(
+                                                            selection,
+                                                            block.offset,
+                                                            type_cond,
+                                                            schema,
+                                                            subgraphs,
+                                                            fragment_index,
+                                                            _documents,
+                                                            visited_fragments,
+                                                        )
+                                                {
+                                                    worst =
+                                                        Some(worst.map_or(slo, |w| w.worst(slo)));
+                                                }
                                             }
                                         }
                                     }
@@ -222,7 +227,6 @@ impl DocumentHover for DocumentState {
                         _ => {}
                     }
                 }
-                _ => {}
             }
         }
 
@@ -238,7 +242,20 @@ impl DocumentHover for DocumentState {
     ) -> Option<Hover> {
         let byte_offset = self.position_to_byte(position);
 
+        // Build fragment index once per hover request
+        let mut fragment_index = ahash::AHashMap::default();
+        for entry in documents.iter() {
+            let doc = entry.value();
+            for frag in doc.fragments() {
+                fragment_index
+                    .entry(frag.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push((doc.clone(), frag.clone()));
+            }
+        }
+
         for block in self.get_graphql_trees() {
+            let block: &GraphQLBlock = block;
             let offset = block.offset;
             let root = block.tree.root_node();
             let tree_len = root.end_byte();
@@ -466,7 +483,7 @@ impl DocumentHover for DocumentState {
                                         schema,
                                         project_subgraphs,
                                         &fragment_index,
-                                        _documents,
+                                        documents,
                                         &mut visited,
                                     ) {
                                         md.push_str("\n\n---\n\n**Worst SLO:** ");
@@ -514,7 +531,7 @@ impl DocumentHover for DocumentState {
                                     schema,
                                     project_subgraphs,
                                     &fragment_index,
-                                    _documents,
+                                    documents,
                                     &mut visited,
                                 ) {
                                     md.push_str("\n\n---\n\n**Worst SLO:** ");

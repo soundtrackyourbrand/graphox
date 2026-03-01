@@ -4,7 +4,7 @@
 //! processing each project, generating types, and creating the entrypoint file.
 
 use graphox_core::config::Config;
-use graphox_core::types::{DocumentsMap, FragmentDefsMap};
+use graphox_core::types::{DocumentsMap, MetadataMap};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,7 @@ use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
 
 /// Runs the codegen process for specified projects or all projects
+#[allow(clippy::too_many_arguments)]
 pub async fn run_codegen(
     client: Client,
     config: Config,
@@ -20,9 +21,10 @@ pub async fn run_codegen(
         dashmap::DashMap<String, Arc<graphox_codegen::SchemaAnalysisCaches>, ahash::RandomState>,
     >,
     documents: DocumentsMap,
-    fragment_defs: FragmentDefsMap,
+    metadata: MetadataMap,
     supports_progress: bool,
     projects_to_run: Option<HashSet<String>>,
+    position_encoding: tower_lsp::lsp_types::PositionEncodingKind,
 ) {
     // Create progress reporter
     let progress = super::progress::ProgressReporter::new(
@@ -36,11 +38,11 @@ pub async fn run_codegen(
         .report("Preparing codegen metadata...", Some(5))
         .await;
 
-    // Build global metadata from existing fragment_defs instead of re-scanning disk
+    // Build global metadata from existing metadata instead of re-scanning disk
     let mut global_metadata = Vec::new();
-    for entry in fragment_defs.iter() {
+    for entry in metadata.iter() {
         let uri = entry.key();
-        let frags = entry.value();
+        let meta = entry.value();
 
         let import_path = if let Ok(p) = uri.to_file_path() {
             config
@@ -50,7 +52,7 @@ pub async fn run_codegen(
             None
         };
 
-        for frag in frags {
+        for frag in meta.fragments.iter() {
             global_metadata.push(graphox_core::engine::FragmentMetadata {
                 name: frag.name.clone(),
                 path: Arc::from(uri.to_string()),
@@ -96,8 +98,8 @@ pub async fn run_codegen(
     for (idx, project) in projects_configs.iter().enumerate() {
         let current_project = idx + 1;
 
-        // Find files for this project from our existing documents map
-        let project_files: Vec<PathBuf> = documents
+        // Find all files belonging to this project using metadata
+        let project_files: Vec<PathBuf> = metadata
             .iter()
             .filter_map(|entry| {
                 let uri = entry.key();
@@ -235,11 +237,23 @@ pub async fn run_codegen(
                     return;
                 }
             };
-            let doc_ref = match documents.get(&uri) {
-                Some(doc) if !doc.get_graphql_trees().is_empty() => doc,
-                _ => return,
+
+            // Load document on demand if not in memory
+            let doc = if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
+                doc
+            } else if let Ok(content) = std::fs::read_to_string(path) {
+                Arc::new(graphox_core::DocumentState::new_from_thread_local(
+                    uri.clone(),
+                    &content,
+                    position_encoding.clone(),
+                ))
+            } else {
+                return;
             };
-            let doc = doc_ref.value().clone();
+
+            if doc.get_graphql_trees().is_empty() {
+                return;
+            }
 
             let include_prefix_path = project
                 .include()
@@ -323,8 +337,12 @@ pub async fn run_codegen(
             );
 
             let result = graphox_codegen::generate_typescript(&doc, &ctx);
-            let Ok((ts_code, mut ops, mut frags)) = result else {
-                return;
+            let (ts_code, mut ops, mut frags) = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Failed to generate TypeScript for {}: {}", uri, e);
+                    return;
+                }
             };
 
             // Write file only if changed

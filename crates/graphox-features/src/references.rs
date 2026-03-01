@@ -31,6 +31,8 @@ pub trait DocumentReferences {
         directive_name: &str,
         include_declaration: bool,
     ) -> Vec<Location>;
+
+    fn find_variable_declaration(&self, name: &str, position: Position) -> Option<Location>;
 }
 
 impl DocumentReferences for DocumentState {
@@ -50,14 +52,10 @@ impl DocumentReferences for DocumentState {
                 tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
             });
 
+            let mut results_by_range = ahash::AHashMap::default();
+            let mut definitions = ahash::AHashSet::default();
+
             let mut cursor = QueryCursor::new();
-            let mut results_by_range: std::collections::BTreeMap<(u32, u32), Location> =
-                std::collections::BTreeMap::new();
-            let mut definitions: ahash::AHashSet<(u32, u32)> = ahash::AHashSet::default();
-
-            let reference_idx = query.capture_index_for_name("reference").unwrap();
-            let definition_idx = query.capture_index_for_name("definition").unwrap();
-
             let mut matches = cursor.matches(query, op_node, |node: tree_sitter::Node| {
                 let start = node.start_byte();
                 let end = node.end_byte();
@@ -67,44 +65,40 @@ impl DocumentReferences for DocumentState {
             });
 
             while let Some(m) = matches.next() {
-                let mut is_definition = false;
+                let mut is_def = false;
                 let mut name_node = None;
 
                 for cap in m.captures {
-                    if cap.index == definition_idx {
-                        is_definition = true;
-                    } else if cap.index == reference_idx {
-                        // is_definition remains false
-                    } else {
-                        // This must be the "name" capture
-                        name_node = Some(cap.node);
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    match cap_name {
+                        "definition" => is_def = true,
+                        "name" => name_node = Some(cap.node),
+                        _ => {}
                     }
                 }
 
-                if let Some(name_node) = name_node {
-                    let name = self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(name_node.start_byte() + offset)
-                                ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                        )
-                        .to_string();
-
-                    if name == symbol_name {
-                        let range = self.translate_to_file_range(name_node, offset);
-                        let key = (range.start.line, range.start.character);
-
-                        if is_definition {
-                            definitions.insert(key);
-                        }
+                if let Some(node) = name_node {
+                    let text = self.get_node_text(node, offset);
+                    if text == symbol_name {
+                        let range = self.translate_to_file_range(node, offset);
+                        let range_key = (
+                            range.start.line,
+                            range.start.character,
+                            range.end.line,
+                            range.end.character,
+                        );
 
                         results_by_range.insert(
-                            key,
+                            range_key,
                             Location {
                                 uri: self.uri.clone(),
                                 range,
                             },
                         );
+
+                        if is_def {
+                            definitions.insert(range_key);
+                        }
                     }
                 }
             }
@@ -129,64 +123,56 @@ impl DocumentReferences for DocumentState {
             tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
         });
 
+        let mut results_by_range = ahash::AHashMap::default();
+        let mut definitions = ahash::AHashSet::default();
+
         let mut cursor = QueryCursor::new();
-        let mut results_by_range: std::collections::BTreeMap<(u32, u32), Location> =
-            std::collections::BTreeMap::new();
-        let mut definitions: ahash::AHashSet<(u32, u32)> = ahash::AHashSet::default();
-
-        let reference_idx = query.capture_index_for_name("reference").unwrap();
-        let definition_idx = query.capture_index_for_name("definition").unwrap();
-
         for block in self.get_graphql_trees() {
             let offset = block.offset;
             let mut matches =
-                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
                     self.rope
                         .byte_slice((start + offset)..(end + offset))
                         .chunks()
                 });
 
             while let Some(m) = matches.next() {
-                let mut is_definition = false;
+                let mut is_def = false;
                 let mut name_node = None;
 
                 for cap in m.captures {
-                    if cap.index == definition_idx {
-                        is_definition = true;
-                    } else if cap.index == reference_idx {
-                        // is_definition remains false
-                    } else {
-                        // This must be the "name" capture
-                        name_node = Some(cap.node);
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    match cap_name {
+                        "definition" => is_def = true,
+                        "name" => name_node = Some(cap.node),
+                        _ => {}
                     }
                 }
 
-                if let Some(name_node) = name_node {
-                    let name = self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(name_node.start_byte() + offset)
-                                ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                        )
-                        .to_string();
-
-                    if name == target_name {
-                        let range = self.translate_to_file_range(name_node, offset);
-                        let key = (range.start.line, range.start.character);
-
-                        if is_definition {
-                            definitions.insert(key);
-                        }
+                if let Some(node) = name_node {
+                    let text = self.get_node_text(node, offset);
+                    if text == target_name {
+                        let range = self.translate_to_file_range(node, offset);
+                        let range_key = (
+                            range.start.line,
+                            range.start.character,
+                            range.end.line,
+                            range.end.character,
+                        );
 
                         results_by_range.insert(
-                            key,
+                            range_key,
                             Location {
                                 uri: self.uri.clone(),
                                 range,
                             },
                         );
+
+                        if is_def {
+                            definitions.insert(range_key);
+                        }
                     }
                 }
             }
@@ -206,99 +192,73 @@ impl DocumentReferences for DocumentState {
         schema: &Schema,
         include_declaration: bool,
     ) -> Vec<Location> {
+        let mut results_by_range = ahash::AHashMap::default();
+        let mut definitions = ahash::AHashSet::default();
+
         let query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
         });
 
         let mut cursor = QueryCursor::new();
-        let mut results_by_range: std::collections::BTreeMap<(u32, u32), Location> =
-            std::collections::BTreeMap::new();
-        let mut definitions: ahash::AHashSet<(u32, u32)> = ahash::AHashSet::default();
-
-        let reference_idx = query.capture_index_for_name("reference").unwrap();
-        let definition_idx = query.capture_index_for_name("definition").unwrap();
-
         for block in self.get_graphql_trees() {
             let offset = block.offset;
             let mut matches =
-                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
                     self.rope
                         .byte_slice((start + offset)..(end + offset))
                         .chunks()
                 });
 
             while let Some(m) = matches.next() {
-                let mut is_definition = false;
+                let mut is_def = false;
                 let mut name_node = None;
 
                 for cap in m.captures {
-                    if cap.index == definition_idx {
-                        is_definition = true;
-                    } else if cap.index == reference_idx {
-                        // is_definition remains false
-                    } else {
-                        // This must be the "name" capture
-                        name_node = Some(cap.node);
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    match cap_name {
+                        "definition" => is_def = true,
+                        "name" => name_node = Some(cap.node),
+                        _ => {}
                     }
                 }
 
-                if let Some(name_node) = name_node {
-                    let name = self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(name_node.start_byte() + offset)
-                                ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                        )
-                        .to_string();
-
-                    if name == field_name {
-                        let Some(parent) = name_node.parent() else {
-                            continue;
+                if let Some(node) = name_node {
+                    let text = self.get_node_text(node, offset);
+                    if text == field_name {
+                        // Use parent node (eg. 'field') to get the type that CONTAINS this field
+                        let search_node = if let Some(parent) = node.parent() {
+                            parent
+                        } else {
+                            node
                         };
 
-                        // For definitions, we need to check if this is specifically a field_definition
-                        if is_definition {
-                            // Check if the parent is field_definition
-                            if parent.kind() != "field_definition" {
-                                // Not a field definition, skip it
-                                continue;
-                            }
+                        // Check if parent type matches
+                        if let Some(actual_parent_type) =
+                            self.find_parent_type_for_node(search_node, offset, schema)
+                            && (parent_type_name.is_empty()
+                                || actual_parent_type.name() == parent_type_name)
+                        {
+                            let range = self.translate_to_file_range(node, offset);
+                            let range_key = (
+                                range.start.line,
+                                range.start.character,
+                                range.end.line,
+                                range.end.character,
+                            );
 
-                            if let Some(resolved_type) =
-                                find_ancestor_type_for_field_def(self, name_node, offset)
-                                && resolved_type == parent_type_name
-                            {
-                                let range = self.translate_to_file_range(name_node, offset);
-                                let key = (range.start.line, range.start.character);
-                                definitions.insert(key);
-                                results_by_range.insert(
-                                    key,
-                                    Location {
-                                        uri: self.uri.clone(),
-                                        range,
-                                    },
-                                );
-                            }
-                        } else {
-                            // For references, check if this is a field selection
-                            if parent.kind() != "field" {
-                                // Not a field selection, skip it
-                                continue;
-                            }
+                            results_by_range.insert(
+                                range_key,
+                                Location {
+                                    uri: self.uri.clone(),
+                                    range,
+                                },
+                            );
 
-                            if is_field_on_type(self, name_node, offset, parent_type_name, schema) {
-                                let range = self.translate_to_file_range(name_node, offset);
-                                let key = (range.start.line, range.start.character);
-                                results_by_range.insert(
-                                    key,
-                                    Location {
-                                        uri: self.uri.clone(),
-                                        range,
-                                    },
-                                );
+                            if is_def {
+                                definitions.insert(range_key);
                             }
                         }
                     }
@@ -318,80 +278,65 @@ impl DocumentReferences for DocumentState {
         directive_name: &str,
         include_declaration: bool,
     ) -> Vec<Location> {
+        let directive_name = directive_name.strip_prefix('@').unwrap_or(directive_name);
+        let mut results_by_range = ahash::AHashMap::default();
+        let mut definitions = ahash::AHashSet::default();
+
         let query = GQL_REFERENCES_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
             tree_sitter::Query::new(&lang, GQL_REFERENCES_QUERY).unwrap()
         });
 
         let mut cursor = QueryCursor::new();
-        let mut results_by_range: std::collections::BTreeMap<(u32, u32), Location> =
-            std::collections::BTreeMap::new();
-        let mut definitions: ahash::AHashSet<(u32, u32)> = ahash::AHashSet::default();
-
-        let reference_idx = query.capture_index_for_name("reference").unwrap();
-        let definition_idx = query.capture_index_for_name("definition").unwrap();
-
         for block in self.get_graphql_trees() {
             let offset = block.offset;
             let mut matches =
-                cursor.matches(query, block.tree.root_node(), |node: tree_sitter::Node| {
-                    let start = node.start_byte();
-                    let end = node.end_byte();
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
                     self.rope
                         .byte_slice((start + offset)..(end + offset))
                         .chunks()
                 });
 
             while let Some(m) = matches.next() {
-                let mut is_definition = false;
-                let mut is_directive_node = false;
+                let mut is_def = false;
                 let mut name_node = None;
 
                 for cap in m.captures {
-                    if cap.index == definition_idx {
-                        let node = cap.node;
-                        if node.kind() == "directive_definition" {
-                            is_directive_node = true;
-                        }
-                        is_definition = true;
-                    } else if cap.index == reference_idx {
-                        let node = cap.node;
-                        if node.kind() == "directive" {
-                            is_directive_node = true;
-                        }
-                    } else {
-                        name_node = Some(cap.node);
+                    let cap_name = query.capture_names()[cap.index as usize];
+                    match cap_name {
+                        "definition" => is_def = true,
+                        "name" => name_node = Some(cap.node),
+                        _ => {}
                     }
                 }
 
-                if !is_directive_node {
-                    continue;
-                }
-
-                if let Some(name_node) = name_node {
-                    let name = self
-                        .rope
-                        .slice(
-                            self.rope.byte_to_char(name_node.start_byte() + offset)
-                                ..self.rope.byte_to_char(name_node.end_byte() + offset),
-                        )
-                        .to_string();
-
-                    if name == directive_name {
-                        let range = self.translate_to_file_range(name_node, offset);
-                        let key = (range.start.line, range.start.character);
-
-                        if is_definition {
-                            definitions.insert(key);
-                        }
+                if let Some(node) = name_node {
+                    let text = self.get_node_text(node, offset);
+                    if text == directive_name
+                        && let Some(parent) = node.parent()
+                        && (parent.kind() == "directive" || parent.kind() == "directive_definition")
+                    {
+                        let range = self.translate_to_file_range(node, offset);
+                        let range_key = (
+                            range.start.line,
+                            range.start.character,
+                            range.end.line,
+                            range.end.character,
+                        );
 
                         results_by_range.insert(
-                            key,
+                            range_key,
                             Location {
                                 uri: self.uri.clone(),
                                 range,
                             },
                         );
+
+                        if is_def {
+                            definitions.insert(range_key);
+                        }
                     }
                 }
             }
@@ -403,51 +348,41 @@ impl DocumentReferences for DocumentState {
             .map(|(_, loc)| loc)
             .collect()
     }
-}
 
-/// Find the parent type name for a field_definition node in a schema.
-fn find_ancestor_type_for_field_def(
-    doc: &DocumentState,
-    node: tree_sitter::Node,
-    offset: usize,
-) -> Option<String> {
-    let mut curr = node;
-    while let Some(parent) = curr.parent() {
-        match parent.kind() {
-            "object_type_definition" | "interface_type_definition" => {
-                // Find the name child of the type definition
-                if let Some(name_node) = doc.find_child_by_kind(parent, "name") {
-                    return Some(doc.get_node_text(name_node, offset));
+    fn find_variable_declaration(&self, name: &str, position: Position) -> Option<Location> {
+        if !name.starts_with('$') {
+            return None;
+        }
+
+        if let Some((op_node, offset)) = self.find_containing_operation_node(position) {
+            let mut cursor = op_node.walk();
+            for node in op_node.children(&mut cursor) {
+                if node.kind() == "variable_definitions" {
+                    let mut vd_cursor = node.walk();
+                    for vd in node.children(&mut vd_cursor) {
+                        if vd.kind() == "variable_definition"
+                            && let Some(v) = self.find_child_by_kind(vd, "variable")
+                            && let Some(n) = self.find_child_by_kind(v, "name")
+                            && self.get_node_text(n, offset) == name
+                        {
+                            return Some(Location {
+                                uri: self.uri.clone(),
+                                range: self.translate_to_file_range(v, offset),
+                            });
+                        }
+                    }
+                } else if node.kind() == "variable_definition"
+                    && let Some(v) = self.find_child_by_kind(node, "variable")
+                    && let Some(n) = self.find_child_by_kind(v, "name")
+                    && self.get_node_text(n, offset) == name
+                {
+                    return Some(Location {
+                        uri: self.uri.clone(),
+                        range: self.translate_to_file_range(v, offset),
+                    });
                 }
             }
-            _ => {
-                curr = parent;
-            }
         }
+        None
     }
-    None
-}
-
-/// Check if a field selection node is selecting a field on the given parent type.
-fn is_field_on_type(
-    doc: &DocumentState,
-    name_node: tree_sitter::Node,
-    offset: usize,
-    expected_parent_type: &str,
-    schema: &Schema,
-) -> bool {
-    // Find the field node parent
-    let Some(field_node) = name_node.parent() else {
-        return false;
-    };
-    if field_node.kind() != "field" {
-        return false;
-    }
-
-    // Use find_parent_type_for_node to resolve the actual parent type
-    let Some(actual_parent_type) = doc.find_parent_type_for_node(field_node, offset, schema) else {
-        return false;
-    };
-
-    actual_parent_type.name() == expected_parent_type
 }

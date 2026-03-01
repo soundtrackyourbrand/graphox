@@ -114,61 +114,63 @@ pub async fn handle_completion(
                 let package_root = doc.package_root.clone();
                 let documents = backend.documents.clone();
                 let schema_for_requirements = schema.clone();
+                let position_encoding = backend.get_position_encoding();
 
                 let resolve_requirements = Arc::new(move |name: &str| {
                     let mut requirements = std::collections::BTreeMap::new();
                     let mut visited = ahash::AHashSet::<Arc<str>>::default();
                     let mut stack: Vec<Arc<str>> = vec![Arc::from(name)];
 
-                    while let Some(current_name) = stack.pop() {
-                        if !visited.insert(current_name.clone()) {
-                            continue;
-                        }
+                        while let Some(current_name) = stack.pop() {
+                            if !visited.insert(current_name.clone()) {
+                                continue;
+                            }
 
-                        if let Some(potentials) = fragments_by_name.get(&current_name)
-                            && let Some(frag) = potentials.iter().find(|p| {
-                                p.is_public
-                                    || graphox_core::utils::paths_match(
-                                        p.package_root.as_deref(),
-                                        package_root.as_deref(),
-                                    )
-                            })
-                        {
-                            let cached_vars = {
-                                variable_types_cache
-                                    .lock()
-                                    .expect("variable_types_cache mutex poisoned")
-                                    .get(&current_name)
-                                    .cloned()
-                            };
-                            let local_vars = if let Some(cached) = cached_vars {
-                                cached
-                            } else if let Some(frag_doc) =
-                                documents.get(&frag.uri).map(|r| r.value().clone())
+                            if let Some(potentials) = fragments_by_name.get(&current_name)
+                                && let Some(frag) = potentials.iter().find(|p| {
+                                    p.is_public
+                                        || graphox_core::utils::paths_match(
+                                            p.package_root.as_deref(),
+                                            package_root.as_deref(),
+                                        )
+                                })
                             {
-                                let vars = frag_doc.get_fragment_variable_types(
-                                    &current_name,
-                                    &schema_for_requirements,
-                                );
-                                let mut vars_arc = std::collections::BTreeMap::new();
-                                for (k, v) in vars {
-                                    vars_arc.insert(Arc::from(k), Arc::from(v));
-                                }
-                                variable_types_cache
-                                    .lock()
-                                    .expect("variable_types_cache mutex poisoned")
-                                    .insert(current_name.clone(), vars_arc.clone());
-                                vars_arc
-                            } else {
-                                std::collections::BTreeMap::new()
-                            };
+                                let cached_vars = {
+                                    variable_types_cache
+                                        .lock()
+                                        .ok()
+                                        .and_then(|c| c.get(&current_name).cloned())
+                                };
+                                let local_vars = if let Some(cached) = cached_vars {
+                                    cached
+                                } else {
+                                    let doc_arc = if let Some(frag_doc) =
+                                        documents.get(&frag.uri).map(|r| r.value().clone())
+                                    {
+                                        Some(frag_doc)
+                                    } else if let Ok(path) = frag.uri.to_file_path()
+                                        && let Ok(content) = std::fs::read_to_string(&path)
+                                    {
+                                        Some(Arc::new(DocumentState::new_from_thread_local(
+                                            frag.uri.clone(),
+                                            &content,
+                                            position_encoding.clone(),
+                                        )))
+                                    } else {
+                                        None
+                                    };
 
                             for (var, ty) in local_vars {
                                 requirements.insert(var, ty);
                             }
 
-                            for nested in &frag.used_fragments {
-                                stack.push(nested.clone());
+                                for (var, ty) in local_vars {
+                                    requirements.insert(var, ty);
+                                }
+
+                                for nested in frag.used_fragments.iter() {
+                                    stack.push(nested.clone());
+                                }
                             }
                         }
                     }

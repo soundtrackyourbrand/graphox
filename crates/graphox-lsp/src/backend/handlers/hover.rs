@@ -44,26 +44,34 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
         return backend
             .with_tracing("hover", async move {
                 if let Some(symbol_name) = symbol_at_pos {
-                    // Collect documents first to avoid holding DashMap locks during processing
-                    let doc_arcs: Vec<Arc<DocumentState>> = backend
-                        .documents
-                        .iter()
-                        .map(|e| e.value().clone())
-                        .collect();
+                    let all_fragments = backend.get_all_fragments_info();
+                    let mut variable_types_cache = AHashMap::default();
 
-                    for other_doc in doc_arcs {
+                    for frag in all_fragments
+                        .iter()
+                        .filter(|fragment| fragment.name.as_ref() == symbol_name)
+                    {
                         let is_same_package = graphox_core::utils::paths_match(
-                            other_doc.package_root.as_deref(),
+                            frag.package_root.as_deref(),
                             doc.package_root.as_deref(),
                         );
-                        let is_public_fragment = other_doc
-                            .fragments()
-                            .iter()
-                            .any(|f| f.name.as_ref() == symbol_name && f.is_public);
+                        if !is_same_package && !frag.is_public {
+                            continue;
+                        }
 
-                        if (is_same_package || is_public_fragment)
-                            && let Some(info) = other_doc.find_fragment_info(&symbol_name)
+                        let other_doc = if let Some(doc) =
+                            backend.documents.get(&frag.uri).map(|r| r.value().clone())
                         {
+                            doc
+                        } else if let Some(doc) =
+                            backend.load_doc_from_cache_or_disk(&frag.uri).await
+                        {
+                            doc
+                        } else {
+                            continue;
+                        };
+
+                        if let Some(info) = other_doc.find_fragment_info(&symbol_name) {
                             let mut value = format!(
                                 "```graphql
 {}
@@ -71,8 +79,6 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                                 info
                             );
 
-                            let all_fragments = backend.get_all_fragments_info();
-                            let mut variable_types_cache = AHashMap::default();
                             let requirements = backend.get_fragment_requirements(
                                 &symbol_name,
                                 &schema,
@@ -108,7 +114,7 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                                 value.push_str(&desc);
                             }
 
-                            if !is_same_package && let Ok(other_p) = other_doc.uri.to_file_path() {
+                            if !is_same_package && let Ok(other_p) = frag.uri.to_file_path() {
                                 let config = backend.config.read().unwrap();
                                 if let Some(proj) = config.get_project_for_path(&other_p)
                                     && let Some(import) = proj.import()

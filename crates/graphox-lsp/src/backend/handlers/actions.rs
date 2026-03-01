@@ -194,3 +194,22 @@ pub async fn handle_code_action(
         })
         .await
 }
+
+pub async fn handle_execute_command(
+    backend: &Backend,
+    params: ExecuteCommandParams,
+) -> Result<Option<serde_json::Value>> {
+    if params.command == "graphox.runCodegen" {
+        backend.run_codegen().await;
+        return Ok(None);
+    }
+    if params.command == "graphox.clearCache" {
+        backend.clear_cache().await;
+        return Ok(None);
+    }
+
+    Err(Error::invalid_params(format!(
+        "unsupported command: {}",
+        params.command
+    )))
+}
