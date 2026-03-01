@@ -6,6 +6,7 @@ use graphox_lsp::backend::state::Backend;
 use graphox_lsp::backend::validation::ValidationParams;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::tempdir;
 use tower_lsp::LanguageServer;
 use tower_lsp::lsp_types::*;
 
@@ -16,7 +17,8 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let base_dir = std::env::current_dir().unwrap();
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
     let config = Config::new_test(
         base_dir.clone(),
         vec![
