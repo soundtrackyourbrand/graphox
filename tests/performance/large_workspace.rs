@@ -155,6 +155,7 @@ async fn test_workspace_scan_1000_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ntest::timeout(2000)]
 async fn test_fragment_resolution_chain() {
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -179,13 +180,14 @@ async fn test_fragment_resolution_chain() {
         duration
     );
     assert!(
-        duration < std::time::Duration::from_secs(5),
+        duration < std::time::Duration::from_secs(1),
         "Fragment chain resolution took too long: {:?}",
         duration
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ntest::timeout(2000)]
 async fn test_many_projects() {
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -211,13 +213,14 @@ async fn test_many_projects() {
 
     println!("10-project workspace scan took: {:?}", duration);
     assert!(
-        duration < std::time::Duration::from_secs(10),
+        duration < std::time::Duration::from_secs(1),
         "10-project workspace scan took too long: {:?}",
         duration
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ntest::timeout(2000)]
 async fn test_many_fragments_index() {
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -236,7 +239,7 @@ async fn test_many_fragments_index() {
 
     println!("500 fragment index build took: {:?}", duration);
     assert!(
-        duration < std::time::Duration::from_secs(5),
+        duration < std::time::Duration::from_secs(1),
         "500 fragment index build took too long: {:?}",
         duration
     );

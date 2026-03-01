@@ -713,6 +713,7 @@ pub struct ProjectConfig {
     exclude: Option<GlobPattern>,
     output_dir: Option<String>,
     import: Option<String>,
+    imports: Option<Vec<String>>,
     codegen_enabled: Option<bool>,
     codegen: Option<CodegenConfig>,
     possible_types: Option<PathBuf>,
@@ -787,6 +788,14 @@ impl ProjectConfig {
 
     pub fn import(&self) -> Option<&str> {
         self.import.as_deref()
+    }
+
+    pub fn imports(&self) -> &[String] {
+        self.imports.as_deref().unwrap_or(&[])
+    }
+
+    pub fn codegen_enabled(&self) -> Option<bool> {
+        self.codegen_enabled
     }
 
     pub fn codegen(&self) -> &CodegenConfig {
@@ -886,7 +895,7 @@ impl Clone for Config {
 
 impl Config {
     pub fn with_base_dir(mut self, base_dir: PathBuf) -> Self {
-        self.base_dir = base_dir;
+        self.base_dir = std::fs::canonicalize(&base_dir).unwrap_or(base_dir);
         self
     }
 
@@ -1462,6 +1471,11 @@ impl Config {
                 let exclude = GlobPattern::from_yaml(&p_node["exclude"]);
                 let output_dir = p_node["output_dir"].as_str().map(String::from);
                 let import = p_node["import"].as_str().map(String::from);
+                let imports = p_node["imports"].as_vec().map(|v| {
+                    v.iter()
+                        .filter_map(|n| n.as_str().map(String::from))
+                        .collect()
+                });
                 let codegen_enabled = p_node["codegen"].as_bool();
                 let codegen_config = CodegenConfig::from_yaml(&p_node["codegen"]);
                 let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
@@ -1476,6 +1490,7 @@ impl Config {
                     exclude,
                     output_dir,
                     import,
+                    imports,
                     codegen_enabled,
                     codegen: codegen_config,
                     possible_types,

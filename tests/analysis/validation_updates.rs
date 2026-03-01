@@ -3,6 +3,7 @@ use graphox::features::completion::FragmentCompletionInfo;
 use graphox::features::diagnostics::DocumentDiagnostics;
 use graphox::{Backend, Config};
 use std::fs;
+use std::sync::Arc;
 use tempfile::tempdir;
 use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
@@ -87,11 +88,11 @@ fn test_diagnostics_update_on_fragment_change() {
         is_type_only: false,
         uri: Url::parse("file:///frag.graphql").unwrap(),
         package_root: None,
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        transitive_deps: Vec::new(),
-        selected_fields: Vec::new(),
-        type_fields: Vec::new(),
+        used_variables: Arc::from([]),
+        used_fragments: Arc::from([]),
+        transitive_deps: Arc::from([]),
+        selected_fields: Arc::from([]),
+        type_fields: Arc::from([]),
         requirements: std::collections::BTreeMap::new(),
         worst_slo: None,
     }];
@@ -113,11 +114,11 @@ fn test_diagnostics_update_on_fragment_change() {
         is_type_only: false,
         uri: Url::parse("file:///frag.graphql").unwrap(),
         package_root: None,
-        used_variables: Vec::new(),
-        used_fragments: Vec::new(),
-        transitive_deps: Vec::new(),
-        selected_fields: Vec::new(),
-        type_fields: Vec::new(),
+        used_variables: Arc::from([]),
+        used_fragments: Arc::from([]),
+        transitive_deps: Arc::from([]),
+        selected_fields: Arc::from([]),
+        type_fields: Arc::from([]),
         requirements: std::collections::BTreeMap::new(),
         worst_slo: None,
     }];

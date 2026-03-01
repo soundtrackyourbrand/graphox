@@ -1,123 +1,74 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use graphox::{
-    Backend, Config,
-    config::{GlobPattern, ProjectConfig, SchemaSource},
-    document::DocumentState,
-    engine,
-};
-use std::fs;
-use std::path::Path;
+use graphox_core::Config;
+use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox_lsp::backend::state::Backend;
+use std::sync::Arc;
 use std::time::Duration;
-use tempfile::tempdir;
-use tokio::runtime::Runtime;
-use tower_lsp::LspService;
 use tower_lsp::lsp_types::*;
 
-fn generate_cross_project_workspace(
-    base_dir: &Path,
-    projects_count: usize,
-    files_per_project: usize,
-) -> Config {
+pub fn bench_cross_project_resolution(c: &mut Criterion) {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let base_dir = std::env::current_dir().unwrap();
+
+    // Setup 10 projects
     let mut projects = Vec::new();
-    let type_count = 30;
-    let fields_per_type = 15;
+    for i in 0..10 {
+        let proj_dir = base_dir.join(format!("project_{}", i));
+        std::fs::create_dir_all(&proj_dir).unwrap();
 
-    for i in 0..projects_count {
-        let project_dir = base_dir.join(format!("project_{}", i));
-        fs::create_dir_all(&project_dir).unwrap();
-
-        let schema_path = project_dir.join("schema.graphql");
-        let mut schema_content = String::new();
-
-        for t in 0..type_count {
-            schema_content.push_str(&format!("type Type{} {{\n", t));
-            for f in 0..fields_per_type {
-                schema_content.push_str(&format!("  field_{}: String\n", f));
-            }
-            schema_content.push_str("}\n");
-        }
-
-        schema_content.push_str("type Query {\n");
-        for t in 0..type_count {
-            schema_content.push_str(&format!("  getType{}: Type{}\n", t, t));
-        }
-        schema_content.push_str("}\n");
-        schema_content.push_str("schema { query: Query }\n");
-
-        fs::write(&schema_path, schema_content).unwrap();
-
-        for j in 0..files_per_project {
-            let file_path = project_dir.join(format!("file_{}.graphql", j));
-            let mut content = String::new();
-
-            content.push_str(&format!("query Q{} {{\n", j));
-            content.push_str("  getType0 { ");
-
-            let spreads_per_file = 10;
-            for s in 0..spreads_per_file {
-                if i == 0 {
-                    content.push_str(&format!("field_{} ", s));
-                } else {
-                    content.push_str(&format!("...BaseFrag{} ", s % spreads_per_file));
-                }
-            }
-            content.push_str("}\n}\n");
-
-            if i == 0 {
-                for s in 0..spreads_per_file {
-                    content.push_str(&format!(
-                        "fragment BaseFrag{} on Type{} {{ field_{} }}\n",
-                        s,
-                        s % type_count,
-                        s % fields_per_type
-                    ));
-                }
-            }
-
-            fs::write(file_path, content).unwrap();
-        }
+        let schema_file = format!("project_{}/schema.graphql", i);
+        std::fs::write(
+            base_dir.join(&schema_file),
+            format!(
+                "type Query {{ user{}: User{} }} type User{} {{ id: ID! name: String }}",
+                i, i, i
+            ),
+        )
+        .unwrap();
 
         projects.push(
             ProjectConfig::default()
-                .with_schema(SchemaSource::Single(format!(
-                    "project_{}/schema.graphql",
-                    i
-                )))
+                .with_schema(SchemaSource::Single(schema_file))
                 .with_include(GlobPattern::Single(format!("project_{}/**/*.graphql", i))),
         );
     }
 
-    Config::new_empty()
-        .with_projects(projects)
-        .with_base_dir(base_dir.to_path_buf())
-        .with_enable_schema_cache(true)
-}
-
-fn bench_cross_project_resolution(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
-    let dir = tempdir().unwrap();
-    let base_dir = dir.path().canonicalize().unwrap();
-
-    let config = generate_cross_project_workspace(&base_dir, 10, 20);
-
+    let config = Config::new_test(base_dir.clone(), projects);
     let _guard = rt.enter();
-    let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = tower_lsp::LspService::new(|client| Backend::new(client, config.clone()));
     let backend = service.inner();
 
+    // Seed 20 files per project
     rt.block_on(async {
-        let workspace_metadata =
-            engine::Engine::scan_workspace(&config, PositionEncodingKind::UTF8, None);
-        for project_meta in workspace_metadata.projects {
-            for file_path in project_meta.files {
-                let abs_path = fs::canonicalize(&file_path).unwrap();
-                let uri = Url::from_file_path(&abs_path).unwrap();
-                let content = fs::read_to_string(&file_path).unwrap();
-                let doc = DocumentState::new_from_thread_local(
+        for i in 0..10 {
+            for j in 0..20 {
+                let path = base_dir.join(format!("project_{}/file_{}.graphql", i, j));
+                let content = format!("query GetUser{}_{} {{ user{} {{ id name }} }}", i, j, i);
+                std::fs::write(&path, &content).unwrap();
+
+                let uri = Url::from_file_path(&path).unwrap();
+                let doc = graphox_core::DocumentState::new_from_thread_local(
                     uri.clone(),
                     &content,
-                    PositionEncodingKind::UTF8,
+                    PositionEncodingKind::UTF16,
                 );
-                backend.documents.insert(uri, std::sync::Arc::new(doc));
+                backend
+                    .documents
+                    .insert(uri.clone(), std::sync::Arc::new(doc));
+
+                let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+                    fragments: Arc::from([]),
+                    fragment_spreads: Arc::from([]),
+                    package_root: None,
+                    operations: Arc::from([]),
+                    version: 0,
+                });
+                backend.metadata.insert(uri, metadata);
             }
         }
     });
@@ -129,7 +80,7 @@ fn bench_cross_project_resolution(c: &mut Criterion) {
     group.sample_size(10);
     group.warm_up_time(Duration::from_millis(100));
 
-    group.bench_function("Get All Fragments Info", |b| {
+    group.bench_function("Collect Fragment Metadata", |b| {
         b.to_async(&rt)
             .iter(|| async { backend.get_all_fragments_info() });
     });

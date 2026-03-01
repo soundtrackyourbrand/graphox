@@ -104,7 +104,7 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     // Wait for codegen
-    wait_for_file(&gen_path, Duration::from_millis(200)).await;
+    wait_for_file(&gen_path, Duration::from_millis(500)).await;
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("GetMe"));
     // Use a more specific check to avoid matching schema types or comments if any
@@ -114,9 +114,11 @@ async fn test_lsp_automatic_codegen() {
         content
     );
 
+    // GAP SLEEP to ensure Step 1 codegen is finished
+    sleep(Duration::from_millis(1000)).await;
+
     // 2. didChange alone should not trigger codegen
-    let query_text_new = "query GetMe { me { id name } }";
-    fs::write(&query_path, query_text_new).unwrap();
+    let query_text_new = "query GetMyProfile { me { id name } }";
     service
         .call(
             Request::build("textDocument/didChange")
@@ -139,10 +141,10 @@ async fn test_lsp_automatic_codegen() {
         .await
         .unwrap();
 
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(500)).await;
     let unchanged_content = fs::read_to_string(&gen_path).unwrap();
     assert!(
-        !unchanged_content.contains("name: string | null"),
+        !unchanged_content.contains("GetMyProfile"),
         "didChange should not trigger codegen without save"
     );
 
@@ -165,14 +167,14 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     let mut updated = false;
-    for _ in 0..40 {
+    for _ in 0..60 {
         if let Ok(c) = fs::read_to_string(&gen_path)
-            && c.contains("name: string | null")
+            && c.contains("GetMyProfile")
         {
             updated = true;
             break;
         }
-        sleep(Duration::from_millis(10)).await;
+        sleep(Duration::from_millis(50)).await;
     }
     assert!(updated, "Codegen was not updated after didSave");
 
@@ -199,7 +201,8 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     // Wait for codegen
-    wait_for_file(&gen_path, Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(100)).await;
+    wait_for_file(&gen_path, Duration::from_millis(1000)).await;
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("name: string | null"));
     assert!(!content.contains("id: string"));

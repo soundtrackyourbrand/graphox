@@ -194,3 +194,15 @@ pub async fn handle_code_action(
         })
         .await
 }
+
+pub async fn handle_execute_command(
+    backend: &Backend,
+    params: ExecuteCommandParams,
+) -> Result<Option<serde_json::Value>> {
+    if params.command == "graphox.runCodegen" {
+        backend.run_codegen().await;
+    } else if params.command == "graphox.clearCache" {
+        backend.clear_cache().await;
+    }
+    Ok(None)
+}

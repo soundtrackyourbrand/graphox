@@ -8,10 +8,9 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-const MAX_MEMORY_100_DOCS: usize = 75 * 1024 * 1024; // 75MB
-const MAX_MEMORY_1000_DOCS: usize = 150 * 1024 * 1024; // 150MB
+const MAX_MEMORY_100_DOCS: usize = 60 * 1024 * 1024; // 60MB
 const MAX_MEMORY_50_SCHEMAS: usize = 150 * 1024 * 1024; // 150MB
-const MAX_MEMORY_500_FRAGMENTS: usize = 75 * 1024 * 1024; // 75MB
+const MAX_MEMORY_500_FRAGMENTS: usize = 50 * 1024 * 1024; // 50MB
 #[cfg(not(target_os = "windows"))]
 const MAX_MEMORY_COMPLEX_MONOREPO: usize = 120 * 1024 * 1024; // 120MB
 
@@ -152,20 +151,6 @@ fn create_100_file_config(base_dir: &Path) -> Config {
     .with_lsp_automatic_codegen(false)
 }
 
-fn create_1000_file_config(base_dir: &Path) -> Config {
-    Config::new_test(
-        base_dir.to_owned(),
-        vec![
-            ProjectConfig::default()
-                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
-                .with_codegen(CodegenConfig::disabled()),
-        ],
-    )
-    .with_enable_schema_cache(true)
-    .with_lsp_automatic_codegen(false)
-}
-
 fn create_10_schema_config(base_dir: &Path) -> Config {
     Config::new_test(
         base_dir.to_owned(),
@@ -220,6 +205,11 @@ async fn test_memory_open_close_cycles() {
         "Memory after 5 open/close cycles (100 files each): {} KB",
         delta / 1024
     );
+    assert!(
+        delta < 40 * 1024 * 1024,
+        "Memory exceeded limit for 5 open/close cycles (100 files each): {} KB",
+        delta / 1024
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -263,51 +253,6 @@ async fn test_memory_cached_documents_100() {
         "Memory exceeded limit for 100 documents: {} KB (limit: {} KB)",
         delta / 1024,
         MAX_MEMORY_100_DOCS / 1024
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(30000)]
-#[ignore] // Slow test
-async fn test_memory_cached_documents_1000() {
-    let baseline = measure_memory_usage();
-
-    let temp_dir = TempDir::new().unwrap();
-    let base_dir = temp_dir.path().to_path_buf();
-
-    let schema = create_large_schema(100);
-    fs::write(base_dir.join("schema.graphql"), schema).unwrap();
-
-    for i in 0..1000 {
-        let query = format!("query Query{} {{ item{} {{ id name email }} }}", i, i % 100);
-        fs::write(base_dir.join(format!("query_{}.graphql", i)), query).unwrap();
-    }
-
-    let config = create_1000_file_config(&base_dir);
-    let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
-    crate::support::lsp_initialize_sequence(&mut service).await;
-
-    for i in 0..1000 {
-        let uri = tower_lsp::lsp_types::Url::from_file_path(
-            base_dir.join(format!("query_{}.graphql", i)),
-        )
-        .unwrap();
-        let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", i))).unwrap();
-        crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
-    }
-
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    let used = measure_memory_usage();
-    let delta = used.saturating_sub(baseline);
-
-    println!("Memory for 1000 cached documents: {} KB", delta / 1024);
-    assert!(
-        delta < MAX_MEMORY_1000_DOCS,
-        "Memory exceeded limit for 1000 documents: {} KB (limit: {} KB)",
-        delta / 1024,
-        MAX_MEMORY_1000_DOCS / 1024
     );
 }
 
@@ -450,7 +395,7 @@ async fn test_memory_large_schema() {
 
     println!("Memory for 1000-type schema: {} KB", delta / 1024);
     assert!(
-        delta < 150 * 1024 * 1024,
+        delta < 40 * 1024 * 1024,
         "Memory exceeded limit for large schema: {} KB",
         delta / 1024
     );

@@ -79,11 +79,11 @@ pub struct FragmentDef {
     pub is_type_only: bool,
     pub description: Option<Arc<str>>,
     pub source_hash: u64,
-    pub used_variables: Vec<Arc<str>>,
-    pub used_fragments: Vec<Arc<str>>,
-    pub transitive_deps: Vec<Arc<str>>,
-    pub selected_fields: Vec<Arc<str>>,
-    pub type_fields: Vec<(Arc<str>, Arc<str>)>,
+    pub used_variables: Arc<[Arc<str>]>,
+    pub used_fragments: Arc<[Arc<str>]>,
+    pub transitive_deps: Arc<[Arc<str>]>,
+    pub selected_fields: Arc<[Arc<str>]>,
+    pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,9 +128,9 @@ pub struct DocumentState {
     pub tree: Arc<Tree>,
     pub language: DocumentLanguage,
     pub graphql_trees: Vec<GraphQLBlock>,
-    pub fragments: Vec<FragmentDef>,
-    pub fragment_spreads: Vec<Arc<str>>,
-    pub operations: Vec<OperationDef>,
+    pub fragments: Arc<[FragmentDef]>,
+    pub fragment_spreads: Arc<[Arc<str>]>,
+    pub operations: Arc<[OperationDef]>,
     pub package_root: Option<PathBuf>,
     pub masked_source: Arc<str>,
     pub version: i32,
@@ -178,9 +178,9 @@ impl DocumentState {
             rope,
             tree,
             package_root,
-            fragments: Vec::new(),
-            operations: Vec::new(),
-            fragment_spreads: Vec::new(),
+            fragments: Arc::from([]),
+            operations: Arc::from([]),
+            fragment_spreads: Arc::from([]),
             graphql_trees: Vec::new(),
             masked_source: "".into(),
             version: 0,
@@ -197,9 +197,9 @@ impl DocumentState {
         }
 
         let (fragments, operations, fragment_spreads) = this.extract_symbols();
-        this.fragments = fragments;
-        this.operations = operations;
-        this.fragment_spreads = fragment_spreads;
+        this.fragments = Arc::from(fragments);
+        this.operations = Arc::from(operations);
+        this.fragment_spreads = Arc::from(fragment_spreads);
 
         this
     }
@@ -476,6 +476,21 @@ impl DocumentState {
         };
 
         Position::new(line as u32, character as u32)
+    }
+
+    pub fn find_node_at_position(&self, position: Position) -> Option<(Node<'_>, usize)> {
+        let byte_offset = self.position_to_byte(position);
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let root = block.tree.root_node();
+            let tree_len = root.end_byte();
+            if byte_offset >= offset && byte_offset < offset + tree_len {
+                let local_byte = byte_offset - offset;
+                let node = root.descendant_for_byte_range(local_byte, local_byte)?;
+                return Some((node, offset));
+            }
+        }
+        None
     }
 
     pub fn position_to_byte(&self, position: Position) -> usize {
@@ -756,6 +771,8 @@ impl DocumentState {
             def: FragmentDef,
             start: usize,
             end: usize,
+            used_variables: Vec<Arc<str>>,
+            used_fragments: Vec<Arc<str>>,
         }
         let mut partial_fragments = Vec::new();
 
@@ -903,14 +920,16 @@ impl DocumentState {
                             is_type_only,
                             description,
                             source_hash,
-                            used_variables: Vec::new(),
-                            used_fragments: Vec::new(),
-                            transitive_deps: Vec::new(),
-                            selected_fields,
-                            type_fields,
+                            used_variables: Arc::from([]),
+                            used_fragments: Arc::from([]),
+                            transitive_deps: Arc::from([]),
+                            selected_fields: Arc::from(selected_fields),
+                            type_fields: Arc::from(type_fields),
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,
+                        used_variables: Vec::new(),
+                        used_fragments: Vec::new(),
                     });
                 } else if is_operation {
                     let source_text = self.get_node_text(container, offset).into();
@@ -982,22 +1001,28 @@ impl DocumentState {
                             let mut v_cursor = nn.walk();
                             for v_child in nn.children(&mut v_cursor) {
                                 if v_child.kind() == "name" {
-                                    pf.def
-                                        .used_variables
+                                    pf.used_variables
                                         .push(self.get_node_text(v_child, offset).into());
                                 }
                             }
                         } else if is_fragment_spread {
                             let text = node_text_cache
                                 .get_or_insert_with(|| self.get_node_text(nn, offset).into());
-                            pf.def.used_fragments.push(text.clone());
+                            pf.used_fragments.push(text.clone());
                         }
                     }
                 }
             }
         }
 
-        let fragments = partial_fragments.into_iter().map(|pf| pf.def).collect();
+        let fragments = partial_fragments
+            .into_iter()
+            .map(|mut pf| {
+                pf.def.used_variables = Arc::from(pf.used_variables);
+                pf.def.used_fragments = Arc::from(pf.used_fragments);
+                pf.def
+            })
+            .collect();
 
         (fragments, operations, all_fragment_spreads)
     }
@@ -1213,9 +1238,9 @@ impl DocumentState {
 
         self.graphql_trees = self.reparse_graphql_trees(parser);
         let (fragments, operations, spreads) = self.extract_symbols();
-        self.fragments = fragments;
-        self.operations = operations;
-        self.fragment_spreads = spreads;
+        self.fragments = Arc::from(fragments);
+        self.operations = Arc::from(operations);
+        self.fragment_spreads = Arc::from(spreads);
 
         // Only remask if language uses interpolations (TS/TSX)
         self.masked_source = if self.language.is_host_language() {
@@ -1311,7 +1336,15 @@ impl DocumentState {
                 | "operation_definition"
                 | "fragment_definition"
                 | "selection_set"
-                | "selection" => {
+                | "selection"
+                | "object_type_definition"
+                | "interface_type_definition"
+                | "enum_type_definition"
+                | "input_object_type_definition"
+                | "object_type_extension"
+                | "interface_type_extension"
+                | "enum_type_extension"
+                | "input_object_type_extension" => {
                     path.push((parent.kind(), parent));
                 }
                 _ => {}
@@ -1325,6 +1358,19 @@ impl DocumentState {
 
         for (kind, node) in path {
             match kind {
+                "object_type_definition"
+                | "interface_type_definition"
+                | "enum_type_definition"
+                | "input_object_type_definition"
+                | "object_type_extension"
+                | "interface_type_extension"
+                | "enum_type_extension"
+                | "input_object_type_extension" => {
+                    if let Some(name_node) = self.find_child_by_kind(node, "name") {
+                        let type_name = self.get_node_text(name_node, offset);
+                        current_type = schema.types.get(type_name.as_str()).cloned();
+                    }
+                }
                 "operation_definition" => {
                     let op_type_str = self.get_operation_type(node, offset);
                     let op = match op_type_str.as_str() {

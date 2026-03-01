@@ -428,7 +428,7 @@ pub fn generate_typescript_with_profile(
     while let Some(frag_name) = to_expand.pop() {
         if final_used_fragments.insert(frag_name.clone()) {
             if let Some(deps) = ctx.fragment_dependencies.get(frag_name.as_ref()) {
-                for dep in deps {
+                for dep in deps.iter() {
                     to_expand.push(dep.clone());
                 }
             } else if let Some(frag) = ctx.all_fragments.get(frag_name.as_ref()) {

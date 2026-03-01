@@ -28,6 +28,67 @@ pub enum SemanticTokenKind {
     Enum = 6,
 }
 
+/// Converts an apollo-compiler location to an LSP range
+pub fn apollo_location_to_range(
+    location: &Option<apollo_compiler::parser::SourceSpan>,
+    source_file: &apollo_compiler::parser::SourceFile,
+    encoding: PositionEncodingKind,
+) -> Option<Range> {
+    let loc = location.as_ref()?;
+    let start_offset = loc.offset();
+    let end_offset = start_offset + loc.node_len();
+
+    let start_pos = offset_to_position(source_file.source_text(), start_offset, encoding.clone())?;
+    let end_pos = offset_to_position(source_file.source_text(), end_offset, encoding)?;
+
+    Some(Range {
+        start: start_pos,
+        end: end_pos,
+    })
+}
+
+fn offset_to_position(
+    source: &str,
+    offset: usize,
+    encoding: PositionEncodingKind,
+) -> Option<Position> {
+    let mut line = 0;
+    let mut character = 0;
+    let mut current_offset = 0;
+
+    for (i, c) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            character = 0;
+        } else if encoding == PositionEncodingKind::UTF16 {
+            character += c.len_utf16() as u32;
+        } else {
+            character += 1;
+        }
+        current_offset = i + c.len_utf8();
+    }
+
+    if current_offset < offset && offset <= source.len() {
+        // Handle case where offset is at the very end or after last character processed
+        let remaining = &source[current_offset..offset];
+        for c in remaining.chars() {
+            if c == '\n' {
+                line += 1;
+                character = 0;
+            } else if encoding == PositionEncodingKind::UTF16 {
+                character += c.len_utf16() as u32;
+            } else {
+                character += 1;
+            }
+        }
+    }
+
+    Some(Position { line, character })
+}
+
 pub fn is_relevant_file(path: &Path) -> bool {
     (|| {
         if path

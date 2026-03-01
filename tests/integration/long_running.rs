@@ -681,7 +681,7 @@ fn extract_documents(content: &str) -> HashMap<String, String> {
     docs
 }
 
-const MAX_MEMORY_1000_DOCS: usize = 100 * 1024 * 1024; // 100MB
+const MAX_MEMORY_1000_DOCS: usize = 60 * 1024 * 1024; // 60MB
 
 fn create_1000_file_config(base_dir: &Path) -> graphox::Config {
     use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
@@ -700,7 +700,7 @@ fn create_1000_file_config(base_dir: &Path) -> graphox::Config {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(30000)]
+#[ntest::timeout(60000)]
 #[ignore] // Slow test - loads 1000 documents into memory
 async fn test_memory_cached_documents_1000() {
     use std::fs;

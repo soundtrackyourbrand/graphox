@@ -1,6 +1,4 @@
-use crate::support::{
-    TestWorkspace, create_initialized_lsp_service_with_socket,
-};
+use crate::support::{TestWorkspace, create_initialized_lsp_service_with_socket};
 use graphox::Config;
 use std::fs;
 use std::time::Duration;
@@ -63,18 +61,24 @@ projects:
                 if method == "textDocument/publishDiagnostics" {
                     let params: PublishDiagnosticsParams =
                         serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri && !params.diagnostics.is_empty() {
-                        if params.diagnostics.iter().any(|d| d.message.contains("missingField") && d.message.contains("not found")) {
-                            found_error = true;
-                            break;
-                        }
+                    if params.uri == query_uri
+                        && !params.diagnostics.is_empty()
+                        && params.diagnostics.iter().any(|d| {
+                            d.message.contains("missingField") && d.message.contains("not found")
+                        })
+                    {
+                        found_error = true;
+                        break;
                     }
                 }
             }
             _ => continue,
         }
     }
-    assert!(found_error, "Expected error diagnostic for 'missingField' in unsaved document");
+    assert!(
+        found_error,
+        "Expected error diagnostic for 'missingField' in unsaved document"
+    );
 
     // 5. Close document
     let close_params = DidCloseTextDocumentParams {
@@ -90,8 +94,7 @@ projects:
     // 6. Trigger config reload (modify config file)
     // This will cause the backend to reload state. If didClose correctly updated open_documents,
     // it should now use the valid disk content instead of the invalid memory content.
-    let new_config_text = format!("{}
-# reload trigger", config_text);
+    let new_config_text = format!("{}\n# reload trigger", config_text);
     fs::write(root.join("graphox.yaml"), new_config_text).unwrap();
 
     let changes = vec![FileEvent {
@@ -117,11 +120,9 @@ projects:
                 if method == "textDocument/publishDiagnostics" {
                     let params: PublishDiagnosticsParams =
                         serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri {
-                        if params.diagnostics.is_empty() {
-                            diagnostics_reverted = true;
-                            break; // Success!
-                        }
+                    if params.uri == query_uri && params.diagnostics.is_empty() {
+                        diagnostics_reverted = true;
+                        break; // Success!
                     }
                 }
             }
@@ -184,8 +185,14 @@ projects:
         match tokio::time::timeout(Duration::from_millis(100), messages.next()).await {
             Ok(Some(msg)) => {
                 if msg["method"] == "textDocument/publishDiagnostics" {
-                    let params: PublishDiagnosticsParams = serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri && params.diagnostics.iter().any(|d| d.message.contains("INVALID_FIELD")) {
+                    let params: PublishDiagnosticsParams =
+                        serde_json::from_value(msg["params"].clone()).unwrap();
+                    if params.uri == query_uri
+                        && params
+                            .diagnostics
+                            .iter()
+                            .any(|d| d.message.contains("INVALID_FIELD"))
+                    {
                         found_error = true;
                         break;
                     }
@@ -217,8 +224,14 @@ projects:
         match tokio::time::timeout(Duration::from_millis(100), messages.next()).await {
             Ok(Some(msg)) => {
                 if msg["method"] == "textDocument/publishDiagnostics" {
-                    let params: PublishDiagnosticsParams = serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri && params.diagnostics.iter().any(|d| d.message.contains("INVALID_FIELD")) {
+                    let params: PublishDiagnosticsParams =
+                        serde_json::from_value(msg["params"].clone()).unwrap();
+                    if params.uri == query_uri
+                        && params
+                            .diagnostics
+                            .iter()
+                            .any(|d| d.message.contains("INVALID_FIELD"))
+                    {
                         error_persists = true;
                         break;
                     }
@@ -228,5 +241,8 @@ projects:
         }
     }
 
-    assert!(error_persists, "Error should persist after config reload if document is still open");
+    assert!(
+        error_persists,
+        "Error should persist after config reload if document is still open"
+    );
 }

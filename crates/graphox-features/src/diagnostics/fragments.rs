@@ -4,6 +4,7 @@ use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
 use graphox_core::queries::{GQL_SYMBOL_QUERY, GQL_SYMBOL_QUERY_CACHE};
 use lsp_types::*;
+use std::sync::Arc;
 use tree_sitter::{Node, StreamingIterator};
 
 pub(super) fn validate_fragment(
@@ -528,16 +529,16 @@ fn mark_used_variables_recursive(
 
         // Find fragment definition either in workspace fragments or this document
         let mut fragment_exists = false;
-        let mut used_variables = None;
-        let mut used_fragments = None;
+        let mut used_variables: Option<&[Arc<str>]> = None;
+        let mut used_fragments: Option<&[Arc<str>]> = None;
         if let Some(f) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
             fragment_exists = true;
-            used_variables = Some(&f.used_variables);
-            used_fragments = Some(&f.used_fragments);
+            used_variables = Some(f.used_variables.as_ref());
+            used_fragments = Some(f.used_fragments.as_ref());
         } else if let Some(f) = this.fragments.iter().find(|f| f.name.as_ref() == name) {
             fragment_exists = true;
-            used_variables = Some(&f.used_variables);
-            used_fragments = Some(&f.used_fragments);
+            used_variables = Some(f.used_variables.as_ref());
+            used_fragments = Some(f.used_fragments.as_ref());
         }
 
         if !fragment_exists {
@@ -613,7 +614,7 @@ pub(super) fn mark_selected_fields_recursive(
 
     // 1. Try local fragments
     if let Some(frag) = this.fragments().iter().find(|f| f.name.as_ref() == name) {
-        for field in &frag.selected_fields {
+        for field in frag.selected_fields.iter() {
             if type_name.is_none() {
                 ctx.response_key_selected_fields
                     .entry(response_key.to_string().into())
@@ -630,7 +631,7 @@ pub(super) fn mark_selected_fields_recursive(
                     .insert(field.clone());
             }
         }
-        for (tc, field) in &frag.type_fields {
+        for (tc, field) in frag.type_fields.iter() {
             ctx.response_key_type_conditions
                 .entry(response_key.to_string().into())
                 .or_default()
@@ -643,13 +644,13 @@ pub(super) fn mark_selected_fields_recursive(
                 .or_default()
                 .insert(field.clone());
         }
-        for spread in &frag.used_fragments {
+        for spread in frag.used_fragments.iter() {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }
     }
     // 2. Try workspace fragments
     else if let Some(frag) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == name) {
-        for field in &frag.selected_fields {
+        for field in frag.selected_fields.iter() {
             if type_name.is_none() {
                 ctx.response_key_selected_fields
                     .entry(response_key.to_string().into())
@@ -666,7 +667,7 @@ pub(super) fn mark_selected_fields_recursive(
                     .insert(field.clone());
             }
         }
-        for (tc, field) in &frag.type_fields {
+        for (tc, field) in frag.type_fields.iter() {
             ctx.response_key_type_conditions
                 .entry(response_key.to_string().into())
                 .or_default()
@@ -681,7 +682,7 @@ pub(super) fn mark_selected_fields_recursive(
         }
 
         // Original loop was here, now redundant but keeping structure for safety
-        for spread in &frag.used_fragments {
+        for spread in frag.used_fragments.iter() {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }
     }
