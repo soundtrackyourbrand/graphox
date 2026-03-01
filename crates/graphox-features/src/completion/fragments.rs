@@ -3,6 +3,7 @@ use graphox_core::document::DocumentState;
 use lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
 use tree_sitter::Node;
 
+use crate::completion::cursor;
 use crate::completion::fields;
 use crate::completion::types::{FragmentCompletionInfo, FragmentRequirementsResolver};
 use crate::completion::values;
@@ -22,7 +23,10 @@ pub fn complete_fragment(
     if let Some(type_cond) = doc.find_child_by_kind(node, "type_condition")
         && doc.is_cursor_in_node_range(type_cond, offset, cursor_offset)
     {
-        return Some(values::get_all_type_completions(schema));
+        return Some(values::get_all_type_completions(
+            schema,
+            cursor::get_word_prefix_at_cursor(doc, cursor_offset).as_deref(),
+        ));
     }
 
     if let Some(selection_set) = doc.find_child_by_kind(node, "selection_set")

@@ -286,3 +286,249 @@ async fn test_completion_disabled_inside_inline_comment() {
     let items = completion_items_array(&result);
     assert!(items.is_empty(), "Expected no completions inside comments");
 }
+
+// ============================================================================
+// Additional Keyword Prefix Tests
+// ============================================================================
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_keyword_prefix_mu() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "mu|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "mutation"),
+        "Expected 'mutation': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_keyword_prefix_su() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "su|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "subscription"),
+        "Expected 'subscription': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_keyword_prefix_que() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "que|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "query"),
+        "Expected 'query': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_keyword_prefix_mut() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "mut|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "mutation"),
+        "Expected 'mutation': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_keyword_prefix_sub() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "sub|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "subscription"),
+        "Expected 'subscription': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_schema_keyword_prefix_in() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "in|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "input"),
+        "Expected 'input': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_schema_keyword_prefix_un() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "un|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "union"),
+        "Expected 'union': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_schema_keyword_prefix_en() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "en|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "enum"),
+        "Expected 'enum': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_schema_keyword_prefix_sc() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "sc|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "scalar"),
+        "Expected 'scalar': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_schema_keyword_prefix_ex() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "ex|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "extend"),
+        "Expected 'extend': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_schema_keyword_prefix_di() {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text = "di|";
+    let (text, position) = with_cursor(text);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == "directive"),
+        "Expected 'directive': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}

@@ -221,7 +221,11 @@ pub trait DocumentCompletion {
 
     fn is_query_root(&self, ty: &schema::ExtendedType, schema: &Schema) -> bool;
 
-    fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem>;
+    fn get_all_type_completions(
+        &self,
+        schema: &Schema,
+        prefix: Option<&str>,
+    ) -> Vec<CompletionItem>;
 
     fn get_applicable_type_completions(
         &self,
@@ -301,7 +305,7 @@ pub trait DocumentCompletion {
         schema: &Schema,
     ) -> Vec<CompletionItem>;
 
-    fn parse_type_string(&self, text: &str) -> ast::Type;
+    fn parse_type_string(&self, text: &str) -> Option<ast::Type>;
 }
 
 impl DocumentCompletion for DocumentState {
@@ -439,8 +443,9 @@ impl DocumentCompletion for DocumentState {
                         }
                     }
 
-                    if let Some(text) = var_type_text {
-                        let ast_type = self.parse_type_string(&text);
+                    if let Some(text) = var_type_text
+                        && let Some(ast_type) = self.parse_type_string(&text)
+                    {
                         return Some(self.get_variable_default_completions(&ast_type, schema));
                     }
                 }
@@ -596,7 +601,10 @@ impl DocumentCompletion for DocumentState {
                         cursor_offset,
                     ));
                 }
-                Some(self.get_all_type_completions(schema))
+                Some(self.get_all_type_completions(
+                    schema,
+                    self.get_word_prefix_at_cursor(cursor_offset).as_deref(),
+                ))
             }
             "variable"
             | "variable_definitions"
@@ -625,8 +633,9 @@ impl DocumentCompletion for DocumentState {
                             }
                         }
 
-                        if let Some(text) = var_type_text {
-                            let ast_type = self.parse_type_string(&text);
+                        if let Some(text) = var_type_text
+                            && let Some(ast_type) = self.parse_type_string(&text)
+                        {
                             return Some(self.get_variable_default_completions(&ast_type, schema));
                         }
                     }
@@ -825,7 +834,10 @@ impl DocumentCompletion for DocumentState {
             }
             "fragment_definition" => {
                 if self.is_after_on(cursor_offset) {
-                    return Some(self.get_all_type_completions(schema));
+                    return Some(self.get_all_type_completions(
+                        schema,
+                        self.get_word_prefix_at_cursor(cursor_offset).as_deref(),
+                    ));
                 }
                 self.complete_selection_set_at_node(
                     current,
@@ -1135,8 +1147,12 @@ impl DocumentCompletion for DocumentState {
             .unwrap_or(false)
     }
 
-    fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
-        values::get_all_type_completions(schema)
+    fn get_all_type_completions(
+        &self,
+        schema: &Schema,
+        prefix: Option<&str>,
+    ) -> Vec<CompletionItem> {
+        values::get_all_type_completions(schema, prefix)
     }
 
     fn get_applicable_type_completions(
@@ -1277,7 +1293,7 @@ impl DocumentCompletion for DocumentState {
         values::get_variable_default_completions(self, expected_type, schema)
     }
 
-    fn parse_type_string(&self, text: &str) -> ast::Type {
+    fn parse_type_string(&self, text: &str) -> Option<ast::Type> {
         crate::shared::type_resolver::parse_type_string(text)
     }
 }
