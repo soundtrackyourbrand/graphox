@@ -1,9 +1,13 @@
 pub mod arguments;
+pub mod combinations;
+pub mod context;
 pub mod directives;
+pub mod edge_cases;
 pub mod fields;
 pub mod filtering;
 pub mod fragments;
 pub mod introspection;
 pub mod triggers;
 pub mod tsx;
+pub mod tsx_extended;
 pub mod variables;
