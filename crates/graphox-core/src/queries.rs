@@ -42,9 +42,49 @@ pub const GQL_SYMBOL_QUERY: &str = r#"
     (directive_definition
         (name) @symbol.name) @symbol.container
 
+    (field_definition
+        (name) @field.name) @field.container
+
+    (input_value_definition
+        (name) @argument.name) @argument.container
+
+    (enum_value_definition
+        (enum_value (name) @enum_value.name)) @enum_value.container
+
+    (object_type_definition
+        (name)
+        (fields_definition
+            (field_definition
+                (name) @field.name)))
+
+    (interface_type_definition
+        (name)
+        (fields_definition
+            (field_definition
+                (name) @field.name)))
+
+    (input_object_type_definition
+        (name)
+        (input_fields_definition
+            (input_value_definition
+                (name) @field.name)))
+
+    (enum_type_definition
+        (name)
+        (enum_values_definition
+            (enum_value_definition
+                (enum_value (name) @enum_value.name))))
+
     (type_extension
         (object_type_extension
             (name) @symbol.name) @symbol.container)
+
+    (type_extension
+        (object_type_extension
+            (name) @symbol.name
+            (fields_definition
+                (field_definition
+                    (name) @field.name))) @symbol.container)
 
     (type_extension
         (interface_type_extension
@@ -97,6 +137,8 @@ pub const GQL_DEFINITION_QUERY: &str = r#"
     (scalar_type_definition (name) @name)
     (fragment_definition (fragment_name (name) @name))
     (variable_definition (variable) @name)
+    (field_definition (name) @name)
+    (input_value_definition (name) @name)
 "#;
 
 pub const GQL_DESCRIPTION_QUERY: &str = r#"

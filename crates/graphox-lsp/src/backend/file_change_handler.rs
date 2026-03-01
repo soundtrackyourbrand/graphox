@@ -7,8 +7,8 @@
 use ahash::AHashSet;
 use graphox_core::DocumentState;
 use graphox_core::types::{
-    DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap, FragmentDependentsMap,
-    FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDependentsMap, MetadataMap,
+    OperationNamesMap,
 };
 use std::sync::Arc;
 use tower_lsp::Client;
@@ -28,13 +28,12 @@ pub struct FileChangeParams<'a> {
     pub client: &'a Client,
     pub config: &'a graphox_core::Config,
     pub documents: &'a DocumentsMap,
-    pub fragment_defs: &'a FragmentDefsMap,
-    pub fragment_spreads: &'a FragmentSpreadsMap,
-    pub package_roots: &'a PackageRootsMap,
+    pub metadata: &'a MetadataMap,
     pub fragment_dependents: &'a FragmentDependentsMap,
     pub fragment_definitions: &'a FragmentDefinitionsMap,
     pub operation_names: &'a OperationNamesMap,
     pub gitignore: &'a ignore::gitignore::Gitignore,
+    pub diagnostic_cache: &'a DiagnosticCacheMap,
     pub position_encoding: PositionEncodingKind,
 }
 
@@ -71,11 +70,6 @@ pub async fn process_file_created_or_changed(
     }
 
     let is_schema = is_schema_file(&path, params.config);
-    let old_has_graphql = params
-        .documents
-        .get(&uri)
-        .map(|doc| !doc.get_graphql_trees().is_empty())
-        .unwrap_or(false);
 
     // Read file content
     let content = match std::fs::read_to_string(&path) {
@@ -100,37 +94,40 @@ pub async fn process_file_created_or_changed(
         &content,
         params.position_encoding.clone(),
     );
-    let new_has_graphql = !new_doc.get_graphql_trees().is_empty();
 
-    if !is_schema && !old_has_graphql && !new_has_graphql {
-        return None;
+    if !is_schema && new_doc.get_graphql_trees().is_empty() {
+        return process_file_deleted(uri, params, |u| u);
     }
 
     let mut affected_fragment_names = AHashSet::default();
     let mut affected_spread_names = AHashSet::default();
     let mut affected_operation_names = AHashSet::default();
 
-    let old_fragments: Option<Vec<Arc<str>>> = params
-        .fragment_defs
+    let old_fragments: Option<Arc<[Arc<str>]>> = params.metadata.get(&uri).map(|m| {
+        m.fragments
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<Arc<[_]>>()
+    });
+    let old_spreads: Option<Arc<[Arc<str>]>> = params
+        .metadata
         .get(&uri)
-        .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
-    let old_spreads: Option<Vec<Arc<str>>> =
-        params.fragment_spreads.get(&uri).map(|s| s.value().clone());
+        .map(|m| m.fragment_spreads.clone());
 
-    let new_fragment_defs = new_doc.fragments().to_vec();
-    let new_fragment_names: Vec<Arc<str>> =
+    let new_fragment_defs = new_doc.fragments.clone();
+    let new_fragment_names: Arc<[Arc<str>]> =
         new_fragment_defs.iter().map(|f| f.name.clone()).collect();
-    let new_spreads: Vec<Arc<str>> = new_doc.fragment_spreads.clone();
+    let new_spreads: Arc<[Arc<str>]> = new_doc.fragment_spreads.clone();
 
     // Track changes to fragment definitions
     if let Some(old) = &old_fragments {
-        for name in old {
+        for name in old.iter() {
             if !new_fragment_names.contains(name) {
                 affected_fragment_names.insert(name.clone());
             }
         }
     }
-    for name in &new_fragment_names {
+    for name in new_fragment_names.iter() {
         if old_fragments.as_ref().is_none_or(|old| !old.contains(name)) {
             affected_fragment_names.insert(name.clone());
         }
@@ -138,26 +135,27 @@ pub async fn process_file_created_or_changed(
 
     // Track changes to fragment spreads
     if let Some(old) = &old_spreads {
-        for name in old {
+        for name in old.iter() {
             if !new_spreads.contains(name) {
                 affected_spread_names.insert(name.clone());
             }
         }
     }
-    for name in &new_spreads {
+    for name in new_spreads.iter() {
         if old_spreads.as_ref().is_none_or(|old| !old.contains(name)) {
             affected_spread_names.insert(name.clone());
         }
     }
 
     // Update metadata
-    params.fragment_defs.insert(uri.clone(), new_fragment_defs);
-    params
-        .fragment_spreads
-        .insert(uri.clone(), new_spreads.clone());
-    params
-        .package_roots
-        .insert(uri.clone(), new_doc.package_root.clone());
+    let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+        fragments: new_fragment_defs,
+        fragment_spreads: new_spreads.clone(),
+        package_root: new_doc.package_root.clone(),
+        operations: new_doc.operations.clone(),
+        version: new_doc.version,
+    });
+    params.metadata.insert(uri.clone(), metadata);
 
     super::fragment_manager::update_fragment_definitions(
         params.fragment_definitions,
@@ -212,7 +210,10 @@ pub async fn process_file_created_or_changed(
         }
     }
 
-    // Update documents map
+    // Enable codegen for watched file changes if it contains GraphQL
+    let should_run_codegen = !new_doc.get_graphql_trees().is_empty();
+
+    // Update documents map (only if we want to keep it in memory - for now we do)
     params.documents.insert(uri.clone(), Arc::new(new_doc));
 
     let uris_to_validate = super::validation::get_affected_uris(
@@ -225,8 +226,6 @@ pub async fn process_file_created_or_changed(
         params.fragment_definitions,
         params.operation_names,
     );
-
-    let should_run_codegen = !is_schema && (old_has_graphql || new_has_graphql);
 
     Some(FileChangeResult {
         uris_to_validate,
@@ -267,39 +266,44 @@ pub fn process_file_deleted(
     let mut affected_spread_names = AHashSet::default();
     let mut affected_operation_names = AHashSet::default();
 
-    let old_fragments = params
-        .fragment_defs
+    let old_fragments: Option<Arc<[Arc<str>]>> = params.metadata.get(&uri).map(|m| {
+        m.fragments
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<Arc<[_]>>()
+    });
+    let old_spreads: Option<Arc<[Arc<str>]>> = params
+        .metadata
         .get(&uri)
-        .map(|f| f.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
-    let old_spreads = params.fragment_spreads.get(&uri).map(|s| s.clone());
+        .map(|m| m.fragment_spreads.clone());
 
     if let Some(old) = &old_fragments {
-        for name in old {
+        for name in old.iter() {
             affected_fragment_names.insert(name.clone());
         }
     }
     if let Some(old) = &old_spreads {
-        for name in old {
+        for name in old.iter() {
             affected_spread_names.insert(name.clone());
         }
     }
 
     // Clean up metadata
     params.documents.remove(&uri);
-    params.fragment_defs.remove(&uri);
-    params.fragment_spreads.remove(&uri);
-    params.package_roots.remove(&uri);
+    params.metadata.remove(&uri);
+    params.diagnostic_cache.remove(&uri);
+
     super::fragment_manager::update_fragment_definitions(
         params.fragment_definitions,
         &uri,
         old_fragments,
-        vec![],
+        Arc::from([]),
     );
     super::fragment_manager::update_fragment_dependents(
         params.fragment_dependents,
         &uri,
         old_spreads,
-        vec![],
+        Arc::from([]),
     );
 
     // Remove operations from index

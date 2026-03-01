@@ -1026,8 +1026,8 @@ fn clean_project_files_sync(
             let abs_out_dir = params.base_dir.join(out_dir);
             let mut is_surgical = false;
 
-            for pattern in &patterns {
-                let include_root = utils::get_glob_root(pattern);
+            for pattern in patterns {
+                let include_root = utils::get_glob_root(&pattern);
                 let abs_include_root = params.base_dir.join(&include_root);
                 if abs_out_dir == abs_include_root
                     || utils::path_starts_with(&abs_include_root, &abs_out_dir)

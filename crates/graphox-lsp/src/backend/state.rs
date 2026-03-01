@@ -1,7 +1,7 @@
 use graphox_core::config::SchemaSource;
 use graphox_core::types::{
-    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
-    FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDependentsMap, MetadataMap,
+    OperationNamesMap,
 };
 use graphox_core::{Config, DocumentState};
 use graphox_features::completion::FragmentCompletionInfo;
@@ -30,10 +30,8 @@ pub struct Backend {
     pub valid_empty_schema: Arc<apollo_compiler::validation::Valid<Schema>>,
     pub validated_schemas:
         Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
-    // Performance optimizations
-    pub fragment_defs: FragmentDefsMap,
-    pub fragment_spreads: FragmentSpreadsMap,
-    pub package_roots: PackageRootsMap,
+    // Metadata for all files in workspace
+    pub metadata: MetadataMap,
     pub fragment_dependents: FragmentDependentsMap,
     pub fragment_definitions: FragmentDefinitionsMap,
     /// Maps operation name -> (project schema key, URI)
@@ -43,7 +41,7 @@ pub struct Backend {
     /// Tracks if codegen was requested during workspace scan (to run after scan completes)
     pub codegen_requested_during_scan: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
-    pub workspace_scan_cancelled: Arc<AtomicBool>,
+    pub workspace_scan_cancelled: Arc<std::sync::RwLock<Arc<AtomicBool>>>,
     pub gitignore: Arc<ignore::gitignore::Gitignore>,
     /// Persistent type cache per schema (keyed by schema key)
     /// Shared across all codegen runs for the same schema to maximize cache hits
@@ -69,12 +67,7 @@ impl Backend {
         let subgraphs = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let validated_schemas = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let documents: DocumentsMap = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
-        let fragment_defs: FragmentDefsMap =
-            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
-        let fragment_spreads: FragmentSpreadsMap =
-            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
-        let package_roots: PackageRootsMap =
-            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let metadata: MetadataMap = Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let fragment_dependents: FragmentDependentsMap =
             Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         let fragment_definitions: FragmentDefinitionsMap =
@@ -151,7 +144,8 @@ impl Backend {
         let workspace_loaded = Arc::new(AtomicBool::new(false));
         let codegen_requested_during_scan = Arc::new(AtomicBool::new(false));
         let open_documents = Arc::new(dashmap::DashSet::with_hasher(ahash::RandomState::default()));
-        let workspace_scan_cancelled = Arc::new(AtomicBool::new(false));
+        let workspace_scan_cancelled =
+            Arc::new(std::sync::RwLock::new(Arc::new(AtomicBool::new(false))));
         let client_capabilities = Arc::new(std::sync::RwLock::new(ClientCapabilities::default()));
         let workspace_version = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let last_full_validation_version = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -180,9 +174,7 @@ impl Backend {
                 validated_schemas,
                 empty_schema,
                 valid_empty_schema,
-                fragment_defs,
-                fragment_spreads,
-                package_roots,
+                metadata,
                 fragment_dependents,
                 fragment_definitions,
                 operation_names,
@@ -247,9 +239,8 @@ impl Backend {
         // Cache miss: collect metadata and update cache
         let config = self.config.read().unwrap();
         let metadata = Arc::new(super::fragment_manager::collect_fragment_metadata(
-            &self.fragment_defs,
+            &self.metadata,
             &config,
-            &self.package_roots,
             &self.subgraphs,
             &self.documents,
             &self.schemas,
@@ -269,6 +260,35 @@ impl Backend {
         self.operation_names.retain(|_, v| !v.is_empty());
     }
 
+    pub fn find_type_definition_in_schema(
+        &self,
+        schema: &Schema,
+        type_name: &str,
+    ) -> Option<Location> {
+        let ty = schema.types.get(type_name)?;
+        let name_node = match ty {
+            apollo_compiler::schema::ExtendedType::Object(obj) => obj.name.clone(),
+            apollo_compiler::schema::ExtendedType::Interface(iface) => iface.name.clone(),
+            apollo_compiler::schema::ExtendedType::Enum(enm) => enm.name.clone(),
+            apollo_compiler::schema::ExtendedType::Scalar(scal) => scal.name.clone(),
+            apollo_compiler::schema::ExtendedType::Union(unn) => unn.name.clone(),
+            apollo_compiler::schema::ExtendedType::InputObject(inp) => inp.name.clone(),
+        };
+
+        let file_id = name_node.location()?.file_id();
+        let source_file = schema.sources.get(&file_id)?;
+        let path = source_file.path();
+        let uri = Url::from_file_path(path).ok()?;
+
+        let range = graphox_core::utils::apollo_location_to_range(
+            &name_node.location(),
+            source_file,
+            self.get_position_encoding(),
+        )?;
+
+        Some(Location { uri, range })
+    }
+
     pub fn invalidate_fragment_cache(&self) {
         if let Ok(mut cache) = self.fragment_metadata_cache.write() {
             *cache = None;
@@ -280,10 +300,31 @@ impl Backend {
         doc: &DocumentState,
         all_fragments: &[FragmentCompletionInfo],
     ) -> Vec<FragmentCompletionInfo> {
-        super::validation::get_fragments_for_doc_with_metadata(
-            doc.package_root.as_deref(),
-            all_fragments,
-        )
+        let mut filtered: Vec<_> = all_fragments
+            .iter()
+            .filter_map(|f| {
+                let accessible = self.is_fragment_accessible(&f.uri, &doc.uri, &f.name);
+                if accessible {
+                    let is_same_package = graphox_core::utils::paths_match(
+                        f.package_root.as_deref(),
+                        doc.package_root.as_deref(),
+                    );
+                    Some((f.clone(), is_same_package))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Prioritize fragments from same package
+        filtered.sort_by(|(a, a_same_pkg), (b, b_same_pkg)| {
+            if a_same_pkg != b_same_pkg {
+                return b_same_pkg.cmp(a_same_pkg);
+            }
+            a.name.cmp(&b.name)
+        });
+
+        filtered.into_iter().map(|(f, _)| f).collect()
     }
 
     pub fn get_transitive_fragments(
@@ -317,7 +358,7 @@ impl Backend {
                 if let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone()) {
                     // Find the specific fragment def in the doc to get its spreads
                     if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
-                        for nested in &def.used_fragments {
+                        for nested in def.used_fragments.iter() {
                             to_visit.push(nested.clone());
                         }
                     }
@@ -350,33 +391,26 @@ impl Backend {
                     continue;
                 }
 
-                if let Some(frag) = all_fragments.iter().find(|f| {
-                    f.name == name
-                        && (f.is_public
-                            || graphox_core::utils::paths_match(
-                                f.package_root.as_deref(),
-                                package_root.map(|p| p.as_path()),
-                            ))
-                }) && let Some(doc) = self.documents.get(&frag.uri).map(|r| r.value().clone())
-                {
-                    let local_vars = if let Some(cached) = variable_types_cache.get(&name) {
+                if let Some(doc) = doc_arc {
+                    let local_vars = if let Some(cached) = variable_types_cache.get(&current_name) {
                         cached.clone()
                     } else {
-                        let vars = doc.get_fragment_variable_types(&name, schema);
+                        let vars = doc.get_fragment_variable_types(&current_name, schema);
                         let mut vars_arc = std::collections::BTreeMap::new();
                         for (k, v) in vars {
                             vars_arc.insert(Arc::from(k), Arc::from(v));
                         }
-                        variable_types_cache.insert(name.clone(), vars_arc.clone());
+                        variable_types_cache.insert(current_name.clone(), vars_arc.clone());
                         vars_arc
                     };
 
-                    for (var, ty) in local_vars {
-                        requirements.insert(var, ty);
+                    for (k, v) in local_vars {
+                        requirements.insert(k, v);
                     }
 
-                    if let Some(def) = doc.fragments().iter().find(|f| f.name == name) {
-                        for nested in &def.used_fragments {
+                    // Add nested fragments
+                    if let Some(def) = doc.fragments().iter().find(|f| f.name == current_name) {
+                        for nested in def.used_fragments.iter() {
                             stack.push(nested.clone());
                         }
                     }
@@ -389,7 +423,7 @@ impl Backend {
     }
 
     pub fn get_used_fragments(&self) -> AHashSet<Arc<str>> {
-        super::validation::get_used_fragments(&self.fragment_spreads)
+        super::validation::get_used_fragments(&self.metadata)
     }
 
     pub async fn with_tracing<T, Fut>(&self, name: &str, fut: Fut) -> Result<Option<T>>
@@ -447,7 +481,19 @@ impl Backend {
     }
 
     pub async fn clear_cache(&self) {
-        let config = self.config.read().unwrap().clone();
+        // Cancel any ongoing scan first
+        self.workspace_scan_cancelled
+            .read()
+            .unwrap()
+            .store(true, Ordering::SeqCst);
+
+        // Collect currently open documents to restore them after clearing
+        let open_docs: Vec<(Url, Arc<DocumentState>)> = self
+            .documents
+            .iter()
+            .filter(|entry| self.open_documents.contains(entry.key()))
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
 
         // Clear fragment metadata cache
         self.invalidate_fragment_cache();
@@ -455,24 +501,113 @@ impl Backend {
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();
 
-        // Clear schema memory and disk cache
-        let _ = graphox_core::schema_cache::clear_cache();
-
         // Clear all internal state
         self.schemas.clear();
         self.subgraphs.clear();
         self.validated_schemas.clear();
+        let _ = graphox_core::schema_cache::clear_cache();
+
+        // Reset cancellation flag for the new scan we're about to spawn
+        *self.workspace_scan_cancelled.write().unwrap() = Arc::new(AtomicBool::new(false));
 
         // Clear all documents (including open ones) to ensure full re-load
         self.documents.clear();
+        self.metadata.clear();
 
-        self.fragment_defs.clear();
-        self.fragment_spreads.clear();
         self.fragment_dependents.clear();
         self.fragment_definitions.clear();
-        self.package_roots.clear();
         self.type_caches.clear();
         self.diagnostic_cache.clear();
+        self.operation_names.clear();
+
+        let new_config = self.config.read().unwrap().clone();
+
+        // Populate subgraphs for relevant projects first so validation is subgraph-aware
+        for project in new_config.projects() {
+            if let Some(subgraphs_dir) = project.subgraphs_dir() {
+                let subgraphs = graphox_core::schema::load_subgraphs(
+                    new_config.base_dir(),
+                    subgraphs_dir,
+                    project.subgraph_owners(),
+                );
+                self.subgraphs.insert(project.schema().as_key(), subgraphs);
+            }
+        }
+
+        // Pre-load schemas for open documents to ensure immediate validation is correct
+        for (uri, _) in &open_docs {
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = new_config.get_schema_for_path(&path)
+                && !self.schemas.contains_key(&schema_key)
+                && let Some(project) = new_config
+                    .projects()
+                    .iter()
+                    .find(|p| p.schema().as_key() == schema_key)
+                && let Ok(schema) = graphox_core::schema::load_schema_with_cache(
+                    new_config.base_dir(),
+                    project.schema(),
+                    false, // DISABLE CACHE
+                )
+            {
+                self.schemas
+                    .insert(schema_key.clone(), Arc::new(schema.clone()));
+                if let Ok(valid) = schema.validate() {
+                    self.validated_schemas.insert(schema_key, Arc::new(valid));
+                }
+            }
+        }
+
+        // Restore open documents AND re-index them
+        let mut uris_to_validate = Vec::new();
+        for (uri, doc) in open_docs {
+            self.documents.insert(uri.clone(), doc.clone());
+            uris_to_validate.push(uri.clone());
+
+            // Re-index
+            let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+                fragments: doc.fragments.clone(),
+                fragment_spreads: doc.fragment_spreads.clone(),
+                package_root: doc.package_root.clone(),
+                operations: doc.operations.clone(),
+                version: doc.version,
+            });
+            self.metadata.insert(uri.clone(), metadata);
+
+            // Re-populate operation names index
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = new_config.get_schema_for_path(&path)
+            {
+                let project_key = new_config
+                    .get_project_for_path(&path)
+                    .map(|p| p.include().as_key())
+                    .unwrap_or_else(|| schema_key);
+                let project_key_arc: Arc<str> = project_key.into();
+
+                for op in doc.operations.iter() {
+                    if let Some(name) = &op.name {
+                        self.operation_names
+                            .entry(name.clone())
+                            .or_default()
+                            .push((project_key_arc.clone(), uri.clone()));
+                    }
+                }
+            }
+
+            self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
+            self.update_definition_indices(
+                &uri,
+                None,
+                doc.fragments
+                    .iter()
+                    .map(|f| f.name.clone())
+                    .collect::<Arc<[_]>>(),
+            );
+        }
+
+        // Trigger immediate validation of open documents
+        if !uris_to_validate.is_empty() {
+            self.validate_uris(uris_to_validate).await;
+        }
 
         // Reset workspace version
         self.increment_workspace_version();
@@ -495,12 +630,10 @@ impl Backend {
 
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
-            config: config.clone(),
+            config: new_config,
             supports_pull_diagnostics,
             documents: self.documents.clone(),
-            fragment_defs: self.fragment_defs.clone(),
-            fragment_spreads: self.fragment_spreads.clone(),
-            package_roots: self.package_roots.clone(),
+            metadata: self.metadata.clone(),
             fragment_dependents: self.fragment_dependents.clone(),
             fragment_definitions: self.fragment_definitions.clone(),
             operation_names: self.operation_names.clone(),
@@ -511,9 +644,10 @@ impl Backend {
             schemas: self.schemas.clone(),
             subgraphs: self.subgraphs.clone(),
             validated_schemas: self.validated_schemas.clone(),
-            workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            workspace_scan_cancelled: self.workspace_scan_cancelled.read().unwrap().clone(),
             codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
+            bypass_cache: true,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
             workspace_version: self.workspace_version.clone(),
@@ -542,9 +676,10 @@ impl Backend {
             config,
             self.type_caches.clone(),
             self.documents.clone(),
-            self.fragment_defs.clone(),
+            self.metadata.clone(),
             supports_progress,
             None,
+            self.get_position_encoding(),
         )
         .await;
     }
@@ -590,127 +725,91 @@ impl Backend {
             }
         };
 
-        // Update the config
-        *self.config.write().unwrap() = new_config;
-
-        // Clear all state
-        self.schemas.clear();
-        self.validated_schemas.clear();
-        graphox_core::schema_cache::clear_memory_cache();
-
-        // Preserve open documents to keep unsaved changes and ensure they are re-validated
-        // with the new configuration.
-        let open_docs: Vec<_> = self
+        // Collect currently open documents to restore them after clearing
+        let open_docs: Vec<(Url, Arc<DocumentState>)> = self
             .documents
             .iter()
             .filter(|entry| self.open_documents.contains(entry.key()))
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
+        // Update the config
+        *self.config.write().unwrap() = new_config.clone();
+
+        // Clear all state
+        self.schemas.clear();
+        self.subgraphs.clear();
+        self.validated_schemas.clear();
+        let _ = graphox_core::schema_cache::clear_cache();
+
         // Clear only what's necessary - we re-index everything to match the new config.
         self.documents.clear();
-        self.fragment_defs.clear();
-        self.fragment_spreads.clear();
+        self.metadata.clear();
+
         self.fragment_dependents.clear();
         self.fragment_definitions.clear();
-        self.package_roots.clear();
         self.type_caches.clear();
+        self.diagnostic_cache.clear();
         self.operation_names.clear();
 
+        // Pre-load schemas for open documents to ensure immediate validation is correct
+        for (uri, _) in &open_docs {
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = new_config.get_schema_for_path(&path)
+                && !self.schemas.contains_key(&schema_key)
+                && let Some(project) = new_config
+                    .projects()
+                    .iter()
+                    .find(|p| p.schema().as_key() == schema_key)
+                && let Ok(schema) = graphox_core::schema::load_schema_with_cache(
+                    new_config.base_dir(),
+                    project.schema(),
+                    new_config.enable_schema_cache(),
+                )
+            {
+                self.schemas
+                    .insert(schema_key.clone(), Arc::new(schema.clone()));
+                if let Ok(valid) = schema.validate() {
+                    self.validated_schemas.insert(schema_key, Arc::new(valid));
+                }
+            }
+        }
+
         // Restore open documents AND re-index them
+        let mut uris_to_validate = Vec::new();
         for (uri, doc) in open_docs {
             self.documents.insert(uri.clone(), doc.clone());
+            uris_to_validate.push(uri.clone());
 
             // Re-index
-            self.fragment_defs
-                .insert(uri.clone(), doc.fragments().to_vec());
-            self.fragment_spreads
-                .insert(uri.clone(), doc.fragment_spreads.clone());
-            self.package_roots
-                .insert(uri.clone(), doc.package_root.clone());
+            let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+                fragments: doc.fragments.clone(),
+                fragment_spreads: doc.fragment_spreads.clone(),
+                package_root: doc.package_root.clone(),
+                operations: doc.operations.clone(),
+                version: doc.version,
+            });
+            self.metadata.insert(uri.clone(), metadata);
 
             self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
             self.update_definition_indices(
                 &uri,
                 None,
-                doc.fragments().iter().map(|f| f.name.clone()).collect(),
+                doc.fragments
+                    .iter()
+                    .map(|f| f.name.clone())
+                    .collect::<Arc<[_]>>(),
             );
+        }
 
-            // Re-index operations for duplicate detection
-            let config = self.config.read().unwrap().clone();
-            if let Ok(path) = uri.to_file_path()
-                && let Some(schema_key) = config.get_schema_for_path(&path)
-            {
-                let project_key = config
-                    .get_project_for_path(&path)
-                    .map(|p| p.include().as_key())
-                    .unwrap_or_else(|| schema_key);
-                let project_key_arc: Arc<str> = project_key.into();
-
-                for op in doc.operations() {
-                    if let Some(name) = &op.name {
-                        self.operation_names
-                            .entry(name.clone())
-                            .or_default()
-                            .push((project_key_arc.clone(), uri.clone()));
-                    }
-                }
-            }
+        // Trigger immediate validation of open documents
+        if !uris_to_validate.is_empty() {
+            self.validate_uris(uris_to_validate).await;
         }
 
         // Reset workspace version
         self.increment_workspace_version();
         self.last_full_validation_version.store(0, Ordering::SeqCst);
-
-        // Reload schemas from the new configuration
-        {
-            let config = self.config.read().unwrap().clone();
-            self.client
-                .log_message(MessageType::INFO, "Reloading schemas...")
-                .await;
-
-            for project in config.projects() {
-                let key = project.schema().as_key();
-                // Avoid reloading same schema multiple times if shared across projects
-                if !self.schemas.contains_key(&key) {
-                    match Self::load_schema_source(config.base_dir(), project.schema()) {
-                        Some(schema) => {
-                            if let Ok(valid) = (*schema).clone().validate() {
-                                self.validated_schemas.insert(key.clone(), Arc::new(valid));
-                            } else {
-                                self.client
-                                    .log_message(
-                                        MessageType::ERROR,
-                                        format!(
-                                            "Schema validation failed for project '{}': schema is invalid",
-                                            key
-                                         ),
-                                    )
-                                    .await;
-                            }
-                            self.schemas.insert(key, schema);
-                        }
-                        None => {
-                            self.client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    format!(
-                                        "Failed to load schema for project '{}': files missing or invalid",
-                                        key
-                                    ),
-                                )
-                                .await;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Re-register file watchers with new config
-        {
-            let config = self.config.read().unwrap();
-            super::file_watchers::register_file_watchers(self.client.clone(), &config);
-        }
 
         // Trigger workspace scan to re-index everything
         let (supports_progress, position_encoding, supports_pull_diagnostics) =
@@ -724,18 +823,12 @@ impl Backend {
                 (false, PositionEncodingKind::UTF16, false)
             };
 
-        // Reset workspace_loaded flag
-        self.workspace_loaded.store(false, Ordering::Relaxed);
-
-        let scan_config = self.config.read().unwrap().clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
-            config: scan_config,
+            config: new_config,
             supports_pull_diagnostics,
             documents: self.documents.clone(),
-            fragment_defs: self.fragment_defs.clone(),
-            fragment_spreads: self.fragment_spreads.clone(),
-            package_roots: self.package_roots.clone(),
+            metadata: self.metadata.clone(),
             fragment_dependents: self.fragment_dependents.clone(),
             fragment_definitions: self.fragment_definitions.clone(),
             operation_names: self.operation_names.clone(),
@@ -746,9 +839,10 @@ impl Backend {
             schemas: self.schemas.clone(),
             subgraphs: self.subgraphs.clone(),
             validated_schemas: self.validated_schemas.clone(),
-            workspace_scan_cancelled: self.workspace_scan_cancelled.clone(),
+            workspace_scan_cancelled: self.workspace_scan_cancelled.read().unwrap().clone(),
             codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
+            bypass_cache: false,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
             workspace_version: self.workspace_version.clone(),
@@ -764,8 +858,8 @@ impl Backend {
     pub fn update_dependency_indices(
         &self,
         uri: &Url,
-        old_spreads: Option<Vec<Arc<str>>>,
-        new_spreads: Vec<Arc<str>>,
+        old_spreads: Option<Arc<[Arc<str>]>>,
+        new_spreads: Arc<[Arc<str>]>,
     ) {
         super::fragment_manager::update_fragment_dependents(
             &self.fragment_dependents,
@@ -778,8 +872,8 @@ impl Backend {
     pub fn update_definition_indices(
         &self,
         uri: &Url,
-        old_fragments: Option<Vec<Arc<str>>>,
-        new_fragments: Vec<Arc<str>>,
+        old_fragments: Option<Arc<[Arc<str>]>>,
+        new_fragments: Arc<[Arc<str>]>,
     ) {
         super::fragment_manager::update_fragment_definitions(
             &self.fragment_definitions,
@@ -790,6 +884,31 @@ impl Backend {
     }
 
     pub async fn validate_uris(&self, uris: Vec<Url>) {
+        let config = self.config.read().unwrap().clone();
+
+        // Ensure schemas for these URIs are loaded
+        for uri in &uris {
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = config.get_schema_for_path(&path)
+                && !self.validated_schemas.contains_key(&schema_key)
+                && let Some(project) = config
+                    .projects()
+                    .iter()
+                    .find(|p| p.schema().as_key() == schema_key)
+                && let Ok(schema) = graphox_core::schema::load_schema_with_cache(
+                    config.base_dir(),
+                    project.schema(),
+                    config.enable_schema_cache(),
+                )
+            {
+                self.schemas
+                    .insert(schema_key.clone(), Arc::new(schema.clone()));
+                if let Ok(valid) = schema.validate() {
+                    self.validated_schemas.insert(schema_key, Arc::new(valid));
+                }
+            }
+        }
+
         let (use_push, supports_progress, position_encoding) =
             if let Ok(caps) = self.client_capabilities.read() {
                 (
@@ -801,14 +920,11 @@ impl Backend {
                 (true, false, PositionEncodingKind::UTF16) // Default if can't read capabilities
             };
 
-        let config = self.config.read().unwrap().clone();
         let params = super::validation::ValidationParams {
             client: &self.client,
             documents: &self.documents,
+            metadata: &self.metadata,
             config: &config,
-            fragment_defs: &self.fragment_defs,
-            fragment_spreads: &self.fragment_spreads,
-            package_roots: &self.package_roots,
             validated_schemas: &self.validated_schemas,
             valid_empty_schema: &self.valid_empty_schema,
             workspace_loaded: &self.workspace_loaded,
@@ -848,10 +964,8 @@ impl Backend {
         let params = super::validation::ValidationParams {
             client: &self.client,
             documents: &self.documents,
+            metadata: &self.metadata,
             config: &config,
-            fragment_defs: &self.fragment_defs,
-            fragment_spreads: &self.fragment_spreads,
-            package_roots: &self.package_roots,
             validated_schemas: &self.validated_schemas,
             valid_empty_schema: &self.valid_empty_schema,
             workspace_loaded: &self.workspace_loaded,
@@ -864,7 +978,13 @@ impl Backend {
             supports_progress,
             position_encoding,
         };
-        super::validation::validate_all_documents(params, use_push, Some(&self.diagnostic_cache))
+
+        let uris: Vec<Url> = self
+            .documents
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
             .await;
 
         self.last_full_validation_version
@@ -972,7 +1092,7 @@ impl Backend {
 
         tokio::task::spawn_blocking(move || {
             doc_arcs.par_iter().find_map_any(|other_doc| {
-                if backend.is_fragment_accessible(other_doc, &doc, &name) {
+                if backend.is_fragment_accessible(&other_doc.uri, &doc.uri, &name) {
                     other_doc.find_definition_in_tree(&name)
                 } else {
                     None
@@ -985,19 +1105,48 @@ impl Backend {
 
     pub fn is_fragment_accessible(
         &self,
-        fragment_doc: &Arc<DocumentState>,
-        current_doc: &Arc<DocumentState>,
+        fragment_doc_uri: &Url,
+        target_doc_uri: &Url,
         fragment_name: &str,
     ) -> bool {
+        let fragment_meta = match self.metadata.get(fragment_doc_uri) {
+            Some(m) => m,
+            None => return false,
+        };
+
+        // If in same package, it's accessible (private fragments allowed)
+        let target_meta = self.metadata.get(target_doc_uri);
         let is_same_package = graphox_core::utils::paths_match(
-            fragment_doc.package_root.as_deref(),
-            current_doc.package_root.as_deref(),
+            fragment_meta.package_root.as_deref(),
+            target_meta.as_ref().and_then(|m| m.package_root.as_deref()),
         );
-        let is_public_fragment = fragment_doc
-            .fragments()
+
+        let is_public_fragment = fragment_meta
+            .fragments
             .iter()
             .any(|f| f.name.as_ref() == fragment_name && f.is_public);
 
-        is_same_package || is_public_fragment
+        if is_same_package || is_public_fragment {
+            return true;
+        }
+
+        // CHECK PROJECT IMPORTS
+        if let (Ok(f_path), Ok(t_path)) = (
+            fragment_doc_uri.to_file_path(),
+            target_doc_uri.to_file_path(),
+        ) {
+            let config = self.config.read().unwrap();
+            if let (Some(f_proj), Some(t_project)) = (
+                config.get_project_for_path(&f_path),
+                config.get_project_for_path(&t_path),
+            ) {
+                let f_import = f_proj.import();
+                if let Some(import_name) = f_import {
+                    return t_project.imports().iter().any(|i| i == import_name);
+                }
+            }
+        }
+
+        false
     }
 }

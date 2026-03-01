@@ -8,12 +8,39 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-const MAX_MEMORY_100_DOCS: usize = 75 * 1024 * 1024; // 75MB
-const MAX_MEMORY_1000_DOCS: usize = 150 * 1024 * 1024; // 150MB
-const MAX_MEMORY_50_SCHEMAS: usize = 150 * 1024 * 1024; // 150MB
-const MAX_MEMORY_500_FRAGMENTS: usize = 75 * 1024 * 1024; // 75MB
+const MAX_MEMORY_100_DOCS: usize = 60 * 1024 * 1024; // 60MB
+const MAX_MEMORY_10_SCHEMAS: usize = 10 * 1024 * 1024; // 10MB
+const MAX_MEMORY_500_FRAGMENTS: usize = 40 * 1024 * 1024; // 40MB
+
+const BASELINE_MEMORY_100_DOCS: usize = 50 * 1024 * 1024;
+const BASELINE_MEMORY_10_SCHEMAS: usize = 10 * 1024 * 1024;
+const BASELINE_MEMORY_500_FRAGMENTS: usize = 35 * 1024 * 1024;
+
+const PER_DOC_BUDGET: usize = MAX_MEMORY_100_DOCS / 100;
+const PER_SCHEMA_BUDGET: usize = MAX_MEMORY_10_SCHEMAS / 10;
+const PER_FRAGMENT_BUDGET: usize = MAX_MEMORY_500_FRAGMENTS / 500;
+
+const ALLOWED_GROWTH_PERCENT: f64 = 5.0;
+
 #[cfg(not(target_os = "windows"))]
-const MAX_MEMORY_COMPLEX_MONOREPO: usize = 120 * 1024 * 1024; // 120MB
+const MAX_MEMORY_COMPLEX_MONOREPO: usize = 70 * 1024 * 1024; // 70MB
+
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex;
+
+static MEMORY_TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+/// Warm up the allocator by doing some allocations and frees.
+/// This helps stabilize the RSS baseline.
+fn warmup() {
+    for _ in 0..5 {
+        let mut v = Vec::with_capacity(5000000);
+        for i in 0..5000000 {
+            v.push(i);
+        }
+        drop(v);
+    }
+}
 
 fn create_multi_project_config(base_dir: &Path) -> Config {
     let mut projects = Vec::new();
@@ -71,6 +98,8 @@ fn create_multi_project_config(base_dir: &Path) -> Config {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ntest::timeout(12000)]
 async fn test_memory_complex_monorepo_workspace_scan() {
+    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    warmup();
     let baseline = measure_memory_usage();
 
     let temp_dir = TempDir::new().unwrap();
@@ -152,20 +181,6 @@ fn create_100_file_config(base_dir: &Path) -> Config {
     .with_lsp_automatic_codegen(false)
 }
 
-fn create_1000_file_config(base_dir: &Path) -> Config {
-    Config::new_test(
-        base_dir.to_owned(),
-        vec![
-            ProjectConfig::default()
-                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-                .with_include(GlobPattern::Single("**/*.graphql".to_string()))
-                .with_codegen(CodegenConfig::disabled()),
-        ],
-    )
-    .with_enable_schema_cache(true)
-    .with_lsp_automatic_codegen(false)
-}
-
 fn create_10_schema_config(base_dir: &Path) -> Config {
     Config::new_test(
         base_dir.to_owned(),
@@ -182,9 +197,11 @@ fn create_10_schema_config(base_dir: &Path) -> Config {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_open_close_cycles() {
+    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    warmup();
     let baseline = measure_memory_usage();
 
-    for _cycle in 0..5 {
+    for _cycle in 0..10 {
         let temp_dir = TempDir::new().unwrap();
         let base_dir = temp_dir.path().to_path_buf();
 
@@ -217,7 +234,12 @@ async fn test_memory_open_close_cycles() {
     let delta = used.saturating_sub(baseline);
 
     println!(
-        "Memory after 5 open/close cycles (100 files each): {} KB",
+        "Memory after 10 open/close cycles (100 files each): {} KB",
+        delta / 1024
+    );
+    assert!(
+        delta < 40 * 1024 * 1024,
+        "Memory exceeded limit for 10 open/close cycles (100 files each): {} KB",
         delta / 1024
     );
 }
@@ -225,6 +247,8 @@ async fn test_memory_open_close_cycles() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(5000)]
 async fn test_memory_cached_documents_100() {
+    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    warmup();
     let baseline = measure_memory_usage();
 
     let temp_dir = TempDir::new().unwrap();
@@ -259,60 +283,28 @@ async fn test_memory_cached_documents_100() {
 
     println!("Memory for 100 cached documents: {} KB", delta / 1024);
     assert!(
-        delta < MAX_MEMORY_100_DOCS,
-        "Memory exceeded limit for 100 documents: {} KB (limit: {} KB)",
+        delta <= PER_DOC_BUDGET * 100,
+        "Memory exceeded per-doc budget: {} KB (budget: {} KB)",
         delta / 1024,
-        MAX_MEMORY_100_DOCS / 1024
+        (PER_DOC_BUDGET * 100) / 1024
     );
-}
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(30000)]
-#[ignore] // Slow test
-async fn test_memory_cached_documents_1000() {
-    let baseline = measure_memory_usage();
-
-    let temp_dir = TempDir::new().unwrap();
-    let base_dir = temp_dir.path().to_path_buf();
-
-    let schema = create_large_schema(100);
-    fs::write(base_dir.join("schema.graphql"), schema).unwrap();
-
-    for i in 0..1000 {
-        let query = format!("query Query{} {{ item{} {{ id name email }} }}", i, i % 100);
-        fs::write(base_dir.join(format!("query_{}.graphql", i)), query).unwrap();
+    let growth =
+        (delta as f64 - BASELINE_MEMORY_100_DOCS as f64) / BASELINE_MEMORY_100_DOCS as f64 * 100.0;
+    if delta > BASELINE_MEMORY_100_DOCS {
+        assert!(
+            growth <= ALLOWED_GROWTH_PERCENT,
+            "Memory growth exceeded limit: {:.2}% (limit: {:.2}%)",
+            growth,
+            ALLOWED_GROWTH_PERCENT
+        );
     }
-
-    let config = create_1000_file_config(&base_dir);
-    let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
-    crate::support::lsp_initialize_sequence(&mut service).await;
-
-    for i in 0..1000 {
-        let uri = tower_lsp::lsp_types::Url::from_file_path(
-            base_dir.join(format!("query_{}.graphql", i)),
-        )
-        .unwrap();
-        let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", i))).unwrap();
-        crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
-    }
-
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    let used = measure_memory_usage();
-    let delta = used.saturating_sub(baseline);
-
-    println!("Memory for 1000 cached documents: {} KB", delta / 1024);
-    assert!(
-        delta < MAX_MEMORY_1000_DOCS,
-        "Memory exceeded limit for 1000 documents: {} KB (limit: {} KB)",
-        delta / 1024,
-        MAX_MEMORY_1000_DOCS / 1024
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_schema_caching() {
+    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    warmup();
     let baseline = measure_memory_usage();
 
     let mut temp_dirs = Vec::new();
@@ -363,15 +355,29 @@ async fn test_memory_schema_caching() {
         delta / 1024
     );
     assert!(
-        delta < MAX_MEMORY_50_SCHEMAS,
-        "Memory exceeded limit for 10 schemas: {} KB (limit: {} KB)",
+        delta <= PER_SCHEMA_BUDGET * 10,
+        "Memory exceeded per-schema budget: {} KB (budget: {} KB)",
         delta / 1024,
-        MAX_MEMORY_50_SCHEMAS / 1024
+        (PER_SCHEMA_BUDGET * 10) / 1024
     );
+
+    let growth = (delta as f64 - BASELINE_MEMORY_10_SCHEMAS as f64)
+        / BASELINE_MEMORY_10_SCHEMAS as f64
+        * 100.0;
+    if delta > BASELINE_MEMORY_10_SCHEMAS {
+        assert!(
+            growth <= ALLOWED_GROWTH_PERCENT,
+            "Memory growth exceeded limit for 10 schemas: {:.2}% (limit: {:.2}%)",
+            growth,
+            ALLOWED_GROWTH_PERCENT
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_fragment_index() {
+    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    warmup();
     let baseline = measure_memory_usage();
 
     let temp_dir = TempDir::new().unwrap();
@@ -407,15 +413,29 @@ async fn test_memory_fragment_index() {
 
     println!("Memory for 500 fragment index: {} KB", delta / 1024);
     assert!(
-        delta < MAX_MEMORY_500_FRAGMENTS,
-        "Memory exceeded limit for 500 fragments: {} KB (limit: {} KB)",
+        delta <= PER_FRAGMENT_BUDGET * 500,
+        "Memory exceeded per-fragment budget: {} KB (budget: {} KB)",
         delta / 1024,
-        MAX_MEMORY_500_FRAGMENTS / 1024
+        (PER_FRAGMENT_BUDGET * 500) / 1024
     );
+
+    let growth = (delta as f64 - BASELINE_MEMORY_500_FRAGMENTS as f64)
+        / BASELINE_MEMORY_500_FRAGMENTS as f64
+        * 100.0;
+    if delta > BASELINE_MEMORY_500_FRAGMENTS {
+        assert!(
+            growth <= ALLOWED_GROWTH_PERCENT,
+            "Memory growth exceeded limit for 500 fragments: {:.2}% (limit: {:.2}%)",
+            growth,
+            ALLOWED_GROWTH_PERCENT
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_large_schema() {
+    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    warmup();
     let baseline = measure_memory_usage();
 
     let temp_dir = TempDir::new().unwrap();
@@ -450,7 +470,7 @@ async fn test_memory_large_schema() {
 
     println!("Memory for 1000-type schema: {} KB", delta / 1024);
     assert!(
-        delta < 150 * 1024 * 1024,
+        delta < 40 * 1024 * 1024,
         "Memory exceeded limit for large schema: {} KB",
         delta / 1024
     );

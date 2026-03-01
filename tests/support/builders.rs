@@ -166,6 +166,7 @@ impl Default for ProjectConfigBuilder {
 
 use graphox::features::completion::FragmentCompletionInfo;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
 /// Builder for creating FragmentCompletionInfo objects in tests.
@@ -229,11 +230,11 @@ impl FragmentInfoBuilder {
             is_type_only: false,
             uri: self.uri,
             package_root: self.package_root,
-            used_variables: Vec::new(),
-            used_fragments: Vec::new(),
-            transitive_deps: Vec::new(),
-            selected_fields: Vec::new(),
-            type_fields: Vec::new(),
+            used_variables: Arc::from([]),
+            used_fragments: Arc::from([]),
+            transitive_deps: Arc::from([]),
+            selected_fields: Arc::from([]),
+            type_fields: Arc::from([]),
             requirements: BTreeMap::new(),
             worst_slo: None,
         }

@@ -498,6 +498,7 @@ pub fn clear_cache() -> Result<(), String> {
             // Ignore "Directory not empty" errors as they often indicate a race
             // with another process that is already recreating the cache.
             let mut is_not_empty = false;
+            let is_not_found = e.kind() == io::ErrorKind::NotFound;
             #[cfg(unix)]
             if e.raw_os_error() == Some(39) || e.raw_os_error() == Some(66) {
                 is_not_empty = true;
@@ -507,7 +508,7 @@ pub fn clear_cache() -> Result<(), String> {
                 is_not_empty = true;
             }
 
-            if !is_not_empty {
+            if !is_not_empty && !is_not_found {
                 return Err(format!("Failed to clear cache directory: {}", e));
             }
         }

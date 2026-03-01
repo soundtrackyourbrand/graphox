@@ -20,11 +20,11 @@ pub struct FragmentMetadata {
     pub masked_source: Arc<str>,
     /// Direct fragment dependencies (extracted during document parsing)
     /// Contains fragment names that this fragment directly spreads
-    pub direct_deps: Vec<Arc<str>>,
+    pub direct_deps: Arc<[Arc<str>]>,
     /// Cached transitive fragment dependencies (computed during workspace scan)
     /// Contains all fragment names that this fragment depends on, directly or transitively
-    pub transitive_deps: Vec<Arc<str>>,
-    pub type_fields: Vec<(Arc<str>, Arc<str>)>,
+    pub transitive_deps: Arc<[Arc<str>]>,
+    pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +68,7 @@ pub struct ProjectContext {
     pub fragment_to_type_only: HashMap<Arc<str>, bool>,
     pub all_fragments: HashMap<Arc<str>, Node<executable::Fragment>>,
     /// Cached fragment dependencies: fragment name -> list of transitive dependencies
-    pub fragment_dependencies: HashMap<Arc<str>, Vec<Arc<str>>>,
+    pub fragment_dependencies: HashMap<Arc<str>, Arc<[Arc<str>]>>,
 }
 
 pub struct Engine;
@@ -120,7 +120,7 @@ impl Engine {
         let all_fragments = Self::resolve_fragments(valid_schema, &project_fragments_metadata);
 
         // Build fragment dependency cache from the metadata
-        let mut fragment_dependencies: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::default();
+        let mut fragment_dependencies: HashMap<Arc<str>, Arc<[Arc<str>]>> = HashMap::default();
         for meta in &project_fragments_metadata {
             fragment_dependencies.insert(meta.name.clone(), meta.transitive_deps.clone());
         }
@@ -352,7 +352,7 @@ impl Engine {
                                         is_type_only: frag.is_type_only,
                                         masked_source: doc.masked_source.clone(),
                                         direct_deps: frag.used_fragments.clone(),
-                                        transitive_deps: Vec::new(),
+                                        transitive_deps: Arc::from([]),
                                         type_fields: frag.type_fields.clone(),
                                     });
                                 }
@@ -503,7 +503,7 @@ impl Engine {
             .par_iter()
             .map(|frag| {
                 let mut deps = Vec::new();
-                for dep_name in &frag.direct_deps {
+                for dep_name in frag.direct_deps.iter() {
                     if let Some(&idx) = name_to_idx.get(dep_name)
                         && idx != name_to_idx[&frag.name]
                     {
@@ -619,7 +619,7 @@ impl Engine {
         }
 
         // 5. Map bitsets back to fragments and convert to names (Parallel)
-        let transitive_results: Vec<Vec<Arc<str>>> = (0..n)
+        let transitive_results: Vec<Arc<[Arc<str>]>> = (0..n)
             .into_par_iter()
             .map(|i| {
                 let scc_idx = node_to_scc[i];
@@ -636,7 +636,7 @@ impl Engine {
                     }
                 }
                 res.sort_unstable();
-                res
+                Arc::from(res)
             })
             .collect();
 

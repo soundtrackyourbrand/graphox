@@ -515,9 +515,8 @@ pub async fn handle_rename(
                     }
 
                     for other_uri in relevant_uris {
-                        if let Some(other_doc) =
-                            backend.documents.get(&other_uri).map(|r| r.value().clone())
-                        {
+                        let other_doc = backend.load_doc_from_cache_or_disk(&other_uri).await;
+                        if let Some(other_doc) = other_doc {
                             let refs = other_doc.find_references_in_tree(&name, true);
                             let filtered_refs: Vec<Location> = refs
                                 .into_iter()
@@ -592,9 +591,8 @@ pub async fn handle_rename(
                 }
 
                 for other_uri in relevant_uris {
-                    if let Some(other_doc) =
-                        backend.documents.get(&other_uri).map(|r| r.value().clone())
-                    {
+                    let other_doc = backend.load_doc_from_cache_or_disk(&other_uri).await;
+                    if let Some(other_doc) = other_doc {
                         let refs = other_doc.find_references_in_tree(&name, true);
                         if !refs.is_empty() {
                             let edits: Vec<TextEdit> = refs

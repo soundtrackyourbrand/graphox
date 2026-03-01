@@ -8,21 +8,15 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{LanguageServer, LspService, Server};
 
-// Re-export ClientCapabilities for backward compatibility
-pub use crate::backend::state::ClientCapabilities;
-
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // Extract and store client capabilities
-        let caps = ClientCapabilities::from_params(&params);
+        let caps = crate::backend::state::ClientCapabilities::from_params(&params);
 
-        // Store capabilities
         if let Ok(mut stored_caps) = self.client_capabilities.write() {
             *stored_caps = caps.clone();
         }
 
-        // Log detected capabilities
         self.client
             .log_message(
                 MessageType::INFO,
@@ -32,7 +26,10 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: super::capabilities::build_server_capabilities(&caps),
-            ..Default::default()
+            server_info: Some(ServerInfo {
+                name: "graphox-lsp".to_string(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            }),
         })
     }
 
@@ -41,25 +38,8 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "LSP Started!")
             .await;
 
-        // Check tracing configuration and log if enabled
-        let tracing_msg = {
-            let config = self.config.read().unwrap();
-            let tracing = config.tracing();
-            if tracing.enabled() {
-                Some(format!(
-                    "Performance tracing enabled (threshold: {}ms)",
-                    tracing.threshold_ms()
-                ))
-            } else {
-                None
-            }
-        };
+        let config = self.config.read().unwrap().clone();
 
-        if let Some(msg) = tracing_msg {
-            self.client.log_message(MessageType::INFO, msg).await;
-        }
-
-        // Spawn workspace scan in background to avoid hanging the LSP
         let (supports_progress, position_encoding, supports_pull_diagnostics) =
             if let Ok(caps) = self.client_capabilities.read() {
                 (
@@ -71,16 +51,12 @@ impl LanguageServer for Backend {
                 (false, PositionEncodingKind::UTF16, false)
             };
 
-        let config = self.config.read().unwrap().clone();
-        let _codegen_throttle = self.codegen_throttle.clone();
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
-            config,
+            config: config.clone(),
             supports_pull_diagnostics,
             documents: self.documents.clone(),
-            fragment_defs: self.fragment_defs.clone(),
-            fragment_spreads: self.fragment_spreads.clone(),
-            package_roots: self.package_roots.clone(),
+            metadata: self.metadata.clone(),
             fragment_dependents: self.fragment_dependents.clone(),
             fragment_definitions: self.fragment_definitions.clone(),
             operation_names: self.operation_names.clone(),
@@ -94,68 +70,25 @@ impl LanguageServer for Backend {
             workspace_scan_cancelled: self.workspace_scan_cancelled.read().unwrap().clone(),
             codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
+            bypass_cache: false,
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
             workspace_version: self.workspace_version.clone(),
             last_full_validation_version: self.last_full_validation_version.clone(),
             open_documents: self.open_documents.clone(),
         });
-
-        // Register file watchers
-        let config = self.config.read().unwrap();
-        super::file_watchers::register_file_watchers(self.client.clone(), &config);
     }
 
-    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        hover::handle_hover(self, params).await
-    }
-
-    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        completion::handle_completion(self, params).await
-    }
-
-    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
-        self.with_tracing("signature_help", async move {
-            let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
-            let position = params.text_document_position_params.position;
-
-            if let Some(doc) = self.documents.get(&uri).map(|r| r.value().clone()) {
-                let schema = self.get_schema_for_doc(&uri);
-                return Ok(doc.get_signature_help(position, &schema));
-            }
-
-            Ok(None)
-        })
-        .await
-    }
-
-    async fn prepare_call_hierarchy(
-        &self,
-        params: CallHierarchyPrepareParams,
-    ) -> Result<Option<Vec<CallHierarchyItem>>> {
-        hierarchy::handle_prepare_call_hierarchy(self, params).await
-    }
-
-    async fn incoming_calls(
-        &self,
-        params: CallHierarchyIncomingCallsParams,
-    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
-        hierarchy::handle_incoming_calls(self, params).await
-    }
-
-    async fn outgoing_calls(
-        &self,
-        params: CallHierarchyOutgoingCallsParams,
-    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
-        hierarchy::handle_outgoing_calls(self, params).await
+    async fn shutdown(&self) -> Result<()> {
+        self.workspace_scan_cancelled
+            .read()
+            .unwrap()
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         document_sync::handle_did_open(self, params).await;
-    }
-
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        document_sync::handle_did_close(self, params).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -166,11 +99,31 @@ impl LanguageServer for Backend {
         document_sync::handle_did_save(self, params).await;
     }
 
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        document_sync::handle_did_close(self, params).await;
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        document_sync::handle_did_change_watched_files(self, params).await;
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        hover::handle_hover(self, params).await
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        completion::handle_completion(self, params).await
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         navigation::handle_goto_definition(self, params).await
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        navigation::handle_references(self, params).await
     }
 
     async fn goto_type_definition(
@@ -180,33 +133,43 @@ impl LanguageServer for Backend {
         navigation::handle_goto_type_definition(self, params).await
     }
 
-    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        navigation::handle_references(self, params).await
-    }
-
-    async fn document_highlight(
-        &self,
-        params: DocumentHighlightParams,
-    ) -> Result<Option<Vec<DocumentHighlight>>> {
-        navigation::handle_document_highlight(self, params).await
-    }
-
-    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        navigation::handle_rename(self, params).await
-    }
-
-    async fn prepare_rename(
-        &self,
-        params: TextDocumentPositionParams,
-    ) -> Result<Option<PrepareRenameResponse>> {
-        navigation::handle_prepare_rename(self, params).await
-    }
-
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         symbols::handle_document_symbol(self, params).await
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        symbols::handle_workspace_symbol(self, params).await
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        actions::handle_code_action(self, params).await
+    }
+
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
+        actions::handle_execute_command(self, params).await
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = self.normalize_uri(params.text_document_position_params.text_document.uri);
+        let position = params.text_document_position_params.position;
+
+        let doc = if let Some(d) = self.documents.get(&uri).map(|r| r.value().clone()) {
+            d
+        } else {
+            return Ok(None);
+        };
+
+        let schema = self.get_schema_for_doc(&uri);
+        Ok(doc.get_signature_help(position, &schema))
     }
 
     async fn semantic_tokens_full(
@@ -227,55 +190,11 @@ impl LanguageServer for Backend {
         navigation::handle_selection_range(self, params).await
     }
 
-    async fn symbol(
+    async fn document_highlight(
         &self,
-        params: WorkspaceSymbolParams,
-    ) -> Result<Option<Vec<SymbolInformation>>> {
-        symbols::handle_workspace_symbol(self, params).await
-    }
-
-    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        actions::handle_code_action(self, params).await
-    }
-
-    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
-        self.client
-            .log_message(MessageType::INFO, "Configuration changed!")
-            .await;
-    }
-
-    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        document_sync::handle_did_change_watched_files(self, params).await;
-    }
-
-    async fn execute_command(
-        &self,
-        params: ExecuteCommandParams,
-    ) -> Result<Option<serde_json::Value>> {
-        self.with_tracing("execute_command", async move {
-            match params.command.as_str() {
-                "graphox.runCodegen" => {
-                    self.client
-                        .log_message(MessageType::INFO, "Running codegen...")
-                        .await;
-                    self.run_codegen().await;
-                    self.client
-                        .log_message(MessageType::INFO, "Codegen complete!")
-                        .await;
-                    Ok(None)
-                }
-                "graphox.clearCache" => {
-                    self.clear_cache().await;
-                    Ok(None)
-                }
-                _ => Ok(None),
-            }
-        })
-        .await
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        navigation::handle_document_highlight(self, params).await
     }
 
     async fn diagnostic(
@@ -291,19 +210,52 @@ impl LanguageServer for Backend {
     ) -> Result<WorkspaceDiagnosticReportResult> {
         diagnostics::handle_workspace_diagnostic(self, params).await
     }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        navigation::handle_prepare_rename(self, params).await
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        navigation::handle_rename(self, params).await
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        hierarchy::handle_incoming_calls(self, params).await
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        hierarchy::handle_outgoing_calls(self, params).await
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        hierarchy::handle_prepare_call_hierarchy(self, params).await
+    }
 }
 
 pub async fn run_lsp(config: Config) {
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
     let (service, socket) = LspService::new(|client| Backend::new(client, config));
-    Server::new(stdin, stdout, socket).serve(service).await;
+    Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
+        .serve(service)
+        .await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use graphox_core::config::{GlobPattern as GqlGlobPattern, ProjectConfig, SchemaSource};
+    use std::sync::Arc;
     use tokio::time::{Duration, timeout};
     use tower_lsp::LspService;
 
@@ -343,7 +295,14 @@ mod tests {
 
         // Simulate some data
         let uri = Url::parse("file:///test.graphql").unwrap();
-        backend.fragment_defs.insert(uri.clone(), vec![]);
+        let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+            fragments: Arc::from([]),
+            fragment_spreads: Arc::from([]),
+            package_root: None,
+            operations: Arc::from([]),
+            version: 0,
+        });
+        backend.metadata.insert(uri.clone(), metadata);
 
         let res = timeout(Duration::from_millis(100), async {
             backend.get_all_fragments_info()

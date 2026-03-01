@@ -1,6 +1,4 @@
-use crate::support::{
-    TestWorkspace, create_initialized_lsp_service_with_socket,
-};
+use crate::support::{self, TestWorkspace, create_initialized_lsp_service_with_socket};
 use graphox::Config;
 use std::fs;
 use std::time::Duration;
@@ -63,18 +61,24 @@ projects:
                 if method == "textDocument/publishDiagnostics" {
                     let params: PublishDiagnosticsParams =
                         serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri && !params.diagnostics.is_empty() {
-                        if params.diagnostics.iter().any(|d| d.message.contains("missingField") && d.message.contains("not found")) {
-                            found_error = true;
-                            break;
-                        }
+                    if params.uri == query_uri
+                        && !params.diagnostics.is_empty()
+                        && params.diagnostics.iter().any(|d| {
+                            d.message.contains("missingField") && d.message.contains("not found")
+                        })
+                    {
+                        found_error = true;
+                        break;
                     }
                 }
             }
             _ => continue,
         }
     }
-    assert!(found_error, "Expected error diagnostic for 'missingField' in unsaved document");
+    assert!(
+        found_error,
+        "Expected error diagnostic for 'missingField' in unsaved document"
+    );
 
     // 5. Close document
     let close_params = DidCloseTextDocumentParams {
@@ -90,8 +94,7 @@ projects:
     // 6. Trigger config reload (modify config file)
     // This will cause the backend to reload state. If didClose correctly updated open_documents,
     // it should now use the valid disk content instead of the invalid memory content.
-    let new_config_text = format!("{}
-# reload trigger", config_text);
+    let new_config_text = format!("{}\n# reload trigger", config_text);
     fs::write(root.join("graphox.yaml"), new_config_text).unwrap();
 
     let changes = vec![FileEvent {
@@ -105,27 +108,14 @@ projects:
 
     // 7. Verify diagnostics are CLEARED (or updated to reflect valid disk state)
     // Since the disk state is valid, we expect zero diagnostics.
-    let mut diagnostics_reverted = false;
-    let check_duration = Duration::from_secs(3);
-    let check_start = std::time::Instant::now();
-
-    while check_start.elapsed() < check_duration {
-        use tokio_stream::StreamExt;
-        match tokio::time::timeout(Duration::from_millis(100), messages.next()).await {
-            Ok(Some(msg)) => {
-                let method = msg["method"].as_str().unwrap_or("");
-                if method == "textDocument/publishDiagnostics" {
-                    let params: PublishDiagnosticsParams =
-                        serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri {
-                        if params.diagnostics.is_empty() {
-                            diagnostics_reverted = true;
-                            break; // Success!
-                        }
-                    }
-                }
-            }
-            _ => continue,
+    let report = support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    match report {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full)) => {
+            assert!(
+                full.full_document_diagnostic_report.items.is_empty(),
+                "Diagnostics did not revert to valid disk state after closing document and reloading config. Got: {:?}",
+                full.full_document_diagnostic_report.items
+            );
         }
         _ => panic!("Expected full diagnostic report"),
     }
@@ -173,21 +163,19 @@ projects:
     service.call(req).await.unwrap();
 
     // 4. Verify diagnostic appears
-    let mut found_error = false;
-    let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(2) {
-        use tokio_stream::StreamExt;
-        match tokio::time::timeout(Duration::from_millis(100), messages.next()).await {
-            Ok(Some(msg)) => {
-                if msg["method"] == "textDocument/publishDiagnostics" {
-                    let params: PublishDiagnosticsParams = serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri && params.diagnostics.iter().any(|d| d.message.contains("INVALID_FIELD")) {
-                        found_error = true;
-                        break;
-                    }
-                }
-            }
-            _ => continue,
+    let report = support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    match report {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full)) => {
+            let found_error = full
+                .full_document_diagnostic_report
+                .items
+                .iter()
+                .any(|d| d.message.contains("INVALID_FIELD"));
+            assert!(
+                found_error,
+                "Expected error for INVALID_FIELD. Got: {:?}",
+                full.full_document_diagnostic_report.items
+            );
         }
         _ => panic!("Expected full diagnostic report"),
     }
@@ -206,24 +194,20 @@ projects:
     service.call(reload_req).await.unwrap();
 
     // 6. Verify diagnostic STILL exists (meaning memory state was preserved)
-    let mut error_persists = false;
-    let check_start = std::time::Instant::now();
-    while check_start.elapsed() < Duration::from_secs(3) {
-        use tokio_stream::StreamExt;
-        match tokio::time::timeout(Duration::from_millis(100), messages.next()).await {
-            Ok(Some(msg)) => {
-                if msg["method"] == "textDocument/publishDiagnostics" {
-                    let params: PublishDiagnosticsParams = serde_json::from_value(msg["params"].clone()).unwrap();
-                    if params.uri == query_uri && params.diagnostics.iter().any(|d| d.message.contains("INVALID_FIELD")) {
-                        error_persists = true;
-                        break;
-                    }
-                }
-            }
-            _ => continue,
+    let report = support::lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+    match report {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full)) => {
+            let error_persists = full
+                .full_document_diagnostic_report
+                .items
+                .iter()
+                .any(|d| d.message.contains("INVALID_FIELD"));
+            assert!(
+                error_persists,
+                "Error should persist after config reload if document is still open. Got: {:?}",
+                full.full_document_diagnostic_report.items
+            );
         }
         _ => panic!("Expected full diagnostic report"),
     }
-
-    assert!(error_persists, "Error should persist after config reload if document is still open");
 }

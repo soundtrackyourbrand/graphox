@@ -19,7 +19,11 @@ async fn test_did_open_reconciles_against_workspace_scan() {
     // 2. Initialize LSP
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    // 3. Verify query is valid
+    // 3. Open both files to ensure they are tracked
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    // 4. Verify query is valid
     let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
     let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
         result
@@ -32,7 +36,7 @@ async fn test_did_open_reconciles_against_workspace_scan() {
         full_report.full_document_diagnostic_report.items
     );
 
-    // 4. Open frag.graphql with content that REMOVES the fragment
+    // 5. Update frag.graphql with content that REMOVES the fragment
     let frag_text_empty = "# No fragment here anymore";
     lsp_did_open(
         &mut service,
@@ -43,7 +47,7 @@ async fn test_did_open_reconciles_against_workspace_scan() {
     )
     .await;
 
-    // 5. Verify query is now INVALID (MyFragment is missing)
+    // 6. Verify query is now INVALID (MyFragment is missing)
     // We might need to wait a bit for background validation
     let mut found_error = false;
     let start = std::time::Instant::now();
@@ -66,6 +70,6 @@ async fn test_did_open_reconciles_against_workspace_scan() {
 
     assert!(
         found_error,
-        "Query should show 'Unknown fragment' error after fragment was removed via didOpen"
+        "Query should show 'Unknown fragment' error after fragment was removed via didChange"
     );
 }
