@@ -113,7 +113,7 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
     let mut group = c.benchmark_group("Complex Workspace Definition");
     group.sample_size(10);
 
-    group.bench_function("Definition: First Project Field in 2000 docs", |b| {
+    group.bench_function("Definition: Last Project Field in 2000 docs", |b| {
         b.to_async(&rt).iter(|| {
             backend.goto_definition(GotoDefinitionParams {
                 text_document_position_params: TextDocumentPositionParams {

@@ -514,9 +514,24 @@ pub async fn handle_rename(
                     }
 
                     for other_uri in relevant_uris {
-                        if let Some(other_doc) =
+                        let other_doc = if let Some(doc) =
                             backend.documents.get(&other_uri).map(|r| r.value().clone())
                         {
+                            Some(doc)
+                        } else if let Ok(path) = other_uri.to_file_path()
+                            && let Ok(content) = std::fs::read_to_string(&path)
+                        {
+                            Some(std::sync::Arc::new(
+                                graphox_core::DocumentState::new_from_thread_local(
+                                    other_uri.clone(),
+                                    &content,
+                                    backend.get_position_encoding(),
+                                ),
+                            ))
+                        } else {
+                            None
+                        };
+                        if let Some(other_doc) = other_doc {
                             let refs = other_doc.find_references_in_tree(&name, true);
                             let filtered_refs: Vec<Location> = refs
                                 .into_iter()
@@ -591,9 +606,24 @@ pub async fn handle_rename(
                 }
 
                 for other_uri in relevant_uris {
-                    if let Some(other_doc) =
+                    let other_doc = if let Some(doc) =
                         backend.documents.get(&other_uri).map(|r| r.value().clone())
                     {
+                        Some(doc)
+                    } else if let Ok(path) = other_uri.to_file_path()
+                        && let Ok(content) = std::fs::read_to_string(&path)
+                    {
+                        Some(std::sync::Arc::new(
+                            graphox_core::DocumentState::new_from_thread_local(
+                                other_uri.clone(),
+                                &content,
+                                backend.get_position_encoding(),
+                            ),
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some(other_doc) = other_doc {
                         let refs = other_doc.find_references_in_tree(&name, true);
                         if !refs.is_empty() {
                             let edits: Vec<TextEdit> = refs

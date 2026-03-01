@@ -24,7 +24,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
 
     let mut global_used_fragments = ahash::AHashSet::default();
     for doc in workspace_metadata.documents.values() {
-        for spread in &doc.fragment_spreads {
+        for spread in doc.fragment_spreads.iter() {
             global_used_fragments.insert(spread.clone());
         }
     }
@@ -37,7 +37,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
             .get_project_for_path(&doc.uri.to_file_path().unwrap_or_default())
             .and_then(|p| p.import().map(Arc::from));
 
-        for frag in doc.fragments() {
+        for frag in doc.fragments.iter() {
             if frag.is_public {
                 global_public_fragments.push(FragmentCompletionInfo {
                     name: frag.name.clone(),

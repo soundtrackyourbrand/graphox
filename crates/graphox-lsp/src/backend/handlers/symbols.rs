@@ -2,6 +2,7 @@ use crate::backend::state::Backend;
 use graphox_core::DocumentState;
 use graphox_features::semantic_tokens::DocumentSemanticTokens;
 use graphox_features::symbols::DocumentSymbols;
+use std::sync::Arc;
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -45,7 +46,25 @@ pub async fn handle_workspace_symbol(
                     let urls = entry.value();
                     // Fetch each document that contains this fragment
                     for url in urls {
-                        if let Some(doc) = backend.documents.get(url).map(|e| e.value().clone()) {
+                        let doc_arc = if let Some(doc) =
+                            backend.documents.get(url).map(|e| e.value().clone())
+                        {
+                            Some(doc)
+                        } else if let Ok(path) = url.to_file_path()
+                            && let Ok(content) = std::fs::read_to_string(&path)
+                        {
+                            Some(Arc::new(
+                                graphox_core::DocumentState::new_from_thread_local(
+                                    url.clone(),
+                                    &content,
+                                    backend.get_position_encoding(),
+                                ),
+                            ))
+                        } else {
+                            None
+                        };
+
+                        if let Some(doc) = doc_arc {
                             // Find the specific fragment symbol
                             if let Some(sym) = find_symbol_by_name(&doc, frag_name) {
                                 #[allow(deprecated)]
@@ -74,7 +93,25 @@ pub async fn handle_workspace_symbol(
                     let occurrences = entry.value();
                     // Each occurrence is (schema_key, url) - collect unique URLs
                     for (_, url) in occurrences {
-                        if let Some(doc) = backend.documents.get(url).map(|e| e.value().clone()) {
+                        let doc_arc = if let Some(doc) =
+                            backend.documents.get(url).map(|e| e.value().clone())
+                        {
+                            Some(doc)
+                        } else if let Ok(path) = url.to_file_path()
+                            && let Ok(content) = std::fs::read_to_string(&path)
+                        {
+                            Some(Arc::new(
+                                graphox_core::DocumentState::new_from_thread_local(
+                                    url.clone(),
+                                    &content,
+                                    backend.get_position_encoding(),
+                                ),
+                            ))
+                        } else {
+                            None
+                        };
+
+                        if let Some(doc) = doc_arc {
                             // Find the specific operation symbol
                             if let Some(sym) = find_symbol_by_name(&doc, op_name) {
                                 #[allow(deprecated)]
@@ -90,6 +127,90 @@ pub async fn handle_workspace_symbol(
                                     container_name: sym.detail,
                                 });
                             }
+                        }
+                    }
+                }
+            }
+
+            // Phase 3: Query schemas for matching types
+            for entry in backend.schemas.iter() {
+                let schema = entry.value();
+                for (name, ty) in &schema.types {
+                    if name.to_lowercase().contains(&query) {
+                        // Find which file defines this type
+                        // For now, we can use the first file in the schema that defines it
+                        // Or we can just use the schema key to find the file
+                        if let Some(loc) = backend.find_type_definition_in_schema(schema, name) {
+                            #[allow(deprecated)]
+                            all_symbols.push(SymbolInformation {
+                                name: name.to_string(),
+                                kind: match ty {
+                                    apollo_compiler::schema::ExtendedType::Object(_) => {
+                                        SymbolKind::INTERFACE
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Interface(_) => {
+                                        SymbolKind::INTERFACE
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Enum(_) => {
+                                        SymbolKind::ENUM
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Scalar(_) => {
+                                        SymbolKind::VARIABLE
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Union(_) => {
+                                        SymbolKind::ENUM
+                                    }
+                                    apollo_compiler::schema::ExtendedType::InputObject(_) => {
+                                        SymbolKind::INTERFACE
+                                    }
+                                },
+                                tags: None,
+                                deprecated: None,
+                                location: loc,
+                                container_name: None,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Phase 4: Query subgraphs for matching types
+            for entry in backend.subgraphs.iter() {
+                let subgraph_infos = entry.value();
+                for info in subgraph_infos {
+                    for (name, ty) in &info.schema.types {
+                        if name.to_lowercase().contains(&query)
+                            && let Some(loc) =
+                                backend.find_type_definition_in_schema(&info.schema, name)
+                        {
+                            #[allow(deprecated)]
+                            all_symbols.push(SymbolInformation {
+                                name: name.to_string(),
+                                kind: match ty {
+                                    apollo_compiler::schema::ExtendedType::Object(_) => {
+                                        SymbolKind::INTERFACE
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Interface(_) => {
+                                        SymbolKind::INTERFACE
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Enum(_) => {
+                                        SymbolKind::ENUM
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Scalar(_) => {
+                                        SymbolKind::VARIABLE
+                                    }
+                                    apollo_compiler::schema::ExtendedType::Union(_) => {
+                                        SymbolKind::ENUM
+                                    }
+                                    apollo_compiler::schema::ExtendedType::InputObject(_) => {
+                                        SymbolKind::INTERFACE
+                                    }
+                                },
+                                tags: None,
+                                deprecated: None,
+                                location: loc,
+                                container_name: Some(format!("[{}]", info.name)),
+                            });
                         }
                     }
                 }

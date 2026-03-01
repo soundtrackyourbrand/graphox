@@ -978,28 +978,66 @@ pub async fn lsp_request_diagnostics(
 // Performance Test Helpers
 // =============================================================================
 
-/// Measure current memory usage in bytes (platform-specific).
+/// Measure current resident set size (RSS) in bytes (platform-specific).
+/// Takes multiple samples and returns the minimum to filter out temporary spikes.
 pub fn measure_memory_usage() -> usize {
-    #[cfg(target_os = "macos")]
-    {
-        let mut info: libc::rusage = unsafe { std::mem::zeroed() };
-        unsafe {
-            libc::getrusage(libc::RUSAGE_SELF, &mut info);
+    let mut min_rss = usize::MAX;
+
+    for _ in 0..3 {
+        let current_rss = {
+            #[cfg(target_os = "macos")]
+            {
+                use std::mem;
+                let mut info: libc::mach_task_basic_info = unsafe { mem::zeroed() };
+                let mut count = libc::MACH_TASK_BASIC_INFO_COUNT;
+                #[allow(deprecated)]
+                let ret = unsafe {
+                    libc::task_info(
+                        libc::mach_task_self(),
+                        libc::MACH_TASK_BASIC_INFO,
+                        &mut info as *mut libc::mach_task_basic_info as *mut libc::integer_t,
+                        &mut count,
+                    )
+                };
+                if ret == libc::KERN_SUCCESS {
+                    info.resident_size as usize
+                } else {
+                    0
+                }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                if let Ok(content) = std::fs::read_to_string("/proc/self/statm") {
+                    let parts: Vec<&str> = content.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(pages) = parts[1].parse::<usize>() {
+                            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+                            pages * page_size
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            }
+            #[cfg(target_os = "windows")]
+            {
+                0
+            }
+        };
+
+        if current_rss > 0 && current_rss < min_rss {
+            min_rss = current_rss;
         }
-        info.ru_maxrss as usize
+
+        // Small pause between samples
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    #[cfg(target_os = "linux")]
-    {
-        let mut info: libc::rusage = unsafe { std::mem::zeroed() };
-        unsafe {
-            libc::getrusage(libc::RUSAGE_SELF, &mut info);
-        }
-        info.ru_maxrss as usize
-    }
-    #[cfg(target_os = "windows")]
-    {
-        0
-    }
+
+    if min_rss == usize::MAX { 0 } else { min_rss }
 }
 
 /// Create a complex schema A with N types (E-commerce themed).

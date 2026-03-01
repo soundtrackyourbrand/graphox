@@ -46,7 +46,7 @@ impl DocumentHover for DocumentState {
         schema: &Schema,
         subgraphs: &[graphox_core::schema::SubgraphInfo],
         fragment_index: &ahash::AHashMap<Arc<str>, (Arc<DocumentState>, FragmentDef)>,
-        _documents: &graphox_core::types::DocumentsMap,
+        documents: &graphox_core::types::DocumentsMap,
         visited_fragments: &mut AHashSet<Arc<str>>,
     ) -> Option<SloClass> {
         let mut worst: Option<SloClass> = None;
@@ -126,7 +126,7 @@ impl DocumentHover for DocumentState {
                                     schema,
                                     subgraphs,
                                     fragment_index,
-                                    _documents,
+                                    documents,
                                     visited_fragments,
                                 )
                             {
@@ -169,7 +169,7 @@ impl DocumentHover for DocumentState {
                                                         schema,
                                                         subgraphs,
                                                         fragment_index,
-                                                        _documents,
+                                                        documents,
                                                         visited_fragments,
                                                     )
                                             {
@@ -202,7 +202,7 @@ impl DocumentHover for DocumentState {
                                     schema,
                                     subgraphs,
                                     fragment_index,
-                                    _documents,
+                                    documents,
                                     visited_fragments,
                                 )
                             {
@@ -212,7 +212,6 @@ impl DocumentHover for DocumentState {
                         _ => {}
                     }
                 }
-                _ => {}
             }
         }
 
@@ -228,7 +227,17 @@ impl DocumentHover for DocumentState {
     ) -> Option<Hover> {
         let byte_offset = self.position_to_byte(position);
 
+        // Build fragment index once per hover request
+        let mut fragment_index = ahash::AHashMap::default();
+        for entry in documents.iter() {
+            let doc = entry.value();
+            for frag in doc.fragments() {
+                fragment_index.insert(frag.name.clone(), (doc.clone(), frag.clone()));
+            }
+        }
+
         for block in self.get_graphql_trees() {
+            let block: &GraphQLBlock = block;
             let offset = block.offset;
             let root = block.tree.root_node();
             let tree_len = root.end_byte();
@@ -456,7 +465,7 @@ impl DocumentHover for DocumentState {
                                         schema,
                                         project_subgraphs,
                                         &fragment_index,
-                                        _documents,
+                                        documents,
                                         &mut visited,
                                     ) {
                                         md.push_str("\n\n---\n\n**Worst SLO:** ");
@@ -504,7 +513,7 @@ impl DocumentHover for DocumentState {
                                     schema,
                                     project_subgraphs,
                                     &fragment_index,
-                                    _documents,
+                                    documents,
                                     &mut visited,
                                 ) {
                                     md.push_str("\n\n---\n\n**Worst SLO:** ");

@@ -9,8 +9,8 @@ use apollo_compiler::Schema;
 use apollo_compiler::validation::Valid;
 use dashmap::{DashMap, DashSet};
 use graphox_core::types::{
-    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDefsMap,
-    FragmentDependentsMap, FragmentSpreadsMap, OperationNamesMap, PackageRootsMap,
+    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDependentsMap, MetadataMap,
+    OperationNamesMap,
 };
 use graphox_core::utils::{find_operation_range, push_duplicate_operation_diagnostic};
 use graphox_core::{Config, DocumentState};
@@ -30,9 +30,7 @@ pub struct ValidationParams<'a> {
     pub client: &'a Client,
     pub documents: &'a DocumentsMap,
     pub config: &'a Config,
-    pub fragment_defs: &'a FragmentDefsMap,
-    pub fragment_spreads: &'a FragmentSpreadsMap,
-    pub package_roots: &'a PackageRootsMap,
+    pub metadata: &'a MetadataMap,
     pub validated_schemas: &'a Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     pub valid_empty_schema: &'a Arc<Valid<Schema>>,
     pub workspace_loaded: &'a Arc<AtomicBool>,
@@ -75,15 +73,14 @@ pub async fn validate_uris(
         None
     };
 
-    let used_fragments = get_used_fragments(params.fragment_spreads);
+    let used_fragments = get_used_fragments(params.metadata);
     let workspace_loaded = params.workspace_loaded.load(Ordering::SeqCst);
     let total = uris.len();
 
     // Collect fragment metadata once for all documents being validated
     let all_fragments = super::fragment_manager::collect_fragment_metadata(
-        params.fragment_defs,
+        params.metadata,
         params.config,
-        params.package_roots,
         params.subgraphs,
         params.documents,
         params.schemas,
@@ -258,11 +255,12 @@ pub fn get_affected_uris(
         }
 
         if let Some(dependents) = fragment_dependents.get(&frag_name) {
-            for dep_uri in dependents.value() {
+            for dep_uri in dependents.value().iter() {
+                let dep_uri: &Url = dep_uri;
                 if uris_to_validate.insert(dep_uri.clone())
                     && let Some(doc) = documents.get(dep_uri).map(|r| r.value().clone())
                 {
-                    for f in doc.fragments() {
+                    for f in doc.fragments.iter() {
                         to_process.push(f.name.clone());
                     }
                 }
@@ -272,7 +270,8 @@ pub fn get_affected_uris(
 
     for spread_name in affected_spread_names {
         if let Some(definitions) = fragment_definitions.get(&spread_name) {
-            for def_uri in definitions.value() {
+            for def_uri in definitions.value().iter() {
+                let def_uri: &Url = def_uri;
                 uris_to_validate.insert(def_uri.clone());
             }
         }
@@ -282,10 +281,10 @@ pub fn get_affected_uris(
 }
 
 /// Gets all used fragments across the workspace
-pub fn get_used_fragments(fragment_spreads: &FragmentSpreadsMap) -> AHashSet<Arc<str>> {
+pub fn get_used_fragments(metadata: &MetadataMap) -> AHashSet<Arc<str>> {
     let mut used = AHashSet::default();
-    for entry in fragment_spreads.iter() {
-        for spread in entry.value() {
+    for entry in metadata.iter() {
+        for spread in entry.value().fragment_spreads.iter() {
             used.insert(spread.clone());
         }
     }
@@ -313,19 +312,13 @@ pub fn get_schema_for_doc(
 pub fn get_fragments_for_doc(
     doc: &DocumentState,
     config: &Config,
-    fragment_defs: &FragmentDefsMap,
-    package_roots: &PackageRootsMap,
+    metadata: &MetadataMap,
     subgraphs: &Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
     documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
 ) -> Vec<FragmentCompletionInfo> {
     let all_fragments = super::fragment_manager::collect_fragment_metadata(
-        fragment_defs,
-        config,
-        package_roots,
-        subgraphs,
-        documents,
-        schemas,
+        metadata, config, subgraphs, documents, schemas,
     );
 
     get_fragments_for_doc_with_metadata(doc.package_root.as_deref(), &all_fragments)
@@ -371,7 +364,7 @@ fn add_duplicate_operation_diagnostics(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Check each operation in this document
-    for op in doc.operations() {
+    for op in doc.operations.iter() {
         if let Some(name) = &op.name {
             // Look up this operation name in the index
             if let Some(entry) = operation_names.get(name) {
