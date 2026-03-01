@@ -174,6 +174,28 @@ pub fn resolve_symbol_at_node(
                 description,
             });
         }
+
+        // Check if this name could be an enum value in an argument context
+        // In queries, enum values are parsed as names, not enum_value nodes
+        if let Some(parent) = node.parent()
+            && (parent.kind() == "argument"
+                || parent.kind() == "arguments"
+                || parent.kind() == "object_field"
+                || is_argument_value_context(parent))
+            && let Some((enum_name, val_def)) = resolve_enum_value_from_context(
+                doc,
+                node,
+                offset,
+                cursor_offset,
+                symbol_name.as_str(),
+                schema,
+            )
+        {
+            return Some(SemanticSymbol::EnumValue {
+                enum_name,
+                val_def: (**val_def).clone(),
+            });
+        }
     }
 
     // 4. Field/Argument/Directive resolution
@@ -214,7 +236,7 @@ pub fn resolve_symbol_at_node(
                         {
                             return Some(SemanticSymbol::BuiltinField {
                                 name: field_name,
-                                parent_type,
+                                parent_type: parent_type.clone(),
                             });
                         }
 
@@ -223,7 +245,7 @@ pub fn resolve_symbol_at_node(
                                 obj.fields.get(field_name.as_str()).map(|c| &c.node)
                             }
                             schema::ExtendedType::Interface(iface) => {
-                                iface.fields.get(field_name.as_str()).map(|c| &**c)
+                                iface.fields.get(field_name.as_str()).map(|c| &c.node)
                             }
                             _ => None,
                         }?;
@@ -584,7 +606,7 @@ pub fn find_expected_ast_type_for_node(
                     }
                 }
                 if let Some(text) = var_type_text {
-                    return Some(parse_type_string(&text));
+                    return parse_type_string(&text);
                 }
             }
             "variable_definitions" | "arguments_definition" => {
@@ -613,7 +635,7 @@ pub fn find_expected_ast_type_for_node(
                             }
                         }
                         if let Some(text) = var_type_text {
-                            return Some(parse_type_string(&text));
+                            return parse_type_string(&text);
                         }
                     }
                 }
@@ -752,7 +774,7 @@ pub fn find_expected_ast_type_for_node(
                                 if let Some(parent_input_type) =
                                     find_expected_type_for_node(doc, parent, offset, None, schema)
                                     && let schema::ExtendedType::InputObject(input_obj) =
-                                        parent_input_type
+                                        parent_input_type.clone()
                                 {
                                     let field_def = input_obj.fields.get(field_name.as_str())?;
                                     return Some((*field_def.ty).clone());
@@ -785,6 +807,108 @@ pub fn find_expected_ast_type_for_node(
         }
         curr = current_node.parent();
     }
+    None
+}
+
+/// Check if a node is in an argument value context (inside an argument's value)
+fn is_argument_value_context(node: Node) -> bool {
+    let mut curr = Some(node);
+    while let Some(current) = curr {
+        if current.kind() == "argument" {
+            return true;
+        }
+        // Stop if we reach a field or operation boundary
+        if matches!(
+            current.kind(),
+            "field" | "operation_definition" | "fragment_definition"
+        ) {
+            break;
+        }
+        curr = current.parent();
+    }
+    false
+}
+
+/// Try to resolve a name as an enum value based on the argument context
+fn resolve_enum_value_from_context(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+    _cursor_offset: usize,
+    name: &str,
+    schema: &Schema,
+) -> Option<(
+    String,
+    apollo_compiler::schema::Component<apollo_compiler::ast::EnumValueDefinition>,
+)> {
+    // Find the containing argument
+    let mut curr = Some(node);
+    let arg_node = loop {
+        if let Some(current) = curr {
+            if current.kind() == "argument" {
+                break Some(current);
+            }
+            curr = current.parent();
+        } else {
+            break None;
+        }
+    }?;
+
+    let arg_name = doc
+        .find_child_by_kind(arg_node, "name")
+        .map(|n| doc.get_node_text(n, offset))?;
+
+    // Find the parent field or directive
+    let parent = arg_node.parent()?;
+    let target_node = if parent.kind() == "arguments" {
+        parent.parent()?
+    } else {
+        parent
+    };
+
+    // Get the expected type for this argument
+    let arg_type_name = if target_node.kind() == "field" {
+        let parent_type = doc.find_parent_type_for_node(target_node, offset, schema)?;
+        let field_name_node = doc.extract_field_components(target_node).name?;
+        let field_name = doc.get_node_text(field_name_node, offset);
+        let field_def = match &parent_type {
+            schema::ExtendedType::Object(obj) => {
+                obj.fields.get(field_name.as_str()).map(|c| &c.node)
+            }
+            schema::ExtendedType::Interface(iface) => {
+                iface.fields.get(field_name.as_str()).map(|c| &c.node)
+            }
+            _ => None,
+        }?;
+        field_def
+            .arguments
+            .iter()
+            .find(|a| a.name.as_str() == arg_name)?
+            .ty
+            .inner_named_type()
+            .to_string()
+    } else if target_node.kind() == "directive" {
+        let dir_name_node = doc.find_child_by_kind(target_node, "name")?;
+        let dir_name = doc.get_node_text(dir_name_node, offset);
+        let dir_def = schema.directive_definitions.get(dir_name.as_str())?;
+        dir_def
+            .arguments
+            .iter()
+            .find(|a| a.name.as_str() == arg_name)?
+            .ty
+            .inner_named_type()
+            .to_string()
+    } else {
+        return None;
+    };
+
+    // Check if the type is an enum and the value is a valid enum value
+    if let Some(schema::ExtendedType::Enum(enm)) = schema.types.get(arg_type_name.as_str())
+        && let Some(val_def) = enm.values.get(name)
+    {
+        return Some((arg_type_name, val_def.clone()));
+    }
+
     None
 }
 

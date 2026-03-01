@@ -32,7 +32,7 @@ pub trait DocumentDefinition {
     fn find_argument_in_field_definition(
         &self,
         type_name: &str,
-        field_name: &str,
+        field_name: Option<&str>,
         arg_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location>;
@@ -252,7 +252,7 @@ impl DocumentDefinition for DocumentState {
     fn find_argument_in_field_definition(
         &self,
         type_name: &str,
-        field_name: &str,
+        field_name: Option<&str>,
         arg_name: &str,
         query: &tree_sitter::Query,
     ) -> Option<Location> {
