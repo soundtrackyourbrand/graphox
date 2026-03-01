@@ -286,3 +286,49 @@ async fn test_completion_disabled_inside_inline_comment() {
     let items = completion_items_array(&result);
     assert!(items.is_empty(), "Expected no completions inside comments");
 }
+
+// ============================================================================
+// Additional Keyword Prefix Tests
+// ============================================================================
+
+async fn run_keyword_prefix_case(prefix: &str, expected_label: &str) {
+    let schema = "type Query { id: ID }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let text_with_cursor = format!("{prefix}|");
+    let (text, position) = with_cursor(&text_with_cursor);
+    let uri = write_project_file(&dir, "test.graphql", &text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
+
+    let result = lsp_request_completion(&mut service, uri.clone(), position).await;
+    let items = completion_items_array(&result);
+
+    assert!(
+        items.iter().any(|i| i.label == expected_label),
+        "Expected '{expected_label}' for prefix '{prefix}': {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_keyword_prefix_table_driven() {
+    let cases: Vec<(&str, &str)> = vec![
+        ("mu", "mutation"),
+        ("su", "subscription"),
+        ("que", "query"),
+        ("mut", "mutation"),
+        ("sub", "subscription"),
+        ("in", "input"),
+        ("un", "union"),
+        ("en", "enum"),
+        ("sc", "scalar"),
+        ("ex", "extend"),
+        ("di", "directive"),
+    ];
+
+    for (prefix, expected_label) in cases {
+        run_keyword_prefix_case(prefix, expected_label).await;
+    }
+}

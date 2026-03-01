@@ -86,7 +86,7 @@ pub fn resolve_symbol_at_node(
 
         let mut curr = var_node;
         while let Some(parent) = curr.parent() {
-            if parent.kind() == "operation_definition" {
+            if parent.kind() == "operation_definition" || parent.kind() == "fragment_definition" {
                 let variables = ast_utils::extract_operation_variables(doc, parent, offset);
                 if let Some((_, ty_text)) = variables.iter().find(|(name, _)| name == &var_name) {
                     return Some(SemanticSymbol::Variable {

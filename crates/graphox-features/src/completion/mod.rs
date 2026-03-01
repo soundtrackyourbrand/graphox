@@ -222,7 +222,11 @@ pub trait DocumentCompletion {
 
     fn is_query_root(&self, ty: &schema::ExtendedType, schema: &Schema) -> bool;
 
-    fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem>;
+    fn get_all_type_completions(
+        &self,
+        schema: &Schema,
+        prefix: Option<&str>,
+    ) -> Vec<CompletionItem>;
 
     fn get_applicable_type_completions(
         &self,
@@ -1149,8 +1153,12 @@ impl DocumentCompletion for DocumentState {
             .unwrap_or(false)
     }
 
-    fn get_all_type_completions(&self, schema: &Schema) -> Vec<CompletionItem> {
-        values::get_all_type_completions(schema)
+    fn get_all_type_completions(
+        &self,
+        schema: &Schema,
+        prefix: Option<&str>,
+    ) -> Vec<CompletionItem> {
+        values::get_all_type_completions(schema, prefix)
     }
 
     fn get_applicable_type_completions(

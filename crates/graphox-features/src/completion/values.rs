@@ -134,12 +134,18 @@ pub fn get_implements_interface_completions(schema: &Schema) -> Vec<CompletionIt
     items
 }
 
-pub fn get_all_type_completions(schema: &Schema) -> Vec<CompletionItem> {
+pub fn get_all_type_completions(schema: &Schema, prefix: Option<&str>) -> Vec<CompletionItem> {
     let mut items = Vec::new();
     let prefix_norm = prefix.map(str::to_lowercase);
 
     for (name, def) in &schema.types {
         if name.starts_with("__") {
+            continue;
+        }
+        // Filter by prefix if provided
+        if let Some(p) = prefix_norm.as_deref()
+            && !name.to_lowercase().starts_with(p)
+        {
             continue;
         }
         let (kind, type_kind) = match def {
