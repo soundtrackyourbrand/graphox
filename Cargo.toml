@@ -135,6 +135,10 @@ name = "call_hierarchy"
 harness = false
 
 [[bench]]
+name = "subgraph_slo"
+harness = false
+
+[[bench]]
 name = "tree_clone"
 harness = false
 
