@@ -81,39 +81,18 @@ impl CodegenThrottle {
                                 // Drain the channel of any requests that came in during sleep
                                 let mut saw_none = projects_to_run.is_empty();
                                 while let Ok(p) = rx.try_recv() {
-                                    if let Some(p) = p {
-                                        if !saw_none {
-                                            projects_to_run.insert(p);
-                                        }
-                                    } else {
-                                        saw_none = true;
-                                        projects_to_run.clear();
-                                    }
+                                    merge_project_msg(&mut saw_none, &mut projects_to_run, p);
                                 }
                             }
                             res = rx.recv() => {
                                 let mut saw_none = projects_to_run.is_empty();
                                 if let Some(p) = res {
-                                    if let Some(p) = p {
-                                        if !saw_none {
-                                            projects_to_run.insert(p);
-                                        }
-                                    } else {
-                                        saw_none = true;
-                                        projects_to_run.clear();
-                                    }
+                                    merge_project_msg(&mut saw_none, &mut projects_to_run, p);
                                 }
                                 // Got another request during sleep, continue waiting
                                 // and drain any other queued requests
                                 while let Ok(p) = rx.try_recv() {
-                                    if let Some(p) = p {
-                                        if !saw_none {
-                                            projects_to_run.insert(p);
-                                        }
-                                    } else {
-                                        saw_none = true;
-                                        projects_to_run.clear();
-                                    }
+                                    merge_project_msg(&mut saw_none, &mut projects_to_run, p);
                                 }
                                 sleep(wait_time).await;
                             }
@@ -124,14 +103,7 @@ impl CodegenThrottle {
                 // Drain any remaining queued requests
                 let mut saw_none = projects_to_run.is_empty();
                 while let Ok(p) = rx.try_recv() {
-                    if let Some(p) = p {
-                        if !saw_none {
-                            projects_to_run.insert(p);
-                        }
-                    } else {
-                        saw_none = true;
-                        projects_to_run.clear();
-                    }
+                    merge_project_msg(&mut saw_none, &mut projects_to_run, p);
                 }
 
                 let final_projects = if projects_to_run.is_empty() {
@@ -163,5 +135,21 @@ impl CodegenThrottle {
     pub fn request_codegen(&self, project_key: Option<String>) {
         // Ignore send errors (would only happen if the receiver task has exited)
         let _ = self.tx.send(project_key);
+    }
+}
+
+/// Helper function to merge a project message into the set of projects to run
+fn merge_project_msg(
+    saw_none: &mut bool,
+    projects_to_run: &mut HashSet<String>,
+    msg: Option<String>,
+) {
+    if let Some(p) = msg {
+        if !*saw_none {
+            projects_to_run.insert(p);
+        }
+    } else {
+        *saw_none = true;
+        projects_to_run.clear();
     }
 }

@@ -228,7 +228,13 @@ pub async fn run_codegen(
 
         // Process files in parallel with immediate writes
         project_files.par_iter().for_each(|path| {
-            let uri = tower_lsp::lsp_types::Url::from_file_path(path).unwrap();
+            let uri = match tower_lsp::lsp_types::Url::from_file_path(path) {
+                Ok(u) => u,
+                Err(_) => {
+                    log::warn!("Failed to convert path to URL: {:?}", path);
+                    return;
+                }
+            };
             let doc_ref = match documents.get(&uri) {
                 Some(doc) if !doc.get_graphql_trees().is_empty() => doc,
                 _ => return,
@@ -283,14 +289,16 @@ pub async fn run_codegen(
                             include_prefix_path.as_deref(),
                         );
                         let abs_out_dir = if out_path.is_absolute() {
-                            out_path.parent().unwrap().to_path_buf()
-                        } else {
-                            config
-                                .base_dir()
-                                .join(out_path)
+                            out_path
                                 .parent()
-                                .unwrap()
-                                .to_path_buf()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| out_path.clone())
+                        } else {
+                            let joined = config.base_dir().join(&out_path);
+                            joined
+                                .parent()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| joined)
                         };
 
                         let abs_masking_dir = config.base_dir().join(out_dir);
