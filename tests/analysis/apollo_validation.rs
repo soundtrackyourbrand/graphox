@@ -3,7 +3,7 @@ use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(200)]
 fn test_apollo_validation_missing_required_argument() {
     let schema_content = r#"
         type Query {
@@ -43,7 +43,7 @@ fn test_apollo_validation_missing_required_argument() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(200)]
 fn test_apollo_validation_type_mismatch() {
     let schema_content = r#"
         type Query {

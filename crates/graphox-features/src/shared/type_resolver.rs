@@ -181,6 +181,7 @@ pub fn resolve_symbol_at_node(
             && (parent.kind() == "argument"
                 || parent.kind() == "arguments"
                 || parent.kind() == "object_field"
+                || parent.kind() == "enum_value"
                 || is_argument_value_context(parent))
             && let Some((enum_name, val_def)) = resolve_enum_value_from_context(
                 doc,
@@ -349,18 +350,49 @@ pub fn resolve_symbol_at_node(
                     });
                 }
             }
-            "enum_value" => {
-                let val_name = doc.get_node_text(current_node, offset);
-                let (root_type, path) = resolve_input_context(doc, current_node, offset, schema)?;
-                let enum_type_name = resolve_type_from_path(schema, root_type, &path)?;
-                if let Some(schema::ExtendedType::Enum(enm)) =
-                    schema.types.get(enum_type_name.as_str())
-                {
-                    let val_def = enm.values.get(val_name.as_str())?;
-                    return Some(SemanticSymbol::EnumValue {
-                        enum_name: enum_type_name,
-                        val_def: val_def.as_ref().clone(),
-                    });
+            "enum_value" | "enum_value_definition" => {
+                let name_node = if current_node.kind() == "enum_value" {
+                    doc.find_child_by_kind(current_node, "name")
+                        .unwrap_or(current_node)
+                } else {
+                    // (enum_value_definition (enum_value (name)))
+                    let ev = doc.find_child_by_kind(current_node, "enum_value")?;
+                    doc.find_child_by_kind(ev, "name")?
+                };
+
+                let val_name = doc.get_node_text(name_node, offset);
+
+                if current_node.kind() == "enum_value_definition" {
+                    // Find containing enum name
+                    let parent_enum = doc.find_ancestor_by_kinds(
+                        current_node,
+                        &["enum_type_definition", "enum_type_extension"],
+                    )?;
+                    let enum_name_node = doc.find_child_by_kind(parent_enum, "name")?;
+                    let enum_name = doc.get_node_text(enum_name_node, offset);
+
+                    if let Some(schema::ExtendedType::Enum(enm)) =
+                        schema.types.get(enum_name.as_str())
+                        && let Some(val_def) = enm.values.get(val_name.as_str())
+                    {
+                        return Some(SemanticSymbol::EnumValue {
+                            enum_name,
+                            val_def: (*val_def.node).clone(),
+                        });
+                    }
+                } else {
+                    let (root_type, path) =
+                        resolve_input_context(doc, current_node, offset, schema)?;
+                    let enum_type_name = resolve_type_from_path(schema, root_type, &path)?;
+                    if let Some(schema::ExtendedType::Enum(enm)) =
+                        schema.types.get(enum_type_name.as_str())
+                    {
+                        let val_def = enm.values.get(val_name.as_str())?;
+                        return Some(SemanticSymbol::EnumValue {
+                            enum_name: enum_type_name,
+                            val_def: (*val_def.node).clone(),
+                        });
+                    }
                 }
             }
             "object_field" => {
@@ -854,9 +886,11 @@ fn resolve_enum_value_from_context(
         }
     }?;
 
-    let arg_name = doc
-        .find_child_by_kind(arg_node, "name")
-        .map(|n| doc.get_node_text(n, offset))?;
+    let arg_name_node = doc.find_child_by_kind(arg_node, "name")?;
+    if arg_name_node == node {
+        return None;
+    }
+    let arg_name = doc.get_node_text(arg_name_node, offset);
 
     // Find the parent field or directive
     let parent = arg_node.parent()?;

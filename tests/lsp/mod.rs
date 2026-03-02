@@ -29,7 +29,7 @@ mod multiple_schemas;
 mod position_encoding;
 mod progress_reporting;
 mod pull_diagnostics;
-mod references;
+pub mod references;
 mod rename;
 mod schema_scoping;
 mod selection_ranges;

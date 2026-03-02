@@ -1337,6 +1337,8 @@ impl DocumentState {
                 | "fragment_definition"
                 | "selection_set"
                 | "selection"
+                | "argument"
+                | "enum_value"
                 | "object_type_definition"
                 | "interface_type_definition"
                 | "enum_type_definition"
@@ -1409,7 +1411,47 @@ impl DocumentState {
                         }
                     }
                 }
-                "selection_set" => {
+                "argument" => {
+                    if let Some(parent_type) = current_type.clone()
+                        && let Some(parent) = node.parent()
+                        && let Some(field) = if parent.kind() == "arguments" {
+                            parent.parent()
+                        } else {
+                            Some(parent)
+                        }
+                        && field.kind() == "field"
+                        && let Some(field_name_node) = self.extract_field_components(field).name
+                    {
+                        let field_name = self.get_node_text(field_name_node, offset);
+                        let field_def = match &parent_type {
+                            ExtendedType::Object(obj) => obj.fields.get(field_name.as_str()),
+                            ExtendedType::Interface(iface) => iface.fields.get(field_name.as_str()),
+                            _ => None,
+                        };
+                        if let Some(field_def) = field_def
+                            && let Some(arg_name_node) = self.find_child_by_kind(node, "name")
+                        {
+                            let arg_name = self.get_node_text(arg_name_node, offset);
+                            if let Some(arg_def) = field_def
+                                .arguments
+                                .iter()
+                                .find(|a| a.name.as_str() == arg_name)
+                            {
+                                current_type = schema
+                                    .types
+                                    .get(arg_def.ty.inner_named_type().as_str())
+                                    .cloned();
+                            } else {
+                                current_type = None;
+                            }
+                        } else {
+                            current_type = None;
+                        }
+                    } else {
+                        current_type = None;
+                    }
+                }
+                "enum_value" | "selection_set" => {
                     if let Some(parent) = node.parent() {
                         match parent.kind() {
                             "field" => {

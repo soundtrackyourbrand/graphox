@@ -85,7 +85,25 @@ pub async fn handle_references(
             let symbol_name = doc.get_symbol_at_position(position);
 
             // Try to resolve the semantic symbol at position for type-aware references
-            if let Some(resolved) = resolve_symbol_at_position(&doc, position, &schema) {
+            let resolved = resolve_symbol_at_position(&doc, position, &schema);
+
+            // If semantic resolution completely fails (returns None), check if the symbol exists in schema
+            // Unknown symbols (not in schema) should return None rather than falling back to text search
+            if resolved.is_none() {
+                if let Some(ref name) = symbol_name {
+                    let exists_in_schema = schema.types.get(name.as_str()).is_some()
+                        || schema.directive_definitions.get(name.as_str()).is_some()
+                        || field_exists_in_schema(&schema, name)
+                        || enum_value_exists_in_schema(&schema, name);
+                    if !exists_in_schema {
+                        return Ok(None);
+                    }
+                } else {
+                    return Ok(None);
+                }
+            }
+
+            if let Some(resolved) = resolved {
                 match resolved {
                     ResolvedSymbol::Field {
                         field_name,
@@ -136,123 +154,60 @@ pub async fn handle_references(
                             Some(all_refs)
                         });
                     }
-                    _ => {}
-                }
-            }
-
-            // Fallback to name-based references for other symbol types
-            if let Some(name) = symbol_name {
-                if let Some(target_def) = backend.lookup_fragment_in_index(&name, &doc) {
-                    let mut relevant_uris = std::collections::HashSet::new();
-                    if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
-                        for u in def_uris.iter() {
-                            relevant_uris.insert(u.clone());
-                        }
+                    ResolvedSymbol::Type { name } => {
+                        return Ok(find_type_references_across_workspace(
+                            backend,
+                            &name,
+                            include_declaration,
+                        ));
                     }
-                    if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
-                        for u in dep_uris.iter() {
-                            relevant_uris.insert(u.clone());
-                        }
+                    ResolvedSymbol::Fragment { name } => {
+                        return Ok(find_fragment_references_across_workspace(
+                            backend,
+                            &uri,
+                            &name,
+                            include_declaration,
+                        ));
                     }
-
-                    let all_references: Vec<Location> = relevant_uris
-                        .iter()
-                        .par_bridge()
-                        .filter_map(|u| backend.documents.get(u).map(|d| d.value().clone()))
-                        .flat_map(|other_doc| {
-                            let refs =
-                                other_doc.find_references_in_tree(&name, include_declaration);
-                            refs.into_iter()
-                                .filter(|_| {
-                                    if let Some(resolved) =
-                                        backend.lookup_fragment_in_index(&name, &other_doc)
-                                    {
-                                        return resolved.uri == target_def.uri
-                                            && resolved.range == target_def.range;
-                                    }
-                                    false
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .collect();
-
-                    return Ok(if all_references.is_empty() {
-                        None
-                    } else {
-                        Some(all_references)
-                    });
-                }
-
-                if name.starts_with('$') {
-                    let mut all_refs =
-                        doc.find_variable_references(&name, position, include_declaration);
-
-                    // Find transitive references in fragments
-                    if let Some((op_node, offset)) = doc.find_containing_operation_node(position) {
-                        let initial_spreads = doc.get_fragment_spreads_in_node(op_node, offset);
-                        let frag_uris = backend
-                            .get_transitive_fragments(initial_spreads, doc.package_root.as_ref());
-
-                        for f_uri in frag_uris {
-                            if let Some(f_doc) =
-                                backend.documents.get(&f_uri).map(|r| r.value().clone())
-                            {
-                                let frag_refs = f_doc.find_references_in_tree(&name, false);
-                                all_refs.extend(frag_refs);
-                            }
-                        }
+                    ResolvedSymbol::EnumValue {
+                        enum_name,
+                        value_name,
+                    } => {
+                        return Ok(find_enum_value_references_across_workspace(
+                            backend,
+                            &enum_name,
+                            &value_name,
+                            include_declaration,
+                        ));
                     }
-
-                    return Ok(if all_refs.is_empty() {
-                        None
-                    } else {
-                        Some(all_refs)
-                    });
-                }
-
-                let mut relevant_uris = std::collections::HashSet::new();
-
-                if let Some(def_uris) = backend.fragment_definitions.get(&*name) {
-                    for u in def_uris.iter() {
-                        relevant_uris.insert(u.clone());
+                    ResolvedSymbol::Argument {
+                        parent_type_name,
+                        field_name,
+                        arg_name,
+                    } => {
+                        return Ok(find_argument_references_across_workspace(
+                            backend,
+                            &parent_type_name,
+                            field_name.as_deref(),
+                            &arg_name,
+                            include_declaration,
+                        ));
+                    }
+                    ResolvedSymbol::InputField {
+                        parent_type_name,
+                        field_name,
+                    } => {
+                        return Ok(find_input_field_references_across_workspace(
+                            backend,
+                            &parent_type_name,
+                            &field_name,
+                            include_declaration,
+                        ));
+                    }
+                    ResolvedSymbol::Other => {
+                        return Ok(None);
                     }
                 }
-                if let Some(dep_uris) = backend.fragment_dependents.get(&*name) {
-                    for u in dep_uris.iter() {
-                        relevant_uris.insert(u.clone());
-                    }
-                }
-
-                let all_references: Vec<Location> = if relevant_uris.is_empty() {
-                    // Fallback to full scan if not found in fragment indices (could be a type/field/etc)
-                    backend
-                        .documents
-                        .iter()
-                        .par_bridge()
-                        .flat_map(|entry| {
-                            entry
-                                .value()
-                                .find_references_in_tree(&name, include_declaration)
-                        })
-                        .collect()
-                } else {
-                    relevant_uris
-                        .iter()
-                        .par_bridge()
-                        .filter_map(|u| backend.documents.get(u))
-                        .flat_map(|entry| {
-                            entry
-                                .value()
-                                .find_references_in_tree(&name, include_declaration)
-                        })
-                        .collect()
-                };
-
-                if all_references.is_empty() {
-                    return Ok(None);
-                }
-
-                return Ok(Some(all_references));
             }
 
             Ok(None)
@@ -295,6 +250,38 @@ enum ResolvedSymbol {
     Other,
 }
 
+/// Check if a field name exists in any type in the schema
+fn field_exists_in_schema(schema: &Schema, field_name: &str) -> bool {
+    for (_, type_def) in &schema.types {
+        match type_def {
+            apollo_compiler::schema::ExtendedType::Object(obj) => {
+                if obj.fields.get(field_name).is_some() {
+                    return true;
+                }
+            }
+            apollo_compiler::schema::ExtendedType::Interface(iface) => {
+                if iface.fields.get(field_name).is_some() {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Check if an enum value exists in any enum type in the schema
+fn enum_value_exists_in_schema(schema: &Schema, value_name: &str) -> bool {
+    for (_, type_def) in &schema.types {
+        if let apollo_compiler::schema::ExtendedType::Enum(enm) = type_def
+            && enm.values.get(value_name).is_some()
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn resolve_symbol_at_position(
     doc: &graphox_core::document::DocumentState,
     position: Position,
@@ -325,6 +312,38 @@ fn resolve_symbol_at_position(
                     field_name,
                     parent_type_name: parent_type,
                 });
+            }
+
+            // Check if we're on an enum_value in a schema
+            if node.kind() == "name"
+                && let Some(parent) = node.parent()
+                && parent.kind() == "enum_value"
+                && let Some(enum_name) = find_containing_enum_name(parent, doc, offset)
+            {
+                let value_name = doc.get_node_text(node, offset);
+
+                return Some(ResolvedSymbol::EnumValue {
+                    enum_name,
+                    value_name,
+                });
+            }
+
+            // Check if we're on an argument definition in a schema
+            if node.kind() == "name"
+                && let Some(parent) = node.parent()
+                && parent.kind() == "input_value_definition"
+            {
+                // Check if this is inside a field_definition (not a directive)
+                let arg_name = doc.get_node_text(node, offset);
+                if let Some((parent_type, field_name)) =
+                    find_containing_type_and_field_for_arg(parent, doc, offset)
+                {
+                    return Some(ResolvedSymbol::Argument {
+                        parent_type_name: parent_type,
+                        field_name: Some(field_name),
+                        arg_name,
+                    });
+                }
             }
 
             // Then try the standard semantic symbol resolution
@@ -401,6 +420,55 @@ fn find_containing_type_for_field_def(
     None
 }
 
+/// Find the enum name for an enum_value_definition node
+fn find_containing_enum_name(
+    node: tree_sitter::Node,
+    doc: &graphox_core::document::DocumentState,
+    offset: usize,
+) -> Option<String> {
+    let mut curr = node;
+    while let Some(parent) = curr.parent() {
+        if (parent.kind() == "enum_type_definition" || parent.kind() == "enum_type_extension")
+            && let Some(name_node) = doc.find_child_by_kind(parent, "name")
+        {
+            return Some(doc.get_node_text(name_node, offset));
+        }
+        curr = parent;
+    }
+    None
+}
+
+/// Find the parent type name and field name for an input_value_definition (argument)
+fn find_containing_type_and_field_for_arg(
+    node: tree_sitter::Node,
+    doc: &graphox_core::document::DocumentState,
+    offset: usize,
+) -> Option<(String, String)> {
+    let mut curr = node;
+    let mut field_name = None;
+
+    while let Some(parent) = curr.parent() {
+        match parent.kind() {
+            "field_definition" => {
+                if let Some(name_node) = doc.find_child_by_kind(parent, "name") {
+                    field_name = Some(doc.get_node_text(name_node, offset));
+                }
+            }
+            "object_type_definition" | "interface_type_definition" => {
+                if let Some(name_node) = doc.find_child_by_kind(parent, "name") {
+                    let type_name = doc.get_node_text(name_node, offset);
+                    if let Some(f_name) = field_name {
+                        return Some((type_name, f_name));
+                    }
+                }
+            }
+            _ => {}
+        }
+        curr = parent;
+    }
+    None
+}
+
 fn find_field_references_across_workspace(
     backend: &Backend,
     field_name: &str,
@@ -442,6 +510,147 @@ fn find_directive_references_across_workspace(
             entry
                 .value()
                 .find_directive_references(directive_name, include_declaration)
+        })
+        .collect();
+
+    if all_references.is_empty() {
+        None
+    } else {
+        Some(all_references)
+    }
+}
+
+fn find_type_references_across_workspace(
+    backend: &Backend,
+    type_name: &str,
+    include_declaration: bool,
+) -> Option<Vec<Location>> {
+    let all_references: Vec<Location> = backend
+        .documents
+        .iter()
+        .par_bridge()
+        .flat_map(|entry| {
+            entry
+                .value()
+                .find_references_in_tree(type_name, include_declaration)
+        })
+        .collect();
+
+    if all_references.is_empty() {
+        None
+    } else {
+        Some(all_references)
+    }
+}
+
+fn find_fragment_references_across_workspace(
+    backend: &Backend,
+    source_uri: &Url,
+    fragment_name: &str,
+    include_declaration: bool,
+) -> Option<Vec<Location>> {
+    let source_doc = backend.documents.get(source_uri)?.value().clone();
+    let target_def_location = backend.lookup_fragment_in_index(fragment_name, &source_doc)?;
+    let target_def_uri = target_def_location.uri;
+
+    let mut relevant_uris = std::collections::HashSet::new();
+
+    if include_declaration {
+        relevant_uris.insert(target_def_uri.clone());
+    }
+
+    if let Some(dep_uris) = backend.fragment_dependents.get(fragment_name) {
+        for u in dep_uris.iter() {
+            if let Some(doc) = backend.documents.get(u).map(|r| r.value().clone())
+                && let Some(loc) = backend.lookup_fragment_in_index(fragment_name, &doc)
+                && loc.uri == target_def_uri
+            {
+                relevant_uris.insert(u.clone());
+            }
+        }
+    }
+
+    let all_references: Vec<Location> = relevant_uris
+        .iter()
+        .par_bridge()
+        .filter_map(|u| backend.documents.get(u))
+        .flat_map(|entry| {
+            entry
+                .value()
+                .find_references_in_tree(fragment_name, include_declaration)
+        })
+        .collect();
+
+    if all_references.is_empty() {
+        None
+    } else {
+        Some(all_references)
+    }
+}
+
+fn find_enum_value_references_across_workspace(
+    backend: &Backend,
+    enum_name: &str,
+    value_name: &str,
+    include_declaration: bool,
+) -> Option<Vec<Location>> {
+    let all_references: Vec<Location> = backend
+        .documents
+        .iter()
+        .par_bridge()
+        .flat_map(|entry| {
+            let doc = entry.value();
+            let schema = backend.get_schema_for_doc(entry.key());
+            doc.find_enum_value_references(enum_name, value_name, &schema, include_declaration)
+        })
+        .collect();
+
+    if all_references.is_empty() {
+        None
+    } else {
+        Some(all_references)
+    }
+}
+
+fn find_argument_references_across_workspace(
+    backend: &Backend,
+    _parent_type_name: &str,
+    _field_name: Option<&str>,
+    arg_name: &str,
+    include_declaration: bool,
+) -> Option<Vec<Location>> {
+    let all_references: Vec<Location> = backend
+        .documents
+        .iter()
+        .par_bridge()
+        .flat_map(|entry| {
+            entry
+                .value()
+                .find_references_in_tree(arg_name, include_declaration)
+        })
+        .collect();
+
+    if all_references.is_empty() {
+        None
+    } else {
+        Some(all_references)
+    }
+}
+
+fn find_input_field_references_across_workspace(
+    backend: &Backend,
+    _parent_type_name: &str,
+    field_name: &str,
+    include_declaration: bool,
+) -> Option<Vec<Location>> {
+    let all_references: Vec<Location> = backend
+        .documents
+        .iter()
+        .par_bridge()
+        .flat_map(|entry| {
+            entry
+                .value()
+                .find_references_in_tree(field_name, include_declaration)
         })
         .collect();
 
