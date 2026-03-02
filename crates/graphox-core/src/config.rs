@@ -683,6 +683,12 @@ impl GlobPattern {
         }
     }
 
+    pub fn is_match(&self, path: &Path) -> bool {
+        let patterns = self.patterns();
+        let set = get_glob_set(&patterns);
+        set.is_match(path) || set.is_match(crate::utils::to_posix_path(path))
+    }
+
     fn from_yaml(node: &Yaml) -> Option<Self> {
         if let Some(s) = node.as_str() {
             Some(GlobPattern::Single(s.to_string()))

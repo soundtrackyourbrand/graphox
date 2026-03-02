@@ -4,20 +4,25 @@
 //! processing each project, generating types, and creating the entrypoint file.
 
 use graphox_core::config::Config;
+use graphox_core::types::{DocumentsMap, FragmentDefsMap};
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::MessageType;
 
-/// Runs the codegen process for all projects in the configuration
+/// Runs the codegen process for specified projects or all projects
 pub async fn run_codegen(
     client: Client,
     config: Config,
     type_caches: Arc<
         dashmap::DashMap<String, Arc<graphox_codegen::SchemaAnalysisCaches>, ahash::RandomState>,
     >,
+    documents: DocumentsMap,
+    fragment_defs: FragmentDefsMap,
     supports_progress: bool,
+    projects_to_run: Option<HashSet<String>>,
 ) {
     // Create progress reporter
     let progress = super::progress::ProgressReporter::new(
@@ -27,37 +32,98 @@ pub async fn run_codegen(
     )
     .await;
 
-    progress.report("Scanning workspace...", Some(5)).await;
+    progress
+        .report("Preparing codegen metadata...", Some(5))
+        .await;
 
-    let workspace_metadata = graphox_core::engine::Engine::scan_workspace(
-        &config,
-        tower_lsp::lsp_types::PositionEncodingKind::UTF8,
-        None,
-    );
+    // Build global metadata from existing fragment_defs instead of re-scanning disk
+    let mut global_metadata = Vec::new();
+    for entry in fragment_defs.iter() {
+        let uri = entry.key();
+        let frags = entry.value();
 
-    let global_metadata = &workspace_metadata.fragments;
+        let import_path = if let Ok(p) = uri.to_file_path() {
+            config
+                .get_project_for_path(&p)
+                .and_then(|proj| proj.import().map(|s| s.to_string()))
+        } else {
+            None
+        };
 
-    // Report progress
-    let total_projects = config
+        for frag in frags {
+            global_metadata.push(graphox_core::engine::FragmentMetadata {
+                name: frag.name.clone(),
+                path: Arc::from(uri.to_string()),
+                import_alias: import_path.as_deref().map(Arc::from),
+                is_public: frag.is_public,
+                is_type_only: frag.is_type_only,
+                masked_source: Arc::from(""), // Not needed for project context resolution
+                direct_deps: frag.used_fragments.clone(),
+                transitive_deps: frag.transitive_deps.clone(),
+                type_fields: frag.type_fields.clone(),
+            });
+        }
+    }
+
+    // Identify which projects to run
+    let projects_configs: Vec<_> = config
         .projects()
         .iter()
-        .filter(|p: &&graphox_core::config::ProjectConfig| config.get_project_codegen_enabled(p))
-        .count();
-    let mut current_project = 0;
-    let mut project_operations_list = Vec::new();
-    let mut project_fragments_list = Vec::new();
+        .filter(|p| {
+            if !config.get_project_codegen_enabled(p) {
+                return false;
+            }
+            if let Some(to_run) = &projects_to_run {
+                to_run.contains(&p.include().as_key())
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    let total_projects = projects_configs.len();
+    if total_projects == 0 {
+        progress
+            .end(Some("No projects require codegen".to_string()))
+            .await;
+        return;
+    }
+
+    let mut project_operations_list = Vec::with_capacity(total_projects);
+    let mut project_fragments_list = Vec::with_capacity(total_projects);
 
     // Generate types for each project
-    for (project, project_meta) in config.projects().iter().zip(&workspace_metadata.projects) {
-        // Skip projects with codegen disabled
-        if !config.get_project_codegen_enabled(project) {
+    for (idx, project) in projects_configs.iter().enumerate() {
+        let current_project = idx + 1;
+
+        // Find files for this project from our existing documents map
+        let project_files: Vec<PathBuf> = documents
+            .iter()
+            .filter_map(|entry| {
+                let uri = entry.key();
+                if let Ok(path) = uri.to_file_path() {
+                    let rel_path = path.strip_prefix(config.base_dir()).unwrap_or(&path);
+
+                    let include_match = project.include().is_match(rel_path);
+                    let exclude_match = project
+                        .exclude()
+                        .as_ref()
+                        .is_some_and(|e| e.is_match(rel_path));
+
+                    if include_match && !exclude_match {
+                        return Some(path);
+                    }
+                }
+                None
+            })
+            .collect();
+
+        if project_files.is_empty() {
             project_operations_list.push(Vec::new());
             project_fragments_list.push(Vec::new());
             continue;
         }
 
-        current_project += 1;
-        let project_files = &project_meta.files;
         let project_output_dir = project.output_dir();
 
         progress
@@ -137,8 +203,8 @@ pub async fn run_codegen(
 
         let project_context = graphox_core::engine::Engine::resolve_project_context(
             &valid_schema,
-            global_metadata,
-            project_files,
+            &global_metadata,
+            &project_files,
         );
 
         // Get or create persistent type cache for this schema
@@ -162,26 +228,34 @@ pub async fn run_codegen(
 
         // Process files in parallel with immediate writes
         project_files.par_iter().for_each(|path| {
-            let doc = match workspace_metadata.documents.get(path) {
+            let uri = match tower_lsp::lsp_types::Url::from_file_path(path) {
+                Ok(u) => u,
+                Err(_) => {
+                    log::warn!("Failed to convert path to URL: {:?}", path);
+                    return;
+                }
+            };
+            let doc_ref = match documents.get(&uri) {
                 Some(doc) if !doc.get_graphql_trees().is_empty() => doc,
                 _ => return,
             };
+            let doc = doc_ref.value().clone();
 
-            let patterns = project.include().patterns();
-            let include_prefix_path = patterns
+            let include_prefix_path = project
+                .include()
+                .patterns()
                 .iter()
                 .map(|p| graphox_core::utils::get_glob_root(p))
                 .find(|root| {
                     let abs_root = config.base_dir().join(root);
                     let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
                     graphox_core::utils::path_starts_with(path, &abs_root)
-                })
-                .unwrap_or_default();
+                });
             let out_path = graphox_core::utils::get_output_path(
                 path,
                 config.base_dir(),
                 project_output_dir.map(Path::new),
-                Some(&include_prefix_path),
+                include_prefix_path.as_deref(),
             );
             let abs_out_path = if out_path.is_absolute() {
                 out_path
@@ -212,17 +286,19 @@ pub async fn run_codegen(
                             path,
                             config.base_dir(),
                             project_output_dir.map(Path::new),
-                            Some(&include_prefix_path),
+                            include_prefix_path.as_deref(),
                         );
                         let abs_out_dir = if out_path.is_absolute() {
-                            out_path.parent().unwrap().to_path_buf()
-                        } else {
-                            config
-                                .base_dir()
-                                .join(out_path)
+                            out_path
                                 .parent()
-                                .unwrap()
-                                .to_path_buf()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| out_path.clone())
+                        } else {
+                            let joined = config.base_dir().join(&out_path);
+                            joined
+                                .parent()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| joined)
                         };
 
                         let abs_masking_dir = config.base_dir().join(out_dir);
@@ -246,7 +322,7 @@ pub async fn run_codegen(
                 codegen_path,
             );
 
-            let result = graphox_codegen::generate_typescript(doc, &ctx);
+            let result = graphox_codegen::generate_typescript(&doc, &ctx);
             let Ok((ts_code, mut ops, mut frags)) = result else {
                 return;
             };
@@ -308,15 +384,11 @@ pub async fn run_codegen(
     let mut dir_to_config: ahash::AHashMap<PathBuf, graphox_core::config::CodegenConfig> =
         ahash::AHashMap::new();
 
-    for ((project, project_ops), project_frags) in config
-        .projects()
+    for ((project, project_ops), project_frags) in projects_configs
         .iter()
         .zip(project_operations_list)
         .zip(project_fragments_list)
     {
-        if !config.get_project_codegen_enabled(project) {
-            continue;
-        }
         let out_dir = project.output_dir().unwrap_or("__generated__");
         let out_dir_path = config.base_dir().join(out_dir);
         let canon_out_dir_path = out_dir_path
@@ -341,10 +413,10 @@ pub async fn run_codegen(
         }
     }
 
-    for (out_dir_path, mut ops, mut frags) in dir_to_ops
-        .into_iter()
-        .map(|(k, v)| (k.clone(), v, dir_to_frags.remove(&k).unwrap_or_default()))
-    {
+    for (out_dir_path, mut ops, mut frags) in dir_to_ops.into_iter().map(|(k, v)| {
+        let frags = dir_to_frags.remove(&k).unwrap_or_default();
+        (k, v, frags)
+    }) {
         let codegen_config = dir_to_config.get(&out_dir_path).unwrap();
 
         // Deduplicate operations by name and source

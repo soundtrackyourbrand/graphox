@@ -183,7 +183,19 @@ pub async fn process_file_created_or_changed(
 
         // Remove old operations for this URI
         for mut entry in params.operation_names.iter_mut() {
-            entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
+            let op_name = entry.key().clone();
+            let mut removed = false;
+            entry.value_mut().retain(|(_, op_uri)| {
+                if op_uri == &uri {
+                    removed = true;
+                    false
+                } else {
+                    true
+                }
+            });
+            if removed {
+                affected_operation_names.insert(op_name);
+            }
         }
         params.operation_names.retain(|_, v| !v.is_empty());
 

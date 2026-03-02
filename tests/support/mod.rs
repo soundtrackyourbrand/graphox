@@ -2,7 +2,9 @@
 
 use apollo_compiler::Schema;
 use futures_util::StreamExt;
-use graphox::Backend as LspBackend;
+use graphox::Backend;
+use std::sync::Arc;
+pub type LspBackend = Arc<Backend>;
 use graphox::{CodegenConfig, DocumentLanguage, DocumentState};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,7 +38,7 @@ use tower_service::Service;
 pub async fn create_initialized_lsp_service(
     config: Config,
 ) -> (LspService<LspBackend>, tokio::task::JoinHandle<()>) {
-    let (mut service, socket) = LspService::new(|client| LspBackend::new(client, config));
+    let (mut service, socket) = LspService::new(|client| Backend::new(client, config));
     let handle = tokio::spawn(async move {
         socket.for_each(|_| std::future::ready(())).await;
     });
@@ -51,7 +53,7 @@ pub async fn create_initialized_lsp_service(
 /// can avoid referencing `LspService::new` directly when we want a uniform
 /// place for creation behavior.
 pub fn create_service(config: Config) -> (LspService<LspBackend>, tokio::task::JoinHandle<()>) {
-    let (service, socket) = LspService::new(|client| LspBackend::new(client, config));
+    let (service, socket) = LspService::new(|client| Backend::new(client, config));
     let handle = tokio::spawn(async move {
         socket.for_each(|_| std::future::ready(())).await;
     });
@@ -71,7 +73,7 @@ pub async fn create_initialized_lsp_service_with_socket(
     use tokio::sync::mpsc::unbounded_channel;
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
-    let (mut service, socket) = LspService::new(|client| LspBackend::new(client, config));
+    let (mut service, socket) = LspService::new(|client| Backend::new(client, config));
 
     let (tx, rx) = unbounded_channel();
     // Spawn a task that forwards raw Incoming messages into a serde_json::Value
@@ -105,7 +107,7 @@ pub fn create_lsp_service_with_socket(
     use tokio::sync::mpsc::unbounded_channel;
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
-    let (service, mut socket) = LspService::new(|client| LspBackend::new(client, config));
+    let (service, mut socket) = LspService::new(|client| Backend::new(client, config));
     let (tx, rx) = unbounded_channel();
     tokio::spawn(async move {
         while let Some(incoming) = socket.next().await {
@@ -127,7 +129,7 @@ pub async fn create_service_and_open(
     language_id: &str,
     text: &str,
 ) -> (LspService<LspBackend>, tokio::task::JoinHandle<()>) {
-    let (mut service, socket) = LspService::new(|client| LspBackend::new(client, config));
+    let (mut service, socket) = LspService::new(|client| Backend::new(client, config));
     let handle = tokio::spawn(async move {
         socket.for_each(|_| std::future::ready(())).await;
     });
@@ -151,7 +153,7 @@ pub async fn create_service_and_open_with_socket(
     use tokio::sync::mpsc::unbounded_channel;
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
-    let (mut service, mut socket) = LspService::new(|client| LspBackend::new(client, config));
+    let (mut service, mut socket) = LspService::new(|client| Backend::new(client, config));
     lsp_initialize_sequence(&mut service).await;
     lsp_did_open(&mut service, uri, language_id, 1, text).await;
 
