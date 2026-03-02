@@ -15,11 +15,16 @@ pub fn generate_entrypoint_content(
 ) -> String {
     let emit_extensions = codegen_config.emit_extensions();
     let generate_ast_for_fragments = codegen_config.generate_ast_for_fragments();
+    let graphql_tag_fallback = codegen_config.graphql_tag_fallback();
     let op_count = operations.len();
     let frag_count = fragments.len();
     let estimated_size = (op_count + frag_count) * 200 + 500;
     let mut output = String::with_capacity(estimated_size);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
+
+    if graphql_tag_fallback {
+        output.push_str("import gqlTag from \"graphql-tag\";\n");
+    }
 
     let mut path_cache: std::collections::HashMap<std::path::PathBuf, std::path::PathBuf> =
         std::collections::HashMap::new();
@@ -167,9 +172,15 @@ pub fn generate_entrypoint_content(
 
     output.push_str(&overloads);
     output.push_str("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;\n");
-    output.push_str(
-        "export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n",
-    );
+    if graphql_tag_fallback {
+        output.push_str(
+            "export function graphql(source: string): any {\n  return documents[source] || (documents[source] = gqlTag(source));\n}\n\n",
+        );
+    } else {
+        output.push_str(
+            "export function graphql(source: string): any {\n  return documents[source] || {};\n}\n\n",
+        );
+    }
     output.push_str("export const gql = graphql;\n");
 
     if re_exports {
