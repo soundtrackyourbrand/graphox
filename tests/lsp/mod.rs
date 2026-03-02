@@ -8,6 +8,7 @@ mod concurrent_operations;
 mod config_reload;
 mod config_reload_preserves_state;
 mod cross_file_def;
+mod did_open_reconciliation;
 mod document_highlight;
 mod duplicate_operations;
 mod duplicate_operations_cross_project;

@@ -1,5 +1,6 @@
 use crate::backend::state::Backend;
 use crate::backend::{document_changes, file_change_handler};
+use ahash::AHashSet;
 use graphox_core::DocumentState;
 
 use std::sync::Arc;
@@ -17,6 +18,53 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
 
     let doc = DocumentState::new_from_thread_local(uri.clone(), &text, position_encoding.clone());
     let doc_arc = Arc::new(doc);
+
+    // RECONCILIATION: Get old state before overwriting indices
+    let old_fragments: Option<Vec<Arc<str>>> = backend
+        .fragment_defs
+        .get(&uri)
+        .map(|f| f.iter().map(|f| f.name.clone()).collect());
+    let old_spreads: Option<Vec<Arc<str>>> = backend
+        .fragment_spreads
+        .get(&uri)
+        .map(|s| s.value().clone());
+
+    let mut affected_fragment_names = AHashSet::default();
+    let mut affected_spread_names = AHashSet::default();
+    let mut affected_operation_names = AHashSet::default();
+
+    let new_fragment_names: Vec<Arc<str>> =
+        doc_arc.fragments().iter().map(|f| f.name.clone()).collect();
+    let new_spreads = doc_arc.fragment_spreads.clone();
+
+    // Track changes to fragment definitions
+    if let Some(old) = &old_fragments {
+        for name in old {
+            if !new_fragment_names.contains(name) {
+                affected_fragment_names.insert(name.clone());
+            }
+        }
+    }
+    for name in &new_fragment_names {
+        if old_fragments.as_ref().is_none_or(|old| !old.contains(name)) {
+            affected_fragment_names.insert(name.clone());
+        }
+    }
+
+    // Track changes to fragment spreads
+    if let Some(old) = &old_spreads {
+        for name in old {
+            if !new_spreads.contains(name) {
+                affected_spread_names.insert(name.clone());
+            }
+        }
+    }
+    for name in &new_spreads {
+        if old_spreads.as_ref().is_none_or(|old| !old.contains(name)) {
+            affected_spread_names.insert(name.clone());
+        }
+    }
+
     backend.documents.insert(uri.clone(), doc_arc.clone());
 
     // Update indices
@@ -30,15 +78,27 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
         .package_roots
         .insert(uri.clone(), doc_arc.package_root.clone());
 
-    backend.update_dependency_indices(&uri, None, doc_arc.fragment_spreads.clone());
-    backend.update_definition_indices(
-        &uri,
-        None,
-        doc_arc.fragments().iter().map(|f| f.name.clone()).collect(),
-    );
+    backend.update_dependency_indices(&uri, old_spreads.clone(), doc_arc.fragment_spreads.clone());
+    backend.update_definition_indices(&uri, old_fragments.clone(), new_fragment_names);
 
     // Re-index operations for duplicate detection
-    backend.clear_operation_names_for_uri(&uri);
+    for mut entry in backend.operation_names.iter_mut() {
+        let op_name = entry.key().clone();
+        let mut removed = false;
+        entry.value_mut().retain(|(_, op_uri)| {
+            if op_uri == &uri {
+                removed = true;
+                false
+            } else {
+                true
+            }
+        });
+        if removed {
+            affected_operation_names.insert(op_name);
+        }
+    }
+    backend.operation_names.retain(|_, v| !v.is_empty());
+
     let config = backend.config.read().unwrap().clone();
     if let Ok(path) = uri.to_file_path()
         && let Some(schema_key) = config.get_schema_for_path(&path)
@@ -51,6 +111,7 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
 
         for op in doc_arc.operations() {
             if let Some(name) = &op.name {
+                affected_operation_names.insert(name.clone());
                 backend
                     .operation_names
                     .entry(name.clone())
@@ -67,18 +128,18 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     // Re-validate affected documents
     let affected_uris = backend.get_affected_uris(
         uri.clone(),
-        doc_arc.fragments().iter().map(|f| f.name.clone()).collect(),
-        doc_arc.fragment_spreads.iter().cloned().collect(),
-        doc_arc
-            .operations()
-            .iter()
-            .filter_map(|o| o.name.clone())
-            .collect(),
+        affected_fragment_names,
+        affected_spread_names,
+        affected_operation_names,
     );
     backend.validate_uris(affected_uris).await;
 
-    // Request codegen if enabled and document has GraphQL
-    if !doc_arc.get_graphql_trees().is_empty() {
+    // Request codegen if enabled and document has/had GraphQL
+    let had_graphql = old_fragments.as_ref().is_some_and(|f| !f.is_empty())
+        || old_spreads.as_ref().is_some_and(|s| !s.is_empty());
+    let has_graphql = !doc_arc.get_graphql_trees().is_empty();
+
+    if had_graphql || has_graphql {
         if backend.workspace_loaded.load(Ordering::SeqCst) {
             if let Some(throttle) = &backend.codegen_throttle
                 && let Ok(path) = uri.to_file_path()
