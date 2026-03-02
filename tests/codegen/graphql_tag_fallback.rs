@@ -1,8 +1,6 @@
 use std::process::Command;
 
-#[test]
-#[ntest::timeout(2000)]
-fn test_graphql_tag_fallback_enabled() {
+fn setup_codegen_fixture(graphql_tag_fallback: bool) -> (String, std::process::Output) {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir_handle = tempfile::tempdir().unwrap();
     let temp_dir = temp_dir_handle.path();
@@ -23,9 +21,8 @@ fn test_graphql_tag_fallback_enabled() {
     )
     .unwrap();
 
-    // Create config with fallback enabled
-    std::fs::write(
-        temp_dir.join("graphox.yaml"),
+    // Create config
+    let config = if graphql_tag_fallback {
         r#"
 projects:
   - schema: "schema.graphql"
@@ -33,9 +30,17 @@ projects:
     output_dir: "."
     codegen:
       graphql_tag_fallback: true
-"#,
-    )
-    .unwrap();
+"#
+    } else {
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+    output_dir: "."
+"#
+    };
+
+    std::fs::write(temp_dir.join("graphox.yaml"), config).unwrap();
 
     let output = Command::new(bin_path)
         .arg("codegen")
@@ -43,16 +48,26 @@ projects:
         .output()
         .expect("Failed to execute process");
 
+    let entrypoint_file = temp_dir.join("graphql.ts");
+    let content = if entrypoint_file.exists() {
+        std::fs::read_to_string(&entrypoint_file).unwrap()
+    } else {
+        String::new()
+    };
+
+    (content, output)
+}
+
+#[test]
+#[ntest::timeout(2000)]
+fn test_graphql_tag_fallback_enabled() {
+    let (content, output) = setup_codegen_fixture(true);
+
     assert!(
         output.status.success(),
         "Codegen failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let entrypoint_file = temp_dir.join("graphql.ts");
-    assert!(entrypoint_file.exists(), "graphql.ts should exist");
-
-    let content = std::fs::read_to_string(&entrypoint_file).unwrap();
 
     // Verify graphql-tag import
     assert!(
@@ -61,10 +76,10 @@ projects:
         content
     );
 
-    // Verify fallback logic in graphql function
+    // Verify memoized fallback logic in graphql function
     assert!(
-        content.contains("return documents[source] || gqlTag(source);"),
-        "Missing gqlTag fallback logic in graphql function. Content:\n{}",
+        content.contains("return documents[source] || (documents[source] = gqlTag(source));"),
+        "Missing memoized gqlTag fallback logic in graphql function. Content:\n{}",
         content
     );
 }
@@ -72,54 +87,13 @@ projects:
 #[test]
 #[ntest::timeout(2000)]
 fn test_graphql_tag_fallback_disabled() {
-    let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir_handle = tempfile::tempdir().unwrap();
-    let temp_dir = temp_dir_handle.path();
-
-    // Create schema
-    let schema_file = temp_dir.join("schema.graphql");
-    std::fs::write(
-        &schema_file,
-        "type Query { user(id: ID!): User } type User { id: ID! name: String }",
-    )
-    .unwrap();
-
-    // Create a query file
-    let query_file = temp_dir.join("query.graphql");
-    std::fs::write(
-        &query_file,
-        "query GetUser($id: ID!) { user(id: $id) { id name } }",
-    )
-    .unwrap();
-
-    // Create config with fallback disabled (default)
-    std::fs::write(
-        temp_dir.join("graphox.yaml"),
-        r#"
-projects:
-  - schema: "schema.graphql"
-    include: "query.graphql"
-    output_dir: "."
-"#,
-    )
-    .unwrap();
-
-    let output = Command::new(bin_path)
-        .arg("codegen")
-        .current_dir(temp_dir)
-        .output()
-        .expect("Failed to execute process");
+    let (content, output) = setup_codegen_fixture(false);
 
     assert!(
         output.status.success(),
         "Codegen failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let entrypoint_file = temp_dir.join("graphql.ts");
-    assert!(entrypoint_file.exists(), "graphql.ts should exist");
-
-    let content = std::fs::read_to_string(&entrypoint_file).unwrap();
 
     // Verify graphql-tag import is NOT present
     assert!(

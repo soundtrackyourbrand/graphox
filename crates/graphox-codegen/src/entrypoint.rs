@@ -174,7 +174,7 @@ pub fn generate_entrypoint_content(
     output.push_str("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;\n");
     if graphql_tag_fallback {
         output.push_str(
-            "export function graphql(source: string): any {\n  return documents[source] || gqlTag(source);\n}\n\n",
+            "export function graphql(source: string): any {\n  return documents[source] || (documents[source] = gqlTag(source));\n}\n\n",
         );
     } else {
         output.push_str(
