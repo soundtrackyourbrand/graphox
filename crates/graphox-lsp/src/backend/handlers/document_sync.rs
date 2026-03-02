@@ -3,6 +3,7 @@ use crate::backend::{document_changes, file_change_handler};
 use ahash::AHashSet;
 use graphox_core::DocumentState;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tower_lsp::lsp_types::*;
@@ -28,6 +29,7 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
         .fragment_spreads
         .get(&uri)
         .map(|s| s.value().clone());
+    let old_operations = backend.documents.get(&uri).map(|d| d.operations.clone());
 
     let mut affected_fragment_names = AHashSet::default();
     let mut affected_spread_names = AHashSet::default();
@@ -38,31 +40,31 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     let new_spreads = doc_arc.fragment_spreads.clone();
 
     // Track changes to fragment definitions
-    if let Some(old) = &old_fragments {
-        for name in old {
-            if !new_fragment_names.contains(name) {
-                affected_fragment_names.insert(name.clone());
-            }
-        }
+    let old_fragment_names_set: HashSet<Arc<str>> = old_fragments
+        .as_ref()
+        .map(|f| f.iter().cloned().collect())
+        .unwrap_or_default();
+    let new_fragment_names_set: HashSet<Arc<str>> = new_fragment_names.iter().cloned().collect();
+
+    for name in old_fragment_names_set.difference(&new_fragment_names_set) {
+        affected_fragment_names.insert(name.clone());
     }
-    for name in &new_fragment_names {
-        if old_fragments.as_ref().is_none_or(|old| !old.contains(name)) {
-            affected_fragment_names.insert(name.clone());
-        }
+    for name in new_fragment_names_set.difference(&old_fragment_names_set) {
+        affected_fragment_names.insert(name.clone());
     }
 
     // Track changes to fragment spreads
-    if let Some(old) = &old_spreads {
-        for name in old {
-            if !new_spreads.contains(name) {
-                affected_spread_names.insert(name.clone());
-            }
-        }
+    let old_spreads_set: HashSet<Arc<str>> = old_spreads
+        .as_ref()
+        .map(|s| s.iter().cloned().collect())
+        .unwrap_or_default();
+    let new_spreads_set: HashSet<Arc<str>> = new_spreads.iter().cloned().collect();
+
+    for name in old_spreads_set.difference(&new_spreads_set) {
+        affected_spread_names.insert(name.clone());
     }
-    for name in &new_spreads {
-        if old_spreads.as_ref().is_none_or(|old| !old.contains(name)) {
-            affected_spread_names.insert(name.clone());
-        }
+    for name in new_spreads_set.difference(&old_spreads_set) {
+        affected_spread_names.insert(name.clone());
     }
 
     backend.documents.insert(uri.clone(), doc_arc.clone());
@@ -136,7 +138,8 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
 
     // Request codegen if enabled and document has/had GraphQL
     let had_graphql = old_fragments.as_ref().is_some_and(|f| !f.is_empty())
-        || old_spreads.as_ref().is_some_and(|s| !s.is_empty());
+        || old_spreads.as_ref().is_some_and(|s| !s.is_empty())
+        || old_operations.as_ref().is_some_and(|o| !o.is_empty());
     let has_graphql = !doc_arc.get_graphql_trees().is_empty();
 
     if had_graphql || has_graphql {

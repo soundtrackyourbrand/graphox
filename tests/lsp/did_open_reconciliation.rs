@@ -21,15 +21,16 @@ async fn test_did_open_reconciles_against_workspace_scan() {
 
     // 3. Verify query is valid
     let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
-    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+    let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
         result
-    {
-        assert!(
-            full_report.full_document_diagnostic_report.items.is_empty(),
-            "Query should be valid initially, but got: {:?}",
-            full_report.full_document_diagnostic_report.items
-        );
-    }
+    else {
+        panic!("Expected Full diagnostic report, got: {:?}", result);
+    };
+    assert!(
+        full_report.full_document_diagnostic_report.items.is_empty(),
+        "Query should be valid initially, but got: {:?}",
+        full_report.full_document_diagnostic_report.items
+    );
 
     // 4. Open frag.graphql with content that REMOVES the fragment
     let frag_text_empty = "# No fragment here anymore";
