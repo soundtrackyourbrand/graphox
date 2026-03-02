@@ -4,11 +4,8 @@ use std::process::Command;
 #[ntest::timeout(2000)]
 fn test_graphql_tag_fallback_enabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_graphql_tag_fallback_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir_handle = tempfile::tempdir().unwrap();
+    let temp_dir = temp_dir_handle.path();
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -42,7 +39,7 @@ projects:
 
     let output = Command::new(bin_path)
         .arg("codegen")
-        .current_dir(&temp_dir)
+        .current_dir(temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -70,20 +67,14 @@ projects:
         "Missing gqlTag fallback logic in graphql function. Content:\n{}",
         content
     );
-
-    // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
 }
 
 #[test]
 #[ntest::timeout(2000)]
 fn test_graphql_tag_fallback_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_graphql_tag_fallback_disabled_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir_handle = tempfile::tempdir().unwrap();
+    let temp_dir = temp_dir_handle.path();
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -115,7 +106,7 @@ projects:
 
     let output = Command::new(bin_path)
         .arg("codegen")
-        .current_dir(&temp_dir)
+        .current_dir(temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -143,7 +134,4 @@ projects:
         "Missing default fallback logic in graphql function. Content:\n{}",
         content
     );
-
-    // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
 }

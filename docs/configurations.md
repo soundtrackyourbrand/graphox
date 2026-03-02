@@ -753,6 +753,7 @@ codegen:
 ```
 
 **Without `nullable_fields_as_optional` (default):**
+
 ```typescript
 export interface User {
   id: string;
@@ -761,6 +762,7 @@ export interface User {
 ```
 
 **With `nullable_fields_as_optional: true`:**
+
 ```typescript
 export interface User {
   id: string;
