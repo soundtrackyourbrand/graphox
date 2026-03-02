@@ -38,6 +38,7 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     );
 
     // Re-index operations for duplicate detection
+    backend.clear_operation_names_for_uri(&uri);
     let config = backend.config.read().unwrap().clone();
     if let Ok(path) = uri.to_file_path()
         && let Some(schema_key) = config.get_schema_for_path(&path)
@@ -214,7 +215,8 @@ pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParam
 }
 
 pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentParams) {
-    let _uri = backend.normalize_uri(params.text_document.uri);
+    let uri = backend.normalize_uri(params.text_document.uri);
+    backend.open_documents.remove(&uri);
     // We don't remove documents from the map because they might still be relevant
     // for other files (e.g. fragments). We only remove them if the file is deleted.
 }

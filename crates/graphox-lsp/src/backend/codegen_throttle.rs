@@ -79,21 +79,27 @@ impl CodegenThrottle {
                         tokio::select! {
                             _ = sleep(wait_time) => {
                                 // Drain the channel of any requests that came in during sleep
+                                let mut saw_none = projects_to_run.is_empty();
                                 while let Ok(p) = rx.try_recv() {
                                     if let Some(p) = p {
-                                        projects_to_run.insert(p);
+                                        if !saw_none {
+                                            projects_to_run.insert(p);
+                                        }
                                     } else {
-                                        // None means run all, so we can clear and stop accumulating
+                                        saw_none = true;
                                         projects_to_run.clear();
-                                        break;
                                     }
                                 }
                             }
                             res = rx.recv() => {
+                                let mut saw_none = projects_to_run.is_empty();
                                 if let Some(p) = res {
                                     if let Some(p) = p {
-                                        projects_to_run.insert(p);
+                                        if !saw_none {
+                                            projects_to_run.insert(p);
+                                        }
                                     } else {
+                                        saw_none = true;
                                         projects_to_run.clear();
                                     }
                                 }
@@ -101,12 +107,12 @@ impl CodegenThrottle {
                                 // and drain any other queued requests
                                 while let Ok(p) = rx.try_recv() {
                                     if let Some(p) = p {
-                                        if !projects_to_run.is_empty() {
+                                        if !saw_none {
                                             projects_to_run.insert(p);
                                         }
                                     } else {
+                                        saw_none = true;
                                         projects_to_run.clear();
-                                        break;
                                     }
                                 }
                                 sleep(wait_time).await;
@@ -116,14 +122,15 @@ impl CodegenThrottle {
                 }
 
                 // Drain any remaining queued requests
+                let mut saw_none = projects_to_run.is_empty();
                 while let Ok(p) = rx.try_recv() {
                     if let Some(p) = p {
-                        if !projects_to_run.is_empty() {
+                        if !saw_none {
                             projects_to_run.insert(p);
                         }
                     } else {
+                        saw_none = true;
                         projects_to_run.clear();
-                        break;
                     }
                 }
 
