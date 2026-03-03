@@ -12,6 +12,17 @@ fn find_symbol_by_name(doc: &DocumentState, name: &str) -> Option<DocumentSymbol
     doc.get_symbols().into_iter().find(|sym| sym.name == name)
 }
 
+fn extended_type_to_symbol_kind(ty: &apollo_compiler::schema::ExtendedType) -> SymbolKind {
+    match ty {
+        apollo_compiler::schema::ExtendedType::Object(_) => SymbolKind::CLASS,
+        apollo_compiler::schema::ExtendedType::Interface(_) => SymbolKind::INTERFACE,
+        apollo_compiler::schema::ExtendedType::Enum(_) => SymbolKind::ENUM,
+        apollo_compiler::schema::ExtendedType::Scalar(_) => SymbolKind::TYPE_PARAMETER,
+        apollo_compiler::schema::ExtendedType::Union(_) => SymbolKind::ENUM,
+        apollo_compiler::schema::ExtendedType::InputObject(_) => SymbolKind::CLASS,
+    }
+}
+
 pub async fn handle_document_symbol(
     backend: &Backend,
     params: DocumentSymbolParams,

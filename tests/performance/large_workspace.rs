@@ -10,7 +10,21 @@ use tempfile::TempDir;
 use tower_lsp::LspService;
 use tower_lsp::lsp_types::Url;
 
-const MAX_SCAN_TIME: std::time::Duration = std::time::Duration::from_secs(2);
+use crate::support::{
+    create_deep_fragment_chain, create_large_schema, create_many_fragments, lsp_initialize_sequence,
+};
+
+const MAX_SCAN_TIME: Duration = Duration::from_secs(2);
+
+/// Helper to initialize the LSP and return the time taken
+async fn init_and_time_lsp(
+    config: Config,
+) -> (Duration, LspService<std::sync::Arc<graphox::Backend>>) {
+    let start = Instant::now();
+    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config));
+    lsp_initialize_sequence(&mut service).await;
+    (start.elapsed(), service)
+}
 
 fn create_file_config(base_dir: &std::path::Path) -> Config {
     Config::new_test(

@@ -105,6 +105,15 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     for name in new_fragment_names_set.difference(&old_fragment_names_set) {
         affected_fragment_names.insert(name.clone());
     }
+    for name in new_fragment_names_set.intersection(&old_fragment_names_set) {
+        if let Some(old_metadata) = &old_metadata
+            && let Some(old_frag) = old_metadata.fragments.iter().find(|f| &f.name == name)
+            && let Some(new_frag) = new_fragments.iter().find(|f| &f.name == name)
+            && old_frag.source_hash != new_frag.source_hash
+        {
+            affected_fragment_names.insert(name.clone());
+        }
+    }
 
     // Compute all affected spread names using optimized HashSet comparison
     let mut affected_spread_names = ahash::AHashSet::default();

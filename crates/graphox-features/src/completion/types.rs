@@ -2,7 +2,7 @@ use lsp_types::Url;
 use std::sync::Arc;
 
 pub type FragmentRequirements = std::collections::BTreeMap<Arc<str>, Arc<str>>;
-pub type FragmentRequirementsResolver = Arc<dyn Fn(&str) -> FragmentRequirements>;
+pub type FragmentRequirementsResolver = Arc<dyn Fn(&str) -> FragmentRequirements + Send + Sync>;
 
 #[derive(Clone)]
 pub struct FragmentCompletionInfo {

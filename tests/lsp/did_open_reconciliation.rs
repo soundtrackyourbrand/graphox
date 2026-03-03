@@ -1,5 +1,5 @@
 use crate::support::{
-    create_initialized_lsp_service, lsp_did_open, lsp_request_diagnostics,
+    create_initialized_lsp_service, lsp_did_change, lsp_did_open, lsp_request_diagnostics,
     make_temp_project_with_schema, write_project_file,
 };
 use tower_lsp::lsp_types::*;
@@ -38,14 +38,7 @@ async fn test_did_open_reconciles_against_workspace_scan() {
 
     // 5. Update frag.graphql with content that REMOVES the fragment
     let frag_text_empty = "# No fragment here anymore";
-    lsp_did_open(
-        &mut service,
-        frag_uri.clone(),
-        "graphql",
-        2,
-        frag_text_empty,
-    )
-    .await;
+    lsp_did_change(&mut service, frag_uri.clone(), 2, frag_text_empty).await;
 
     // 6. Verify query is now INVALID (MyFragment is missing)
     // We might need to wait a bit for background validation

@@ -253,6 +253,26 @@ impl Backend {
         metadata
     }
 
+    pub async fn load_doc_from_cache_or_disk(&self, uri: &Url) -> Option<Arc<DocumentState>> {
+        if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
+            return Some(doc);
+        }
+
+        let path = uri.to_file_path().ok()?;
+        let encoding = self.get_position_encoding();
+        let uri_clone = uri.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let content = std::fs::read_to_string(&path).ok()?;
+            Some(Arc::new(DocumentState::new_from_thread_local(
+                uri_clone, &content, encoding,
+            )))
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     pub fn clear_operation_names_for_uri(&self, uri: &Url) {
         for mut entry in self.operation_names.iter_mut() {
             entry.value_mut().retain(|(_, op_uri)| op_uri != uri);
@@ -369,7 +389,7 @@ impl Backend {
         fragment_uris
     }
 
-    pub fn get_fragment_requirements(
+    pub async fn get_fragment_requirements(
         &self,
         name: &str,
         schema: &Schema,
@@ -383,13 +403,22 @@ impl Backend {
         let mut requirements = std::collections::BTreeMap::new();
         let mut visited = AHashSet::default();
 
-        let mut collect = |initial_name: &str| {
-            let mut stack: Vec<Arc<str>> = vec![Arc::from(initial_name)];
+        let mut stack: Vec<Arc<str>> = vec![Arc::from(name)];
 
-            while let Some(name) = stack.pop() {
-                if !visited.insert(name.clone()) {
-                    continue;
-                }
+        while let Some(current_name) = stack.pop() {
+            if !visited.insert(current_name.clone()) {
+                continue;
+            }
+
+            if let Some(frag) = all_fragments.iter().find(|f| {
+                f.name == current_name
+                    && (f.is_public
+                        || graphox_core::utils::paths_match(
+                            f.package_root.as_deref(),
+                            package_root.map(|p| p.as_path()),
+                        ))
+            }) {
+                let doc_arc = self.load_doc_from_cache_or_disk(&frag.uri).await;
 
                 if let Some(doc) = doc_arc {
                     let local_vars = if let Some(cached) = variable_types_cache.get(&current_name) {
@@ -416,9 +445,8 @@ impl Backend {
                     }
                 }
             }
-        };
+        }
 
-        collect(name);
         requirements
     }
 
@@ -752,6 +780,18 @@ impl Backend {
         self.diagnostic_cache.clear();
         self.operation_names.clear();
 
+        // Populate subgraphs for relevant projects first so validation is subgraph-aware
+        for project in new_config.projects() {
+            if let Some(subgraphs_dir) = project.subgraphs_dir() {
+                let subgraphs = graphox_core::schema::load_subgraphs(
+                    new_config.base_dir(),
+                    subgraphs_dir,
+                    project.subgraph_owners(),
+                );
+                self.subgraphs.insert(project.schema().as_key(), subgraphs);
+            }
+        }
+
         // Pre-load schemas for open documents to ensure immediate validation is correct
         for (uri, _) in &open_docs {
             if let Ok(path) = uri.to_file_path()
@@ -790,6 +830,26 @@ impl Backend {
                 version: doc.version,
             });
             self.metadata.insert(uri.clone(), metadata);
+
+            // Re-populate operation names index
+            if let Ok(path) = uri.to_file_path()
+                && let Some(schema_key) = new_config.get_schema_for_path(&path)
+            {
+                let project_key = new_config
+                    .get_project_for_path(&path)
+                    .map(|p| p.include().as_key())
+                    .unwrap_or_else(|| schema_key);
+                let project_key_arc: Arc<str> = project_key.into();
+
+                for op in doc.operations.iter() {
+                    if let Some(name) = &op.name {
+                        self.operation_names
+                            .entry(name.clone())
+                            .or_default()
+                            .push((project_key_arc.clone(), uri.clone()));
+                    }
+                }
+            }
 
             self.update_dependency_indices(&uri, None, doc.fragment_spreads.clone());
             self.update_definition_indices(

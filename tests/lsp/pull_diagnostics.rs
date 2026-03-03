@@ -415,10 +415,13 @@ async fn test_fallback_to_push_diagnostics() {
         "Should receive push diagnostics when client doesn't support pull"
     );
 
-    let last_diag = push_diags.last().unwrap();
-    assert_eq!(last_diag["uri"].as_str().unwrap(), query_uri.as_str());
+    let query_diag = push_diags
+        .iter()
+        .find(|d| d["uri"].as_str().unwrap() == query_uri.as_str())
+        .expect("Should have diagnostics for query.graphql");
+
     assert!(
-        !last_diag["diagnostics"].as_array().unwrap().is_empty(),
+        !query_diag["diagnostics"].as_array().unwrap().is_empty(),
         "Should have diagnostics for invalid field"
     );
 }

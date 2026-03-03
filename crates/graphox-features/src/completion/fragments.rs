@@ -85,16 +85,39 @@ pub fn complete_inline_fragment(
     None
 }
 
+pub fn find_enclosing_fragment_name(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+) -> Option<String> {
+    let mut current = node;
+    loop {
+        if current.kind() == "fragment_definition" {
+            return doc
+                .find_child_by_kind(current, "fragment_name")
+                .map(|name_node| doc.get_node_text(name_node, offset));
+        }
+        let parent = current.parent()?;
+        current = parent;
+    }
+}
+
 pub fn get_fragment_name_completions(
     _doc: &DocumentState,
     fragments: &[FragmentCompletionInfo],
     expected_type: Option<&schema::ExtendedType>,
     schema: &Schema,
     resolve_requirements: FragmentRequirementsResolver,
+    exclude_fragment_name: Option<&str>,
 ) -> Vec<CompletionItem> {
     fragments
         .iter()
         .filter(|f| {
+            if let Some(exclude_name) = exclude_fragment_name
+                && f.name.as_ref() == exclude_name
+            {
+                return false;
+            }
             if f.is_type_only {
                 return false;
             }
