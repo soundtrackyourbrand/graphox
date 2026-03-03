@@ -1,20 +1,22 @@
 use apollo_compiler::{Schema, schema};
 use std::sync::Arc;
 
-pub fn schema_field_strings(
-    parent_type: &schema::ExtendedType,
+pub fn schema_field_strings<'a>(
+    parent_type: &'a schema::ExtendedType,
     field_name: &str,
-    schema: &Schema,
-) -> Option<(String, Option<String>)> {
+    schema: &'a Schema,
+) -> Option<(&'a schema::FieldDefinition, String, Option<String>)> {
     let candidate = match parent_type {
-        schema::ExtendedType::Object(obj) => obj.fields.get(field_name),
-        schema::ExtendedType::Interface(iface) => iface.fields.get(field_name),
+        schema::ExtendedType::Object(obj) => obj.fields.get(field_name).map(|v| &***v),
+        schema::ExtendedType::Interface(iface) => iface.fields.get(field_name).map(|v| &***v),
         _ => schema
             .types
             .get(parent_type.name().as_str())
             .and_then(|ty| match ty {
-                schema::ExtendedType::Object(obj) => obj.fields.get(field_name),
-                schema::ExtendedType::Interface(iface) => iface.fields.get(field_name),
+                schema::ExtendedType::Object(obj) => obj.fields.get(field_name).map(|v| &***v),
+                schema::ExtendedType::Interface(iface) => {
+                    iface.fields.get(field_name).map(|v| &***v)
+                }
                 _ => None,
             }),
     }?;
@@ -25,7 +27,18 @@ pub fn schema_field_strings(
         .as_ref()
         .map(|d| d.as_ref().to_string());
 
-    Some((ty, description))
+    Some((candidate, ty, description))
+}
+
+fn format_args_str(arguments: &[apollo_compiler::Node<schema::InputValueDefinition>]) -> String {
+    if arguments.is_empty() {
+        return String::new();
+    }
+    let args: Vec<String> = arguments
+        .iter()
+        .map(|a| format!("{}: {}", a.name, a.ty))
+        .collect();
+    format!("({})", args.join(", "))
 }
 
 pub fn describe_field_markdown(
@@ -33,16 +46,24 @@ pub fn describe_field_markdown(
     field_name: &str,
     field_type: &str,
     description: Option<&str>,
+    arguments: &[apollo_compiler::Node<schema::InputValueDefinition>],
+    deprecation_reason: Option<&str>,
 ) -> String {
+    let args_str = format_args_str(arguments);
+
     let mut info = format!(
-        "### field {}.{}\n---\nType: `{}`\n",
-        parent_name, field_name, field_type
+        "### field `{}.{}{}`\n---\nType: `{}`\n",
+        parent_name, field_name, args_str, field_type
     );
     if let Some(desc) = description
         && !desc.trim().is_empty()
     {
         info.push('\n');
         info.push_str(desc);
+        info.push('\n');
+    }
+    if let Some(reason) = deprecation_reason {
+        info.push_str(&format!("\n**Deprecated:** {}\n", reason));
     }
     info
 }
@@ -53,16 +74,24 @@ pub fn describe_field_markdown_with_alias(
     alias_name: &str,
     field_type: &str,
     description: Option<&str>,
+    arguments: &[apollo_compiler::Node<schema::InputValueDefinition>],
+    deprecation_reason: Option<&str>,
 ) -> String {
+    let args_str = format_args_str(arguments);
+
     let mut info = format!(
-        "### field `{}.{}` (aliased as `{}`)\n---\nType: `{}`\n",
-        parent_name, field_name, alias_name, field_type
+        "### field `{}.{}{}` (aliased as `{}`)\n---\nType: `{}`\n",
+        parent_name, field_name, args_str, alias_name, field_type
     );
     if let Some(desc) = description
         && !desc.trim().is_empty()
     {
         info.push('\n');
         info.push_str(desc);
+        info.push('\n');
+    }
+    if let Some(reason) = deprecation_reason {
+        info.push_str(&format!("\n**Deprecated:** {}\n", reason));
     }
     info
 }
@@ -250,11 +279,22 @@ pub fn describe_type_markdown(type_name: &str, kind: &str, description: Option<&
     info
 }
 
-pub fn describe_full_type_markdown(name: &str, ty: &schema::ExtendedType) -> String {
+pub fn describe_full_type_markdown(
+    name: &str,
+    ty: &schema::ExtendedType,
+    implementations: Option<&[String]>,
+) -> String {
     let mut output = String::new();
 
     match ty {
-        schema::ExtendedType::Scalar(_) => output.push_str(&format!("### scalar {}\n", name)),
+        schema::ExtendedType::Scalar(s) => {
+            let kind = if s.is_built_in() {
+                "built-in scalar"
+            } else {
+                "scalar"
+            };
+            output.push_str(&format!("### {} {}\n", kind, name));
+        }
         schema::ExtendedType::Object(_) => output.push_str(&format!("### type {}\n", name)),
         schema::ExtendedType::Interface(_) => output.push_str(&format!("### interface {}\n", name)),
         schema::ExtendedType::Union(_) => output.push_str(&format!("### union {}\n", name)),
@@ -269,29 +309,93 @@ pub fn describe_full_type_markdown(name: &str, ty: &schema::ExtendedType) -> Str
         output.push_str("\n\n");
     }
 
+    if let Some(impls) = implementations
+        && !impls.is_empty()
+    {
+        let mut sorted_impls: Vec<String> = impls.to_vec();
+        sorted_impls.sort_unstable();
+        let formatted_impls: Vec<String> =
+            sorted_impls.iter().map(|i| format!("`{}`", i)).collect();
+        output.push_str(&format!(
+            "**Implementations:** {}\n\n",
+            formatted_impls.join(", ")
+        ));
+    }
+
     match ty {
         schema::ExtendedType::Object(obj) => {
+            if !obj.implements_interfaces.is_empty() {
+                let ifaces: Vec<String> = obj
+                    .implements_interfaces
+                    .iter()
+                    .map(|i| format!("`{}`", i))
+                    .collect();
+                output.push_str(&format!("**Implements:** {}\n\n", ifaces.join(", ")));
+            }
             output.push_str("#### Fields\n");
             for (field_name, field_def) in &obj.fields {
-                output.push_str(&format!("- **{}**: `{}`\n", field_name, field_def.ty));
+                let desc = field_def
+                    .description
+                    .as_ref()
+                    .map(|d| format!(" — {}", d))
+                    .unwrap_or_default();
+                output.push_str(&format!(
+                    "- **{}**: `{}`{}\n",
+                    field_name, field_def.ty, desc
+                ));
             }
         }
         schema::ExtendedType::Interface(iface) => {
+            if !iface.implements_interfaces.is_empty() {
+                let ifaces: Vec<String> = iface
+                    .implements_interfaces
+                    .iter()
+                    .map(|i| format!("`{}`", i))
+                    .collect();
+                output.push_str(&format!("**Implements:** {}\n\n", ifaces.join(", ")));
+            }
             output.push_str("#### Fields\n");
             for (field_name, field_def) in &iface.fields {
-                output.push_str(&format!("- **{}**: `{}`\n", field_name, field_def.ty));
+                let desc = field_def
+                    .description
+                    .as_ref()
+                    .map(|d| format!(" — {}", d))
+                    .unwrap_or_default();
+                output.push_str(&format!(
+                    "- **{}**: `{}`{}\n",
+                    field_name, field_def.ty, desc
+                ));
             }
         }
         schema::ExtendedType::InputObject(input) => {
             output.push_str("#### Fields\n");
             for (field_name, field_def) in &input.fields {
-                output.push_str(&format!("- **{}**: `{}`\n", field_name, field_def.ty));
+                let desc = field_def
+                    .description
+                    .as_ref()
+                    .map(|d| format!(" — {}", d))
+                    .unwrap_or_default();
+                output.push_str(&format!(
+                    "- **{}**: `{}`{}\n",
+                    field_name, field_def.ty, desc
+                ));
             }
         }
         schema::ExtendedType::Enum(enm) => {
             output.push_str("#### Values\n");
-            for (val_name, _) in &enm.values {
-                output.push_str(&format!("- `{}`\n", val_name));
+            for (val_name, val_def) in &enm.values {
+                let desc = val_def
+                    .description
+                    .as_ref()
+                    .map(|d| format!(" — {}", d))
+                    .unwrap_or_default();
+                output.push_str(&format!("- `{}`{}\n", val_name, desc));
+            }
+        }
+        schema::ExtendedType::Union(un) => {
+            output.push_str("#### Members\n");
+            for member in &un.members {
+                output.push_str(&format!("- `{}`\n", member));
             }
         }
         _ => {}
@@ -358,7 +462,7 @@ pub fn describe_builtin_field_markdown(
 ) -> String {
     match name {
         "__typename" => {
-            if let Some((field_type, description)) =
+            if let Some((field_def, field_type, description)) =
                 schema_field_strings(parent_type, "__typename", schema)
             {
                 return describe_field_markdown(
@@ -366,6 +470,8 @@ pub fn describe_builtin_field_markdown(
                     "__typename",
                     field_type.as_str(),
                     description.as_deref(),
+                    &field_def.arguments,
+                    None,
                 );
             }
 
@@ -374,6 +480,8 @@ pub fn describe_builtin_field_markdown(
                 "__typename",
                 "String!",
                 Some("The GraphQL type name of the current selection."),
+                &[],
+                None,
             )
         }
         "__schema" | "__type" => {
@@ -389,7 +497,7 @@ pub fn describe_builtin_field_markdown(
                 "__Type"
             };
 
-            if let Some((schema_type, description)) =
+            if let Some((field_def, schema_type, description)) =
                 schema_field_strings(parent_type, name, schema)
             {
                 return describe_field_markdown(
@@ -397,10 +505,19 @@ pub fn describe_builtin_field_markdown(
                     name,
                     schema_type.as_str(),
                     description.as_deref(),
+                    &field_def.arguments,
+                    None,
                 );
             }
 
-            describe_field_markdown(parent_type.name(), name, fallback_type, Some(fallback_desc))
+            describe_field_markdown(
+                parent_type.name(),
+                name,
+                fallback_type,
+                Some(fallback_desc),
+                &[],
+                None,
+            )
         }
         _ => "".to_string(),
     }

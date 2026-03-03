@@ -29,6 +29,7 @@ fn generate_large_schema(types_count: usize) -> String {
     schema
 }
 
+#[allow(clippy::result_large_err)]
 fn bench_large_schema_parsing(c: &mut Criterion) {
     let schema_100 = generate_large_schema(100);
     let schema_1000 = generate_large_schema(1000);
