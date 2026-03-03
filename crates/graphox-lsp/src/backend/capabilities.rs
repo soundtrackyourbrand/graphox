@@ -136,7 +136,7 @@ pub fn build_server_capabilities(client_caps: &ClientCapabilities) -> ServerCapa
         }),
         signature_help_provider: Some(SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
-            retrigger_characters: None,
+            retrigger_characters: Some(vec![",".to_string()]),
             work_done_progress_options: Default::default(),
         }),
         call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),

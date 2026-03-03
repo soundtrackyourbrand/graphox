@@ -73,3 +73,35 @@ async fn test_signature_help_tsx() {
     assert_eq!(help.signatures[0].label, "me(id: ID, name: String)");
     assert_eq!(help.active_parameter, Some(1));
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_signature_help_with_alias() {
+    let schema = "type Query { user(id: ID!): String }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    // Use an alias for the field
+    let (query_text, position) = with_cursor("query { myAlias: user(id:|) }");
+    let query_uri = write_project_file(&dir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
+
+    let params = SignatureHelpParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+        context: None,
+    };
+
+    let result: Option<SignatureHelp> =
+        lsp_request_typed(&mut service, "textDocument/signatureHelp", &params).await;
+
+    let help = result.expect("Expected SignatureHelp");
+    assert_eq!(help.signatures.len(), 1);
+    assert_eq!(help.signatures[0].label, "user(id: ID!)");
+}
