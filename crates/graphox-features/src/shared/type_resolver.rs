@@ -220,7 +220,12 @@ pub fn resolve_symbol_at_node(
                             // Find the containing type for this definition
                             let parent_node = doc.find_ancestor_by_kinds(
                                 current_node,
-                                &["object_type_definition", "interface_type_definition"],
+                                &[
+                                    "object_type_definition",
+                                    "interface_type_definition",
+                                    "object_type_extension",
+                                    "interface_type_extension",
+                                ],
                             )?;
                             let name_node = doc.find_child_by_kind(parent_node, "name")?;
                             let name = doc.get_node_text(name_node, offset);
@@ -394,6 +399,102 @@ pub fn resolve_symbol_at_node(
                         });
                     }
                 }
+            }
+            "input_value_definition" => {
+                if let Some(name_node) = doc.find_child_by_kind(current_node, "name") {
+                    let name_range =
+                        (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                    if cursor_offset >= name_range.start && cursor_offset <= name_range.end {
+                        let arg_name = doc.get_node_text(name_node, offset);
+
+                        // Find parent (field_definition or directive_definition or input_object_type_definition)
+                        let parent = doc.find_ancestor_by_kinds(
+                            current_node,
+                            &[
+                                "field_definition",
+                                "directive_definition",
+                                "input_object_type_definition",
+                                "input_object_type_extension",
+                            ],
+                        )?;
+
+                        match parent.kind() {
+                            "field_definition" => {
+                                let type_node = doc.find_ancestor_by_kinds(
+                                    parent,
+                                    &[
+                                        "object_type_definition",
+                                        "interface_type_definition",
+                                        "object_type_extension",
+                                        "interface_type_extension",
+                                    ],
+                                )?;
+                                let type_name_node = doc.find_child_by_kind(type_node, "name")?;
+                                let type_name = doc.get_node_text(type_name_node, offset);
+                                let field_name_node = doc.find_child_by_kind(parent, "name")?;
+                                let field_name = doc.get_node_text(field_name_node, offset);
+
+                                if let Some(ty) = schema.types.get(type_name.as_str()) {
+                                    let field_def = match ty {
+                                        schema::ExtendedType::Object(obj) => {
+                                            obj.fields.get(field_name.as_str()).map(|c| &c.node)
+                                        }
+                                        schema::ExtendedType::Interface(iface) => {
+                                            iface.fields.get(field_name.as_str()).map(|c| &c.node)
+                                        }
+                                        _ => None,
+                                    }?;
+                                    let arg_def = field_def
+                                        .arguments
+                                        .iter()
+                                        .find(|a| a.name.as_str() == arg_name)?;
+                                    return Some(SemanticSymbol::Argument {
+                                        parent_type: type_name,
+                                        field_name: Some(field_name),
+                                        arg_def: arg_def.as_ref().clone(),
+                                    });
+                                }
+                            }
+                            "directive_definition" => {
+                                let dir_name_node = doc.find_child_by_kind(parent, "name")?;
+                                let dir_name = doc.get_node_text(dir_name_node, offset);
+                                if let Some(dir_def) =
+                                    schema.directive_definitions.get(dir_name.as_str())
+                                {
+                                    let arg_def = dir_def
+                                        .arguments
+                                        .iter()
+                                        .find(|a| a.name.as_str() == arg_name)?;
+                                    return Some(SemanticSymbol::Argument {
+                                        parent_type: dir_name,
+                                        field_name: None,
+                                        arg_def: arg_def.as_ref().clone(),
+                                    });
+                                }
+                            }
+                            "input_object_type_definition" | "input_object_type_extension" => {
+                                let type_name_node = doc.find_child_by_kind(parent, "name")?;
+                                let type_name = doc.get_node_text(type_name_node, offset);
+                                if let Some(ty @ schema::ExtendedType::InputObject(input_obj)) =
+                                    schema.types.get(type_name.as_str())
+                                {
+                                    let field_def = input_obj.fields.get(arg_name.as_str())?;
+                                    return Some(SemanticSymbol::InputObjectField {
+                                        parent_type: ty.clone(),
+                                        field_def: field_def.as_ref().clone(),
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "implements" => {
+                return Some(SemanticSymbol::LocalSymbol {
+                    name: "implements".to_string(),
+                    description: "Keyword used to specify that an object or interface implements one or more interfaces.".to_string(),
+                });
             }
             "object_field" => {
                 let name_node = doc.find_child_by_kind(current_node, "name")?;

@@ -27,3 +27,17 @@ pub fn is_query_root(ty: &schema::ExtendedType, schema: &Schema) -> bool {
         .map(|root_type| root_type.name() == ty.name())
         .unwrap_or(false)
 }
+
+pub fn get_deprecation_reason<'a>(
+    directives: &'a [apollo_compiler::Node<schema::Directive>],
+    schema: &'a Schema,
+) -> Option<&'a str> {
+    directives
+        .iter()
+        .find(|d| d.name == "deprecated")
+        .and_then(|d| {
+            d.argument_by_name("reason", schema)
+                .ok()
+                .and_then(|arg| arg.as_str())
+        })
+}

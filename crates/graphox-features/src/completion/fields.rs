@@ -415,12 +415,17 @@ pub fn get_field_completions(
     match parent_type {
         schema::ExtendedType::Object(obj) => {
             for (name, def) in &obj.fields {
+                let deprecation_reason =
+                    schema_utils::get_deprecation_reason(&def.directives, schema);
+
                 let mut detail = Some(def.ty.to_string());
                 let mut documentation_value = markdown_utils::describe_field_markdown(
                     obj.name.as_str(),
                     name,
                     def.ty.to_string().as_str(),
                     def.description.as_deref(),
+                    &def.arguments,
+                    deprecation_reason,
                 );
 
                 if let Some(subgraphs) = subgraphs {
@@ -467,12 +472,17 @@ pub fn get_field_completions(
         }
         schema::ExtendedType::Interface(iface) => {
             for (name, def) in &iface.fields {
+                let deprecation_reason =
+                    schema_utils::get_deprecation_reason(&def.directives, schema);
+
                 let mut detail = Some(def.ty.to_string());
                 let mut documentation_value = markdown_utils::describe_field_markdown(
                     iface.name.as_str(),
                     name,
                     def.ty.to_string().as_str(),
                     def.description.as_deref(),
+                    &def.arguments,
+                    deprecation_reason,
                 );
 
                 if let Some(subgraphs) = subgraphs {
@@ -530,6 +540,8 @@ pub fn get_field_completions(
                 "__typename",
                 "String!",
                 Some("The GraphQL type name of the current selection."),
+                &[],
+                None,
             ),
         })),
         ..Default::default()
@@ -546,6 +558,8 @@ pub fn get_field_completions(
                     "__schema",
                     "__Schema!",
                     Some("Access the current schema introspection object."),
+                    &[],
+                    None,
                 ),
             })),
             ..Default::default()
@@ -561,6 +575,8 @@ pub fn get_field_completions(
                     "__type",
                     "__Type",
                     Some("Look up a type definition by its name."),
+                    &[],
+                    None,
                 ),
             })),
             ..Default::default()

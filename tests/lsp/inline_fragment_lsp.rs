@@ -35,15 +35,15 @@ async fn test_hover_inside_inline_fragment() {
         result.is_some(),
         "Hover should return something for 'username' in inline fragment"
     );
-    if let HoverContents::Markup(m) = result.unwrap().contents {
-        assert!(
-            m.value.contains("field User.username"),
-            "Should show field info for User.username, got: {}",
-            m.value
-        );
-    } else {
-        panic!("Expected Markup contents");
-    }
+    let hover = result.unwrap();
+    let HoverContents::Markup(m) = hover.contents else {
+        panic!("Expected Markup contents, got {:?}", hover.contents);
+    };
+    assert!(
+        m.value.contains("field `User.username`"),
+        "Should show field info for User.username, got: {}",
+        m.value
+    );
 
     // Hover over 'User' type condition
     let (text2, position2) = with_cursor(

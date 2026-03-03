@@ -1,4 +1,5 @@
 use crate::shared::markdown_utils::*;
+use crate::shared::schema_utils;
 use crate::shared::type_resolver::{self, SemanticSymbol};
 use ahash::AHashSet;
 use apollo_compiler::Schema;
@@ -333,6 +334,9 @@ impl DocumentHover for DocumentState {
                                 }
                             }
 
+                            let deprecation_reason =
+                                schema_utils::get_deprecation_reason(&field_def.directives, schema);
+
                             let base_markdown = if let Some(alias_name) = alias {
                                 describe_field_markdown_with_alias(
                                     parent_type.name(),
@@ -340,6 +344,8 @@ impl DocumentHover for DocumentState {
                                     alias_name,
                                     field_def.ty.to_string().as_str(),
                                     field_def.description.as_deref(),
+                                    &field_def.arguments,
+                                    deprecation_reason,
                                 )
                             } else {
                                 describe_field_markdown(
@@ -347,6 +353,8 @@ impl DocumentHover for DocumentState {
                                     field_def.name.as_str(),
                                     field_def.ty.to_string().as_str(),
                                     field_def.description.as_deref(),
+                                    &field_def.arguments,
+                                    deprecation_reason,
                                 )
                             };
 
@@ -371,6 +379,8 @@ impl DocumentHover for DocumentState {
                         ),
                         SemanticSymbol::Type(ty) => {
                             let mut extra = String::new();
+                            let mut implementations = Vec::new();
+
                             if let Some(project_subgraphs) = subgraphs {
                                 let mut found_subgraphs = Vec::new();
                                 for sg in project_subgraphs {
@@ -398,21 +408,53 @@ impl DocumentHover for DocumentState {
                                     );
                                 }
                             }
-                            describe_full_type_markdown(ty.name(), ty) + &extra
+
+                            if let apollo_compiler::schema::ExtendedType::Interface(_) = ty {
+                                for (t_name, t_def) in &schema.types {
+                                    match t_def {
+                                        apollo_compiler::schema::ExtendedType::Object(obj) => {
+                                            if obj
+                                                .implements_interfaces
+                                                .iter()
+                                                .any(|i| i.as_str() == ty.name().as_str())
+                                            {
+                                                implementations.push(t_name.to_string());
+                                            }
+                                        }
+                                        apollo_compiler::schema::ExtendedType::Interface(iface) => {
+                                            if iface
+                                                .implements_interfaces
+                                                .iter()
+                                                .any(|i| i.as_str() == ty.name().as_str())
+                                            {
+                                                implementations.push(t_name.to_string());
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            if !implementations.is_empty() {
+                                implementations.sort();
+                            }
+
+                            describe_full_type_markdown(
+                                ty.name(),
+                                ty,
+                                if implementations.is_empty() {
+                                    None
+                                } else {
+                                    Some(&implementations)
+                                },
+                            ) + &extra
                         }
                         SemanticSymbol::Variable { name, ty_text } => {
                             describe_variable_markdown(name, ty_text)
                         }
                         SemanticSymbol::EnumValue { enum_name, val_def } => {
-                            let deprecation_reason = val_def
-                                .directives
-                                .iter()
-                                .find(|d| d.name == "deprecated")
-                                .and_then(|d| {
-                                    d.argument_by_name("reason", schema)
-                                        .ok()
-                                        .and_then(|arg| arg.as_str())
-                                });
+                            let deprecation_reason =
+                                schema_utils::get_deprecation_reason(&val_def.directives, schema);
                             describe_enum_value_markdown(
                                 enum_name,
                                 val_def.value.as_str(),
@@ -551,6 +593,8 @@ impl DocumentHover for DocumentState {
                             field_def.name.as_str(),
                             field_def.ty.to_string().as_str(),
                             field_def.description.as_deref(),
+                            &[],
+                            None,
                         ),
                         SemanticSymbol::TypeExtension {
                             type_name,
