@@ -29,6 +29,15 @@ impl DocumentSignatureHelp for DocumentState {
                 let local_byte = byte_offset.saturating_sub(offset);
                 let node = root.descendant_for_byte_range(local_byte.saturating_sub(1), local_byte);
 
+                let node = if node.is_none() && local_byte > 0 {
+                    root.descendant_for_byte_range(
+                        local_byte.saturating_sub(1),
+                        local_byte.saturating_add(1),
+                    )
+                } else {
+                    node
+                };
+
                 if let Some(help) = self.find_signature_at_node(node, offset, local_byte, schema) {
                     return Some(help);
                 }
@@ -64,17 +73,17 @@ impl DocumentSignatureHelp for DocumentState {
         // Use DocumentState helper to get parent type
         let parent_type = self.find_parent_type_for_node(field_node, offset, schema)?;
 
-        // Get field name
+        // Get field name - handle aliases (e.g., "myAlias: user")
         let field_name = {
+            let mut name_node = None;
             let mut walker = field_node.walk();
-            let mut result = None;
             for child in field_node.children(&mut walker) {
                 if child.kind() == "name" {
-                    result = Some(self.get_node_text(child, offset));
+                    name_node = Some(child);
                     break;
                 }
             }
-            result
+            name_node.map(|n| self.get_node_text(n, offset))
         }?;
 
         // Look up field in schema
@@ -87,7 +96,10 @@ impl DocumentSignatureHelp for DocumentState {
                 .fields
                 .get(field_name.as_str())
                 .map(|c| c.node.clone())?,
-            _ => return None,
+            ExtendedType::Union(_)
+            | ExtendedType::Enum(_)
+            | ExtendedType::Scalar(_)
+            | ExtendedType::InputObject(_) => return None,
         };
 
         // Construct signature info
@@ -113,6 +125,11 @@ impl DocumentSignatureHelp for DocumentState {
         label.push(')');
 
         let active_parameter = self.find_active_parameter(arguments, cursor_offset);
+        let active_parameter = if active_parameter < parameters.len() {
+            Some(active_parameter as u32)
+        } else {
+            None
+        };
 
         Some(SignatureHelp {
             signatures: vec![SignatureInformation {
@@ -122,10 +139,10 @@ impl DocumentSignatureHelp for DocumentState {
                     .as_ref()
                     .map(|d| Documentation::String(d.to_string())),
                 parameters: Some(parameters),
-                active_parameter: None,
+                active_parameter,
             }],
             active_signature: Some(0),
-            active_parameter: Some(active_parameter as u32),
+            active_parameter,
         })
     }
 
