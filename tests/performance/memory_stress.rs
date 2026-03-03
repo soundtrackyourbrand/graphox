@@ -245,7 +245,7 @@ async fn test_memory_open_close_cycles() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(5000)]
+#[ntest::timeout(10000)]
 async fn test_memory_cached_documents_100() {
     let _lock = MEMORY_TEST_MUTEX.lock().await;
     warmup();

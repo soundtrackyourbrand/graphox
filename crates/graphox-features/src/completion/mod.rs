@@ -208,6 +208,7 @@ pub trait DocumentCompletion {
         expected_type: Option<&schema::ExtendedType>,
         schema: &Schema,
         resolve_requirements: FragmentRequirementsResolver,
+        exclude_fragment_name: Option<&str>,
     ) -> Vec<CompletionItem>;
 
     fn get_field_completions(
@@ -301,7 +302,7 @@ pub trait DocumentCompletion {
         schema: &Schema,
     ) -> Vec<CompletionItem>;
 
-    fn parse_type_string(&self, text: &str) -> ast::Type;
+    fn parse_type_string(&self, text: &str) -> Option<ast::Type>;
 }
 
 impl DocumentCompletion for DocumentState {
@@ -439,8 +440,9 @@ impl DocumentCompletion for DocumentState {
                         }
                     }
 
-                    if let Some(text) = var_type_text {
-                        let ast_type = self.parse_type_string(&text);
+                    if let Some(text) = var_type_text
+                        && let Some(ast_type) = self.parse_type_string(&text)
+                    {
                         return Some(self.get_variable_default_completions(&ast_type, schema));
                     }
                 }
@@ -596,7 +598,10 @@ impl DocumentCompletion for DocumentState {
                         cursor_offset,
                     ));
                 }
-                Some(self.get_all_type_completions(schema))
+                Some(self.get_all_type_completions(
+                    schema,
+                    self.get_word_prefix_at_cursor(cursor_offset).as_deref(),
+                ))
             }
             "variable"
             | "variable_definitions"
@@ -625,8 +630,9 @@ impl DocumentCompletion for DocumentState {
                             }
                         }
 
-                        if let Some(text) = var_type_text {
-                            let ast_type = self.parse_type_string(&text);
+                        if let Some(text) = var_type_text
+                            && let Some(ast_type) = self.parse_type_string(&text)
+                        {
                             return Some(self.get_variable_default_completions(&ast_type, schema));
                         }
                     }
@@ -816,16 +822,22 @@ impl DocumentCompletion for DocumentState {
             }
             "fragment_spread" => {
                 let parent_type = self.find_parent_type_for_node(current, offset, schema);
+                let current_fragment_name =
+                    fragments::find_enclosing_fragment_name(self, current, offset);
                 Some(self.get_fragment_name_completions(
                     fragments,
                     parent_type.as_ref(),
                     schema,
                     resolve_requirements,
+                    current_fragment_name.as_deref(),
                 ))
             }
             "fragment_definition" => {
                 if self.is_after_on(cursor_offset) {
-                    return Some(self.get_all_type_completions(schema));
+                    return Some(self.get_all_type_completions(
+                        schema,
+                        self.get_word_prefix_at_cursor(cursor_offset).as_deref(),
+                    ));
                 }
                 self.complete_selection_set_at_node(
                     current,
@@ -1097,6 +1109,7 @@ impl DocumentCompletion for DocumentState {
         expected_type: Option<&schema::ExtendedType>,
         schema: &Schema,
         resolve_requirements: FragmentRequirementsResolver,
+        exclude_fragment_name: Option<&str>,
     ) -> Vec<CompletionItem> {
         fragments::get_fragment_name_completions(
             self,
@@ -1104,6 +1117,7 @@ impl DocumentCompletion for DocumentState {
             expected_type,
             schema,
             resolve_requirements,
+            exclude_fragment_name,
         )
     }
 
@@ -1277,7 +1291,7 @@ impl DocumentCompletion for DocumentState {
         values::get_variable_default_completions(self, expected_type, schema)
     }
 
-    fn parse_type_string(&self, text: &str) -> ast::Type {
+    fn parse_type_string(&self, text: &str) -> Option<ast::Type> {
         crate::shared::type_resolver::parse_type_string(text)
     }
 }

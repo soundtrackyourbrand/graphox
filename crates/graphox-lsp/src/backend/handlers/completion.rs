@@ -1,7 +1,7 @@
 use crate::backend::state::Backend;
 use graphox_core::document::DocumentState;
 use graphox_features::completion::{
-    DocumentCompletion, FragmentCompletionInfo, FragmentRequirements,
+    DocumentCompletion, FragmentCompletionInfo, FragmentRequirements, FragmentRequirementsResolver,
 };
 
 use ahash::AHashMap;
@@ -116,10 +116,11 @@ pub async fn handle_completion(
                 let schema_for_requirements = schema.clone();
                 let position_encoding = backend.get_position_encoding();
 
-                let resolve_requirements = Arc::new(move |name: &str| {
-                    let mut requirements = std::collections::BTreeMap::new();
-                    let mut visited = ahash::AHashSet::<Arc<str>>::default();
-                    let mut stack: Vec<Arc<str>> = vec![Arc::from(name)];
+                let resolve_requirements: FragmentRequirementsResolver =
+                    Arc::new(move |name: &str| {
+                        let mut requirements = std::collections::BTreeMap::new();
+                        let mut visited = ahash::AHashSet::<Arc<str>>::default();
+                        let mut stack: Vec<Arc<str>> = vec![Arc::from(name)];
 
                         while let Some(current_name) = stack.pop() {
                             if !visited.insert(current_name.clone()) {
@@ -160,9 +161,23 @@ pub async fn handle_completion(
                                         None
                                     };
 
-                            for (var, ty) in local_vars {
-                                requirements.insert(var, ty);
-                            }
+                                    if let Some(frag_doc) = doc_arc {
+                                        let vars = frag_doc.get_fragment_variable_types(
+                                            &current_name,
+                                            &schema_for_requirements,
+                                        );
+                                        let mut vars_arc = std::collections::BTreeMap::new();
+                                        for (k, v) in vars {
+                                            vars_arc.insert(Arc::from(k), Arc::from(v));
+                                        }
+                                        if let Ok(mut cache) = variable_types_cache.lock() {
+                                            cache.insert(current_name.clone(), vars_arc.clone());
+                                        }
+                                        vars_arc
+                                    } else {
+                                        std::collections::BTreeMap::new()
+                                    }
+                                };
 
                                 for (var, ty) in local_vars {
                                     requirements.insert(var, ty);
@@ -173,9 +188,25 @@ pub async fn handle_completion(
                                 }
                             }
                         }
-                    }
-                    requirements
-                });
+                        requirements
+                    });
+
+                let doc_for_blocking = doc.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    doc_for_blocking.get_completion_items(
+                        position,
+                        &schema,
+                        project_subgraphs.as_deref(),
+                        &fragments,
+                        resolve_requirements,
+                    )
+                })
+                .await;
+
+                let mut items = match result {
+                    Ok(i) => i,
+                    Err(_) => return Ok(None),
+                };
 
                 sanitize_completion_items(&doc, &mut items);
                 log::trace!(

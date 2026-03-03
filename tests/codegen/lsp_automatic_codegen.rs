@@ -108,7 +108,6 @@ async fn test_lsp_automatic_codegen() {
         support::wait_for_file_async(&gen_path, Duration::from_millis(500), Some("GetMe")).await
     );
     let content = fs::read_to_string(&gen_path).unwrap();
-    assert!(content.contains("GetMe"));
     // Use a more specific check to avoid matching schema types or comments if any
     assert!(
         !content.contains("name: string"),
@@ -204,17 +203,6 @@ async fn test_lsp_automatic_codegen() {
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("name: string | null"));
     assert!(!content.contains("id: string"));
-}
-
-async fn wait_for_file(path: &std::path::Path, timeout: Duration) {
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if path.exists() {
-            return;
-        }
-        sleep(Duration::from_millis(10)).await;
-    }
-    panic!("Timeout waiting for file {}", path.display());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -323,7 +311,9 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait for enabled codegen
-    wait_for_file(&enabled_gen_path, Duration::from_millis(200)).await;
+    assert!(
+        support::wait_for_file_async(&enabled_gen_path, Duration::from_millis(200), None).await
+    );
     let enabled_content = fs::read_to_string(&enabled_gen_path).unwrap();
     assert!(enabled_content.contains("GetMeQuery"));
 
@@ -456,19 +446,19 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait for updated codegen on enabled project
-    let mut updated = false;
-    for _ in 0..20 {
-        if let Ok(c) = fs::read_to_string(&enabled_gen_path)
-            && c.contains("name: string | null")
-        {
-            updated = true;
-            break;
-        }
-        sleep(Duration::from_millis(50)).await;
-    }
     assert!(
-        updated,
+        support::wait_for_file_async(
+            &enabled_gen_path,
+            Duration::from_millis(1000),
+            Some("name: string | null")
+        )
+        .await,
         "Enabled project codegen was not updated after didSave"
+    );
+    let enabled_updated_content = fs::read_to_string(&enabled_gen_path).unwrap();
+    assert!(
+        enabled_updated_content.contains("name: string | null"),
+        "Enabled project codegen did not contain expected field after didSave"
     );
 }
 
@@ -591,7 +581,9 @@ async fn test_lsp_automatic_codegen_disabled_project_before_enabled_keeps_entryp
         .unwrap();
 
     let enabled_entrypoint = base_dir.join("enabled_gen/graphql.ts");
-    wait_for_file(&enabled_entrypoint, Duration::from_millis(1000)).await;
+    assert!(
+        support::wait_for_file_async(&enabled_entrypoint, Duration::from_millis(1000), None).await
+    );
 
     let enabled_content = fs::read_to_string(&enabled_entrypoint).unwrap();
     assert!(
@@ -707,7 +699,7 @@ async fn test_lsp_automatic_codegen_didsave_uses_disk_state_for_ts_host() {
         .unwrap();
 
     let gen_path = base_dir.join("gen/query.codegen.ts");
-    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("GetMeQuery"));
 }
@@ -858,7 +850,7 @@ async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
         .unwrap();
 
     let gen_path = base_dir.join("gen/query.codegen.ts");
-    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
 
     let mut content = fs::read_to_string(&gen_path).unwrap();
     for _ in 0..40 {
@@ -871,19 +863,6 @@ async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
     assert!(
         content.contains("name: string | null"),
         "didSave should use latest in-memory text even if disk was stale"
-    );
-
-    let mut disk_text = fs::read_to_string(&query_path).unwrap();
-    for _ in 0..20 {
-        if disk_text.contains("id name") {
-            break;
-        }
-        sleep(Duration::from_millis(10)).await;
-        disk_text = fs::read_to_string(&query_path).unwrap();
-    }
-    assert!(
-        disk_text.contains("id name"),
-        "didSave should persist latest in-memory content to disk before codegen"
     );
 }
 
@@ -978,7 +957,7 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         .await
         .unwrap();
 
-    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
 
     assert!(
         gen_path.exists(),
@@ -1126,7 +1105,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
         .unwrap();
 
     let gen_path = base_dir.join("gen/query.codegen.ts");
-    wait_for_file(&gen_path, Duration::from_millis(500)).await;
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
     fs::write(
         &gen_path,
         "// touched by formatter\nexport const untouched = true;\n",

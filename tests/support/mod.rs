@@ -25,8 +25,10 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Posit
 use graphox::Config;
 use tokio::time::Duration;
 use tower_lsp::lsp_types::{
-    CompletionResponse, DidOpenTextDocumentParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReportResult, InitializeParams, TextDocumentItem,
+    CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReportResult,
+    InitializeParams, TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    VersionedTextDocumentIdentifier,
 };
 use tower_service::Service;
 
@@ -947,6 +949,38 @@ pub async fn lsp_did_open(
     let _ = Service::call(service, req).await.unwrap();
 }
 
+/// Simulate closing a text document via didClose notification.
+pub async fn lsp_did_close(service: &mut LspService<LspBackend>, uri: Url) {
+    let params = DidCloseTextDocumentParams {
+        text_document: TextDocumentIdentifier { uri },
+    };
+    let req = Request::build("textDocument/didClose")
+        .params(serde_json::to_value(params).unwrap())
+        .finish();
+    let _ = Service::call(service, req).await.unwrap();
+}
+
+/// Simulate updating a text document via didChange notification.
+pub async fn lsp_did_change(
+    service: &mut LspService<LspBackend>,
+    uri: Url,
+    version: i32,
+    text: &str,
+) {
+    let params = DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier { uri, version },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: text.to_string(),
+        }],
+    };
+    let req = Request::build("textDocument/didChange")
+        .params(serde_json::to_value(params).unwrap())
+        .finish();
+    let _ = Service::call(service, req).await.unwrap();
+}
+
 /// Request diagnostics for a document and return the parsed `DocumentDiagnosticReportResult`.
 pub async fn lsp_request_diagnostics(
     service: &mut LspService<LspBackend>,
@@ -1043,6 +1077,42 @@ pub fn measure_memory_usage() -> usize {
     }
 
     if min_rss == usize::MAX { 0 } else { min_rss }
+}
+
+/// Wait for a file to exist on disk. Synchronous.
+pub fn wait_for_file(path: &Path, timeout: Duration) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+/// Wait for a file to exist on disk and optionally contain specific text. Asynchronous.
+pub async fn wait_for_file_async(
+    path: &Path,
+    timeout: Duration,
+    expected_content: Option<&str>,
+) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if path.exists() {
+            if let Some(expected) = expected_content {
+                if let Ok(content) = fs::read_to_string(path)
+                    && content.contains(expected)
+                {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    false
 }
 
 /// Create a complex schema A with N types (E-commerce themed).

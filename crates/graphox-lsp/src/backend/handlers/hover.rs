@@ -4,7 +4,6 @@ use graphox_features::hover::DocumentHover;
 use graphox_features::shared::doc_utils;
 
 use ahash::AHashMap;
-use std::sync::Arc;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 
@@ -79,13 +78,15 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                                 info
                             );
 
-                            let requirements = backend.get_fragment_requirements(
-                                &symbol_name,
-                                &schema,
-                                doc.package_root.as_ref(),
-                                &all_fragments,
-                                &mut variable_types_cache,
-                            );
+                            let requirements = backend
+                                .get_fragment_requirements(
+                                    &symbol_name,
+                                    &schema,
+                                    doc.package_root.as_ref(),
+                                    &all_fragments,
+                                    &mut variable_types_cache,
+                                )
+                                .await;
                             if !requirements.is_empty() {
                                 value.push_str(
                                     "

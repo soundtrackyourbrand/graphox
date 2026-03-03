@@ -2,7 +2,7 @@ use crate::backend::state::Backend;
 use ahash::AHashSet;
 use graphox_features::code_actions::DocumentCodeActions;
 
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{Error, Result};
 use tower_lsp::lsp_types::*;
 
 pub async fn handle_code_action(

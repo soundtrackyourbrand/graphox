@@ -255,12 +255,15 @@ pub fn complete_selection_set_recursive(
                         }
                     } else if inner_child.kind() == "fragment_spread" || inner_child.kind() == "..."
                     {
+                        let current_fragment_name =
+                            fragments::find_enclosing_fragment_name(doc, inner_child, offset);
                         return Some(fragments::get_fragment_name_completions(
                             doc,
                             fragments_info,
                             Some(parent_type),
                             schema,
                             resolve_requirements.clone(),
+                            current_fragment_name.as_deref(),
                         ));
                     }
                 }
@@ -279,12 +282,15 @@ pub fn complete_selection_set_recursive(
                     return Some(items);
                 }
             } else if kind == "fragment_spread" || kind == "..." {
+                let current_fragment_name =
+                    fragments::find_enclosing_fragment_name(doc, child, offset);
                 return Some(fragments::get_fragment_name_completions(
                     doc,
                     fragments_info,
                     Some(parent_type),
                     schema,
                     resolve_requirements.clone(),
+                    current_fragment_name.as_deref(),
                 ));
             }
         }

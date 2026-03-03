@@ -698,10 +698,9 @@ pub async fn handle_goto_type_definition(
             let schema = backend.get_schema_for_doc(&uri);
 
             // 1. Try to get the generated type definition
-            if let Some(location) = {
-                let config = backend.config.read().unwrap();
-                doc_arc.get_type_definition(position, &schema, &config)
-            } {
+            if let Ok(config) = backend.config.read()
+                && let Some(location) = doc_arc.get_type_definition(position, &schema, &config)
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
 
@@ -712,13 +711,16 @@ pub async fn handle_goto_type_definition(
                 .await
             {
                 let frag_uri = location.uri.clone();
-                if let Some(frag_doc) = backend.documents.get(&frag_uri).map(|r| r.value().clone())
-                {
+                if let Some(frag_doc) = backend.load_doc_from_cache_or_disk(&frag_uri).await {
                     let frag_schema = backend.get_schema_for_doc(&frag_uri);
                     // Use the fragment's range start to find its type definition
-                    let config = backend.config.read().unwrap();
-                    if let Some(type_location) =
-                        frag_doc.get_type_definition(location.range.start, &frag_schema, &config)
+                    let config = backend.config.read().ok();
+                    if let Some(config) = config
+                        && let Some(type_location) = frag_doc.get_type_definition(
+                            location.range.start,
+                            &frag_schema,
+                            &config,
+                        )
                     {
                         return Ok(Some(GotoDefinitionResponse::Scalar(type_location)));
                     }

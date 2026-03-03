@@ -136,6 +136,8 @@ pub fn get_implements_interface_completions(schema: &Schema) -> Vec<CompletionIt
 
 pub fn get_all_type_completions(schema: &Schema) -> Vec<CompletionItem> {
     let mut items = Vec::new();
+    let prefix_norm = prefix.map(str::to_lowercase);
+
     for (name, def) in &schema.types {
         if name.starts_with("__") {
             continue;
