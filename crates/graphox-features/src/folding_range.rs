@@ -74,6 +74,7 @@ impl DocumentFoldingRange for DocumentState {
 
             // Comments
             "comment" => Some(FoldingRangeKind::Comment),
+            "description" => Some(FoldingRangeKind::Comment),
 
             _ => None,
         }?;

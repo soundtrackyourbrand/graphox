@@ -634,3 +634,64 @@ export type TestType = {
         "Should have property tokens for field names (edges, node, id, name, etc.)"
     );
 }
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_semantic_tokens_aliases() {
+    let text = r#"
+query {
+    user {
+        myAlias: name
+    }
+}
+"#;
+    let doc = create_doc("file:///test.graphql", text);
+    let tokens = doc.get_semantic_tokens();
+
+    assert!(
+        !tokens.is_empty(),
+        "Should have semantic tokens for aliased field"
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_semantic_tokens_directive_args() {
+    let text = r#"
+query {
+    user @skip(if: $shouldSkip) {
+        id
+    }
+}
+"#;
+    let doc = create_doc("file:///test.graphql", text);
+    let tokens = doc.get_semantic_tokens();
+
+    assert!(
+        !tokens.is_empty(),
+        "Should have semantic tokens for directive"
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_semantic_tokens_input_fields() {
+    let text = r#"
+mutation CreateUser($input: CreateUserInput!) {
+    createUser(input: $input) {
+        id
+    }
+}
+input CreateUserInput {
+    name: String!
+    email: String!
+}
+"#;
+    let doc = create_doc("file:///test.graphql", text);
+    let tokens = doc.get_semantic_tokens();
+
+    assert!(
+        !tokens.is_empty(),
+        "Should have semantic tokens for input fields"
+    );
+}
