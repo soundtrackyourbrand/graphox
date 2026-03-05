@@ -339,3 +339,55 @@ fn test_folding_range_tsx() {
         "Should have folding ranges from GraphQL in TSX"
     );
 }
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_folding_ranges_comments() {
+    let text = r#"
+"""
+This is a block comment
+that spans multiple lines
+"""
+query GetUser {
+    user { id }
+}
+"#;
+    let doc = create_doc("file:///test.graphql", text);
+    let ranges = doc.get_folding_ranges();
+
+    use tower_lsp::lsp_types::FoldingRangeKind;
+    let has_comment = ranges
+        .iter()
+        .any(|r| r.kind == Some(FoldingRangeKind::Comment));
+    assert!(
+        has_comment,
+        "Should have comment or description folding range, got: {:?}",
+        ranges
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_folding_ranges_multiple_operations() {
+    let text = r#"
+query GetUser {
+    user { id name }
+}
+query GetPost {
+    post { id title }
+}
+"#;
+    let doc = create_doc("file:///test.graphql", text);
+    let ranges = doc.get_folding_ranges();
+
+    use tower_lsp::lsp_types::FoldingRangeKind;
+    let ops: Vec<_> = ranges
+        .iter()
+        .filter(|r| r.kind == Some(FoldingRangeKind::Region))
+        .collect();
+    assert!(
+        ops.len() >= 2,
+        "Should have at least 2 operation folds, got {}",
+        ops.len()
+    );
+}
