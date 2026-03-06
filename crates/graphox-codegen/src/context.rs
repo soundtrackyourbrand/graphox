@@ -195,9 +195,10 @@ impl<'a> CodegenContext<'a> {
             return cached.clone();
         }
 
+        let abs_fragment_path = self.canonicalize_path(Path::new(fragment_path.as_ref()));
         let rel_path = self
-            .diff_paths(Path::new(fragment_path.as_ref()), parent_dir)
-            .unwrap_or_else(|| Path::new(fragment_path.as_ref()).to_path_buf());
+            .diff_paths(&abs_fragment_path, parent_dir)
+            .unwrap_or_else(|| abs_fragment_path.clone());
 
         let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
         if !path_str.starts_with('.') {

@@ -2,6 +2,7 @@ mod clean_test;
 mod cli;
 mod cross_project_docs;
 mod cross_project_features;
+mod duplicate_fragments_codegen;
 mod duplicate_operations;
 mod emit_extensions_test;
 mod fixtures;

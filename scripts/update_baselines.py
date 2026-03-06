@@ -164,6 +164,10 @@ def main():
             "tests/baselines/multi_schema_two_imports",
         ),
         ("tests/fixtures/public_test", "tests/baselines/public_test"),
+        (
+            "tests/fixtures/transitive_private_fragment",
+            "tests/baselines/transitive_private_fragment",
+        ),
         ("tests/fixtures/fragment_ast", "tests/baselines/fragment_ast"),
         ("tests/fixtures/entrypoint", "tests/baselines/entrypoint"),
         ("tests/fixtures/aliases", "tests/baselines/aliases"),
@@ -235,3 +239,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

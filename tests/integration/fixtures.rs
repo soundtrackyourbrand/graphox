@@ -91,6 +91,16 @@ fn test_cli_multi_schema_two_imports_baselines() {
 }
 
 #[test]
+#[ntest::timeout(500)]
+fn test_cli_transitive_private_fragment_baselines() {
+    run_baseline_test(
+        "tests/fixtures/transitive_private_fragment",
+        "tests/baselines/transitive_private_fragment",
+        None,
+    );
+}
+
+#[test]
 #[ntest::timeout(250)]
 fn test_cli_public_test_baselines() {
     run_baseline_test(

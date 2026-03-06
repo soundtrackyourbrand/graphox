@@ -1,0 +1,12 @@
+projects:
+  - schema: "schema.graphql"
+    include: ["shared/fragments.ts"]
+    output_dir: "shared/gen"
+    codegen:
+      generate_ast_for_fragments: true
+
+  - schema: "schema.graphql"
+    include: ["app/query.ts"]
+    output_dir: "app/gen"
+    codegen:
+      generate_ast_for_fragments: true

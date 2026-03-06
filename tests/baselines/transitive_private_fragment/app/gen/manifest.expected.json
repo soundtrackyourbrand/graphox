@@ -1,0 +1,7 @@
+[
+  {
+    "name": "GetMeQueryDocument",
+    "path": "./query.codegen",
+    "source": "\n  query GetMe {\n    me {\n      ...PublicFragment\n    }\n  }\n"
+  }
+]

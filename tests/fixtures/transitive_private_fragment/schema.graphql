@@ -1,0 +1,11 @@
+type Query {
+  me: User
+}
+type User {
+  id: ID!
+  name: String!
+  profile: Profile
+}
+type Profile {
+  bio: String
+}
