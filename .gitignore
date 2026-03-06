@@ -3,4 +3,5 @@
 /plugins/swc/node/dist
 /plugins/swc/node/wasm
 /npm/graphox-cli/bin/graphox-bin
+/npm/graphox-cli/bin/graphox-bin.exe
 /editors/vscode/graphox-0.1.9.vsix

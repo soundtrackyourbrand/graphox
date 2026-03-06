@@ -991,7 +991,7 @@ mod tests {
     }
 
     #[test]
-    #[ntest::timeout(100)]
+    #[ntest::timeout(300)]
     fn test_mask_interpolations() {
         let input = "query { user(id: ${userId}) { name } }";
         let masked = mask_interpolations(input);

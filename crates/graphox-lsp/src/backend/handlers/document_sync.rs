@@ -207,11 +207,7 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
             backend.validate_uris(result.uris_to_validate).await;
         }
 
-        // Request throttled codegen ONLY if enabled and workspace is loaded
-        // and only if the change result explicitly requested it.
-        // NOTE: process_document_change is currently hardcoded to return false for didChange.
-        if result.should_run_codegen
-            && backend.workspace_loaded.load(Ordering::SeqCst)
+        if backend.workspace_loaded.load(Ordering::SeqCst)
             && let Some(throttle) = &backend.codegen_throttle
         {
             let (is_enabled, project_key) = if let Ok(path) = uri.to_file_path() {
@@ -225,7 +221,14 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
             };
 
             if is_enabled {
-                throttle.request_codegen(project_key);
+                let has_graphql = backend
+                    .documents
+                    .get(&uri)
+                    .is_some_and(|d| !d.get_graphql_trees().is_empty());
+
+                if has_graphql {
+                    throttle.request_codegen(project_key);
+                }
             }
         }
     }

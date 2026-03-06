@@ -14,11 +14,12 @@ async fn test_codegen_throttle() {
     let base_dir = dir.path().canonicalize().unwrap();
 
     let schema_path = base_dir.join("schema.graphql");
-    fs::write(
-        &schema_path,
-        "type User { id: ID! name: String } type Query { me: User }",
-    )
-    .unwrap();
+    let mut schema_text = "type User { id: ID! name: String ".to_string();
+    for i in 2..12 {
+        schema_text.push_str(&format!("f{}: String ", i));
+    }
+    schema_text.push_str("} type Query { me: User }");
+    fs::write(&schema_path, schema_text).unwrap();
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query GetMe { me { id } }";
@@ -110,7 +111,10 @@ async fn test_codegen_throttle() {
 
     // Make rapid changes
     let start = std::time::Instant::now();
-    for i in 2..7 {
+    let mut last_marker = String::new();
+    for i in 2..12 {
+        let marker = format!("GetMe{}", i);
+        last_marker = marker.clone();
         service
             .call(
                 Request::build("textDocument/didChange")
@@ -123,7 +127,7 @@ async fn test_codegen_throttle() {
                             content_changes: vec![TextDocumentContentChangeEvent {
                                 range: None,
                                 range_length: None,
-                                text: format!("query GetMe{} {{ me {{ id }} }}", i),
+                                text: format!("query {} {{ me {{ id f{} }} }}", marker, i),
                             }],
                         })
                         .unwrap(),
@@ -133,21 +137,27 @@ async fn test_codegen_throttle() {
             .await
             .unwrap();
         // Small delay between changes
-        sleep(Duration::from_millis(20)).await;
+        sleep(Duration::from_millis(10)).await;
     }
 
-    // Wait for throttle period plus some buffer
-    // With 50ms throttle and 5 rapid changes (100ms total),
-    // we should only get 1-2 codegen runs instead of 5
-    sleep(Duration::from_millis(150)).await;
+    // Wait for throttle period plus buffer.
+    // We want to ensure we wait long enough for the LAST throttled run to complete.
+    sleep(Duration::from_millis(1500)).await;
 
     let elapsed = start.elapsed();
 
-    // Verify the output file was generated
+    // Verify the output file was generated and contains the final marker
     let output_path = output_dir.join("query.codegen.ts");
     assert!(
-        output_path.exists(),
-        "Generated file should exist after throttled codegen"
+        support::wait_for_file_async(
+            &output_path,
+            Duration::from_millis(3000),
+            Some(&last_marker)
+        )
+        .await,
+        "Generated file should contain the final marker '{}' after throttled codegen. Elapsed: {:?}",
+        last_marker,
+        elapsed
     );
 
     // The test passes if we got here - the throttle mechanism is working

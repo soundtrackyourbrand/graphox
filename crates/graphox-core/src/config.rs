@@ -981,6 +981,32 @@ impl Config {
         &self.base_dir
     }
 
+    /// Returns the path relative to the base directory, handling platform-specific quirks.
+    pub fn relativize(&self, path: &Path) -> PathBuf {
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.base_dir.join(path)
+        };
+
+        // Resolve to canonical path to match how base_dir is stored
+        let abs_path = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
+
+        #[cfg(windows)]
+        {
+            let normalized_abs = crate::utils::normalize_windows_path(&abs_path.to_string_lossy());
+            let normalized_base =
+                crate::utils::normalize_windows_path(&self.base_dir.to_string_lossy());
+
+            pathdiff::diff_paths(&normalized_abs, &normalized_base).unwrap_or(abs_path)
+        }
+
+        #[cfg(not(windows))]
+        {
+            pathdiff::diff_paths(&abs_path, &self.base_dir).unwrap_or(abs_path)
+        }
+    }
+
     pub fn get_codegen_config(&self, project: Option<&ProjectConfig>) -> CodegenConfig {
         let mut result = self.codegen();
 
@@ -1089,17 +1115,7 @@ impl Config {
         // Canonicalize to resolve symlinks (e.g. /var vs /private/var on macOS)
         let abs_path = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
 
-        #[cfg(windows)]
-        let relative_path = {
-            let normalized_abs = crate::utils::normalize_windows_path(&abs_path.to_string_lossy());
-            let normalized_base =
-                crate::utils::normalize_windows_path(&self.base_dir.to_string_lossy());
-
-            pathdiff::diff_paths(&normalized_abs, &normalized_base)
-        };
-
-        #[cfg(not(windows))]
-        let relative_path = pathdiff::diff_paths(&abs_path, &self.base_dir);
+        let relative_path = Some(self.relativize(&abs_path));
 
         // First pass: Check if this is exactly a schema file for any project (Highest Priority)
         for (idx, project) in self.projects.iter().enumerate() {

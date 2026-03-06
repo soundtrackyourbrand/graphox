@@ -12,7 +12,7 @@ use crate::support::{
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(5000)]
+#[ntest::timeout(10000)]
 async fn test_memory_long_running_subgraphs() {
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();

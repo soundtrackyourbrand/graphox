@@ -155,10 +155,18 @@ impl TransformVisitor {
                 }
                 s
             } else {
-                codegen_rel_path.to_string()
+                let mut s = codegen_rel_path.to_string();
+                if cfg!(windows) {
+                    s = s.replace('\\', "/");
+                }
+                s
             }
         } else {
-            codegen_rel_path.to_string()
+            let mut s = codegen_rel_path.to_string();
+            if cfg!(windows) {
+                s = s.replace('\\', "/");
+            }
+            s
         };
 
         // Append the emit extension
@@ -190,9 +198,12 @@ impl TransformVisitor {
 
             if let Some(parent) = current_file.parent() {
                 let src_path = Path::new(src);
+                let is_absolute_looking = src_path.is_absolute()
+                    || (cfg!(windows) && (src.starts_with('/') || src.starts_with('\\')));
+
                 let resolved_abs = if src.starts_with('.') {
                     Some(parent.join(src_path))
-                } else if src_path.is_absolute() {
+                } else if is_absolute_looking {
                     Some(src_path.to_path_buf())
                 } else {
                     None

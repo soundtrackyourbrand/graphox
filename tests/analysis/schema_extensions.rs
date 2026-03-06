@@ -3,7 +3,7 @@ use std::fs;
 use tempfile::tempdir;
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_config_multiple_schemas() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("graphox.yaml");

@@ -466,11 +466,7 @@ fn add_duplicate_operation_diagnostics(
                     op_uri
                         .to_file_path()
                         .ok()
-                        .and_then(|p| {
-                            p.strip_prefix(config.base_dir())
-                                .ok()
-                                .map(|rel| rel.to_string_lossy().to_string())
-                        })
+                        .map(|p| config.relativize(&p).to_string_lossy().to_string())
                         .unwrap_or_else(|| op_uri.to_string())
                 })
                 .collect();

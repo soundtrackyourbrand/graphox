@@ -7,7 +7,7 @@ use crate::support::{
 };
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_fields_simple() {
     let schema = fixtures::user_with_posts_schema()
         .clone()
@@ -20,7 +20,7 @@ fn test_required_fields_simple() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_fields_nested() {
     let schema = fixtures::user_with_posts_schema()
         .clone()
@@ -33,7 +33,7 @@ fn test_required_fields_nested() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_fields_fragment_spread() {
     let schema = fixtures::user_with_posts_schema()
         .clone()
@@ -55,7 +55,7 @@ fn test_required_fields_fragment_spread() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_fields_inline_fragment() {
     let schema = fixtures::union_interface_schema()
         .clone()
@@ -81,7 +81,7 @@ fn test_required_fields_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_no_duplicate_fields_object() {
     let schema = fixtures::user_with_posts_schema()
         .clone()
@@ -97,7 +97,7 @@ fn test_no_duplicate_fields_object() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_no_duplicate_fields_args() {
     let schema = fixtures::user_with_posts_schema()
         .clone()

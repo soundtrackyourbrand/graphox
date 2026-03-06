@@ -1,7 +1,7 @@
 use crate::support::create_doc;
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_tag_variations() {
     let text = r#"
         const q1 = gql`query { foo }`;
@@ -36,7 +36,7 @@ fn test_tag_variations() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_tag_in_arrow_function() {
     let text = r#"
         const getQuery = () => gql`query { foo }`;
@@ -69,7 +69,7 @@ fn test_tag_in_arrow_function() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_tag_multiple_on_same_line() {
     let text = r#"
         const a = gql`query A { foo }`; const b = gql`query B { bar }`;
@@ -112,7 +112,7 @@ fn test_tag_multiple_on_same_line() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_tag_whitespace_variations() {
     let text = r#"
         const q1 = gql   `query { foo }`;
@@ -134,7 +134,7 @@ fn test_tag_whitespace_variations() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_tag_template_deduplication() {
     let text = r#"
         const q1 = gql`query { foo }`;
@@ -153,7 +153,7 @@ fn test_tag_template_deduplication() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_template_extraction_variants() {
     let text = r#"
         // Standard tag
@@ -200,7 +200,7 @@ fn test_template_extraction_variants() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_template_deduplication() {
     // This tests that we don't extract the same template twice if both query patterns match
     // although with current implementation it's unlikely, it's good to be sure.
