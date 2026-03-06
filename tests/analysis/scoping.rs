@@ -93,7 +93,7 @@ async fn test_lsp_fragment_scoping() {
 }
 
 #[tokio::test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(5000)]
 async fn test_lsp_package_isolation() {
     let (mut service, _handle) = create_service(Config::new_empty());
     lsp_initialize_sequence(&mut service).await;

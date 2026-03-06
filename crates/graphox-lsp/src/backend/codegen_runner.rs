@@ -55,15 +55,35 @@ pub async fn run_codegen(
             (None, 0)
         };
 
+        let document_path: Arc<str> = if let Ok(p) = uri.to_file_path() {
+            Arc::from(p.to_string_lossy().to_string())
+        } else {
+            Arc::from(uri.to_string())
+        };
+
+        let masked_source = if let Some(d) = documents.get(uri) {
+            Some(d.masked_source.clone())
+        } else if let Ok(path) = uri.to_file_path() {
+            std::fs::read_to_string(&path).ok().map(|content| {
+                if graphox_core::document::DocumentLanguage::from_uri(uri).is_host_language() {
+                    Arc::from(graphox_core::utils::mask_interpolations(&content).as_ref())
+                } else {
+                    Arc::from(content)
+                }
+            })
+        } else {
+            None
+        };
+
         for frag in meta.fragments.iter() {
             global_metadata.push(graphox_core::engine::FragmentMetadata {
                 name: frag.name.clone(),
-                path: Arc::from(uri.to_string()),
+                path: document_path.clone(),
                 project_idx,
                 import_alias: import_path.as_deref().map(Arc::from),
                 is_public: frag.is_public,
                 is_type_only: frag.is_type_only,
-                masked_source: Arc::from(""), // Not needed for project context resolution
+                masked_source: masked_source.clone(),
                 direct_deps: frag.used_fragments.clone(),
                 transitive_deps: frag.transitive_deps.clone(),
                 type_fields: frag.type_fields.clone(),
@@ -95,8 +115,7 @@ pub async fn run_codegen(
         return;
     }
 
-    let mut project_operations_list = Vec::with_capacity(total_projects);
-    let mut project_fragments_list = Vec::with_capacity(total_projects);
+    let mut successful_projects = Vec::with_capacity(total_projects);
 
     // Generate types for each project
     for (idx, project) in projects_configs.iter().enumerate() {
@@ -125,8 +144,6 @@ pub async fn run_codegen(
             .collect();
 
         if project_files.is_empty() {
-            project_operations_list.push(Vec::new());
-            project_fragments_list.push(Vec::new());
             continue;
         }
 
@@ -182,8 +199,6 @@ pub async fn run_codegen(
                 client
                     .log_message(MessageType::ERROR, format!("Failed to load schema: {}", e))
                     .await;
-                project_operations_list.push(Vec::new());
-                project_fragments_list.push(Vec::new());
                 continue;
             }
         };
@@ -201,17 +216,36 @@ pub async fn run_codegen(
                         ),
                     )
                     .await;
-                project_operations_list.push(Vec::new());
-                project_fragments_list.push(Vec::new());
                 continue;
             }
         };
 
-        let project_context = graphox_core::engine::Engine::resolve_project_context(
+        let project_context = match graphox_core::engine::Engine::resolve_project_context(
             &valid_schema,
             &global_metadata,
             &project_files,
-        );
+        ) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                progress
+                    .report(
+                        &format!("Error: {}", e),
+                        Some((current_project * 100 / total_projects) as u32),
+                    )
+                    .await;
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Error resolving project context for project {}: {}",
+                            project.include().as_key(),
+                            e
+                        ),
+                    )
+                    .await;
+                continue;
+            }
+        };
 
         // Get or create persistent type cache for this schema
         let schema_key = project.schema().as_key();
@@ -290,6 +324,7 @@ pub async fn run_codegen(
                 &project_context.fragment_to_import,
                 &project_context.fragment_to_type_only,
                 &project_context.all_fragments,
+                &project_context.name_to_id,
                 path,
                 config.scalars(),
                 &schema_import,
@@ -388,8 +423,7 @@ pub async fn run_codegen(
             project_frags.extend(frags.clone());
         }
 
-        project_operations_list.push(project_ops);
-        project_fragments_list.push(project_frags);
+        successful_projects.push((project, project_ops, project_frags));
     }
 
     progress
@@ -408,11 +442,7 @@ pub async fn run_codegen(
     let mut dir_to_config: ahash::AHashMap<PathBuf, graphox_core::config::CodegenConfig> =
         ahash::AHashMap::new();
 
-    for ((project, project_ops), project_frags) in projects_configs
-        .iter()
-        .zip(project_operations_list)
-        .zip(project_fragments_list)
-    {
+    for (project, project_ops, project_frags) in successful_projects {
         let out_dir = project.output_dir().unwrap_or("__generated__");
         let out_dir_path = config.base_dir().join(out_dir);
         let canon_out_dir_path = out_dir_path

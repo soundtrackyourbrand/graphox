@@ -4,6 +4,7 @@ use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
 use dashmap::DashMap;
 use graphox_core::config::{CodegenConfig, EmitExtensions, NamingConvention};
+use graphox_core::document::{FragmentId, TransitiveDeps};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,16 +46,17 @@ impl FragmentMasking {
 
 pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
-    pub fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
-    pub fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
-    pub fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
+    pub fragment_to_path: &'a HashMap<FragmentId, Arc<str>>,
+    pub fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
+    pub fragment_to_type_only: &'a HashMap<FragmentId, bool>,
     pub all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
+    pub name_to_id: &'a HashMap<Arc<str>, FragmentId>,
     pub current_file_path: &'a Path,
     pub scalars: &'a HashMap<String, String>,
     pub schema_import: &'a Option<String>,
     pub type_imports: &'a HashMap<String, String>,
     pub generate_ast_for_fragments: bool,
-    pub fragment_dependencies: &'a HashMap<Arc<str>, Arc<[Arc<str>]>>,
+    pub fragment_dependencies: &'a HashMap<FragmentId, TransitiveDeps>,
     pub type_cache: &'a SchemaAnalysisCaches,
     pub config: &'a CodegenConfig,
     pub masking_import_path: String,
@@ -67,16 +69,17 @@ impl<'a> CodegenContext<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         schema: &'a apollo_compiler::validation::Valid<Schema>,
-        fragment_to_path: &'a HashMap<Arc<str>, Arc<str>>,
-        fragment_to_import: &'a HashMap<Arc<str>, Arc<str>>,
-        fragment_to_type_only: &'a HashMap<Arc<str>, bool>,
+        fragment_to_path: &'a HashMap<FragmentId, Arc<str>>,
+        fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
+        fragment_to_type_only: &'a HashMap<FragmentId, bool>,
         all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
+        name_to_id: &'a HashMap<Arc<str>, FragmentId>,
         current_file_path: &'a Path,
         scalars: &'a HashMap<String, String>,
         schema_import: &'a Option<String>,
         type_imports: &'a HashMap<String, String>,
         generate_ast_for_fragments: bool,
-        fragment_dependencies: &'a HashMap<Arc<str>, Arc<[Arc<str>]>>,
+        fragment_dependencies: &'a HashMap<FragmentId, TransitiveDeps>,
         type_cache: &'a SchemaAnalysisCaches,
         config: &'a CodegenConfig,
         masking_import_path: String,
@@ -100,6 +103,7 @@ impl<'a> CodegenContext<'a> {
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
+            name_to_id,
             current_file_path,
             scalars,
             schema_import,
@@ -602,12 +606,15 @@ mod tests {
         let codegen_path = PathBuf::from("/a/b/c.ts");
         let masking_import_path = "".to_string();
 
+        let name_to_id = HashMap::default();
+
         let ctx = CodegenContext {
             schema: &valid_schema,
             fragment_to_path: &fragment_to_path,
             fragment_to_import: &fragment_to_import,
             fragment_to_type_only: &fragment_to_type_only,
             all_fragments: &all_fragments,
+            name_to_id: &name_to_id,
             current_file_path,
             scalars: &scalars,
             schema_import: &schema_import,

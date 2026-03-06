@@ -71,6 +71,17 @@ impl fmt::Debug for GraphQLBlock {
     }
 }
 
+/// Represents a unique identifier for a fragment.
+///
+/// Tuple elements:
+/// 0: Fragment name (Arc<str>)
+/// 1: Fragment path (Arc<str>)
+/// 2: Project index (usize)
+pub type FragmentId = (Arc<str>, Arc<str>, usize);
+
+/// A collection of transitive fragment dependencies.
+pub type TransitiveDeps = Arc<[FragmentId]>;
+
 #[derive(Debug, Clone)]
 pub struct FragmentDef {
     pub name: Arc<str>,
@@ -81,7 +92,7 @@ pub struct FragmentDef {
     pub source_hash: u64,
     pub used_variables: Arc<[Arc<str>]>,
     pub used_fragments: Arc<[Arc<str>]>,
-    pub transitive_deps: Arc<[Arc<str>]>,
+    pub transitive_deps: TransitiveDeps,
     pub selected_fields: Arc<[Arc<str>]>,
     pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
 }

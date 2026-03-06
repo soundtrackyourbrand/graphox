@@ -328,8 +328,17 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 }
             };
 
-            let project_context =
-                Engine::resolve_project_context(&valid_schema, global_metadata, &project_files);
+            let project_context = match Engine::resolve_project_context(
+                &valid_schema,
+                global_metadata,
+                &project_files,
+            ) {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    eprintln!("{}: {}", "Error resolving project context".red(), e.red());
+                    return Some(Err(()));
+                }
+            };
 
             let codegen_config = cfg.get_codegen_config(Some(project));
             let emit_extensions = cfg.get_emit_extensions(project);
@@ -882,6 +891,7 @@ fn generate_project_files_sync(
                 &params.project_context.fragment_to_import,
                 &params.project_context.fragment_to_type_only,
                 &params.project_context.all_fragments,
+                &params.project_context.name_to_id,
                 path,
                 params.scalars,
                 params.schema_import,

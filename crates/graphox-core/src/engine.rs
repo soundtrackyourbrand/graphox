@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::document::{DocumentLanguage, DocumentState};
+use crate::document::{DocumentLanguage, DocumentState, FragmentId, TransitiveDeps};
 use crate::utils::{get_project_files, has_generated_header, is_relevant_file};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
@@ -10,6 +10,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+pub const DUPLICATE_FRAGMENT_MSG_A: &str = "is defined multiple times";
+pub const DUPLICATE_FRAGMENT_MSG_B: &str = "Duplicate fragment name";
+
 #[derive(Debug, Clone)]
 pub struct FragmentMetadata {
     pub name: Arc<str>,
@@ -18,13 +21,13 @@ pub struct FragmentMetadata {
     pub import_alias: Option<Arc<str>>,
     pub is_public: bool,
     pub is_type_only: bool,
-    pub masked_source: Arc<str>,
+    pub masked_source: Option<Arc<str>>,
     /// Direct fragment dependencies (extracted during document parsing)
     /// Contains fragment names that this fragment directly spreads
     pub direct_deps: Arc<[Arc<str>]>,
     /// Cached transitive fragment dependencies (computed during workspace scan)
-    /// Contains all fragment names that this fragment depends on, directly or transitively
-    pub transitive_deps: Arc<[Arc<str>]>,
+    /// Contains all fragment (name, path) pairs that this fragment depends on, directly or transitively
+    pub transitive_deps: TransitiveDeps,
     pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
 }
 
@@ -64,12 +67,14 @@ pub struct WorkspaceMetadata {
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
-    pub fragment_to_path: HashMap<Arc<str>, Arc<str>>,
-    pub fragment_to_import: HashMap<Arc<str>, Arc<str>>,
-    pub fragment_to_type_only: HashMap<Arc<str>, bool>,
+    pub fragment_to_path: HashMap<FragmentId, Arc<str>>,
+    pub fragment_to_import: HashMap<FragmentId, Arc<str>>,
+    pub fragment_to_type_only: HashMap<FragmentId, bool>,
     pub all_fragments: HashMap<Arc<str>, Node<executable::Fragment>>,
-    /// Cached fragment dependencies: fragment name -> list of transitive dependencies
-    pub fragment_dependencies: HashMap<Arc<str>, Arc<[Arc<str>]>>,
+    /// Maps fragment name to its primary fragment ID in this project context
+    pub name_to_id: HashMap<Arc<str>, FragmentId>,
+    /// Cached fragment dependencies: fragment ID -> list of transitive dependencies (name, path)
+    pub fragment_dependencies: HashMap<FragmentId, TransitiveDeps>,
 }
 
 pub struct Engine;
@@ -79,99 +84,75 @@ impl Engine {
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         global_metadata: &[FragmentMetadata],
         project_files: &[PathBuf],
-    ) -> ProjectContext {
+    ) -> Result<ProjectContext, String> {
         let project_files_set: HashSet<Arc<str>> = project_files
             .iter()
             .map(|p| Arc::from(crate::utils::to_posix_path(p)))
             .collect();
 
-        let mut fragment_to_path: HashMap<Arc<str>, Arc<str>> = HashMap::default();
-        let mut fragment_to_import: HashMap<Arc<str>, Arc<str>> = HashMap::default();
-        let mut fragment_to_type_only: HashMap<Arc<str>, bool> = HashMap::default();
+        let mut fragment_to_path: HashMap<FragmentId, Arc<str>> = HashMap::default();
+        let mut fragment_to_import: HashMap<FragmentId, Arc<str>> = HashMap::default();
+        let mut fragment_to_type_only: HashMap<FragmentId, bool> = HashMap::default();
+        let mut name_to_id: HashMap<Arc<str>, FragmentId> = HashMap::default();
         let mut project_fragments_metadata = Vec::new();
 
         for meta in global_metadata {
-            // Avoid expensive canonicalize calls by checking the path as-is first
-            // Normalize meta.path to POSIX for consistent matching
+            // Pass 1: Collect all local fragments
             let meta_path_posix = crate::utils::to_posix_path(Path::new(meta.path.as_ref()));
             let is_local = project_files_set.contains(meta_path_posix.as_str());
             if is_local {
-                fragment_to_path.insert(meta.name.clone(), meta.path.clone());
-                fragment_to_type_only.insert(meta.name.clone(), meta.is_type_only);
+                let id = (meta.name.clone(), meta.path.clone(), meta.project_idx);
+                fragment_to_path.insert(id.clone(), meta.path.clone());
+                fragment_to_type_only.insert(id.clone(), meta.is_type_only);
+                name_to_id.insert(meta.name.clone(), id);
                 project_fragments_metadata.push(meta.clone());
-            } else if meta.is_public {
-                let existing_local = fragment_to_path.contains_key(&meta.name)
-                    && project_files_set.contains(fragment_to_path.get(&meta.name).unwrap());
-
-                if !existing_local {
-                    fragment_to_path
-                        .entry(meta.name.clone())
-                        .or_insert_with(|| meta.path.clone());
-                    if let Some(a) = &meta.import_alias {
-                        fragment_to_import
-                            .entry(meta.name.clone())
-                            .or_insert_with(|| a.clone());
-                    }
-                    fragment_to_type_only.insert(meta.name.clone(), meta.is_type_only);
-                    project_fragments_metadata.push(meta.clone());
-                }
             }
         }
 
-        // Build all_meta_by_name while preferring local fragments in case of name collisions.
-        // This ensures that transitive dependencies correctly resolve to local fragments when available.
-        // We include both public and private fragments here because a public fragment from another
-        // project might depend on its own private fragments, which we need to include for correct AST generation.
-        let mut all_meta_by_name: HashMap<Arc<str>, &FragmentMetadata> = HashMap::default();
         for meta in global_metadata {
+            // Pass 2: Collect public fragments from other projects
             let meta_path_posix = crate::utils::to_posix_path(Path::new(meta.path.as_ref()));
             let is_local = project_files_set.contains(meta_path_posix.as_str());
-
-            if is_local {
-                // Local always wins
-                all_meta_by_name.insert(meta.name.clone(), meta);
-            } else if let Some(existing) = all_meta_by_name.get(&meta.name) {
-                // If collision and not local, prefer public over private.
-                // If both are public or both are private, the first one seen wins (stable).
-                let existing_path_posix =
-                    crate::utils::to_posix_path(Path::new(existing.path.as_ref()));
-                let existing_is_local = project_files_set.contains(existing_path_posix.as_str());
-
-                if !existing_is_local && !existing.is_public && meta.is_public {
-                    all_meta_by_name.insert(meta.name.clone(), meta);
+            if !is_local && meta.is_public {
+                let id = (meta.name.clone(), meta.path.clone(), meta.project_idx);
+                fragment_to_path.insert(id.clone(), meta.path.clone());
+                if let Some(a) = &meta.import_alias {
+                    fragment_to_import.insert(id.clone(), a.clone());
                 }
-            } else {
-                all_meta_by_name.insert(meta.name.clone(), meta);
+                fragment_to_type_only.insert(id.clone(), meta.is_type_only);
+
+                // Only set as primary if not already set by a local fragment
+                name_to_id.entry(meta.name.clone()).or_insert(id);
+                project_fragments_metadata.push(meta.clone());
             }
         }
+
+        let all_meta_by_name_path: HashMap<FragmentId, &FragmentMetadata> = global_metadata
+            .iter()
+            .map(|m| ((m.name.clone(), m.path.clone(), m.project_idx), m))
+            .collect();
 
         // 2nd pass: Expand project fragments with all their transitive dependencies
-        // This ensures that fragments from other projects that are used transitively
-        // are included in fragment_to_path and all_fragments for correct import generation.
         let mut final_project_fragments_metadata = project_fragments_metadata.clone();
-        let mut seen_fragments: HashSet<Arc<str>> = project_fragments_metadata
+        let mut seen_fragments: HashSet<FragmentId> = project_fragments_metadata
             .iter()
-            .map(|m| m.name.clone())
+            .map(|m| (m.name.clone(), m.path.clone(), m.project_idx))
             .collect();
 
         let mut i = 0;
         while i < final_project_fragments_metadata.len() {
             let deps = final_project_fragments_metadata[i].transitive_deps.clone();
-            for dep_name in deps.iter() {
-                if seen_fragments.insert(dep_name.clone())
-                    && let Some(dep_meta) = all_meta_by_name.get(dep_name)
+            for (dep_name, dep_path, dep_project_idx) in deps.iter() {
+                let id = (dep_name.clone(), dep_path.clone(), *dep_project_idx);
+                if seen_fragments.insert(id.clone())
+                    && let Some(dep_meta) = all_meta_by_name_path.get(&id)
                 {
-                    fragment_to_path
-                        .entry(dep_name.clone())
-                        .or_insert_with(|| dep_meta.path.clone());
+                    fragment_to_path.insert(id.clone(), dep_meta.path.clone());
                     if let Some(a) = &dep_meta.import_alias {
-                        fragment_to_import
-                            .entry(dep_name.clone())
-                            .or_insert_with(|| a.clone());
+                        fragment_to_import.insert(id.clone(), a.clone());
                     }
-                    fragment_to_type_only
-                        .entry(dep_name.clone())
-                        .or_insert(dep_meta.is_type_only);
+                    fragment_to_type_only.insert(id.clone(), dep_meta.is_type_only);
+                    name_to_id.entry(dep_name.clone()).or_insert(id);
                     final_project_fragments_metadata.push((*dep_meta).clone());
                 }
             }
@@ -179,21 +160,25 @@ impl Engine {
         }
 
         let all_fragments =
-            Self::resolve_fragments(valid_schema, &final_project_fragments_metadata);
+            Self::resolve_fragments(valid_schema, &final_project_fragments_metadata)?;
 
         // Build fragment dependency cache from the metadata
-        let mut fragment_dependencies: HashMap<Arc<str>, Arc<[Arc<str>]>> = HashMap::default();
+        let mut fragment_dependencies: HashMap<FragmentId, TransitiveDeps> = HashMap::default();
         for meta in &final_project_fragments_metadata {
-            fragment_dependencies.insert(meta.name.clone(), meta.transitive_deps.clone());
+            fragment_dependencies.insert(
+                (meta.name.clone(), meta.path.clone(), meta.project_idx),
+                meta.transitive_deps.clone(),
+            );
         }
 
-        ProjectContext {
+        Ok(ProjectContext {
             fragment_to_path,
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
+            name_to_id,
             fragment_dependencies,
-        }
+        })
     }
 
     pub fn scan_workspace(
@@ -417,7 +402,7 @@ impl Engine {
                                         import_alias: import_alias_arc.clone(),
                                         is_public: frag.is_public,
                                         is_type_only: frag.is_type_only,
-                                        masked_source: doc.masked_source.clone(),
+                                        masked_source: Some(doc.masked_source.clone()),
                                         direct_deps: frag.used_fragments.clone(),
                                         transitive_deps: Arc::from([]),
                                         type_fields: frag.type_fields.clone(),
@@ -517,28 +502,48 @@ impl Engine {
     pub fn resolve_fragments(
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         fragments: &[FragmentMetadata],
-    ) -> HashMap<Arc<str>, apollo_compiler::Node<executable::Fragment>> {
+    ) -> Result<HashMap<Arc<str>, apollo_compiler::Node<executable::Fragment>>, String> {
         // Pre-allocate with estimated capacity to reduce reallocations
-        let estimated_size: usize = fragments.iter().map(|f| f.masked_source.len() + 1).sum();
+        let estimated_size: usize = fragments
+            .iter()
+            .map(|f| f.masked_source.as_ref().map(|s| s.len() + 1).unwrap_or(0))
+            .sum();
         let mut combined_source = String::with_capacity(estimated_size);
         let mut seen_paths = HashSet::default();
 
         for frag in fragments {
-            if seen_paths.insert(&frag.path) {
-                combined_source.push_str(&frag.masked_source);
+            if let Some(source) = &frag.masked_source
+                && seen_paths.insert(&frag.path)
+            {
+                combined_source.push_str(source);
                 combined_source.push('\n');
             }
         }
 
         // ExecutableDocument::parse will resolve all fragment spreads against each other.
-        let exec_doc = match executable::ExecutableDocument::parse(
+        let (exec_doc, errors) = match executable::ExecutableDocument::parse(
             valid_schema,
             combined_source,
             "workspace.graphql",
         ) {
-            Ok(doc) => doc,
-            Err(with_errors) => with_errors.partial,
+            Ok(doc) => (doc, None),
+            Err(with_errors) => (with_errors.partial, Some(with_errors.errors)),
         };
+
+        if let Some(errors) = errors {
+            let mut critical_errors = Vec::new();
+            for err in errors.iter() {
+                let err_str = err.to_string();
+                if err_str.contains(DUPLICATE_FRAGMENT_MSG_A)
+                    || err_str.contains(DUPLICATE_FRAGMENT_MSG_B)
+                {
+                    critical_errors.push(err_str);
+                }
+            }
+            if !critical_errors.is_empty() {
+                return Err(critical_errors.join("\n"));
+            }
+        }
 
         // Pre-allocate HashMap with known capacity - use Arc<str> to avoid string allocations
         let mut all_fragments: HashMap<Arc<str>, Node<executable::Fragment>> =
@@ -546,7 +551,7 @@ impl Engine {
         for (name, frag) in exec_doc.fragments {
             all_fragments.insert(Arc::from(name.as_str()), frag);
         }
-        all_fragments
+        Ok(all_fragments)
     }
 
     /// Compute transitive fragment dependencies for all fragments
@@ -701,8 +706,8 @@ impl Engine {
             }
         }
 
-        // 5. Map bitsets back to fragments and convert to names (Parallel)
-        let transitive_results: Vec<Arc<[Arc<str>]>> = (0..n)
+        // 5. Map bitsets back to fragments and convert to (name, path) (Parallel)
+        let transitive_results: Vec<TransitiveDeps> = (0..n)
             .into_par_iter()
             .map(|i| {
                 let scc_idx = node_to_scc[i];
@@ -713,7 +718,11 @@ impl Engine {
                         let bit_idx = word.trailing_zeros();
                         let idx = word_idx * 64 + bit_idx as usize;
                         if idx < n {
-                            res.push(fragments[idx].name.clone());
+                            res.push((
+                                fragments[idx].name.clone(),
+                                fragments[idx].path.clone(),
+                                fragments[idx].project_idx,
+                            ));
                         }
                         word &= !(1 << bit_idx);
                     }
@@ -750,5 +759,54 @@ impl Engine {
         let doc = DocumentState::new_from_thread_local(uri, &content, position_encoding);
 
         Some(doc)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use apollo_compiler::Schema;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_duplicate_fragment_error_constants() {
+        let schema_str = "type Query { user: User } type User { id: ID! name: String }";
+        let schema = Schema::parse(schema_str, "schema.graphql").unwrap();
+        let valid_schema = schema.validate().unwrap();
+
+        let fragments = vec![
+            FragmentMetadata {
+                name: Arc::from("UserFields"),
+                path: Arc::from("file1.graphql"),
+                project_idx: 0,
+                import_alias: None,
+                is_public: true,
+                is_type_only: false,
+                masked_source: Some(Arc::from("fragment UserFields on User { id }")),
+                direct_deps: Arc::from([]),
+                transitive_deps: Arc::from([]),
+                type_fields: Arc::from([]),
+            },
+            FragmentMetadata {
+                name: Arc::from("UserFields"),
+                path: Arc::from("file2.graphql"),
+                project_idx: 0,
+                import_alias: None,
+                is_public: true,
+                is_type_only: false,
+                masked_source: Some(Arc::from("fragment UserFields on User { name }")),
+                direct_deps: Arc::from([]),
+                transitive_deps: Arc::from([]),
+                type_fields: Arc::from([]),
+            },
+        ];
+
+        let result = Engine::resolve_fragments(&valid_schema, &fragments);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains(DUPLICATE_FRAGMENT_MSG_A) || err.contains(DUPLICATE_FRAGMENT_MSG_B),
+            "Error message should contain one of the duplicate fragment constants. Got: {}",
+            err
+        );
     }
 }

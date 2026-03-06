@@ -1,3 +1,4 @@
+use graphox_core::document::TransitiveDeps;
 use lsp_types::Url;
 use std::sync::Arc;
 
@@ -16,7 +17,7 @@ pub struct FragmentCompletionInfo {
     pub package_root: Option<std::path::PathBuf>,
     pub used_variables: Arc<[Arc<str>]>,
     pub used_fragments: Arc<[Arc<str>]>,
-    pub transitive_deps: Arc<[Arc<str>]>,
+    pub transitive_deps: TransitiveDeps,
     pub selected_fields: Arc<[Arc<str>]>,
     pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
     pub requirements: FragmentRequirements,
