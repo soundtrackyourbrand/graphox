@@ -1,0 +1,12 @@
+[
+  {
+    "name": "PrivateFragmentDocument",
+    "path": "./fragments.codegen",
+    "source": "\n  fragment PrivateFragment on Profile {\n    bio\n  }\n"
+  },
+  {
+    "name": "PublicFragmentDocument",
+    "path": "./fragments.codegen",
+    "source": "\n  fragment PublicFragment on User @public {\n    id\n    name\n    profile {\n      ...PrivateFragment\n    }\n  }\n"
+  }
+]

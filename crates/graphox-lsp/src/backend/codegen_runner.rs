@@ -44,18 +44,22 @@ pub async fn run_codegen(
         let uri = entry.key();
         let meta = entry.value();
 
-        let import_path = if let Ok(p) = uri.to_file_path() {
-            config
-                .get_project_for_path(&p)
-                .and_then(|proj| proj.import().map(|s| s.to_string()))
+        let (import_path, project_idx) = if let Ok(p) = uri.to_file_path() {
+            (
+                config
+                    .get_project_for_path(&p)
+                    .and_then(|proj| proj.import().map(|s| s.to_string())),
+                config.get_project_index_for_path(&p).unwrap_or(0),
+            )
         } else {
-            None
+            (None, 0)
         };
 
         for frag in meta.fragments.iter() {
             global_metadata.push(graphox_core::engine::FragmentMetadata {
                 name: frag.name.clone(),
                 path: Arc::from(uri.to_string()),
+                project_idx,
                 import_alias: import_path.as_deref().map(Arc::from),
                 is_public: frag.is_public,
                 is_type_only: frag.is_type_only,

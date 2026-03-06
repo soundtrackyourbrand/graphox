@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 pub struct FragmentMetadata {
     pub name: Arc<str>,
     pub path: Arc<str>,
+    pub project_idx: usize,
     pub import_alias: Option<Arc<str>>,
     pub is_public: bool,
     pub is_type_only: bool,
@@ -117,11 +118,72 @@ impl Engine {
             }
         }
 
-        let all_fragments = Self::resolve_fragments(valid_schema, &project_fragments_metadata);
+        // Build all_meta_by_name while preferring local fragments in case of name collisions.
+        // This ensures that transitive dependencies correctly resolve to local fragments when available.
+        // We include both public and private fragments here because a public fragment from another
+        // project might depend on its own private fragments, which we need to include for correct AST generation.
+        let mut all_meta_by_name: HashMap<Arc<str>, &FragmentMetadata> = HashMap::default();
+        for meta in global_metadata {
+            let meta_path_posix = crate::utils::to_posix_path(Path::new(meta.path.as_ref()));
+            let is_local = project_files_set.contains(meta_path_posix.as_str());
+
+            if is_local {
+                // Local always wins
+                all_meta_by_name.insert(meta.name.clone(), meta);
+            } else if let Some(existing) = all_meta_by_name.get(&meta.name) {
+                // If collision and not local, prefer public over private.
+                // If both are public or both are private, the first one seen wins (stable).
+                let existing_path_posix =
+                    crate::utils::to_posix_path(Path::new(existing.path.as_ref()));
+                let existing_is_local = project_files_set.contains(existing_path_posix.as_str());
+
+                if !existing_is_local && !existing.is_public && meta.is_public {
+                    all_meta_by_name.insert(meta.name.clone(), meta);
+                }
+            } else {
+                all_meta_by_name.insert(meta.name.clone(), meta);
+            }
+        }
+
+        // 2nd pass: Expand project fragments with all their transitive dependencies
+        // This ensures that fragments from other projects that are used transitively
+        // are included in fragment_to_path and all_fragments for correct import generation.
+        let mut final_project_fragments_metadata = project_fragments_metadata.clone();
+        let mut seen_fragments: HashSet<Arc<str>> = project_fragments_metadata
+            .iter()
+            .map(|m| m.name.clone())
+            .collect();
+
+        let mut i = 0;
+        while i < final_project_fragments_metadata.len() {
+            let deps = final_project_fragments_metadata[i].transitive_deps.clone();
+            for dep_name in deps.iter() {
+                if seen_fragments.insert(dep_name.clone())
+                    && let Some(dep_meta) = all_meta_by_name.get(dep_name)
+                {
+                    fragment_to_path
+                        .entry(dep_name.clone())
+                        .or_insert_with(|| dep_meta.path.clone());
+                    if let Some(a) = &dep_meta.import_alias {
+                        fragment_to_import
+                            .entry(dep_name.clone())
+                            .or_insert_with(|| a.clone());
+                    }
+                    fragment_to_type_only
+                        .entry(dep_name.clone())
+                        .or_insert(dep_meta.is_type_only);
+                    final_project_fragments_metadata.push((*dep_meta).clone());
+                }
+            }
+            i += 1;
+        }
+
+        let all_fragments =
+            Self::resolve_fragments(valid_schema, &final_project_fragments_metadata);
 
         // Build fragment dependency cache from the metadata
         let mut fragment_dependencies: HashMap<Arc<str>, Arc<[Arc<str>]>> = HashMap::default();
-        for meta in &project_fragments_metadata {
+        for meta in &final_project_fragments_metadata {
             fragment_dependencies.insert(meta.name.clone(), meta.transitive_deps.clone());
         }
 
@@ -313,7 +375,8 @@ impl Engine {
         let (mut all_fragments, all_operations, reused_fragments_count): (Vec<_>, Vec<_>, usize) =
             project_info
                 .par_iter()
-                .map(|(paths, import_alias)| {
+                .enumerate()
+                .map(|(project_idx, (paths, import_alias))| {
                     let import_alias_arc = import_alias.as_deref().map(Arc::from);
                     let mut fragments = Vec::new();
                     let mut operations = Vec::new();
@@ -329,7 +392,10 @@ impl Engine {
                                 && prev_doc.mtime == doc.mtime
                                 && prev_doc.mtime.is_some()
                                 && prev_frags_ref.get(&path_str).is_none_or(|frags| {
-                                    frags.iter().all(|f| f.import_alias == import_alias_arc)
+                                    frags.iter().all(|f| {
+                                        f.import_alias == import_alias_arc
+                                            && f.project_idx == project_idx
+                                    })
                                 })
                             {
                                 if let Some(prev_frags) = prev_frags_ref.get(&path_str) {
@@ -347,6 +413,7 @@ impl Engine {
                                     fragments.push(FragmentMetadata {
                                         name: frag.name.clone(),
                                         path: path_str.clone(),
+                                        project_idx,
                                         import_alias: import_alias_arc.clone(),
                                         is_public: frag.is_public,
                                         is_type_only: frag.is_type_only,
@@ -490,10 +557,14 @@ impl Engine {
             return;
         }
 
-        // 1. Build a map of fragment name -> index for O(1) integer-based lookup
-        let mut name_to_idx = HashMap::with_capacity(n);
+        // 1. Build a map of fragment name -> list of indices for O(1) integer-based lookup
+        // We use a list of indices because same-named fragments can exist in different projects.
+        let mut name_to_indices = HashMap::with_capacity(n);
         for (i, f) in fragments.iter().enumerate() {
-            name_to_idx.insert(f.name.clone(), i);
+            name_to_indices
+                .entry(f.name.clone())
+                .or_insert_with(Vec::new)
+                .push(i);
         }
 
         // 2. Use pre-extracted direct dependencies from document parsing
@@ -501,13 +572,25 @@ impl Engine {
         // during extract_symbols() via Tree-sitter queries
         let direct_deps_idx: Vec<Vec<usize>> = fragments
             .par_iter()
-            .map(|frag| {
+            .enumerate()
+            .map(|(i, frag)| {
                 let mut deps = Vec::new();
                 for dep_name in frag.direct_deps.iter() {
-                    if let Some(&idx) = name_to_idx.get(dep_name)
-                        && idx != name_to_idx[&frag.name]
-                    {
-                        deps.push(idx);
+                    if let Some(indices) = name_to_indices.get(dep_name) {
+                        // Resolution logic:
+                        // 1. Try to find a fragment with the same name in the same project
+                        // 2. Fallback to any @public fragment with that name
+                        let best_idx = indices
+                            .iter()
+                            .find(|&&idx| fragments[idx].project_idx == frag.project_idx)
+                            .or_else(|| indices.iter().find(|&&idx| fragments[idx].is_public))
+                            .copied();
+
+                        if let Some(idx) = best_idx
+                            && idx != i
+                        {
+                            deps.push(idx);
+                        }
                     }
                 }
                 deps.sort_unstable();

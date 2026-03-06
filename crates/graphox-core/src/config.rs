@@ -1071,6 +1071,11 @@ impl Config {
         self.get_codegen_config(Some(project)).emit_extensions()
     }
 
+    pub fn get_project_index_for_path(&self, path: &Path) -> Option<usize> {
+        self.get_project_for_path(path); // Ensure cache is populated
+        self.project_cache.get(path).and_then(|v| *v.value())
+    }
+
     pub fn get_project_for_path(&self, path: &Path) -> Option<&ProjectConfig> {
         if let Some(cached) = self.project_cache.get(path) {
             return cached.value().and_then(|idx| self.projects.get(idx));
