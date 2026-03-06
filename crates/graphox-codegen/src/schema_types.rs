@@ -22,6 +22,7 @@ pub fn generate_schema_types(
     let empty_type_only_map = HashMap::default();
     let dummy_cache = SchemaAnalysisCaches::new();
     let empty_type_imports = HashMap::default();
+    let empty_name_to_id = HashMap::default();
     let dummy_config = CodegenConfig::default();
     let dummy_ctx = CodegenContext::new(
         schema,
@@ -29,6 +30,7 @@ pub fn generate_schema_types(
         &empty_import_map,
         &empty_type_only_map,
         &empty_fragments,
+        &empty_name_to_id,
         Path::new(""),
         scalars,
         &None,

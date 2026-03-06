@@ -62,9 +62,18 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
-        let project_context =
+        let result =
             Engine::resolve_project_context(&valid_schema, global_metadata, &project_meta.files);
-        fragment_resolve_time += fr_start.elapsed();
+        let elapsed = fr_start.elapsed();
+        fragment_resolve_time += elapsed;
+
+        let project_context = match result {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                eprintln!("{}: {}", "Error resolving project context".red(), e.red());
+                continue;
+            }
+        };
 
         let project_files = &project_meta.files;
 
@@ -134,6 +143,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
                         project_fragment_to_import,
                         &project_context.fragment_to_type_only,
                         all_fragments,
+                        &project_context.name_to_id,
                         path,
                         config.scalars(),
                         &schema_import,

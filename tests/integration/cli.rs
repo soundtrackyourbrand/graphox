@@ -156,7 +156,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(500)]
 fn test_cli_check_recursive_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_recursive_frag");

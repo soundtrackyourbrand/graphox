@@ -275,13 +275,16 @@ pub fn get_operation_deps_cached(
     let mut all_deps = HashSet::default();
     collect_direct_fragment_spreads(&operation.selection_set, &mut all_deps);
 
-    let initial_size = all_deps.len();
-    let mut transitive_deps: HashSet<Arc<str>> =
-        HashSet::with_capacity_and_hasher(initial_size * 2, Default::default());
+    let mut transitive_deps: HashSet<Arc<str>> = HashSet::default();
 
     for frag_name in &all_deps {
-        if let Some(cached_transitive) = ctx.fragment_dependencies.get(&frag_name[..]) {
-            transitive_deps.extend(cached_transitive.iter().cloned());
+        if let Some(frag_id) = ctx.name_to_id.get(frag_name) {
+            if let Some(cached_transitive) = ctx.fragment_dependencies.get(frag_id) {
+                transitive_deps.extend(cached_transitive.iter().map(|(name, _, _)| name.clone()));
+            } else if let Some(parsed_frag) = ctx.all_fragments.get(frag_name.as_ref()) {
+                let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
+                transitive_deps.extend(frag_deps.into_iter());
+            }
         } else if let Some(parsed_frag) = ctx.all_fragments.get(frag_name.as_ref()) {
             let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
             transitive_deps.extend(frag_deps.into_iter());
@@ -293,8 +296,15 @@ pub fn get_operation_deps_cached(
 }
 
 pub fn get_fragment_deps_cached(fragment_name: &str, ctx: &CodegenContext) -> HashSet<Arc<str>> {
-    if let Some(cached_deps) = ctx.fragment_dependencies.get(fragment_name) {
-        cached_deps.iter().cloned().collect()
+    if let Some(frag_id) = ctx.name_to_id.get(fragment_name) {
+        if let Some(cached_deps) = ctx.fragment_dependencies.get(frag_id) {
+            cached_deps
+                .iter()
+                .map(|(name, _, _)| name.clone())
+                .collect()
+        } else {
+            HashSet::default()
+        }
     } else {
         HashSet::default()
     }

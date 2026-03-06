@@ -2,7 +2,7 @@ use ahash::AHashMap as HashMap;
 use ahash::AHashSet as HashSet;
 use apollo_compiler::ast::OperationType;
 use graphox_core::apollo_ast::{serialize_fragment_definition, serialize_operation_definition};
-use graphox_core::document::DocumentState;
+use graphox_core::document::{DocumentState, FragmentId};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -166,17 +166,15 @@ pub fn generate_typescript_with_profile(
                         continue;
                     }
 
-                    let is_type_only = ctx
-                        .fragment_to_type_only
-                        .get(dep.as_ref())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            doc.fragments()
-                                .iter()
-                                .find(|f| f.name.as_ref() == dep.as_ref())
-                                .map(|f| f.is_type_only)
-                                .unwrap_or(false)
-                        });
+                    let is_type_only = if let Some(id) = ctx.name_to_id.get(dep.as_ref()) {
+                        ctx.fragment_to_type_only.get(id).copied().unwrap_or(false)
+                    } else {
+                        doc.fragments()
+                            .iter()
+                            .find(|f| f.name.as_ref() == dep.as_ref())
+                            .map(|f| f.is_type_only)
+                            .unwrap_or(false)
+                    };
 
                     if !is_type_only {
                         let dep_name =
@@ -243,11 +241,11 @@ pub fn generate_typescript_with_profile(
                 ctx.fragment_document_suffix()
             );
 
-            let is_type_only = ctx
-                .fragment_to_type_only
-                .get(raw_name)
-                .copied()
-                .unwrap_or(false);
+            let is_type_only = if let Some(id) = ctx.name_to_id.get(raw_name) {
+                ctx.fragment_to_type_only.get(id).copied().unwrap_or(false)
+            } else {
+                false
+            };
 
             let root_type = ctx
                 .schema
@@ -325,21 +323,20 @@ pub fn generate_typescript_with_profile(
                         continue;
                     }
 
-                    let is_dep_type_only = ctx
-                        .fragment_to_type_only
-                        .get(dep.as_ref())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            ctx.all_fragments
-                                .get(dep.as_ref())
-                                .map(|f| {
-                                    ctx.fragment_to_type_only
-                                        .get(f.name.as_str())
-                                        .copied()
-                                        .unwrap_or(false)
-                                })
-                                .unwrap_or(false)
-                        });
+                    let is_dep_type_only = if let Some(id) = ctx.name_to_id.get(dep.as_ref()) {
+                        ctx.fragment_to_type_only.get(id).copied().unwrap_or(false)
+                    } else {
+                        ctx.all_fragments
+                            .get(dep.as_ref())
+                            .map(|f| {
+                                if let Some(fid) = ctx.name_to_id.get(f.name.as_str()) {
+                                    ctx.fragment_to_type_only.get(fid).copied().unwrap_or(false)
+                                } else {
+                                    false
+                                }
+                            })
+                            .unwrap_or(false)
+                    };
 
                     if !is_dep_type_only {
                         let dep_name =
@@ -423,44 +420,51 @@ pub fn generate_typescript_with_profile(
     }
 
     let mut final_used_fragments = HashSet::default();
-    let mut to_expand: Vec<Arc<str>> = used_fragments.iter().cloned().collect();
+    let mut to_expand: Vec<FragmentId> = Vec::new();
 
-    while let Some(frag_name) = to_expand.pop() {
-        if final_used_fragments.insert(frag_name.clone()) {
-            if let Some(deps) = ctx.fragment_dependencies.get(frag_name.as_ref()) {
-                for dep in deps.iter() {
-                    to_expand.push(dep.clone());
+    for name in used_fragments.iter() {
+        if let Some(id) = ctx.name_to_id.get(name) {
+            to_expand.push(id.clone());
+        }
+    }
+
+    while let Some(frag_id) = to_expand.pop() {
+        if final_used_fragments.insert(frag_id.clone()) {
+            if let Some(deps) = ctx.fragment_dependencies.get(&frag_id) {
+                for dep_id in deps.iter() {
+                    to_expand.push(dep_id.clone());
                 }
-            } else if let Some(frag) = ctx.all_fragments.get(frag_name.as_ref()) {
+            } else if let Some(frag) = ctx.all_fragments.get(frag_id.0.as_ref()) {
                 let deps = graphox_core::apollo_ast::get_fragment_fragment_dependencies(
                     frag,
                     ctx.all_fragments,
                 );
                 for dep in deps {
-                    to_expand.push(dep);
+                    if let Some(id) = ctx.name_to_id.get(&dep) {
+                        to_expand.push(id.clone());
+                    }
                 }
             }
         }
     }
-    *used_fragments = final_used_fragments.into();
 
-    let mut used_frag_names: Vec<_> = used_fragments.iter().cloned().collect();
-    used_frag_names.sort_unstable();
+    let mut used_frag_ids: Vec<_> = final_used_fragments.into_iter().collect();
+    used_frag_ids.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
-    let mut imports: BTreeMap<Arc<str>, Vec<Arc<str>>> = BTreeMap::new();
+    let mut imports: BTreeMap<Arc<str>, Vec<FragmentId>> = BTreeMap::new();
     let current_path = doc
         .uri
         .to_file_path()
         .unwrap_or_else(|_| PathBuf::from(doc.uri.path()));
     let current_canonical = ctx.canonicalize_path(&current_path);
 
-    for frag_name in used_frag_names {
-        if let Some(import_alias) = ctx.fragment_to_import.get(&frag_name[..]) {
+    for frag_id in &used_frag_ids {
+        if let Some(import_alias) = ctx.fragment_to_import.get(frag_id) {
             imports
                 .entry(import_alias.clone())
                 .or_default()
-                .push(frag_name);
-        } else if let Some(other_path) = ctx.fragment_to_path.get(&frag_name[..]) {
+                .push(frag_id.clone());
+        } else if let Some(other_path) = ctx.fragment_to_path.get(frag_id) {
             let other_path_buf = Path::new(other_path.as_ref());
             let other_canonical = ctx.canonicalize_path(other_path_buf);
 
@@ -468,25 +472,26 @@ pub fn generate_typescript_with_profile(
                 imports
                     .entry(other_path.clone())
                     .or_default()
-                    .push(frag_name);
+                    .push(frag_id.clone());
             }
         }
     }
 
-    for (path, names) in &imports {
+    for (path, ids) in &imports {
         let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
             path.to_string()
         } else {
             ctx.get_final_import_path(path, ctx.current_file_path.parent().unwrap())
         };
 
-        let mut type_imports = Vec::with_capacity(names.len());
-        let mut doc_imports = Vec::with_capacity(names.len());
+        let mut type_imports = Vec::with_capacity(ids.len());
+        let mut doc_imports = Vec::with_capacity(ids.len());
 
-        for n in names {
+        for frag_id in ids {
+            let n = &frag_id.0;
             let is_type_only = ctx
                 .fragment_to_type_only
-                .get(n.as_ref())
+                .get(frag_id)
                 .copied()
                 .unwrap_or(false);
             let name = apply_naming_convention(n.as_ref(), &ctx.naming_convention());
