@@ -62,7 +62,10 @@ pub fn generate_entrypoint_content(
     for op in unique_ops_by_name.values() {
         let rel_codegen_path = get_relative_path(&op.codegen_path);
         let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
-        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+        if !path_str.starts_with('.')
+            && !path_str.starts_with('/')
+            && !rel_codegen_path.is_absolute()
+        {
             path_str = format!("./{}", path_str);
         }
         let path_no_ext = if path_str.ends_with(".ts") {
@@ -104,7 +107,10 @@ pub fn generate_entrypoint_content(
     for frag in unique_frags_by_name.values() {
         let rel_codegen_path = get_relative_path(&frag.codegen_path);
         let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
-        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+        if !path_str.starts_with('.')
+            && !path_str.starts_with('/')
+            && !rel_codegen_path.is_absolute()
+        {
             path_str = format!("./{}", path_str);
         }
         let path_no_ext = if path_str.ends_with(".ts") {
@@ -190,7 +196,10 @@ pub fn generate_entrypoint_content(
         for op in unique_ops_by_name.values() {
             let rel_codegen_path = get_relative_path(&op.codegen_path);
             let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
-            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+            if !path_str.starts_with('.')
+                && !path_str.starts_with('/')
+                && !rel_codegen_path.is_absolute()
+            {
                 path_str = format!("./{}", path_str);
             }
             let path_no_ext = if path_str.ends_with(".ts") {
@@ -226,7 +235,10 @@ pub fn generate_entrypoint_content(
         for frag in unique_frags_by_name.values() {
             let rel_codegen_path = get_relative_path(&frag.codegen_path);
             let mut path_str = graphox_core::utils::to_posix_path(&rel_codegen_path);
-            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+            if !path_str.starts_with('.')
+                && !path_str.starts_with('/')
+                && !rel_codegen_path.is_absolute()
+            {
                 path_str = format!("./{}", path_str);
             }
             let path_no_ext = if path_str.ends_with(".ts") {

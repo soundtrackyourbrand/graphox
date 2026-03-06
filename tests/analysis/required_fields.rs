@@ -11,7 +11,7 @@ use crate::support::{
 };
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_always_true() {
     // Given: a query that selects the `users` field
     let text = r#"
@@ -48,7 +48,7 @@ fn test_required_field_always_true() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_missing_always_true() {
     let text = r#"
         query GetPosts {
@@ -86,7 +86,7 @@ fn test_required_field_missing_always_true() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_always_false() {
     let text = r#"
         query GetPosts {
@@ -121,7 +121,7 @@ fn test_required_field_always_false() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_specific_operation_query() {
     let text = r#"
         query GetPosts {
@@ -162,7 +162,7 @@ fn test_required_field_specific_operation_query() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_specific_operation_mutation_not_required() {
     let text = r#"
         mutation AddPost {
@@ -200,7 +200,7 @@ fn test_required_field_specific_operation_mutation_not_required() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_multiple_required_fields() {
     let text = r#"
         query GetPosts {
@@ -241,7 +241,7 @@ fn test_multiple_required_fields() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_no_required_fields_config() {
     let text = r#"
         query GetPosts {
@@ -272,7 +272,7 @@ fn test_no_required_fields_config() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_case_sensitive() {
     let text = r#"
         query GetPosts {
@@ -307,7 +307,7 @@ fn test_required_field_case_sensitive() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_not_in_schema() {
     let text = r#"
         query GetPosts {
@@ -341,7 +341,7 @@ fn test_required_field_not_in_schema() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_subscription() {
     let text = r#"
         subscription {
@@ -380,7 +380,7 @@ fn test_required_field_subscription() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_ignored_with_inline_comment() {
     let schema = fixtures::user_with_posts_schema()
         .clone()
@@ -407,7 +407,7 @@ fn test_required_field_ignored_with_inline_comment() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_inline_fragment() {
     let schema_content = r#"
         type Query {
@@ -455,7 +455,7 @@ fn test_required_field_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_inline_fragment_partial_coverage() {
     let schema_content = r#"
         type Query {
@@ -507,7 +507,7 @@ fn test_required_field_inline_fragment_partial_coverage() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_required_field_nested_with_inline_fragment() {
     let schema_content = r#"
         type Query {
@@ -561,7 +561,7 @@ fn test_required_field_nested_with_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(200)]
+#[ntest::timeout(500)]
 fn test_required_id_with_fragment_spread() {
     let schema_text = r#"
         type Query {

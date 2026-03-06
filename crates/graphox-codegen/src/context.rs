@@ -196,12 +196,13 @@ impl<'a> CodegenContext<'a> {
         }
 
         let abs_fragment_path = self.canonicalize_path(Path::new(fragment_path.as_ref()));
+        let abs_parent_dir = self.canonicalize_path(parent_dir);
         let rel_path = self
-            .diff_paths(&abs_fragment_path, parent_dir)
+            .diff_paths(&abs_fragment_path, &abs_parent_dir)
             .unwrap_or_else(|| abs_fragment_path.clone());
 
         let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-        if !path_str.starts_with('.') {
+        if !path_str.starts_with('.') && !rel_path.is_absolute() {
             path_str.insert_str(0, "./");
         }
         let p = Path::new(&path_str);
@@ -209,7 +210,10 @@ impl<'a> CodegenContext<'a> {
         let parent = p.parent().unwrap();
         let final_p = parent.join(stem);
         let mut final_path_str = graphox_core::utils::to_posix_path(&final_p);
-        if !final_path_str.starts_with('.') && !final_path_str.starts_with('/') {
+        if !final_path_str.starts_with('.')
+            && !final_path_str.starts_with('/')
+            && !final_p.is_absolute()
+        {
             final_path_str.insert_str(0, "./");
         }
         final_path_str.push_str(".codegen");

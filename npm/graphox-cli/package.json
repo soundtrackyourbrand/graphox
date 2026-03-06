@@ -3,7 +3,7 @@
   "version": "0.3.4",
   "description": "Graphox CLI - High-performance GraphQL toolset",
   "bin": {
-    "graphox": "./bin/graphox"
+    "graphox": "./bin/graphox.js"
   },
   "scripts": {
     "postinstall": "node postinstall.js"
@@ -35,6 +35,7 @@
   "author": "soundtrackyourbrand",
   "license": "UNLICENSED",
   "files": [
+    "bin/graphox.js",
     "postinstall.js",
     "README.md",
     "graphox.schema.json"

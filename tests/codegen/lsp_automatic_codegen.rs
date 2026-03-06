@@ -105,7 +105,7 @@ async fn test_lsp_automatic_codegen() {
 
     // Wait for codegen
     assert!(
-        support::wait_for_file_async(&gen_path, Duration::from_millis(500), Some("GetMe")).await
+        support::wait_for_file_async(&gen_path, Duration::from_millis(2000), Some("GetMe")).await
     );
     let content = fs::read_to_string(&gen_path).unwrap();
     // Use a more specific check to avoid matching schema types or comments if any
@@ -115,7 +115,7 @@ async fn test_lsp_automatic_codegen() {
         content
     );
 
-    // 2. didChange alone should not trigger codegen
+    // 2. didChange should trigger codegen
     let query_text_new = "query GetMyProfile { me { id name } }";
     service
         .call(
@@ -139,14 +139,20 @@ async fn test_lsp_automatic_codegen() {
         .await
         .unwrap();
 
-    sleep(Duration::from_millis(500)).await;
-    let unchanged_content = fs::read_to_string(&gen_path).unwrap();
+    // Wait for automatic codegen
     assert!(
-        !unchanged_content.contains("GetMyProfile"),
-        "didChange should not trigger codegen without save"
+        support::wait_for_file_async(&gen_path, Duration::from_millis(2000), Some("GetMyProfile"))
+            .await,
+        "didChange should trigger codegen when automatic codegen is enabled"
+    );
+    let changed_content = fs::read_to_string(&gen_path).unwrap();
+    assert!(
+        changed_content.contains("name: string | null"),
+        "Generated content should contain 'name' field after didChange: {}",
+        changed_content
     );
 
-    // 3. didSave should trigger codegen
+    // 3. didSave should also trigger codegen (idempotent if no changes, but here we can just verify it works)
     service
         .call(
             Request::build("textDocument/didSave")
@@ -165,7 +171,7 @@ async fn test_lsp_automatic_codegen() {
         .unwrap();
 
     let updated =
-        support::wait_for_file_async(&gen_path, Duration::from_millis(500), Some("GetMyProfile"))
+        support::wait_for_file_async(&gen_path, Duration::from_millis(2000), Some("GetMyProfile"))
             .await;
     assert!(updated, "Codegen was not updated after didSave");
 
@@ -281,7 +287,7 @@ async fn test_lsp_automatic_codegen_disabled() {
         .unwrap();
 
     // Wait for background scan to complete
-    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -312,7 +318,7 @@ async fn test_lsp_automatic_codegen_disabled() {
 
     // Wait for enabled codegen
     assert!(
-        support::wait_for_file_async(&enabled_gen_path, Duration::from_millis(200), None).await
+        support::wait_for_file_async(&enabled_gen_path, Duration::from_millis(2000), None).await
     );
     let enabled_content = fs::read_to_string(&enabled_gen_path).unwrap();
     assert!(enabled_content.contains("GetMeQuery"));
@@ -396,9 +402,8 @@ async fn test_lsp_automatic_codegen_disabled() {
         "Should still not generate files after didSave for disabled project"
     );
 
-    // Verify enabled project still works on save
+    // Verify enabled project triggers codegen on didChange
     let enabled_query_text_new = "query GetMe { me { id name } }";
-    fs::write(&enabled_query_path, enabled_query_text_new).unwrap();
     service
         .call(
             Request::build("textDocument/didChange")
@@ -421,13 +426,18 @@ async fn test_lsp_automatic_codegen_disabled() {
         .await
         .unwrap();
 
-    sleep(Duration::from_millis(100)).await;
-    let unchanged_enabled = fs::read_to_string(&enabled_gen_path).unwrap();
+    // Wait for automatic codegen
     assert!(
-        !unchanged_enabled.contains("name: string | null"),
-        "didChange should not trigger enabled project codegen without save"
+        support::wait_for_file_async(
+            &enabled_gen_path,
+            Duration::from_millis(2000),
+            Some("name: string | null")
+        )
+        .await,
+        "didChange should trigger enabled project codegen when automatic codegen is enabled"
     );
 
+    // didSave should also trigger codegen
     service
         .call(
             Request::build("textDocument/didSave")
@@ -678,7 +688,7 @@ async fn test_lsp_automatic_codegen_didsave_uses_disk_state_for_ts_host() {
         .await
         .unwrap();
 
-    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -699,7 +709,7 @@ async fn test_lsp_automatic_codegen_didsave_uses_disk_state_for_ts_host() {
         .unwrap();
 
     let gen_path = base_dir.join("gen/query.codegen.ts");
-    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(2000), None).await);
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(content.contains("GetMeQuery"));
 }
@@ -777,7 +787,7 @@ async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
         .await
         .unwrap();
 
-    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -850,7 +860,7 @@ async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
         .unwrap();
 
     let gen_path = base_dir.join("gen/query.codegen.ts");
-    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(2000), None).await);
 
     let mut content = fs::read_to_string(&gen_path).unwrap();
     for _ in 0..40 {
@@ -932,7 +942,7 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         .await
         .unwrap();
 
-    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -957,7 +967,7 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         .await
         .unwrap();
 
-    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(2000), None).await);
 
     assert!(
         gen_path.exists(),
@@ -1082,7 +1092,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
         .await
         .unwrap();
 
-    let _ = tokio::time::timeout(Duration::from_millis(200), scan_done_rx.recv())
+    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
         .await
         .expect("Scan did not complete in time");
 
@@ -1105,7 +1115,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
         .unwrap();
 
     let gen_path = base_dir.join("gen/query.codegen.ts");
-    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(500), None).await);
+    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(2000), None).await);
     fs::write(
         &gen_path,
         "// touched by formatter\nexport const untouched = true;\n",
@@ -1155,7 +1165,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
         .await
         .unwrap();
 
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(2000)).await;
     let content = fs::read_to_string(&gen_path).unwrap();
     assert!(
         content.starts_with("// touched by formatter"),

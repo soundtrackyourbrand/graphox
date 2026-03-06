@@ -108,13 +108,13 @@ pub async fn run_codegen(
             .filter_map(|entry| {
                 let uri = entry.key();
                 if let Ok(path) = uri.to_file_path() {
-                    let rel_path = path.strip_prefix(config.base_dir()).unwrap_or(&path);
+                    let rel_path = config.relativize(&path);
 
-                    let include_match = project.include().is_match(rel_path);
+                    let include_match = project.include().is_match(&rel_path);
                     let exclude_match = project
                         .exclude()
                         .as_ref()
-                        .is_some_and(|e| e.is_match(rel_path));
+                        .is_some_and(|e| e.is_match(&rel_path));
 
                     if include_match && !exclude_match {
                         return Some(path);
@@ -323,10 +323,12 @@ pub async fn run_codegen(
                         let rel_to_masking = pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
                             .unwrap_or_else(|| PathBuf::from("."));
 
-                        let mut path_str = graphox_core::utils::to_posix_path(
-                            &rel_to_masking.join("fragment-masking"),
-                        );
-                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                        let full_masking_path = rel_to_masking.join("fragment-masking");
+                        let mut path_str = graphox_core::utils::to_posix_path(&full_masking_path);
+                        if !path_str.starts_with('.')
+                            && !path_str.starts_with('/')
+                            && !full_masking_path.is_absolute()
+                        {
                             path_str.insert_str(0, "./");
                         }
                         path_str.push_str(codegen_config.emit_extensions().as_str());
@@ -550,7 +552,10 @@ pub async fn run_codegen(
                 let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
                     .unwrap_or_else(|| op.codegen_path.clone());
                 let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-                if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                if !path_str.starts_with('.')
+                    && !path_str.starts_with('/')
+                    && !rel_path.is_absolute()
+                {
                     path_str = format!("./{}", path_str);
                 }
                 let path_no_ext = if path_str.ends_with(".ts") {
@@ -576,7 +581,10 @@ pub async fn run_codegen(
                         let rel_path = pathdiff::diff_paths(&frag.codegen_path, &out_dir_path)
                             .unwrap_or_else(|| frag.codegen_path.clone());
                         let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-                        if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                        if !path_str.starts_with('.')
+                            && !path_str.starts_with('/')
+                            && !rel_path.is_absolute()
+                        {
                             path_str = format!("./{}", path_str);
                         }
                         let path_no_ext = if path_str.ends_with(".ts") {

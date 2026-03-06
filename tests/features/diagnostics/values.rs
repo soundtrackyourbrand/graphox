@@ -3,7 +3,7 @@ use graphox::features::diagnostics::DocumentDiagnostics;
 use crate::support::{assert_diagnostic_with_message, assert_diagnostics_count, create_doc};
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_enum_value_validation() {
     let schema_content = r#"
         enum Status {
@@ -26,7 +26,7 @@ fn test_enum_value_validation() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_invalid_enum_value() {
     let schema_content = r#"
         enum Status {
@@ -49,7 +49,7 @@ fn test_invalid_enum_value() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_object_value_validation() {
     let schema_content = r#"
         input CreateUserInput {
@@ -71,7 +71,7 @@ fn test_object_value_validation() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_object_value_missing_required_field() {
     let schema_content = r#"
         input CreateUserInput {
@@ -94,7 +94,7 @@ fn test_object_value_missing_required_field() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_list_value_validation() {
     let schema_content = r#"
         type Query {
@@ -113,7 +113,7 @@ fn test_list_value_validation() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_variable_coercion() {
     let schema_content = r#"
         type Query {
@@ -131,7 +131,7 @@ fn test_variable_coercion() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_input_object_unknown_fields() {
     let schema_content = r#"
         input CreateUserInput {

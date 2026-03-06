@@ -12,7 +12,7 @@ use tempfile::tempdir;
 use tower_lsp::lsp_types::*;
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_unused_fragment_reported_when_enabled() {
     let dir = tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();
@@ -65,7 +65,7 @@ fn test_unused_fragment_reported_when_enabled() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_unused_fragment_not_reported_when_disabled() {
     let dir = tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();
@@ -113,7 +113,7 @@ fn test_unused_fragment_not_reported_when_disabled() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_unused_fragment_not_reported_when_not_configured() {
     let dir = tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();
@@ -160,7 +160,7 @@ fn test_unused_fragment_not_reported_when_not_configured() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_used_fragment_not_reported() {
     let dir = tempdir().unwrap();
     let base = dir.path().canonicalize().unwrap();

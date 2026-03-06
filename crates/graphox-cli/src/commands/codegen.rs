@@ -653,7 +653,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                             let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
                                 .unwrap_or_else(|| op.codegen_path.clone());
                             let mut path_str = utils::to_posix_path(&rel_path);
-                            if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                            if !path_str.starts_with('.')
+                                && !path_str.starts_with('/')
+                                && !rel_path.is_absolute()
+                            {
                                 path_str = format!("./{}", path_str);
                             }
                             let path_no_ext = if path_str.ends_with(".ts") {
@@ -680,7 +683,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                                         pathdiff::diff_paths(&frag.codegen_path, &out_dir_path)
                                             .unwrap_or_else(|| frag.codegen_path.clone());
                                     let mut path_str = utils::to_posix_path(&rel_path);
-                                    if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                                    if !path_str.starts_with('.')
+                                        && !path_str.starts_with('/')
+                                        && !rel_path.is_absolute()
+                                    {
                                         path_str = format!("./{}", path_str);
                                     }
                                     let path_no_ext = if path_str.ends_with(".ts") {
@@ -857,8 +863,9 @@ fn generate_project_files_sync(
                 let rel_to_masking = pathdiff::diff_paths(&abs_out_dir, abs_file_out_dir)
                     .unwrap_or_else(|| PathBuf::from("."));
 
-                let mut path_str = utils::to_posix_path(&rel_to_masking.join("fragment-masking"));
-                if !path_str.starts_with('.') && !path_str.starts_with('/') {
+                let full_masking_path = rel_to_masking.join("fragment-masking");
+                let mut path_str = utils::to_posix_path(&full_masking_path);
+                if !path_str.starts_with('.') && !path_str.starts_with('/') && !full_masking_path.is_absolute() {
                     path_str.insert_str(0, "./");
                 }
                 path_str.push_str(params.emit_extensions.as_str());

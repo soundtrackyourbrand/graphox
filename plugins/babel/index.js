@@ -5,6 +5,10 @@ function normalize(s) {
   return s.replace(/\s+/g, '');
 }
 
+function toPosixPath(str) {
+  return str.replace(/\\/g, '/');
+}
+
 function stripScriptExtension(filePath) {
   return filePath.replace(/(\.d)?\.(mjs|cjs|js|jsx|ts|tsx)$/, '');
 }
@@ -103,6 +107,7 @@ module.exports = function (babel) {
           }
 
           const isOurGraphqlPath = (src) => {
+            src = toPosixPath(src);
             if (graphqlImportPaths.includes(src)) return true;
             const srcNoExt = stripScriptExtension(src);
             if (graphqlImportPaths.includes(srcNoExt)) return true;
@@ -110,7 +115,7 @@ module.exports = function (babel) {
             if (currentDir) {
               let absoluteSrc = null;
               try {
-                if (src.startsWith('.') || src.startsWith('/')) {
+                if (src.startsWith('.') || path.isAbsolute(src)) {
                   absoluteSrc = path.resolve(currentDir, srcNoExt);
                 } else {
                   absoluteSrc = stripScriptExtension(
@@ -199,7 +204,8 @@ module.exports = function (babel) {
                       const entry = documentNameToEntry.get(importedName);
                       const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
                       let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
-                      if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+                      relPath = toPosixPath(relPath);
+                      if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
                         relPath = './' + relPath;
                       }
                       // Append the emit extension
@@ -253,7 +259,8 @@ module.exports = function (babel) {
                     if (entry) {
                       const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
                       let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
-                      if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+                      relPath = toPosixPath(relPath);
+                      if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
                         relPath = './' + relPath;
                       }
                       // Append the emit extension

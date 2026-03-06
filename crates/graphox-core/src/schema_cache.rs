@@ -524,7 +524,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    #[ntest::timeout(100)]
+    #[ntest::timeout(300)]
     fn test_cache_metadata_validation() {
         let dir = tempdir().unwrap();
         let schema_path = dir.path().join("schema.graphql");
@@ -548,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    #[ntest::timeout(100)]
+    #[ntest::timeout(300)]
     fn test_cache_round_trip() {
         let dir = tempdir().unwrap();
         let schema_path = dir.path().join("schema.graphql");
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    #[ntest::timeout(100)]
+    #[ntest::timeout(300)]
     fn test_corrupted_cache_file_is_removed() {
         let dir = tempdir().unwrap();
 

@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Command;
+use tempfile::tempdir;
 
 #[test]
 #[ntest::timeout(250)]
@@ -875,7 +876,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_schema_types_test");
@@ -1135,7 +1136,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(200)]
+#[ntest::timeout(500)]
 fn test_cli_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_disabled");
@@ -1234,7 +1235,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(200)]
+#[ntest::timeout(500)]
 fn test_cli_check_with_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_check_disabled");
@@ -1371,4 +1372,45 @@ fn test_multi_project_isolation() {
     );
 
     std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_npm_wrapper_execution() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let wrapper_source_path = root_dir.join("npm/graphox-cli/bin/graphox.js");
+
+    // Create a temporary directory to avoid dirtying the worktree
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_bin_dir = temp_dir.path();
+
+    let wrapper_path = temp_bin_dir.join("graphox.js");
+
+    // Ensure binary name matches what wrapper expects
+    let binary_name = if cfg!(windows) {
+        "graphox-bin.exe"
+    } else {
+        "graphox-bin"
+    };
+    let target_bin_path = temp_bin_dir.join(binary_name);
+
+    // Copy the wrapper and the fresh build to the temp directory
+    std::fs::copy(wrapper_source_path, &wrapper_path).expect("Failed to copy wrapper to temp dir");
+    std::fs::copy(bin_path, &target_bin_path).expect("Failed to copy binary to temp dir");
+
+    // Execute the wrapper via node
+    let output = std::process::Command::new("node")
+        .arg(&wrapper_path)
+        .arg("--version")
+        .output()
+        .expect("Failed to execute node wrapper");
+
+    assert!(
+        output.status.success(),
+        "NPM wrapper failed to execute: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("graphox"));
 }

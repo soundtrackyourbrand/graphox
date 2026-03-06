@@ -90,14 +90,8 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
                 if paths.len() > 1 {
                     success = false;
                     let project_name = cfg.projects()[*project_idx].include().as_key();
-                    let display_paths: Vec<PathBuf> = paths
-                        .iter()
-                        .map(|path| {
-                            path.strip_prefix(cfg.base_dir())
-                                .unwrap_or(path)
-                                .to_path_buf()
-                        })
-                        .collect();
+                    let display_paths: Vec<PathBuf> =
+                        paths.iter().map(|path| cfg.relativize(path)).collect();
                     let path_refs: Vec<&std::path::Path> =
                         display_paths.iter().map(|p| p.as_path()).collect();
                     reporter.report_duplicate_operation(op_name, &project_name, &path_refs);
@@ -208,7 +202,7 @@ async fn execute_project_check(
             true,
         );
         if !diagnostics.is_empty() {
-            let display_path = path.strip_prefix(base_dir).unwrap_or(path);
+            let display_path = config.relativize(path);
 
             for d in diagnostics {
                 let is_issue = matches!(
@@ -220,7 +214,7 @@ async fn execute_project_check(
                     if is_issue {
                         found_any.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
-                    reporter.report_diagnostic(display_path, &d, verbose);
+                    reporter.report_diagnostic(&display_path, &d, verbose);
                 }
             }
         }

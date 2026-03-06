@@ -84,7 +84,9 @@ pub fn get_codegen_path(
         path.push(output_dir);
 
         // Calculate relative path from project root if source_path is inside base_dir
-        if let Ok(rel_path) = source_path.strip_prefix(config.base_dir())
+        let rel_path = config.relativize(source_path);
+        if !rel_path.is_absolute()
+            && !rel_path.starts_with("..")
             && let Some(parent) = rel_path.parent()
         {
             path.push(parent);

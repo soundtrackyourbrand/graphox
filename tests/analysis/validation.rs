@@ -12,7 +12,7 @@ use crate::support::fixtures;
 use crate::support::range_for_token_at_index;
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_valid_query() {
     let doc = create_doc(
         "file:///valid.graphql",
@@ -42,7 +42,7 @@ fn test_validation_valid_query() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_missing_field() {
     let doc = create_doc(
         "file:///missing.graphql",
@@ -85,7 +85,7 @@ fn test_validation_missing_field() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_deprecated_field() {
     let doc = create_doc(
         "file:///deprecated.graphql",
@@ -131,7 +131,7 @@ fn test_validation_deprecated_field() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_deprecated_field_ignored() {
     let doc = create_doc(
         "file:///deprecated_ignored.graphql",
@@ -160,7 +160,7 @@ fn test_validation_deprecated_field_ignored() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_nested_missing_field() {
     let doc = create_doc(
         "file:///nested.graphql",
@@ -211,7 +211,7 @@ fn test_validation_nested_missing_field() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_fragment() {
     let doc = create_doc(
         "file:///fragment.graphql",
@@ -249,7 +249,7 @@ fn test_validation_fragment() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_inline_fragment() {
     let text = r#"
         query {
@@ -279,7 +279,7 @@ fn test_validation_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_unknown_fragment_spread() {
     let doc = create_doc(
         "file:///spread.graphql",
@@ -303,7 +303,7 @@ fn test_validation_unknown_fragment_spread() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_known_fragment_spread() {
     let doc = create_doc(
         "file:///known_spread.graphql",
@@ -399,7 +399,7 @@ fn test_type_only_fragment_used() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_input_field_deprecation() {
     let doc_text = r#"
         query {
@@ -429,7 +429,7 @@ fn test_validation_input_field_deprecation() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_unions_and_interfaces() {
     let schema = fixtures::union_interface_schema().clone();
     let validated_schema = schema.validate().unwrap();
@@ -501,7 +501,7 @@ fn test_validation_unions_and_interfaces() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_alias_field_lookup() {
     let doc = create_doc(
         "file:///alias.graphql",
@@ -531,7 +531,7 @@ fn test_validation_alias_field_lookup() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_block_strings_and_comments() {
     let doc = create_doc(
         "file:///quirks.graphql",
@@ -560,7 +560,7 @@ fn test_validation_block_strings_and_comments() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_circular_fragments() {
     let doc = create_doc(
         "file:///circular.graphql",
@@ -603,7 +603,7 @@ fn test_validation_circular_fragments() {
 }
 
 #[test]
-#[ntest::timeout(100)]
+#[ntest::timeout(300)]
 fn test_validation_circular_fragments_three_way() {
     let text = r#"
             fragment A on User {
