@@ -162,6 +162,44 @@ impl DocumentState {
         })
     }
 
+    pub fn mask_source_from_thread_local(uri: &Url, content: &str) -> Arc<str> {
+        let language = DocumentLanguage::from_uri(uri);
+        if !language.is_host_language() {
+            return content.into();
+        }
+
+        PARSER.with(|p| {
+            let mut parser = p.borrow_mut();
+            parser
+                .set_language(&language.get_parser_language())
+                .expect("Failed to set tree-sitter language");
+
+            let tree = parser.parse(content, None).unwrap();
+            let rope = Rope::from_str(content);
+
+            // Create a minimal temporary DocumentState to reuse reparse_graphql_trees
+            let this = Self {
+                uri: uri.clone(),
+                language,
+                rope,
+                tree: Arc::new(tree),
+                package_root: None,
+                fragments: Arc::from([]),
+                operations: Arc::from([]),
+                fragment_spreads: Arc::from([]),
+                graphql_trees: Vec::new(),
+                masked_source: "".into(),
+                version: 0,
+                mtime: None,
+                position_encoding: PositionEncodingKind::UTF8,
+                executable_docs: Arc::new(DashMap::default()),
+            };
+
+            let graphql_trees = this.reparse_graphql_trees(&mut parser, false);
+            Self::build_masked_host_source(content, &graphql_trees).into()
+        })
+    }
+
     pub fn new(
         uri: Url,
         content: &str,
@@ -200,9 +238,9 @@ impl DocumentState {
             executable_docs: Arc::new(DashMap::default()),
         };
 
-        this.graphql_trees = this.reparse_graphql_trees(parser);
+        this.graphql_trees = this.reparse_graphql_trees(parser, true);
         if language.is_host_language() {
-            this.masked_source = mask_interpolations(content).into();
+            this.masked_source = this.generate_masked_host_source(content).into();
         } else {
             this.masked_source = content.into();
         }
@@ -274,7 +312,11 @@ impl DocumentState {
         Ok((arc_doc, arc_errors))
     }
 
-    pub fn reparse_graphql_trees(&self, parser: &mut Parser) -> Vec<GraphQLBlock> {
+    pub fn reparse_graphql_trees(
+        &self,
+        parser: &mut Parser,
+        extract_symbols: bool,
+    ) -> Vec<GraphQLBlock> {
         if self.language == DocumentLanguage::GraphQL {
             let mut hasher = ahash::AHasher::default();
             use std::hash::Hasher;
@@ -283,7 +325,11 @@ impl DocumentState {
             }
             let hash = hasher.finish();
 
-            let (fragments, operations, spreads) = self.extract_symbols_for_block(&self.tree, 0);
+            let (fragments, operations, spreads) = if extract_symbols {
+                self.extract_symbols_for_block(&self.tree, 0)
+            } else {
+                (Vec::new(), Vec::new(), Vec::new())
+            };
 
             return vec![GraphQLBlock {
                 tree: self.tree.clone(),
@@ -430,8 +476,11 @@ impl DocumentState {
                 let masked_gql = mask_interpolations(&raw_gql);
 
                 if let Some(gql_tree) = parser.parse(masked_gql.as_bytes(), None) {
-                    let (fragments, operations, spreads) =
-                        self.extract_symbols_for_block(&gql_tree, start_byte);
+                    let (fragments, operations, spreads) = if extract_symbols {
+                        self.extract_symbols_for_block(&gql_tree, start_byte)
+                    } else {
+                        (Vec::new(), Vec::new(), Vec::new())
+                    };
 
                     gql_blocks.push(GraphQLBlock {
                         tree: Arc::new(gql_tree),
@@ -450,6 +499,43 @@ impl DocumentState {
 
     pub fn get_graphql_trees(&self) -> &[GraphQLBlock] {
         &self.graphql_trees
+    }
+
+    fn generate_masked_host_source(&self, content: &str) -> String {
+        Self::build_masked_host_source(content, &self.graphql_trees)
+    }
+
+    fn build_masked_host_source(content: &str, graphql_trees: &[GraphQLBlock]) -> String {
+        let mut masked = String::with_capacity(content.len());
+        let mut last_pos = 0;
+
+        for block in graphql_trees {
+            let offset = block.offset;
+            // Fill with spaces/newlines from last_pos to block.offset
+            for b in &content.as_bytes()[last_pos..offset] {
+                if *b == b'\n' {
+                    masked.push('\n');
+                } else {
+                    masked.push(' ');
+                }
+            }
+
+            // Add the GraphQL block (potentially with its own masking for interpolations)
+            let block_len = block.tree.root_node().end_byte();
+            let block_content = &content[offset..offset + block_len];
+            masked.push_str(&mask_interpolations(block_content));
+            last_pos = offset + block_len;
+        }
+
+        // Fill remaining
+        for b in &content.as_bytes()[last_pos..] {
+            if *b == b'\n' {
+                masked.push('\n');
+            } else {
+                masked.push(' ');
+            }
+        }
+        masked
     }
 
     pub fn translate_to_file_range(
@@ -1247,17 +1333,17 @@ impl DocumentState {
             }
         }
 
-        self.graphql_trees = self.reparse_graphql_trees(parser);
+        self.graphql_trees = self.reparse_graphql_trees(parser, true);
         let (fragments, operations, spreads) = self.extract_symbols();
         self.fragments = Arc::from(fragments);
         self.operations = Arc::from(operations);
         self.fragment_spreads = Arc::from(spreads);
 
-        // Only remask if language uses interpolations (TS/TSX)
+        let content = self.rope.to_string();
         self.masked_source = if self.language.is_host_language() {
-            mask_interpolations(&self.rope.to_string()).into()
+            self.generate_masked_host_source(&content).into()
         } else {
-            self.rope.to_string().into()
+            content.into()
         };
     }
 
@@ -1949,5 +2035,69 @@ mod tests {
         let pos_after_emoji = doc.byte_to_position(4);
         assert_eq!(pos_after_emoji.line, 0);
         assert_eq!(pos_after_emoji.character, 1);
+    }
+
+    fn run_masked_source_test(encoding: PositionEncodingKind) {
+        let content =
+            "import { something } from 'somewhere';\nconst q = gql`fragment F on T { f }`;";
+        let doc = create_doc(content, encoding.clone());
+
+        assert!(
+            !doc.masked_source.contains("import"),
+            "masked_source should NOT contain TS code, encoding={:?}: {}",
+            encoding,
+            doc.masked_source
+        );
+        assert!(
+            doc.masked_source.contains("fragment F on T { f }"),
+            "masked_source SHOULD contain GraphQL code, encoding={:?}: {}",
+            encoding,
+            doc.masked_source
+        );
+    }
+
+    #[test]
+    fn test_masked_source_utf8() {
+        run_masked_source_test(PositionEncodingKind::UTF8);
+    }
+    #[test]
+    fn test_masked_source_utf16() {
+        run_masked_source_test(PositionEncodingKind::UTF16);
+    }
+    #[test]
+    fn test_masked_source_utf32() {
+        run_masked_source_test(PositionEncodingKind::UTF32);
+    }
+
+    fn run_position_accuracy_after_masking_test(encoding: PositionEncodingKind) {
+        // Emoji "😀" is 4 bytes. In UTF-16 it's 2 units, in UTF-32 it's 1 unit.
+        let content = "const q = gql`fragment F on T { ${'😀'} f }`;";
+        let doc = create_doc(content, encoding.clone());
+
+        let f_pos = content.find(" f }").unwrap();
+        let pos = doc.byte_to_position(f_pos);
+
+        if encoding == PositionEncodingKind::UTF8 {
+            assert_eq!(pos.character, 41);
+        } else if encoding == PositionEncodingKind::UTF16 {
+            assert_eq!(pos.character, 39);
+        } else if encoding == PositionEncodingKind::UTF32 {
+            assert_eq!(pos.character, 38);
+        } else {
+            panic!("Unsupported encoding");
+        }
+    }
+
+    #[test]
+    fn test_position_after_masking_utf8() {
+        run_position_accuracy_after_masking_test(PositionEncodingKind::UTF8);
+    }
+    #[test]
+    fn test_position_after_masking_utf16() {
+        run_position_accuracy_after_masking_test(PositionEncodingKind::UTF16);
+    }
+    #[test]
+    fn test_position_after_masking_utf32() {
+        run_position_accuracy_after_masking_test(PositionEncodingKind::UTF32);
     }
 }

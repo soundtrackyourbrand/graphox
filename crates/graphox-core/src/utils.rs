@@ -813,7 +813,11 @@ pub fn mask_interpolations(text: &str) -> std::borrow::Cow<'_, str> {
                             result.push(' ');
                         }
                         '\n' => result.push('\n'),
-                        _ => result.push(' '),
+                        _ => {
+                            for _ in 0..inner_c.len_utf8() {
+                                result.push(' ');
+                            }
+                        }
                     }
                 } else {
                     break;
@@ -1009,6 +1013,17 @@ mod tests {
         assert_eq!(
             masked_multi_line.lines().count(),
             multi_line.lines().count()
+        );
+    }
+
+    #[test]
+    fn test_mask_interpolations_multi_byte() {
+        let input = "query { user(id: ${'😀'}) { name } }";
+        let masked = mask_interpolations(input);
+        assert_eq!(
+            masked.len(),
+            input.len(),
+            "Byte length must be preserved even for multi-byte characters"
         );
     }
 
