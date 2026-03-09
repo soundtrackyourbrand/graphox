@@ -1,0 +1,20 @@
+query SearchQuery {
+  search {
+    ... on Artist {
+      id
+      name
+    }
+    ... on Album {
+      id
+      title
+    }
+    ... on Playlist {
+      id
+      title
+    }
+    ... on Track {
+      id
+      title
+    }
+  }
+}

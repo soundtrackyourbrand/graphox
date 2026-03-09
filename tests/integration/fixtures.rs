@@ -312,6 +312,26 @@ fn test_cli_embedded_fragments_baselines() {
     );
 }
 
+#[test]
+#[ntest::timeout(10000)]
+fn test_cli_type_merging_disabled_baselines() {
+    run_baseline_test(
+        "tests/fixtures/type_merging_disabled",
+        "tests/baselines/type_merging_disabled",
+        None,
+    );
+}
+
+#[test]
+#[ntest::timeout(10000)]
+fn test_cli_type_merging_enabled_baselines() {
+    run_baseline_test(
+        "tests/fixtures/type_merging_enabled",
+        "tests/baselines/type_merging_enabled",
+        None,
+    );
+}
+
 pub(crate) fn run_baseline_test(
     fixture_dir_str: &str,
     baseline_dir_str: &str,

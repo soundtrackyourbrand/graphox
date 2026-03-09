@@ -67,6 +67,8 @@ projects:
   - schema: "schema.graphql"
     include: "fragment.ts"
     output_dir: "."
+    codegen:
+      merge_union_types: true
 "#,
     )
     .unwrap();

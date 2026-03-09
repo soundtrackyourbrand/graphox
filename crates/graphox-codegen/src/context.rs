@@ -167,6 +167,10 @@ impl<'a> CodegenContext<'a> {
         self.config.nullable_fields_as_optional()
     }
 
+    pub fn merge_union_types(&self) -> bool {
+        self.config.merge_union_types()
+    }
+
     /// Get relative path from cache or compute it
     pub fn diff_paths(&self, from: &Path, to: &Path) -> Option<PathBuf> {
         let key = (from.to_path_buf(), to.to_path_buf());
