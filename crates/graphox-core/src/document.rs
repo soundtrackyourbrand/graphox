@@ -519,7 +519,6 @@ impl DocumentState {
                     masked.push(' ');
                 }
             }
-
             // Add the GraphQL block (potentially with its own masking for interpolations)
             let block_len = block.tree.root_node().end_byte();
             let block_content = &content[offset..offset + block_len];

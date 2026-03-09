@@ -219,6 +219,7 @@ pub struct CodegenConfig {
     pub schema_import: Option<String>,
     pub nullable_fields_as_optional: Option<bool>,
     pub graphql_tag_fallback: Option<bool>,
+    pub merge_union_types: Option<bool>,
 }
 
 impl CodegenConfig {
@@ -309,6 +310,11 @@ impl CodegenConfig {
         self
     }
 
+    pub fn with_merge_union_types(mut self, enabled: bool) -> Self {
+        self.merge_union_types = Some(enabled);
+        self
+    }
+
     pub fn from_yaml(node: &Yaml) -> Option<Self> {
         if node.is_null() || node.is_badvalue() {
             return None;
@@ -350,6 +356,7 @@ impl CodegenConfig {
             schema_import: node["schema_import"].as_str().map(String::from),
             nullable_fields_as_optional: node["nullable_fields_as_optional"].as_bool(),
             graphql_tag_fallback: node["graphql_tag_fallback"].as_bool(),
+            merge_union_types: node["merge_union_types"].as_bool(),
         })
     }
 
@@ -469,6 +476,10 @@ impl CodegenConfig {
 
     pub fn graphql_tag_fallback(&self) -> bool {
         self.graphql_tag_fallback.unwrap_or(false)
+    }
+
+    pub fn merge_union_types(&self) -> bool {
+        self.merge_union_types.unwrap_or(false)
     }
 }
 
@@ -1077,6 +1088,9 @@ impl Config {
             }
             if project_codegen.graphql_tag_fallback.is_some() {
                 result.graphql_tag_fallback = project_codegen.graphql_tag_fallback;
+            }
+            if project_codegen.merge_union_types.is_some() {
+                result.merge_union_types = project_codegen.merge_union_types;
             }
         }
 

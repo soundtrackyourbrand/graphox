@@ -55,6 +55,7 @@ pub fn generate_selection_set(
 }
 
 /// Categorized results from a selection set
+#[derive(Default)]
 struct CategorizedSelections<'a> {
     fields: Vec<&'a Node<executable::Field>>,
     inline_fragments: Vec<&'a Node<executable::InlineFragment>>,
@@ -62,40 +63,40 @@ struct CategorizedSelections<'a> {
     has_explicit_typename: bool,
 }
 
+impl<'a> CategorizedSelections<'a> {
+    fn add(&mut self, selection: &'a Selection) {
+        match selection {
+            Selection::Field(field) => {
+                if field.name.as_str() == "__typename" && field.alias.is_none() {
+                    self.has_explicit_typename = true;
+                }
+                self.fields.push(field);
+            }
+            Selection::InlineFragment(inline) => {
+                self.inline_fragments.push(inline);
+            }
+            Selection::FragmentSpread(spread) => {
+                self.fragment_spreads.push(spread);
+            }
+        }
+    }
+}
+
 /// Categorize selections into fields, inline fragments, and fragment spreads
 fn categorize_selections<'a>(
     selection_set: &'a SelectionSet,
     used_fragments: &mut HashSet<Arc<str>>,
 ) -> CategorizedSelections<'a> {
-    let mut fields = Vec::new();
-    let mut inline_fragments = Vec::new();
-    let mut fragment_spreads = Vec::new();
-    let mut has_explicit_typename = false;
+    let mut categorized = CategorizedSelections::default();
 
     for selection in &selection_set.selections {
-        match selection {
-            Selection::Field(field) => {
-                if field.name.as_str() == "__typename" && field.alias.is_none() {
-                    has_explicit_typename = true;
-                }
-                fields.push(field);
-            }
-            Selection::InlineFragment(inline) => {
-                inline_fragments.push(inline);
-            }
-            Selection::FragmentSpread(spread) => {
-                fragment_spreads.push(spread);
-                used_fragments.insert(spread.fragment_name.as_str().into());
-            }
+        categorized.add(selection);
+        if let Selection::FragmentSpread(spread) = selection {
+            used_fragments.insert(spread.fragment_name.as_str().into());
         }
     }
 
-    CategorizedSelections {
-        fields,
-        inline_fragments,
-        fragment_spreads,
-        has_explicit_typename,
-    }
+    categorized
 }
 
 /// Generate TypeScript type for object or intersection types (no inline fragments)
@@ -350,6 +351,7 @@ fn generate_union_type(
         fields_list: Vec<String>,
         spreads_str: String,
         members: Vec<Arc<str>>,
+        key: SelectionKey,
     }
     let mut groups: Vec<SelectionGroup> = Vec::new();
 
@@ -411,7 +413,7 @@ fn generate_union_type(
         // 3. Generate field list for this member
         // We pass has_explicit_typename: true to skip automatic __typename generation
         // for individual members, we'll add the combined one for the group below.
-        let mut fields_list = generate_field_list(
+        let fields_list = generate_field_list(
             &member_fields,
             member_type,
             ctx,
@@ -421,25 +423,50 @@ fn generate_union_type(
             used_fragments,
         );
 
-        // Remove any explicit __typename that might have been matched
-        fields_list.retain(|f| !f.starts_with("__typename:"));
-
         let spreads_str = if member_spreads.is_empty() {
             String::new()
         } else {
             format_intersection(&[], &member_spreads, ctx)
         };
 
-        if let Some(existing) = groups
-            .iter_mut()
-            .find(|g| g.fields_list == fields_list && g.spreads_str == spreads_str)
-        {
-            existing.members.push(member_name.clone());
+        // 4. Collect all selections applicable to this specific member for structural key generation
+        let mut member_selections = Vec::new();
+        for selection in fields {
+            member_selections.push(Selection::Field((*selection).clone()));
+        }
+        for selection in &member_spreads {
+            member_selections.push(Selection::FragmentSpread((*selection).clone()));
+        }
+        for inline in inline_fragments {
+            let cond = inline
+                .type_condition
+                .as_ref()
+                .map(|n| n.as_str())
+                .unwrap_or_else(|| parent_type.name());
+            if ctx.is_type_applicable(member_name.as_ref(), cond) {
+                member_selections.push(Selection::InlineFragment((*inline).clone()));
+            }
+        }
+
+        let key = generate_selection_key(&member_selections, member_type, ctx);
+
+        if ctx.merge_union_types() {
+            if let Some(existing) = groups.iter_mut().find(|g| g.key == key) {
+                existing.members.push(member_name.clone());
+            } else {
+                groups.push(SelectionGroup {
+                    fields_list,
+                    spreads_str,
+                    members: vec![member_name.clone()],
+                    key,
+                });
+            }
         } else {
             groups.push(SelectionGroup {
                 fields_list,
                 spreads_str,
                 members: vec![member_name.clone()],
+                key,
             });
         }
     }
@@ -447,6 +474,9 @@ fn generate_union_type(
     let mut branches = Vec::new();
     for group in groups {
         let mut final_fields = group.fields_list;
+
+        // Remove any explicit __typename that might have been matched
+        final_fields.retain(|f| !f.starts_with("__typename:"));
 
         // Prepend the combined __typename for this group
         let typename_value = group
@@ -470,5 +500,138 @@ fn generate_union_type(
     SelectionSetType {
         type_str,
         needs_type_declaration,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SelectionKey {
+    fields: Vec<(String, String)>, // (alias/name, structural_type_str)
+    spreads: Vec<String>,          // fragment names
+    inline_fragments: Vec<(String, Box<SelectionKey>)>,
+}
+
+fn merge_selection_key(
+    field_keys: &mut Vec<(String, String)>,
+    spread_keys: &mut HashSet<String>,
+    inline_fragment_keys: &mut Vec<(String, Box<SelectionKey>)>,
+    seen_fields: &mut HashSet<String>,
+    sub_key: SelectionKey,
+) {
+    for (name, ty) in sub_key.fields {
+        if seen_fields.insert(name.clone()) {
+            field_keys.push((name, ty));
+        }
+    }
+    for spread in sub_key.spreads {
+        spread_keys.insert(spread);
+    }
+    inline_fragment_keys.extend(sub_key.inline_fragments);
+}
+
+fn generate_selection_key(
+    selections: &[Selection],
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+) -> SelectionKey {
+    let mut field_keys = Vec::new();
+    let mut spread_keys = HashSet::new();
+    let mut inline_fragment_keys = Vec::new();
+    let mut seen_fields = HashSet::new();
+
+    for selection in selections {
+        match selection {
+            Selection::Field(field) => {
+                let name = field.alias.as_ref().unwrap_or(&field.name).as_str();
+                if !seen_fields.insert(name.to_string()) {
+                    continue;
+                }
+                if name == "__typename" {
+                    continue;
+                }
+
+                let field_def = match parent_type {
+                    ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+                    ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
+                    _ => None,
+                };
+
+                if let Some(fd) = field_def {
+                    let mut type_key = String::new();
+                    if field.selection_set.selections.is_empty() {
+                        type_key = gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx);
+                    } else {
+                        let inner_type_name = fd.ty.inner_named_type();
+                        if let Some(inner_type) = ctx.schema.types.get(inner_type_name.as_str()) {
+                            let sub_key = generate_selection_key(
+                                &field.selection_set.selections,
+                                inner_type,
+                                ctx,
+                            );
+                            type_key = format!("{:?}", sub_key);
+                            type_key = wrap_in_list_and_nullability(&type_key, &fd.ty);
+                        }
+                    }
+                    if ctx.nullable_fields_as_optional()
+                        && matches!(
+                            &fd.ty,
+                            apollo_compiler::schema::Type::Named(_)
+                                | apollo_compiler::schema::Type::List(_)
+                        )
+                    {
+                        type_key.push('?');
+                    }
+                    field_keys.push((name.to_string(), type_key));
+                }
+            }
+            Selection::FragmentSpread(spread) => {
+                spread_keys.insert(spread.fragment_name.as_str().to_string());
+            }
+            Selection::InlineFragment(inline) => {
+                let effective_parent = inline
+                    .type_condition
+                    .as_ref()
+                    .and_then(|condition| ctx.schema.types.get(condition.as_str()))
+                    .unwrap_or(parent_type);
+                let sub_key =
+                    generate_selection_key(&inline.selection_set.selections, effective_parent, ctx);
+
+                let should_preserve_condition = matches!(
+                    parent_type,
+                    ExtendedType::Union(_) | ExtendedType::Interface(_)
+                ) && inline
+                    .type_condition
+                    .as_ref()
+                    .is_some_and(|condition| condition.as_str() != parent_type.name().as_str());
+
+                if let Some(condition) = inline.type_condition.as_ref()
+                    && should_preserve_condition
+                {
+                    inline_fragment_keys.push((condition.as_str().to_string(), Box::new(sub_key)));
+                } else {
+                    merge_selection_key(
+                        &mut field_keys,
+                        &mut spread_keys,
+                        &mut inline_fragment_keys,
+                        &mut seen_fields,
+                        sub_key,
+                    );
+                }
+            }
+        }
+    }
+    field_keys.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut sorted_spreads: Vec<_> = spread_keys.into_iter().collect();
+    sorted_spreads.sort();
+
+    inline_fragment_keys.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| format!("{:?}", a.1).cmp(&format!("{:?}", b.1)))
+    });
+
+    SelectionKey {
+        fields: field_keys,
+        spreads: sorted_spreads,
+        inline_fragments: inline_fragment_keys,
     }
 }

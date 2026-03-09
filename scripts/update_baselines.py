@@ -227,9 +227,14 @@ def main():
             "tests/fixtures/nullable_fields_as_optional",
             "tests/baselines/nullable_fields_as_optional",
         ),
+        ("tests/fixtures/embedded_fragments", "tests/baselines/embedded_fragments"),
         (
-            "tests/fixtures/embedded_fragments",
-            "tests/baselines/embedded_fragments",
+            "tests/fixtures/type_merging_disabled",
+            "tests/baselines/type_merging_disabled",
+        ),
+        (
+            "tests/fixtures/type_merging_enabled",
+            "tests/baselines/type_merging_enabled",
         ),
     ]
 

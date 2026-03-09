@@ -176,6 +176,23 @@ async fn test_lsp_automatic_codegen() {
     assert!(updated, "Codegen was not updated after didSave");
 
     // 4. Test didChangeWatchedFiles triggers codegen
+    // Close the document first to ensure LSP uses disk content for didChangeWatchedFiles
+    service
+        .call(
+            Request::build("textDocument/didClose")
+                .params(
+                    serde_json::to_value(DidCloseTextDocumentParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
     fs::remove_file(&gen_path).unwrap();
     let query_text_watched = "query GetMe { me { name } }";
     fs::write(&query_path, query_text_watched).unwrap();

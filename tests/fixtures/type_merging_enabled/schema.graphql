@@ -1,0 +1,25 @@
+union SearchResult = Artist | Album | Playlist | Track
+
+type Artist {
+  id: ID!
+  name: String!
+}
+
+type Album {
+  id: ID!
+  title: String!
+}
+
+type Playlist {
+  id: ID!
+  title: String!
+}
+
+type Track {
+  id: ID!
+  title: String!
+}
+
+type Query {
+  search: [SearchResult!]!
+}

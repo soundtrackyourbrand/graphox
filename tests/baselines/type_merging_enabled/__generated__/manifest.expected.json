@@ -1,0 +1,7 @@
+[
+  {
+    "name": "SearchQueryQueryDocument",
+    "path": "./query.codegen",
+    "source": "query SearchQuery {\n  search {\n    ... on Artist {\n      id\n      name\n    }\n    ... on Album {\n      id\n      title\n    }\n    ... on Playlist {\n      id\n      title\n    }\n    ... on Track {\n      id\n      title\n    }\n  }\n}\n"
+  }
+]

@@ -1,0 +1,6 @@
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+    output_dir: "__generated__"
+    codegen:
+      merge_union_types: true
