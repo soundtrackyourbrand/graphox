@@ -65,11 +65,7 @@ pub async fn run_codegen(
             Some(d.masked_source.clone())
         } else if let Ok(path) = uri.to_file_path() {
             std::fs::read_to_string(&path).ok().map(|content| {
-                if graphox_core::document::DocumentLanguage::from_uri(uri).is_host_language() {
-                    Arc::from(graphox_core::utils::mask_interpolations(&content).as_ref())
-                } else {
-                    Arc::from(content)
-                }
+                graphox_core::document::DocumentState::mask_source_from_thread_local(uri, &content)
             })
         } else {
             None
@@ -280,11 +276,14 @@ pub async fn run_codegen(
             let doc = if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
                 doc
             } else if let Ok(content) = std::fs::read_to_string(path) {
-                Arc::new(graphox_core::DocumentState::new_from_thread_local(
+                let doc = Arc::new(graphox_core::DocumentState::new_from_thread_local(
                     uri.clone(),
                     &content,
                     position_encoding.clone(),
-                ))
+                ));
+                // Cache it so other projects or subsequent runs can reuse it
+                documents.insert(uri.clone(), doc.clone());
+                doc
             } else {
                 return;
             };
