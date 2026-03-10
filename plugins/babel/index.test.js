@@ -378,5 +378,107 @@ describe('@graphox/babel-plugin', () => {
       expect(output).not.toContain("from './gen/index'");
       expect(output).not.toContain('gql');
     });
+
+    it('prefers the operation document when manifest entries share the same source', () => {
+      const source = `
+        query MusicRouteQuery($playlistId: ID!, $market: IsoCountry!, $categoryTypes: [String!]) {
+          playlist(id: $playlistId) {
+            ...SourceViewPlaylist
+            ...Playlist_MusicRouteMeta
+            ...BrowseCategories
+          }
+        }
+
+        fragment Playlist_MusicRouteMeta on Playlist {
+          id
+          permissions
+          name
+          description
+          snapshot
+          updatedAt
+          ...Displayable
+          trackStatistics(market: $market) {
+            total
+          }
+        }
+
+        fragment BrowseCategories on Playlist {
+          id
+          permissions
+          browseCategories(categoryTypes: $categoryTypes) {
+            id
+            name
+            slug
+            type
+          }
+        }
+      `;
+      const manifest = [
+        {
+          source,
+          path: './music.codegen',
+          name: 'MusicRouteQueryQueryDocument',
+        },
+        {
+          source,
+          path: './music.codegen',
+          name: 'Playlist_MusicRouteMetaFragmentDoc',
+        },
+        {
+          source,
+          path: './music.codegen',
+          name: 'BrowseCategoriesFragmentDoc',
+        },
+      ];
+      const options = { manifestData: manifest, outputDir: './gen' };
+      const code = `
+        import { graphql } from './gen/graphql';
+        const MusicRouteQuery = graphql(/* GraphQL */ \`${source}\`);
+      `;
+      const output = transform(code, options);
+
+      expect(output).toContain(
+        'import { MusicRouteQueryQueryDocument } from "./gen/music.codegen";',
+      );
+      expect(output).toContain('const MusicRouteQuery = MusicRouteQueryQueryDocument;');
+      expect(output).not.toContain('Playlist_MusicRouteMetaFragmentDoc');
+      expect(output).not.toContain('BrowseCategoriesFragmentDoc');
+    });
+
+    it('keeps the first fragment document for fragment-only shared sources', () => {
+      const source = `
+        fragment PlaylistFields on Playlist {
+          id
+        }
+
+        fragment PlaylistPermissions on Playlist {
+          permissions
+        }
+      `;
+      const manifest = [
+        {
+          source,
+          path: './playlist.codegen',
+          name: 'PlaylistFieldsFragmentDoc',
+        },
+        {
+          source,
+          path: './playlist.codegen',
+          name: 'PlaylistPermissionsFragmentDoc',
+        },
+      ];
+      const options = { manifestData: manifest, outputDir: './gen' };
+      const code = `
+        import { graphql } from './gen/graphql';
+        const PlaylistFields = graphql(/* GraphQL */ \`${source}\`);
+      `;
+      const output = transform(code, options);
+
+      expect(output).toContain(
+        'import { PlaylistFieldsFragmentDoc } from "./gen/playlist.codegen";',
+      );
+      expect(output).toContain('const PlaylistFields = PlaylistFieldsFragmentDoc;');
+      expect(output).not.toContain('PlaylistPermissionsFragmentDoc');
+    });
   });
 });
