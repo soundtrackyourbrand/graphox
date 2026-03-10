@@ -1,14 +1,83 @@
 use std::process::Command;
 
+fn generate_ast_codegen_output(test_dir_name: &str, schema: &str, source: &str) -> String {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join(test_dir_name);
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
+    }
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+
+    std::fs::write(temp_dir.join("schema.graphql"), schema).unwrap();
+    std::fs::write(temp_dir.join("query.ts"), source).unwrap();
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.ts"
+    output_dir: "."
+    codegen:
+      generate_ast_for_fragments: true
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(&temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = std::fs::read_to_string(temp_dir.join("query.codegen.ts")).unwrap();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
+    content
+}
+
+fn document_export_block<'a>(content: &'a str, document_name: &str) -> &'a str {
+    let export_marker = format!("export const {} = ", document_name);
+    let start = content
+        .find(&export_marker)
+        .unwrap_or_else(|| panic!("Missing {document_name} export in content:\n{content}"));
+    let tail = &content[start..];
+    let end = tail
+        .find(" as unknown as DocumentNode<")
+        .unwrap_or_else(|| panic!("Missing DocumentNode cast for {document_name} in:\n{tail}"));
+    &tail[..end]
+}
+
+fn assert_document_references(content: &str, document_name: &str, expected_refs: &[&str]) {
+    let export = document_export_block(content, document_name);
+    for expected_ref in expected_refs {
+        assert!(
+            export.contains(expected_ref),
+            "{document_name} should reference {expected_ref}. Export:\n{export}\n\nFull content:\n{content}"
+        );
+    }
+
+    let self_ref = format!("{}.definitions[0]", document_name);
+    assert!(
+        !export.contains(&self_ref),
+        "{document_name} should NOT reference itself ({}). Export:\n{export}",
+        self_ref
+    );
+}
+
 #[test]
 #[ntest::timeout(1000)]
 fn test_codegen_document_node() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_document_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -79,7 +148,7 @@ projects:
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -88,9 +157,9 @@ fn test_codegen_aliases_and_enums() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_quirks_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -155,7 +224,7 @@ projects:
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -164,9 +233,9 @@ fn test_codegen_document_node_no_vars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_document_no_vars_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -212,7 +281,7 @@ projects:
     assert!(gen_file.exists());
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -221,9 +290,9 @@ fn test_codegen_missing_parent_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_missing_parent_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -275,7 +344,7 @@ projects:
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -284,9 +353,9 @@ fn test_entrypoint_documents_and_overloads_populated() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -363,7 +432,7 @@ projects:
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -372,9 +441,9 @@ fn test_codegen_fragment_ordering() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_ordering_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -473,7 +542,7 @@ projects:
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -491,9 +560,9 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
 
     let temp_dir = std::env::temp_dir().join("graphox_codegen_cache_ordering_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     std::fs::write(
         temp_dir.join("schema.graphql"),
@@ -627,7 +696,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
         "Repeated generation with shared cache must remain byte-identical"
     );
 
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
 
 #[test]
@@ -636,9 +705,9 @@ fn test_codegen_recursive_fragment_ordering() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_recursive_test");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -739,7 +808,154 @@ projects:
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
+}
+
+#[test]
+#[ntest::timeout(2000)]
+fn test_codegen_operation_ast_includes_same_named_fragment_across_embedded_blocks() {
+    let content = generate_ast_codegen_output(
+        "graphox_codegen_same_named_fragment_blocks_test",
+        r#"
+type Query { account(id: ID!): Account }
+type Subscription { accountUpdate(accountId: ID!): AccountUpdatePayload }
+type AccountUpdatePayload { account: Account }
+type Account {
+  id: ID!
+  permissions: [String!]
+  entitlements: [String!]
+  settings: Settings
+}
+type Settings { enableActivityLog: Boolean }
+"#,
+        r#"
+        graphql(/* GraphQL */ `
+          fragment AppDataAccount on Account {
+            id
+            permissions
+            entitlements
+            settings {
+              enableActivityLog
+            }
+          }
+        `);
+
+        const AppDataAccountDoc = graphql(/* GraphQL */ `
+          query AppDataAccount($accountId: ID!) {
+            account(id: $accountId) {
+              ...AppDataAccount
+            }
+          }
+        `);
+
+        const AppDataAccountUpdateDoc = graphql(/* GraphQL */ `
+          subscription AppDataAccountUpdate($accountId: ID!) {
+            accountUpdate(accountId: $accountId) {
+              account {
+                ...AppDataAccount
+              }
+            }
+          }
+        `);
+        "#,
+    );
+
+    assert_document_references(
+        &content,
+        "AppDataAccountQueryDocument",
+        &["AppDataAccountDocument.definitions[0]"],
+    );
+    assert_document_references(
+        &content,
+        "AppDataAccountUpdateSubscriptionDocument",
+        &["AppDataAccountDocument.definitions[0]"],
+    );
+}
+
+#[test]
+#[ntest::timeout(2000)]
+fn test_codegen_operation_ast_includes_same_named_fragment_for_mutation() {
+    let content = generate_ast_codegen_output(
+        "graphox_codegen_same_named_fragment_mutation_test",
+        r#"
+type Query { _: Boolean }
+type Mutation { updateAccount(id: ID!): Account }
+type Account { id: ID! name: String }
+"#,
+        r#"
+        graphql(/* GraphQL */ `
+          fragment UpdateAccount on Account {
+            id
+            name
+          }
+        `);
+
+        const UpdateAccountMutationDoc = graphql(/* GraphQL */ `
+          mutation UpdateAccount($accountId: ID!) {
+            updateAccount(id: $accountId) {
+              ...UpdateAccount
+            }
+          }
+        `);
+        "#,
+    );
+
+    assert_document_references(
+        &content,
+        "UpdateAccountMutationDocument",
+        &["UpdateAccountDocument.definitions[0]"],
+    );
+}
+
+#[test]
+#[ntest::timeout(2000)]
+fn test_codegen_operation_ast_keeps_same_named_transitive_fragment_dependency() {
+    let content = generate_ast_codegen_output(
+        "graphox_codegen_same_named_transitive_fragment_test",
+        r#"
+type Query { account(id: ID!): Account }
+type Account { id: ID! owner: User }
+type User { id: ID! }
+"#,
+        r#"
+        graphql(/* GraphQL */ `
+          fragment GetAccount on Account {
+            id
+          }
+        `);
+
+        graphql(/* GraphQL */ `
+          fragment AccountFields on Account {
+            ...GetAccount
+            owner {
+              id
+            }
+          }
+        `);
+
+        const GetAccountQueryDoc = graphql(/* GraphQL */ `
+          query GetAccount($accountId: ID!) {
+            account(id: $accountId) {
+              ...AccountFields
+            }
+          }
+        `);
+        "#,
+    );
+
+    assert_document_references(
+        &content,
+        "AccountFieldsDocument",
+        &["GetAccountDocument.definitions[0]"],
+    );
+    assert_document_references(
+        &content,
+        "GetAccountQueryDocument",
+        &[
+            "AccountFieldsDocument.definitions[0]",
+            "GetAccountDocument.definitions[0]",
+        ],
+    );
 }
 
 #[test]
@@ -747,9 +963,9 @@ fn test_codegen_directives_in_ast() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_repro_directives");
     if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
+        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
     }
-    std::fs::create_dir_all(&temp_dir).ok();
+    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -806,11 +1022,10 @@ projects:
     // Check if @skip directive is in the AST
     assert!(
         content.contains(r#""kind":"Directive","name":{"kind":"Name","value":"skip"}"#),
-        "Missing @skip directive in AST. Content:
-{}",
+        "Missing @skip directive in AST. Content:\n{}",
         content
     );
 
     // Cleanup
-    std::fs::remove_dir_all(temp_dir).ok();
+    std::fs::remove_dir_all(temp_dir).expect("std::fs::remove_dir_all failed on temp_dir");
 }
