@@ -162,10 +162,6 @@ pub fn generate_typescript_with_profile(
                 deps_list.sort_unstable();
 
                 for dep in deps_list {
-                    if dep.as_ref() == raw_name {
-                        continue;
-                    }
-
                     let is_type_only = if let Some(id) = ctx.name_to_id.get(dep.as_ref()) {
                         ctx.fragment_to_type_only.get(id).copied().unwrap_or(false)
                     } else {
