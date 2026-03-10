@@ -136,46 +136,12 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         return;
     }
 
-    // Index all documents sequentially (DashMap handles this well)
-    for doc in scanned_docs {
-        let uri = doc.uri.clone();
-
-        let metadata = Arc::new(graphox_core::types::DocumentMetadata {
-            fragments: doc.fragments.clone(),
-            fragment_spreads: doc.fragment_spreads.clone(),
-            package_root: doc.package_root.clone(),
-            operations: doc.operations.clone(),
-            version: doc.version,
-        });
-        // Only insert if the document is not already open in the editor
-        if !params.open_documents.contains(&uri) {
-            params.documents.insert(uri.clone(), Arc::new(doc.clone()));
-            params.metadata.insert(uri.clone(), metadata);
-
-            for frag in doc.fragments.iter() {
-                params
-                    .fragment_definitions
-                    .entry(frag.name.clone())
-                    .or_default()
-                    .insert(uri.clone());
-            }
-
-            for spread in doc.fragment_spreads.iter() {
-                params
-                    .fragment_dependents
-                    .entry(spread.clone())
-                    .or_default()
-                    .insert(uri.clone());
-            }
-        }
-    }
-
     // Update progress
     progress
-        .report("Re-loading project schemas...".to_string(), Some(40))
+        .report("Re-loading project schemas...".to_string(), Some(20))
         .await;
 
-    // Pre-load project schemas
+    // Pre-load project schemas BEFORE indexing documents to ensure they are available for validation
     for project in params.config.projects() {
         if cancelled.load(Ordering::Relaxed) {
             return;
@@ -221,6 +187,44 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                 params
                     .subgraphs
                     .insert(project.schema().as_key(), subgraph_infos);
+            }
+        }
+    }
+
+    // Index all documents sequentially (DashMap handles this well)
+    for doc in scanned_docs {
+        if cancelled.load(Ordering::Relaxed) {
+            return;
+        }
+
+        let uri = doc.uri.clone();
+
+        let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+            fragments: doc.fragments.clone(),
+            fragment_spreads: doc.fragment_spreads.clone(),
+            package_root: doc.package_root.clone(),
+            operations: doc.operations.clone(),
+            version: doc.version,
+        });
+        // Only insert if the document is not already open in the editor
+        if !params.open_documents.contains(&uri) {
+            params.documents.insert(uri.clone(), Arc::new(doc.clone()));
+            params.metadata.insert(uri.clone(), metadata);
+
+            for frag in doc.fragments.iter() {
+                params
+                    .fragment_definitions
+                    .entry(frag.name.clone())
+                    .or_default()
+                    .insert(uri.clone());
+            }
+
+            for spread in doc.fragment_spreads.iter() {
+                params
+                    .fragment_dependents
+                    .entry(spread.clone())
+                    .or_default()
+                    .insert(uri.clone());
             }
         }
     }

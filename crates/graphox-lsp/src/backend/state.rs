@@ -792,15 +792,10 @@ impl Backend {
             }
         }
 
-        // Pre-load schemas for open documents to ensure immediate validation is correct
-        for (uri, _) in &open_docs {
-            if let Ok(path) = uri.to_file_path()
-                && let Some(schema_key) = new_config.get_schema_for_path(&path)
-                && !self.schemas.contains_key(&schema_key)
-                && let Some(project) = new_config
-                    .projects()
-                    .iter()
-                    .find(|p| p.schema().as_key() == schema_key)
+        // Pre-load all project schemas to ensure immediate validation is correct for any document
+        for project in new_config.projects() {
+            let schema_key = project.schema().as_key();
+            if !self.schemas.contains_key(&schema_key)
                 && let Ok(schema) = graphox_core::schema::load_schema_with_cache(
                     new_config.base_dir(),
                     project.schema(),
