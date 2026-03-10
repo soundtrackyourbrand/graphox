@@ -71,7 +71,10 @@ module.exports = function (babel) {
           const manifest = new Map();
           const documentNameToEntry = new Map();
           for (const entry of entries) {
-            manifest.set(normalize(entry.source), entry);
+            const normalizedSource = normalize(entry.source);
+            if (!manifest.has(normalizedSource)) {
+              manifest.set(normalizedSource, entry);
+            }
             if (entry.name) {
               documentNameToEntry.set(entry.name, entry);
             }

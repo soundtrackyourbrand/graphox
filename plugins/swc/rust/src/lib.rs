@@ -99,7 +99,9 @@ impl TransformVisitor {
         let mut manifest = HashMap::new();
         let mut name_to_entry = HashMap::new();
         for entry in entries {
-            manifest.insert(normalize(&entry.source), entry.clone());
+            manifest
+                .entry(normalize(&entry.source))
+                .or_insert_with(|| entry.clone());
             name_to_entry.insert(entry.name.clone(), entry);
         }
 
@@ -1307,6 +1309,134 @@ mod tests {
             "import { UserFieldsFragmentDocument } from \"../gen/userFields.codegen.ts\";"
         ));
         assert!(!output.contains("from '../gen/graphql'"));
+    }
+
+    #[test]
+    fn test_prefers_operation_document_for_shared_source_manifest_entries() {
+        let source = r#"
+            query MusicRouteQuery($playlistId: ID!, $market: IsoCountry!, $categoryTypes: [String!]) {
+              playlist(id: $playlistId) {
+                ...SourceViewPlaylist
+                ...Playlist_MusicRouteMeta
+                ...BrowseCategories
+              }
+            }
+
+            fragment Playlist_MusicRouteMeta on Playlist {
+              id
+              permissions
+              name
+              description
+              snapshot
+              updatedAt
+              ...Displayable
+              trackStatistics(market: $market) {
+                total
+              }
+            }
+
+            fragment BrowseCategories on Playlist {
+              id
+              permissions
+              browseCategories(categoryTypes: $categoryTypes) {
+                id
+                name
+                slug
+                type
+              }
+            }
+        "#;
+
+        let manifest = vec![
+            ManifestEntry {
+                source: source.to_string(),
+                path: "./music.codegen".to_string(),
+                name: "MusicRouteQueryQueryDocument".to_string(),
+            },
+            ManifestEntry {
+                source: source.to_string(),
+                path: "./music.codegen".to_string(),
+                name: "Playlist_MusicRouteMetaFragmentDoc".to_string(),
+            },
+            ManifestEntry {
+                source: source.to_string(),
+                path: "./music.codegen".to_string(),
+                name: "BrowseCategoriesFragmentDoc".to_string(),
+            },
+        ];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            &format!(
+                "import {{ graphql }} from './graphql'; const MusicRouteQuery = graphql(/* GraphQL */ `{}`);",
+                source
+            ),
+            config,
+            "test.ts",
+        );
+
+        assert!(
+            output.contains("import { MusicRouteQueryQueryDocument } from \"./music.codegen\";")
+        );
+        assert!(output.contains("const MusicRouteQuery = MusicRouteQueryQueryDocument;"));
+        assert!(!output.contains("Playlist_MusicRouteMetaFragmentDoc"));
+        assert!(!output.contains("BrowseCategoriesFragmentDoc"));
+    }
+
+    #[test]
+    fn test_keeps_first_fragment_document_for_shared_source_manifest_entries() {
+        let source = r#"
+            fragment PlaylistFields on Playlist {
+              id
+            }
+
+            fragment PlaylistPermissions on Playlist {
+              permissions
+            }
+        "#;
+
+        let manifest = vec![
+            ManifestEntry {
+                source: source.to_string(),
+                path: "./playlist.codegen".to_string(),
+                name: "PlaylistFieldsFragmentDoc".to_string(),
+            },
+            ManifestEntry {
+                source: source.to_string(),
+                path: "./playlist.codegen".to_string(),
+                name: "PlaylistPermissionsFragmentDoc".to_string(),
+            },
+        ];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            &format!(
+                "import {{ graphql }} from './graphql'; const PlaylistFields = graphql(/* GraphQL */ `{}`);",
+                source
+            ),
+            config,
+            "test.ts",
+        );
+
+        assert!(
+            output.contains("import { PlaylistFieldsFragmentDoc } from \"./playlist.codegen\";")
+        );
+        assert!(output.contains("const PlaylistFields = PlaylistFieldsFragmentDoc;"));
+        assert!(!output.contains("PlaylistPermissionsFragmentDoc"));
     }
 
     #[test]
