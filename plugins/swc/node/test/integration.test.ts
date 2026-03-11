@@ -18,6 +18,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+import { fileURLToPath } from 'url';
+
 describe('SWC Plugin WASM Wrapper', () => {
   describe('createSWCPlugin', () => {
     it('exports createSWCPlugin function', () => {
@@ -29,6 +31,28 @@ describe('SWC Plugin WASM Wrapper', () => {
       expect(() => {
         createSWCPlugin({} as PluginConfig);
       }).toThrow('outputDir is required');
+    });
+
+    it('resolves outputDir to absolute path', () => {
+      // Create a dummy WASM file to make this test pass
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const wasmDir = path.join(testDir, '..', 'wasm');
+      if (!fs.existsSync(wasmDir)) {
+        fs.mkdirSync(wasmDir, { recursive: true });
+      }
+      const dummyWasmPath = path.join(wasmDir, 'graphox_swc_plugin.wasm');
+      fs.writeFileSync(dummyWasmPath, '');
+
+      try {
+        const result = createSWCPlugin({
+          outputDir: './gen'
+        });
+
+        expect(path.isAbsolute(result[1].outputDir)).toBe(true);
+        expect(result[1].outputDir).toBe(path.resolve('./gen'));
+      } finally {
+        fs.unlinkSync(dummyWasmPath);
+      }
     });
 
     it('returns [wasmPath, config] tuple when WASM exists', () => {

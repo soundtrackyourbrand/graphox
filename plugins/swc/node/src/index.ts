@@ -133,10 +133,15 @@ export function createSWCPlugin(config: PluginConfig): [string, PluginConfig] {
   
   const wasmPath = getWasmPath();
   
+  // Resolve outputDir to absolute path to ensure Rust side can correctly
+  // calculate relative paths between the output dir and the current file.
+  const resolvedOutputDir = path.resolve(config.outputDir);
+
   // Inline manifest data to ensure it's available to the WASM plugin
   // since WASM plugins may not have filesystem access.
   const inlinedConfig = {
     ...config,
+    outputDir: resolvedOutputDir,
     manifestData: loadManifest(config)
   };
   
