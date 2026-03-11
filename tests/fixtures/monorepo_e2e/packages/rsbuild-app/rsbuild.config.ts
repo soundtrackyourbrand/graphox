@@ -8,7 +8,6 @@ const mode = process.env.RSBUILD_MODE || 'swc';
 const appGeneratedDir = path.resolve(__dirname, '../app/src/__generated__');
 
 const swcPlugin = mode === 'swc' ? createSWCPlugin({
-  manifestPath: path.join(appGeneratedDir, 'manifest.json'),
   outputDir: appGeneratedDir,
 }) : null;
 
@@ -21,7 +20,6 @@ export default defineConfig({
           [
             graphoxBabel,
             {
-              manifestPath: path.join(appGeneratedDir, 'manifest.json'),
               outputDir: appGeneratedDir,
             },
           ],
@@ -33,7 +31,7 @@ export default defineConfig({
     rspack: {
       resolve: {
         alias: {
-          '#app/graphql/gql': path.resolve(__dirname, '../app/src/__generated__/graphql.ts'),
+          '@app/gql': path.join(appGeneratedDir, 'graphql.ts'),
         },
       },
     },

@@ -55,6 +55,114 @@ describe('SWC Plugin WASM Wrapper', () => {
       }
     });
 
+    it('automatically uses manifest.json in outputDir if manifestPath is missing', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-test-'));
+      const outputDir = path.join(tempDir, 'gen');
+      fs.mkdirSync(outputDir, { recursive: true });
+      
+      const manifestData = [
+        { source: 'query { me { id } }', path: './gen/query.codegen', name: 'GetMeDocument' }
+      ];
+      fs.writeFileSync(path.join(outputDir, 'manifest.json'), JSON.stringify(manifestData));
+
+      // Create dummy WASM to avoid getWasmPath error
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const wasmDir = path.join(testDir, '..', 'wasm');
+      if (!fs.existsSync(wasmDir)) fs.mkdirSync(wasmDir, { recursive: true });
+      const dummyWasmPath = path.join(wasmDir, 'graphox_swc_plugin.wasm');
+      fs.writeFileSync(dummyWasmPath, '');
+
+      try {
+        const result = createSWCPlugin({
+          outputDir: outputDir
+        });
+        
+        expect(result[1].manifestData).toEqual(manifestData);
+      } finally {
+        fs.unlinkSync(dummyWasmPath);
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reads imports from package.json and tsconfig.json', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-test-'));
+      const outputDir = path.join(tempDir, 'gen');
+      fs.mkdirSync(outputDir, { recursive: true });
+      
+      const tsconfig = {
+        compilerOptions: {
+          baseUrl: '.',
+          paths: {
+            '@gql': ['gen/graphql.ts']
+          }
+        }
+      };
+      fs.writeFileSync(path.join(tempDir, 'tsconfig.json'), JSON.stringify(tsconfig));
+
+      const pkgJson = {
+        imports: {
+          '#gql': './gen/graphql.ts'
+        }
+      };
+      fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson));
+
+      // Create dummy WASM
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const wasmDir = path.join(testDir, '..', 'wasm');
+      if (!fs.existsSync(wasmDir)) fs.mkdirSync(wasmDir, { recursive: true });
+      const dummyWasmPath = path.join(wasmDir, 'graphox_swc_plugin.wasm');
+      fs.writeFileSync(dummyWasmPath, '');
+
+      try {
+        const result = createSWCPlugin({
+          outputDir: 'gen'
+        }, { cwd: tempDir });
+        
+        expect(result[1].graphqlImportPaths).toContain('@gql');
+        expect(result[1].graphqlImportPaths).toContain('#gql');
+      } finally {
+        fs.unlinkSync(dummyWasmPath);
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('does not leak graphqlImportPaths between calls through cache', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-test-leak-'));
+      const outputDir = path.join(tempDir, 'gen');
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      // Create dummy WASM
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const wasmDir = path.join(testDir, '..', 'wasm');
+      if (!fs.existsSync(wasmDir)) fs.mkdirSync(wasmDir, { recursive: true });
+      const dummyWasmPath = path.join(wasmDir, 'graphox_swc_plugin.wasm');
+      fs.writeFileSync(dummyWasmPath, '');
+
+      try {
+        // First call with one path
+        const result1 = createSWCPlugin({
+          outputDir: 'gen',
+          graphqlImportPaths: ['@first']
+        }, { cwd: tempDir });
+
+        expect(result1[1].graphqlImportPaths).toContain('@first');
+        expect(result1[1].graphqlImportPaths).not.toContain('@second');
+
+        // Second call with another path
+        const result2 = createSWCPlugin({
+          outputDir: 'gen',
+          graphqlImportPaths: ['@second']
+        }, { cwd: tempDir });
+
+        expect(result2[1].graphqlImportPaths).toContain('@second');
+        // This is the crucial check: @first should NOT be here if it was correctly NOT cached
+        expect(result2[1].graphqlImportPaths).not.toContain('@first');
+      } finally {
+        fs.unlinkSync(dummyWasmPath);
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    });
+
     it('returns [wasmPath, config] tuple when WASM exists', () => {
       // This test will fail until WASM is built
       // That's expected behavior

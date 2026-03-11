@@ -1,5 +1,10 @@
 const path = require('path');
 const fs = require('fs');
+const {
+  findNearestFile,
+  resolveTsConfigPaths,
+  resolvePackageJsonImports
+} = require('./utils');
 
 function normalize(s) {
   return s.replace(/\s+/g, '');
@@ -42,11 +47,11 @@ module.exports = function (babel) {
     visitor: {
       Program: {
         enter(programPath, state) {
-          const {
+          let {
             manifestPath,
             manifestData,
             outputDir,
-            graphqlImportPaths = [],
+            graphqlImportPaths: configuredImportPaths = [],
             emitExtensions,
           } = state.opts;
 
@@ -54,6 +59,36 @@ module.exports = function (babel) {
             throw new Error('outputDir is required for @graphox/babel-plugin');
           }
 
+          const absoluteOutputDir = path.resolve(outputDir);
+          
+          // Default manifestPath if not provided
+          if (!manifestPath && !manifestData) {
+            manifestPath = path.join(absoluteOutputDir, 'manifest.json');
+          }
+
+          const currentFile = state.file.opts.filename;
+          const currentDir = currentFile ? path.dirname(currentFile) : process.cwd();
+
+          // Auto-detect import paths from tsconfig.json and package.json
+          const importPathsSet = new Set(configuredImportPaths.map(toPosixPath));
+
+          const tsconfigPath = findNearestFile(currentDir, 'tsconfig.json');
+          if (tsconfigPath) {
+            const paths = resolveTsConfigPaths(tsconfigPath, absoluteOutputDir);
+            for (const p of paths) {
+              importPathsSet.add(toPosixPath(p));
+            }
+          }
+
+          const pkgJsonPath = findNearestFile(currentDir, 'package.json');
+          if (pkgJsonPath) {
+             const imports = resolvePackageJsonImports(pkgJsonPath, absoluteOutputDir);
+             for (const p of imports) {
+               importPathsSet.add(toPosixPath(p));
+             }
+          }
+
+          const graphqlImportPaths = Array.from(importPathsSet);
           const extension = getExtension(emitExtensions);
 
           let entries = [];
@@ -80,11 +115,8 @@ module.exports = function (babel) {
             }
           }
 
-          const currentFile = state.file.opts.filename;
-          const absoluteOutputDir = path.resolve(outputDir);
           const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
           const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
-          const currentDir = currentFile ? path.dirname(currentFile) : null;
 
           // If processing the entrypoint itself, clear it
           if (currentFile) {
@@ -114,6 +146,17 @@ module.exports = function (babel) {
             if (graphqlImportPaths.includes(src)) return true;
             const srcNoExt = stripScriptExtension(src);
             if (graphqlImportPaths.includes(srcNoExt)) return true;
+
+            // Support prefix matching for directory aliases discovered from tsconfig/package.json
+            for (const p of graphqlImportPaths) {
+              if (p.endsWith('/') && src.startsWith(p)) {
+                const subPath = src.slice(p.length);
+                const subPathNoExt = stripScriptExtension(subPath);
+                if (subPathNoExt === 'graphql' || subPathNoExt === 'index') {
+                  return true;
+                }
+              }
+            }
 
             if (currentDir) {
               let absoluteSrc = null;

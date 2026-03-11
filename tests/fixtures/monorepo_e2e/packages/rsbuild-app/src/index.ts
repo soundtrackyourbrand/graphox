@@ -1,9 +1,11 @@
 import { GetUsersWithComplexFilters, SearchEverything, CreateNewUser } from '@monorepo-e2e/app/src/main';
-import { graphql } from '#app/graphql/gql';
+import { graphql } from '@app/gql';
 
 const AliasOnlyInRuntime = graphql(`
   query AliasOnlyInRuntime {
-    __typename
+    users {
+      totalCount
+    }
   }
 `);
 

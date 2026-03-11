@@ -30,6 +30,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
+import * as jsonc from 'jsonc-parser';
 
 /**
  * Robust way to get __dirname equivalent in both CJS and ESM.
@@ -99,6 +100,127 @@ function getWasmPath(): string {
   return wasmPath;
 }
 
+function findNearestFile(startDir: string, filename: string): string | null {
+  let currentDir = startDir;
+  while (currentDir) {
+    const filePath = path.join(currentDir, filename);
+    if (fs.existsSync(filePath)) {
+      return filePath;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+  return null;
+}
+
+function stripScriptExtension(filePath: string): string {
+  return filePath.replace(/(\.d)?\.(mjs|cjs|js|jsx|ts|tsx)$/, '');
+}
+
+function resolveTsConfigPaths(tsconfigPath: string, absoluteOutputDir: string): string[] {
+  try {
+    const content = fs.readFileSync(tsconfigPath, 'utf8');
+    const tsconfig = jsonc.parse(content);
+    const paths = tsconfig?.compilerOptions?.paths;
+    if (!paths) return [];
+
+    const baseUrl = tsconfig.compilerOptions.baseUrl 
+      ? path.resolve(path.dirname(tsconfigPath), tsconfig.compilerOptions.baseUrl) 
+      : path.dirname(tsconfigPath);
+    
+    const matchedPaths: string[] = [];
+    const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
+    const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
+
+    const absOutNoExt = stripScriptExtension(absoluteOutputDir);
+    const absEntryNoExt = stripScriptExtension(absoluteEntrypointPath);
+    const absIndexNoExt = stripScriptExtension(absoluteIndexPath);
+
+    for (const [alias, targets] of Object.entries(paths) as [string, string[]][]) {
+      for (const target of targets) {
+        const cleanTarget = target.replace(/\*$/, '');
+        const absTarget = path.resolve(baseUrl, cleanTarget);
+        const absTargetNoExt = stripScriptExtension(absTarget);
+
+        if (absTargetNoExt === absOutNoExt) {
+           let a = alias.replace(/\*$/, '');
+           if (!a.endsWith('/')) a += '/';
+           matchedPaths.push(a);
+           continue;
+        }
+
+        if (absTargetNoExt === absEntryNoExt || 
+            absTargetNoExt === absIndexNoExt ||
+            stripScriptExtension(path.join(absTargetNoExt, 'index')) === absIndexNoExt) {
+           matchedPaths.push(alias.replace(/\*$/, ''));
+        }
+      }
+    }
+    return matchedPaths;
+  } catch (e) {
+    console.debug(`resolveTsConfigPaths error for ${tsconfigPath}:`, e);
+    return [];
+  }
+}
+
+function resolvePackageJsonImports(pkgJsonPath: string, absoluteOutputDir: string): string[] {
+  try {
+    const content = fs.readFileSync(pkgJsonPath, 'utf8');
+    const pkg = JSON.parse(content);
+    const imports = pkg.imports;
+    if (!imports) return [];
+
+    const matchedImports: string[] = [];
+    const pkgDir = path.dirname(pkgJsonPath);
+    const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
+    const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
+
+    const absOutNoExt = stripScriptExtension(absoluteOutputDir);
+    const absEntryNoExt = stripScriptExtension(absoluteEntrypointPath);
+    const absIndexNoExt = stripScriptExtension(absoluteIndexPath);
+    
+    function checkTarget(target: unknown, alias: string) {
+       if (typeof target !== 'string') return;
+       const absTarget = path.resolve(pkgDir, target);
+       const absTargetNoExt = stripScriptExtension(absTarget);
+       
+       if (absTargetNoExt === absOutNoExt) {
+         let a = alias.replace(/\*$/, '');
+         if (!a.endsWith('/')) a += '/';
+         matchedImports.push(a);
+         return;
+       }
+
+       if (absTargetNoExt === absEntryNoExt || 
+           absTargetNoExt === absIndexNoExt ||
+           stripScriptExtension(path.join(absTargetNoExt, 'index')) === absIndexNoExt) {
+         matchedImports.push(alias.replace(/\*$/, ''));
+       }
+    }
+
+    for (const [alias, target] of Object.entries(imports)) {
+      if (typeof target === 'string') {
+        checkTarget(target, alias);
+      } else if (typeof target === 'object' && target !== null) {
+        for (const key of ['import', 'types', 'default', 'require']) {
+          const val = (target as Record<string, any>)[key];
+          if (val) {
+             checkTarget(val, alias);
+          }
+        }
+      }
+    }
+    
+    return matchedImports;
+  } catch (e) {
+    console.debug(`resolvePackageJsonImports error for ${pkgJsonPath}:`, e);
+    return [];
+  }
+}
+
 /**
  * Load the manifest from disk or return inline data.
  * 
@@ -110,14 +232,23 @@ export function loadManifest(config: PluginConfig): Array<{ source: string; path
     return config.manifestData;
   }
   
-  if (config.manifestPath && fs.existsSync(config.manifestPath)) {
-    const content = fs.readFileSync(config.manifestPath, 'utf-8');
-    const data = JSON.parse(content);
-    return Array.isArray(data) ? data : (data.entries || []);
+  const manifestPath = config.manifestPath || path.join(path.resolve(config.outputDir), 'manifest.json');
+
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const content = fs.readFileSync(manifestPath, 'utf-8');
+      const data = JSON.parse(content);
+      return Array.isArray(data) ? data : (data.entries || []);
+    } catch (e) {
+      // Ignore errors reading manifest
+    }
   }
   
   return [];
 }
+
+// Caching for expensive path resolutions
+const importPathsCache = new Map<string, string[]>();
 
 /**
  * Create a SWC plugin configuration.
@@ -125,7 +256,7 @@ export function loadManifest(config: PluginConfig): Array<{ source: string; path
  * Returns a tuple [wasmPath, options] that can be passed directly to SWC's
  * experimental plugins configuration.
  */
-export function createSWCPlugin(config: PluginConfig): [string, PluginConfig] {
+export function createSWCPlugin(config: PluginConfig, options?: { cwd?: string }): [string, PluginConfig] {
   // Validate required fields first
   if (!config.outputDir) {
     throw new Error('outputDir is required in PluginConfig');
@@ -133,16 +264,65 @@ export function createSWCPlugin(config: PluginConfig): [string, PluginConfig] {
   
   const wasmPath = getWasmPath();
   
-  // Resolve outputDir to absolute path to ensure Rust side can correctly
-  // calculate relative paths between the output dir and the current file.
-  const resolvedOutputDir = path.resolve(config.outputDir);
+  const rootDir = options?.cwd || process.cwd();
+  // Resolve outputDir and manifestPath to absolute paths relative to cwd
+  const resolvedOutputDir = path.resolve(rootDir, config.outputDir);
+  const resolvedManifestPath = config.manifestPath 
+    ? path.resolve(rootDir, config.manifestPath)
+    : path.join(resolvedOutputDir, 'manifest.json');
+
+  const resolvedConfig: PluginConfig = {
+    ...config,
+    outputDir: resolvedOutputDir,
+    manifestPath: resolvedManifestPath,
+  };
+
+  // Cache key to handle multi-project workspaces correctly
+  const cacheKey = `${rootDir}:${resolvedOutputDir}`;
+  let autoDetectedPaths = importPathsCache.get(cacheKey);
+
+  if (!autoDetectedPaths) {
+    autoDetectedPaths = [];
+
+    const tsconfigPath = findNearestFile(resolvedOutputDir, 'tsconfig.json') || findNearestFile(rootDir, 'tsconfig.json');
+    if (tsconfigPath) {
+      const paths = resolveTsConfigPaths(tsconfigPath, resolvedOutputDir);
+      for (const p of paths) {
+        if (!autoDetectedPaths.includes(p)) {
+          autoDetectedPaths.push(p);
+        }
+      }
+    }
+
+    const pkgJsonPath = findNearestFile(resolvedOutputDir, 'package.json') || findNearestFile(rootDir, 'package.json');
+    if (pkgJsonPath) {
+      const imports = resolvePackageJsonImports(pkgJsonPath, resolvedOutputDir);
+      for (const p of imports) {
+        if (!autoDetectedPaths.includes(p)) {
+          autoDetectedPaths.push(p);
+        }
+      }
+    }
+    
+    importPathsCache.set(cacheKey, autoDetectedPaths);
+  }
+
+  // Build the final merged list without mutating the cached array
+  const graphqlImportPaths = [...autoDetectedPaths];
+  if (config.graphqlImportPaths) {
+    for (const p of config.graphqlImportPaths) {
+      if (!graphqlImportPaths.includes(p)) {
+        graphqlImportPaths.push(p);
+      }
+    }
+  }
 
   // Inline manifest data to ensure it's available to the WASM plugin
   // since WASM plugins may not have filesystem access.
   const inlinedConfig = {
-    ...config,
-    outputDir: resolvedOutputDir,
-    manifestData: loadManifest(config)
+    ...resolvedConfig,
+    graphqlImportPaths,
+    manifestData: loadManifest(resolvedConfig)
   };
   
   // Return tuple for SWC

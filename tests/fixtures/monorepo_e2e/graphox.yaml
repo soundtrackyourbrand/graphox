@@ -39,6 +39,7 @@ projects:
     include: 
       - "packages/app/**/*.graphql"
       - "packages/app/**/*.ts"
+      - "packages/rsbuild-app/**/*.ts"
     output_dir: "packages/app/src/__generated__"
     codegen:
       re_exports: true
