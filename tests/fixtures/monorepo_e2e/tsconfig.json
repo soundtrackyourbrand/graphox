@@ -14,7 +14,8 @@
       "@monorepo-e2e/app": ["packages/app/src/index.ts"],
       "@monorepo-e2e/app-masking": ["packages/app-masking/src/index.ts"],
       "@monorepo-e2e/app-graphox": ["packages/app-graphox/src/index.ts"],
-      "@monorepo-e2e/app-reference": ["packages/app-reference/src/index.ts"]
+      "@monorepo-e2e/app-reference": ["packages/app-reference/src/index.ts"],
+      "@app/gql": ["packages/app/src/__generated__/graphql.ts"]
     }
   }
 }
