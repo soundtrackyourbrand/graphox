@@ -100,7 +100,11 @@ pub fn generate_schema_types(
                     1,
                 ));
                 let ts_type = gql_type_to_ts_with_names(&field.ty, schema, scalars, &dummy_ctx);
-                let optional = if field.ty.is_non_null() { "" } else { "?" };
+                let optional = if field.ty.is_non_null() && field.default_value.is_none() {
+                    ""
+                } else {
+                    "?"
+                };
                 output.push_str(&format!("  {}{}: {};\n", field.name, optional, ts_type));
             }
             output.push_str("}\n\n");

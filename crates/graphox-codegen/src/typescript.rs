@@ -132,7 +132,11 @@ pub fn generate_typescript_with_profile(
             if !op.variables.is_empty() {
                 for var in &op.variables {
                     let ts_type_str = gql_type_to_ts(&var.ty, ctx.schema, ctx.scalars, ctx);
-                    let optional = if var.ty.is_non_null() { "" } else { "?" };
+                    let optional = if var.ty.is_non_null() && var.default_value.is_none() {
+                        ""
+                    } else {
+                        "?"
+                    };
                     bodies.push_str("  ");
                     bodies.push_str(&var.name);
                     bodies.push_str(optional);
