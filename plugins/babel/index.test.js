@@ -64,16 +64,13 @@ describe('@graphox/babel-plugin', () => {
     expect(output).toContain('const q2 = GetOtherDocument;');
   });
 
-  it('removes all imports from graphql.ts including unknown specifiers', () => {
-    const code = "import { graphql, other } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
-    const output = transform(code, defaultOptions);
+    it('throws when a value import from graphql.ts cannot be rewritten', () => {
+      const code = "import { graphql, other } from './gen/graphql'; const q = graphql(`query { me { id } }`); console.log(other);";
 
-    expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
-    expect(output).not.toContain('from "./gen/graphql"');
-    expect(output).not.toContain('graphql,');
-    expect(output).not.toContain(', graphql');
-    expect(output).not.toContain('other');
-  });
+      expect(() => transform(code, defaultOptions)).toThrow(
+        /could not rewrite "other" from "\.\/gen\/graphql"/,
+      );
+    });
 
   it('resolves relative paths correctly', () => {
     const manifest = [
@@ -105,14 +102,46 @@ describe('@graphox/babel-plugin', () => {
     expect(output).not.toContain("from '/root/gen/graphql.ts'");
   });
 
-  it('supports gql tag', () => {
-    const code = "import { gql } from './gen/graphql'; const q = gql(`query { me { id } }`);";
-    const output = transform(code, defaultOptions);
+    it('supports gql tag', () => {
+      const code = "import { gql } from './gen/graphql'; const q = gql(`query { me { id } }`);";
+      const output = transform(code, defaultOptions);
 
     expect(output).toContain('import { MyQueryDocument } from "./gen/query.codegen";');
-    expect(output).toContain('const q = MyQueryDocument;');
-    expect(output).not.toContain('from "./gen/graphql"');
-  });
+      expect(output).toContain('const q = MyQueryDocument;');
+      expect(output).not.toContain('from "./gen/graphql"');
+    });
+
+    it('throws when graphql() is missing from the manifest', () => {
+      const code = "import { graphql } from './gen/graphql'; const q = graphql(`query Missing { me { id } }`);";
+
+      expect(() => transform(code, defaultOptions)).toThrow(
+        /could not find this graphql\(\) document in the manifest/i,
+      );
+    });
+
+    it('throws when graphql() is not a single static string', () => {
+      const code = `
+        import { graphql } from './gen/graphql';
+        const query = 'query { me { id } }';
+        const q = graphql(query);
+      `;
+
+      expect(() => transform(code, defaultOptions)).toThrow(
+        /could not statically analyze this graphql\(\) call/i,
+      );
+    });
+
+    it('throws when a graphql import is still referenced after rewriting', () => {
+      const code = `
+        import { graphql } from './gen/graphql';
+        const tag = graphql;
+        console.log(tag);
+      `;
+
+      expect(() => transform(code, defaultOptions)).toThrow(
+        /left a runtime reference to "graphql" after rewriting/i,
+      );
+    });
 
   it('is whitespace insensitive (normalization)', () => {
     const code = `
@@ -276,13 +305,12 @@ describe('@graphox/babel-plugin', () => {
       expect(output).not.toContain('graphql');
     });
 
-    it('removes non-document imports while rewriting document imports', () => {
+    it('throws on non-document imports alongside rewritten document imports', () => {
       const code = "import { GetUserDocument, SomeOtherType } from './gen/graphql';";
-      const output = transform(code, reExportOptions);
 
-      expect(output).toContain("import { GetUserDocument } from \"./gen/user.codegen\";");
-      expect(output).not.toContain("from './gen/graphql'");
-      expect(output).not.toContain('SomeOtherType');
+      expect(() => transform(code, reExportOptions)).toThrow(
+        /could not rewrite "SomeOtherType" from "\.\/gen\/graphql"/,
+      );
     });
 
     it('removes type-only imports (they dont exist in minified JS)', () => {

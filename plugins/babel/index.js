@@ -235,6 +235,17 @@ module.exports = function (babel) {
               if (isOurGraphqlPath(src)) {
                 const importIsTypeOnly = importPath.node.importKind === 'type';
                 importPath.get('specifiers').forEach((specifier) => {
+                  if (specifier.isImportDefaultSpecifier() || specifier.isImportNamespaceSpecifier()) {
+                    if (!importIsTypeOnly) {
+                      const importKind = specifier.isImportDefaultSpecifier() ? 'default' : 'namespace';
+                      throw specifier.buildCodeFrameError(
+                        `@graphox/babel-plugin could not fully rewrite this ${importKind} import from "${src}". ` +
+                        'Only named document imports and graphql/gql are supported.',
+                      );
+                    }
+                    return;
+                  }
+
                   if (specifier.isImportSpecifier()) {
                     // Handle both Identifier and StringLiteral for imported name
                     const importedName = t.isIdentifier(specifier.node.imported) 
@@ -274,6 +285,11 @@ module.exports = function (babel) {
                       if (localName !== targetLocalName) {
                         specifier.scope.rename(localName, targetLocalName);
                       }
+                    } else if (!specifierIsTypeOnly) {
+                      throw specifier.buildCodeFrameError(
+                        `@graphox/babel-plugin could not rewrite "${importedName}" from "${src}". ` +
+                        'Run Graphox codegen and ensure the manifest includes this document.',
+                      );
                     }
                   }
                 });
@@ -299,26 +315,55 @@ module.exports = function (babel) {
                     source = arg.value;
                   }
 
-                  if (source) {
-                    const normalizedSource = normalize(source);
-                    const entry = manifest.get(normalizedSource);
-                    if (entry) {
-                      const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
-                      let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
-                      relPath = toPosixPath(relPath);
-                      if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
-                        relPath = './' + relPath;
-                      }
-                      // Append the emit extension
-                      relPath += extension;
-
-                      const uniqueLocalName = getLocalName(entry.name, callPath.scope);
-                      newImports.set(uniqueLocalName, { sourcePath: relPath, importedName: entry.name });
-                      callPath.replaceWith(t.identifier(uniqueLocalName));
-                    }
+                  if (!source) {
+                    throw callPath.buildCodeFrameError(
+                      `@graphox/babel-plugin could not statically analyze this ${callee.node.name}() call. ` +
+                      'Use a single static string/template literal so it can be resolved from the manifest.',
+                    );
                   }
+
+                  const normalizedSource = normalize(source);
+                  const entry = manifest.get(normalizedSource);
+                  if (!entry) {
+                    throw callPath.buildCodeFrameError(
+                      `@graphox/babel-plugin could not find this ${callee.node.name}() document in the manifest. ` +
+                      'Run Graphox codegen and ensure the build is using the correct manifest.',
+                    );
+                  }
+
+                  const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
+                  let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
+                  relPath = toPosixPath(relPath);
+                  if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
+                    relPath = './' + relPath;
+                  }
+                  // Append the emit extension
+                  relPath += extension;
+
+                  const uniqueLocalName = getLocalName(entry.name, callPath.scope);
+                  newImports.set(uniqueLocalName, { sourcePath: relPath, importedName: entry.name });
+                  callPath.replaceWith(t.identifier(uniqueLocalName));
                 }
               }
+            },
+          });
+
+          // Ensure we never remove the entrypoint import while runtime references still exist.
+          programPath.traverse({
+            Identifier(idPath) {
+              if (!idPath.isReferencedIdentifier()) {
+                return;
+              }
+
+              const binding = idPath.scope.getBinding(idPath.node.name);
+              if (!binding || !graphqlIds.has(binding)) {
+                return;
+              }
+
+              throw idPath.buildCodeFrameError(
+                `@graphox/babel-plugin left a runtime reference to "${idPath.node.name}" after rewriting. ` +
+                'All Graphox graphql/gql imports must be fully inlined before the import is removed.',
+              );
             },
           });
 
