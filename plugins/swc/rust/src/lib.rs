@@ -176,6 +176,18 @@ impl TransformVisitor {
         result
     }
 
+    fn fail(&self, message: impl AsRef<str>) -> ! {
+        if let Some(current_file) = &self.current_file {
+            panic!(
+                "@graphox/swc-plugin ({}): {}",
+                current_file.display(),
+                message.as_ref()
+            );
+        }
+
+        panic!("@graphox/swc-plugin: {}", message.as_ref());
+    }
+
     fn is_our_graphql_path(&self, src: &str) -> bool {
         // Normalize incoming src path for comparison on Windows
         let src = if cfg!(windows) {
@@ -348,49 +360,72 @@ impl VisitMut for TransformVisitor {
                 if self.is_our_graphql_path(src) {
                     let import_is_type_only = import.type_only;
                     for specifier in &import.specifiers {
-                        if let ImportSpecifier::Named(named) = specifier {
-                            let local_name = named.local.sym.as_str();
-                            let imported_name = named
-                                .imported
-                                .as_ref()
-                                .map(|i| match i {
-                                    ModuleExportName::Ident(id) => id.sym.as_str(),
-                                    ModuleExportName::Str(s) => s.value.as_str().unwrap_or(""),
-                                })
-                                .unwrap_or(local_name);
+                        match specifier {
+                            ImportSpecifier::Named(named) => {
+                                let local_name = named.local.sym.as_str();
+                                let imported_name = named
+                                    .imported
+                                    .as_ref()
+                                    .map(|i| match i {
+                                        ModuleExportName::Ident(id) => id.sym.as_str(),
+                                        ModuleExportName::Str(s) => s.value.as_str().unwrap_or(""),
+                                    })
+                                    .unwrap_or(local_name);
 
-                            let specifier_is_type_only = import_is_type_only || named.is_type_only;
+                                let specifier_is_type_only =
+                                    import_is_type_only || named.is_type_only;
 
-                            our_import_ids.insert(named.local.to_id());
+                                our_import_ids.insert(named.local.to_id());
 
-                            if imported_name == "graphql" || imported_name == "gql" {
-                                self.graphql_ids.insert(named.local.to_id());
-                            } else if self.name_to_entry.contains_key(imported_name)
-                                && !specifier_is_type_only
-                            {
-                                // Only track non-type-only imports of document names
-                                let entry = self.name_to_entry.get(imported_name).unwrap();
-                                let rel_path = self.get_relative_import_path(&entry.path);
+                                if imported_name == "graphql" || imported_name == "gql" {
+                                    self.graphql_ids.insert(named.local.to_id());
+                                } else if self.name_to_entry.contains_key(imported_name)
+                                    && !specifier_is_type_only
+                                {
+                                    // Only track non-type-only imports of document names
+                                    let entry = self.name_to_entry.get(imported_name).unwrap();
+                                    let rel_path = self.get_relative_import_path(&entry.path);
 
-                                let target_local_name = if local_name != imported_name {
-                                    // Aliased, keep it and register it
-                                    self.document_name_to_local_name
-                                        .insert(imported_name.to_string(), local_name.to_string());
-                                    local_name.to_string()
-                                } else {
-                                    self.get_local_name(imported_name)
-                                };
+                                    let target_local_name = if local_name != imported_name {
+                                        // Aliased, keep it and register it
+                                        self.document_name_to_local_name.insert(
+                                            imported_name.to_string(),
+                                            local_name.to_string(),
+                                        );
+                                        local_name.to_string()
+                                    } else {
+                                        self.get_local_name(imported_name)
+                                    };
 
-                                self.new_imports.insert(
-                                    target_local_name.clone(),
-                                    (imported_name.to_string(), rel_path),
-                                );
+                                    self.new_imports.insert(
+                                        target_local_name.clone(),
+                                        (imported_name.to_string(), rel_path),
+                                    );
 
-                                if target_local_name != local_name {
-                                    self.id_renames
-                                        .insert(named.local.to_id(), target_local_name);
+                                    if target_local_name != local_name {
+                                        self.id_renames
+                                            .insert(named.local.to_id(), target_local_name);
+                                    }
+                                } else if !specifier_is_type_only {
+                                    self.fail(format!(
+                                        "could not rewrite \"{}\" from \"{}\". Run Graphox codegen and ensure the manifest includes this document.",
+                                        imported_name, src
+                                    ));
                                 }
                             }
+                            ImportSpecifier::Default(_) if !import_is_type_only => {
+                                self.fail(format!(
+                                    "could not fully rewrite this default import from \"{}\". Only named document imports and graphql/gql are supported.",
+                                    src
+                                ));
+                            }
+                            ImportSpecifier::Namespace(_) if !import_is_type_only => {
+                                self.fail(format!(
+                                    "could not fully rewrite this namespace import from \"{}\". Only named document imports and graphql/gql are supported.",
+                                    src
+                                ));
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -414,6 +449,15 @@ impl VisitMut for TransformVisitor {
         self.existing_names = colliding_names;
 
         n.visit_mut_children_with(self);
+
+        let mut validator = GraphqlUsageValidator {
+            graphql_ids: &self.graphql_ids,
+            error: None,
+        };
+        n.visit_with(&mut validator);
+        if let Some(error) = validator.error {
+            self.fail(error);
+        }
 
         // Remove ALL imports from graphql.ts/index.ts (it's cleared to stubs)
         n.body.retain_mut(|item| {
@@ -498,22 +542,57 @@ impl VisitMut for TransformVisitor {
                 _ => None,
             };
 
-            if let Some(source) = source
-                && let Some(entry) = self.manifest.get(&source)
-            {
-                let entry_name = entry.name.clone();
-                let entry_path = entry.path.clone();
-                let rel_path = self.get_relative_import_path(&entry_path);
-                let target_local_name = self.get_local_name(&entry_name);
-                self.new_imports
-                    .insert(target_local_name.clone(), (entry_name, rel_path));
-                *n = Expr::Ident(Ident::new(
-                    target_local_name.into(),
-                    DUMMY_SP,
-                    Default::default(),
+            let Some(source) = source else {
+                self.fail(format!(
+                    "could not statically analyze this {}() call. Use a single static string/template literal so it can be resolved from the manifest.",
+                    ident.sym
                 ));
-            }
+            };
+
+            let Some(entry) = self.manifest.get(&source) else {
+                self.fail(format!(
+                    "could not find this {}() document in the manifest. Run Graphox codegen and ensure the build is using the correct manifest.",
+                    ident.sym
+                ));
+            };
+
+            let entry_name = entry.name.clone();
+            let entry_path = entry.path.clone();
+            let rel_path = self.get_relative_import_path(&entry_path);
+            let target_local_name = self.get_local_name(&entry_name);
+            self.new_imports
+                .insert(target_local_name.clone(), (entry_name, rel_path));
+            *n = Expr::Ident(Ident::new(
+                target_local_name.into(),
+                DUMMY_SP,
+                Default::default(),
+            ));
         }
+    }
+}
+
+struct GraphqlUsageValidator<'a> {
+    graphql_ids: &'a std::collections::HashSet<Id>,
+    error: Option<String>,
+}
+
+impl Visit for GraphqlUsageValidator<'_> {
+    fn visit_expr(&mut self, n: &Expr) {
+        if self.error.is_some() {
+            return;
+        }
+
+        if let Expr::Ident(ident) = n
+            && self.graphql_ids.contains(&ident.to_id())
+        {
+            self.error = Some(format!(
+                "left a runtime reference to \"{}\" after rewriting. All Graphox graphql/gql imports must be fully inlined before the import is removed.",
+                ident.sym
+            ));
+            return;
+        }
+
+        n.visit_children_with(self);
     }
 }
 
@@ -717,7 +796,8 @@ mod tests {
     }
 
     #[test]
-    fn test_visitor_mixed_imports() {
+    #[should_panic(expected = "could not rewrite \"other\"")]
+    fn test_visitor_rejects_unrewritable_value_imports() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
             path: "./query.codegen".to_string(),
@@ -732,16 +812,87 @@ mod tests {
             emit_extensions: EmitExtensions::None,
         };
 
-        let output = transform(
+        transform(
             "import { graphql, other } from './graphql'; const q = graphql(`query { me { id } }`);",
             config,
             "test.ts",
         );
+    }
 
-        assert!(output.contains("import { MyQueryDocument } from \"./query.codegen\";"));
-        assert!(!output.contains("other"));
-        assert!(!output.contains("from './graphql'"));
-        assert!(output.contains("const q = MyQueryDocument;"));
+    #[test]
+    #[should_panic(expected = "could not find this graphql() document in the manifest")]
+    fn test_visitor_rejects_missing_manifest_entries() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        transform(
+            "import { graphql } from './graphql'; const q = graphql(`query Missing { me { id } }`);",
+            config,
+            "test.ts",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "could not statically analyze this graphql() call")]
+    fn test_visitor_rejects_dynamic_graphql_calls() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let source = r#"
+            import { graphql } from './graphql';
+            const query = 'query { me { id } }';
+            const q = graphql(query);
+        "#;
+
+        transform(source, config, "test.ts");
+    }
+
+    #[test]
+    #[should_panic(expected = "left a runtime reference to \"graphql\"")]
+    fn test_visitor_rejects_remaining_graphql_references() {
+        let manifest = vec![ManifestEntry {
+            source: "query { me { id } }".to_string(),
+            path: "./query.codegen".to_string(),
+            name: "MyQueryDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let source = r#"
+            import { graphql } from './graphql';
+            const tag = graphql;
+            console.log(tag);
+        "#;
+
+        transform(source, config, "test.ts");
     }
 
     #[test]
@@ -1081,6 +1232,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "could not rewrite \"OtherType\"")]
     fn test_document_name_mixed_imports() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
@@ -1096,15 +1248,11 @@ mod tests {
             emit_extensions: EmitExtensions::None,
         };
 
-        let output = transform(
+        transform(
             "import { GetUserQueryDocument, OtherType } from '../gen/graphql';",
             config,
             "/root/app/test.ts",
         );
-
-        assert!(output.contains("import { GetUserQueryDocument } from \"../gen/query.codegen\";"));
-        assert!(!output.contains("OtherType"));
-        assert!(!output.contains("from '../gen/graphql'"));
     }
 
     #[test]
