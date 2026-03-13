@@ -11,7 +11,8 @@ pub type MetadataMap = Arc<DashMap<Url, Arc<DocumentMetadata>, RandomState>>;
 pub type FragmentDefinitionsMap = Arc<DashMap<Arc<str>, AHashSet<Url>, RandomState>>;
 pub type FragmentDependentsMap = Arc<DashMap<Arc<str>, AHashSet<Url>, RandomState>>;
 pub type OperationNamesMap = Arc<DashMap<Arc<str>, Vec<(Arc<str>, Url)>, RandomState>>;
-pub type DiagnosticCacheMap = Arc<DashMap<Url, (i32, Vec<Diagnostic>), RandomState>>;
+pub type DiagnosticCacheEntry = (i32, usize, Vec<Diagnostic>);
+pub type DiagnosticCacheMap = Arc<DashMap<Url, DiagnosticCacheEntry, RandomState>>;
 
 #[derive(Debug, Clone)]
 pub struct DocumentMetadata {

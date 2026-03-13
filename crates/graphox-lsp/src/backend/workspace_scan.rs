@@ -239,9 +239,11 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         )
         .await;
 
+    let validated_version = params.workspace_version.load(Ordering::SeqCst);
+
     // Run full workspace validation
     let (success, valid_empty_schema) =
-        validate_all_documents_cancellable(&params, &progress).await;
+        validate_all_documents_cancellable(&params, &progress, validated_version).await;
     if success {
         // Mark workspace as loaded
         params.workspace_loaded.store(true, Ordering::SeqCst);
@@ -269,6 +271,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                     schemas: &params.schemas,
                     supports_progress: false,
                     position_encoding: params.position_encoding.clone(),
+                    result_id_epoch: validated_version,
                 };
                 super::validation::validate_uris(
                     validation_params,
@@ -279,6 +282,10 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                 .await;
             }
         }
+
+        params
+            .last_full_validation_version
+            .store(validated_version, Ordering::SeqCst);
 
         let elapsed = start_time.elapsed();
         params
@@ -310,6 +317,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
 async fn validate_all_documents_cancellable(
     params: &WorkspaceScanParams,
     progress: &super::progress::ProgressReporter,
+    result_id_epoch: usize,
 ) -> (bool, Arc<apollo_compiler::validation::Valid<Schema>>) {
     let documents = &params.documents;
     let metadata = &params.metadata;
@@ -474,7 +482,7 @@ async fn validate_all_documents_cancellable(
     for (uri, version, diagnostics) in staged_diagnostics {
         params
             .diagnostic_cache
-            .insert(uri.clone(), (version, diagnostics.clone()));
+            .insert(uri.clone(), (version, result_id_epoch, diagnostics.clone()));
         if !params.supports_pull_diagnostics {
             client
                 .publish_diagnostics(uri, diagnostics, Some(version))

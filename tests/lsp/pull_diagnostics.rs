@@ -6,10 +6,25 @@ use graphox::{
     Config,
     config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
+
+async fn wait_for_workspace_loaded(
+    service: &mut tower_lsp::LspService<crate::support::LspBackend>,
+) {
+    let backend = service.inner();
+    let start = tokio::time::Instant::now();
+    while !backend.workspace_loaded.load(Ordering::SeqCst) {
+        assert!(
+            start.elapsed() <= Duration::from_secs(10),
+            "Timed out waiting for workspace scan to complete"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_pull_diagnostics_basic() {
@@ -217,6 +232,113 @@ async fn test_pull_diagnostics_unchanged() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_refreshes_when_workspace_epoch_changes() {
+    let query_text = "query GetUser { user { id name } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .with_file("query.graphql", query_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let query_path = base_dir.join("query.graphql");
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let diag_params = DocumentDiagnosticParams {
+        text_document: TextDocumentIdentifier::new(query_uri.clone()),
+        identifier: None,
+        previous_result_id: None,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let first_result: DocumentDiagnosticReportResult =
+        lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
+
+    let previous_result_id = match first_result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => report
+            .full_document_diagnostic_report
+            .result_id
+            .expect("Expected initial result_id"),
+        _ => panic!("Expected full diagnostic report on first request"),
+    };
+
+    let backend = service.inner();
+    backend
+        .last_full_validation_version
+        .store(99, Ordering::SeqCst);
+
+    let second_result: DocumentDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "textDocument/diagnostic",
+        &DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier::new(query_uri),
+            identifier: None,
+            previous_result_id: Some(previous_result_id.clone()),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match second_result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            let refreshed_result_id = report
+                .full_document_diagnostic_report
+                .result_id
+                .expect("Expected refreshed result_id");
+            assert_ne!(refreshed_result_id, previous_result_id);
+            assert!(
+                refreshed_result_id.ends_with(":99"),
+                "Expected workspace epoch in result_id, got {refreshed_result_id}"
+            );
+        }
+        _ => panic!("Expected full diagnostic report after workspace epoch change"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_workspace_diagnostics() {
     let query1_text = "query GetUser { user { id } }";
     let query2_text = "query GetPost { post { title } }";
@@ -272,6 +394,8 @@ async fn test_workspace_diagnostics() {
         .await
         .unwrap();
 
+    wait_for_workspace_loaded(&mut service).await;
+
     // Open both documents
     let query1_uri = Url::from_file_path(&query1_path).unwrap();
     let query2_uri = Url::from_file_path(&query2_path).unwrap();
@@ -319,6 +443,330 @@ async fn test_workspace_diagnostics() {
             );
         }
         _ => panic!("Expected workspace diagnostic report"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_workspace_diagnostics_refresh_when_workspace_epoch_changes() {
+    let query1_text = "query GetUser { user { id } }";
+    let query2_text = "query GetPost { post { title } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User post: Post } type User { id: ID! } type Post { title: String }",
+        )
+        .with_file("query1.graphql", query1_text)
+        .with_file("query2.graphql", query2_text);
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let first_result: WorkspaceDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "workspace/diagnostic",
+        &WorkspaceDiagnosticParams {
+            identifier: None,
+            previous_result_ids: vec![],
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    let previous_result_ids = match first_result {
+        WorkspaceDiagnosticReportResult::Report(report) => report
+            .items
+            .into_iter()
+            .filter_map(|item| match item {
+                WorkspaceDocumentDiagnosticReport::Full(full_report) => full_report
+                    .full_document_diagnostic_report
+                    .result_id
+                    .map(|result_id| PreviousResultId {
+                        uri: full_report.uri,
+                        value: result_id,
+                    }),
+                WorkspaceDocumentDiagnosticReport::Unchanged(_) => None,
+            })
+            .collect::<Vec<_>>(),
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
+    };
+
+    let backend = service.inner();
+    backend
+        .last_full_validation_version
+        .store(42, Ordering::SeqCst);
+
+    let refreshed_result: WorkspaceDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "workspace/diagnostic",
+        &WorkspaceDiagnosticParams {
+            identifier: None,
+            previous_result_ids,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match refreshed_result {
+        WorkspaceDiagnosticReportResult::Report(report) => {
+            assert!(
+                !report.items.is_empty(),
+                "Expected workspace diagnostics to refresh after the workspace epoch changed"
+            );
+            for item in report.items {
+                match item {
+                    WorkspaceDocumentDiagnosticReport::Full(full_report) => {
+                        let result_id = full_report
+                            .full_document_diagnostic_report
+                            .result_id
+                            .expect("Expected refreshed workspace result_id");
+                        assert!(
+                            result_id.ends_with(":42"),
+                            "Expected workspace epoch in result_id, got {result_id}"
+                        );
+                    }
+                    WorkspaceDocumentDiagnosticReport::Unchanged(_) => {
+                        panic!("Expected stale workspace diagnostics to be recomputed")
+                    }
+                }
+            }
+        }
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_workspace_diagnostics_omits_unchanged_items() {
+    let query1_text = "query GetUser { user { id } }";
+    let query2_text = "query GetPost { post { title } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User post: Post } type User { id: ID! } type Post { title: String }",
+        )
+        .with_file("query1.graphql", query1_text)
+        .with_file("query2.graphql", query2_text);
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let first_params = WorkspaceDiagnosticParams {
+        identifier: None,
+        previous_result_ids: vec![],
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let first_result: WorkspaceDiagnosticReportResult =
+        lsp_request_typed(&mut service, "workspace/diagnostic", &first_params).await;
+
+    let previous_result_ids = match first_result {
+        WorkspaceDiagnosticReportResult::Report(report) => {
+            assert!(
+                !report.items.is_empty(),
+                "Expected initial workspace diagnostics"
+            );
+            report
+                .items
+                .into_iter()
+                .filter_map(|item| match item {
+                    WorkspaceDocumentDiagnosticReport::Full(full_report) => full_report
+                        .full_document_diagnostic_report
+                        .result_id
+                        .map(|result_id| PreviousResultId {
+                            uri: full_report.uri,
+                            value: result_id,
+                        }),
+                    WorkspaceDocumentDiagnosticReport::Unchanged(_) => None,
+                })
+                .collect::<Vec<_>>()
+        }
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
+    };
+
+    let second_params = WorkspaceDiagnosticParams {
+        identifier: None,
+        previous_result_ids,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let second_result: WorkspaceDiagnosticReportResult =
+        lsp_request_typed(&mut service, "workspace/diagnostic", &second_params).await;
+
+    match second_result {
+        WorkspaceDiagnosticReportResult::Report(report) => {
+            assert!(
+                report.items.is_empty(),
+                "Expected unchanged workspace diagnostics to be omitted"
+            );
+        }
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_workspace_diagnostics_returns_empty_while_workspace_loading() {
+    let query_text = "query GetUser { user { id } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! }",
+        )
+        .with_file("query.graphql", query_text);
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let backend = service.inner();
+    backend.workspace_loaded.store(false, Ordering::SeqCst);
+
+    let workspace_diag_params = WorkspaceDiagnosticParams {
+        identifier: None,
+        previous_result_ids: vec![],
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: WorkspaceDiagnosticReportResult =
+        lsp_request_typed(&mut service, "workspace/diagnostic", &workspace_diag_params).await;
+
+    match result {
+        WorkspaceDiagnosticReportResult::Report(report) => {
+            assert!(
+                report.items.is_empty(),
+                "Expected workspace diagnostics to stay empty while the background scan is loading"
+            );
+        }
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
     }
 }
 
