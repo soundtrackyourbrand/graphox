@@ -156,7 +156,9 @@ pub fn generate_entrypoint_content(
                 frag.source_text, frag.fragment_type_name
             ));
 
-            map_entries.push_str(&format!("  {:?}: {{}},\n", frag.source_text));
+            if !graphql_tag_fallback {
+                map_entries.push_str(&format!("  {:?}: {{}},\n", frag.source_text));
+            }
         }
     }
 
@@ -172,6 +174,23 @@ pub fn generate_entrypoint_content(
     }
     output.push('\n');
 
+    if graphql_tag_fallback {
+        output.push_str("const fragmentSources: { [key: string]: string } = {\n");
+        for frag in unique_frags_by_name.values() {
+            output.push_str(&format!("  {:?}: {:?},\n", frag.name, frag.source_text));
+        }
+        output.push_str("};\n");
+        output.push_str(
+            "const FRAGMENT_SPREAD_PATTERN = /\\.\\.\\.\\s*(?!on\\b)([A-Za-z_][A-Za-z0-9_]*)/g;\n",
+        );
+        output.push_str(
+            "function sourceIncludesFragment(source: string, fragmentName: string): boolean {\n  return new RegExp(`fragment\\\\s+${fragmentName}\\\\s+on\\\\b`).test(source);\n}\n",
+        );
+        output.push_str(
+            "function withFragmentDefinitions(source: string): string {\n  const pending = [source];\n  const appended: string[] = [];\n  const seen = new Set<string>();\n  while (pending.length > 0) {\n    const current = pending.pop() || \"\";\n    FRAGMENT_SPREAD_PATTERN.lastIndex = 0;\n    let match: RegExpExecArray | null;\n    while ((match = FRAGMENT_SPREAD_PATTERN.exec(current)) !== null) {\n      const fragmentName = match[1];\n      if (seen.has(fragmentName) || sourceIncludesFragment(source, fragmentName)) {\n        continue;\n      }\n      seen.add(fragmentName);\n      const fragmentSource = fragmentSources[fragmentName];\n      if (!fragmentSource) {\n        continue;\n      }\n      appended.push(fragmentSource);\n      pending.push(fragmentSource);\n    }\n  }\n  return appended.length === 0 ? source : `${source}\\n${appended.join(\"\\n\")}`;\n}\n\n",
+        );
+    }
+
     output.push_str("const documents: { [key: string]: any } = {\n");
     output.push_str(&map_entries);
     output.push_str("};\n\n");
@@ -180,7 +199,7 @@ pub fn generate_entrypoint_content(
     output.push_str("export function graphql<Result, Variables>(source: string): DocumentNode<Result, Variables>;\n");
     if graphql_tag_fallback {
         output.push_str(
-            "export function graphql(source: string): any {\n  return documents[source] || (documents[source] = gqlTag(source));\n}\n\n",
+            "export function graphql(source: string): any {\n  return documents[source] || (documents[source] = gqlTag(withFragmentDefinitions(source)));\n}\n\n",
         );
     } else {
         output.push_str(

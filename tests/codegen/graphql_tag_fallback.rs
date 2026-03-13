@@ -78,7 +78,9 @@ fn test_graphql_tag_fallback_enabled() {
 
     // Verify memoized fallback logic in graphql function
     assert!(
-        content.contains("return documents[source] || (documents[source] = gqlTag(source));"),
+        content.contains(
+            "return documents[source] || (documents[source] = gqlTag(withFragmentDefinitions(source)));"
+        ),
         "Missing memoized gqlTag fallback logic in graphql function. Content:\n{}",
         content
     );
@@ -106,6 +108,81 @@ fn test_graphql_tag_fallback_disabled() {
     assert!(
         content.contains("return documents[source] || {};"),
         "Missing default fallback logic in graphql function. Content:\n{}",
+        content
+    );
+}
+
+#[test]
+#[ntest::timeout(2000)]
+fn test_graphql_tag_fallback_includes_fragment_sources_for_spreads() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir_handle = tempfile::tempdir().unwrap();
+    let temp_dir = temp_dir_handle.path();
+
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type Query { user(id: ID!): User } type User { id: ID! name: String }",
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.join("query.graphql"),
+        "query GetUser($id: ID!) { user(id: $id) { ...UserFields } }",
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.join("fragments.graphql"),
+        "fragment UserFields on User { id ...UserName }\nfragment UserName on User { name }",
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "*.graphql"
+    output_dir: "."
+    codegen:
+      graphql_tag_fallback: true
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .arg("codegen")
+        .current_dir(temp_dir)
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "Codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = std::fs::read_to_string(temp_dir.join("graphql.ts")).unwrap();
+    assert!(
+        content.contains("const fragmentSources: { [key: string]: string } = {"),
+        "Fallback entrypoint should embed fragment source definitions. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("\"UserFields\": \"fragment UserFields on User { id ...UserName }"),
+        "Fallback entrypoint should include source text for the directly referenced fragment. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("\"UserName\": \"fragment UserFields on User { id ...UserName }\\nfragment UserName on User { name }\""),
+        "Fallback entrypoint should include source text covering transitive fragment spreads. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("function withFragmentDefinitions(source: string): string"),
+        "Fallback entrypoint should resolve fragment spreads before calling gqlTag. Content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("gqlTag(withFragmentDefinitions(source))"),
+        "Fallback entrypoint should call gqlTag with fragment-enriched source. Content:\n{}",
         content
     );
 }
