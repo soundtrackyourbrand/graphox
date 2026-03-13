@@ -4,13 +4,118 @@
 //! processing each project, generating types, and creating the entrypoint file.
 
 use graphox_core::config::Config;
-use graphox_core::types::{DocumentsMap, MetadataMap};
+use graphox_core::types::DocumentsMap;
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::Client;
-use tower_lsp::lsp_types::MessageType;
+use tower_lsp::lsp_types::{MessageType, Url};
+
+type RunDocumentCache = HashMap<Url, Arc<graphox_core::DocumentState>>;
+
+fn load_or_parse_document(
+    path: &Path,
+    documents: &DocumentsMap,
+    run_cache: &mut RunDocumentCache,
+    position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
+) -> Option<Arc<graphox_core::DocumentState>> {
+    let uri = Url::from_file_path(path).ok()?;
+
+    if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
+        return Some(doc);
+    }
+
+    if let Some(doc) = run_cache.get(&uri) {
+        return Some(doc.clone());
+    }
+
+    let content = std::fs::read_to_string(path).ok()?;
+    if graphox_core::utils::has_generated_header(&content) {
+        return None;
+    }
+
+    let doc = Arc::new(graphox_core::DocumentState::new_from_thread_local(
+        uri.clone(),
+        &content,
+        position_encoding.clone(),
+    ));
+    run_cache.insert(uri, doc.clone());
+    Some(doc)
+}
+
+fn get_document_for_codegen(
+    path: &Path,
+    documents: &DocumentsMap,
+    run_cache: &RunDocumentCache,
+) -> Option<Arc<graphox_core::DocumentState>> {
+    let uri = Url::from_file_path(path).ok()?;
+
+    documents
+        .get(&uri)
+        .map(|r| r.value().clone())
+        .or_else(|| run_cache.get(&uri).cloned())
+}
+
+fn collect_codegen_metadata(
+    config: &Config,
+    documents: &DocumentsMap,
+    position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
+) -> (
+    Vec<graphox_core::engine::FragmentMetadata>,
+    Vec<Vec<PathBuf>>,
+    RunDocumentCache,
+) {
+    let mut global_metadata = Vec::new();
+    let mut project_files_by_index = Vec::with_capacity(config.projects().len());
+    let mut run_cache = RunDocumentCache::new();
+
+    for (project_idx, project) in config.projects().iter().enumerate() {
+        if !config.get_project_codegen_enabled(project) {
+            project_files_by_index.push(Vec::new());
+            continue;
+        }
+
+        let include_patterns = project.include().patterns();
+        let exclude_patterns = project.exclude().map(|e| e.patterns()).unwrap_or_default();
+        let project_files = graphox_core::utils::get_project_files(
+            &include_patterns,
+            &exclude_patterns,
+            config.base_dir(),
+        );
+
+        let import_alias = project.import().map(Arc::<str>::from);
+
+        for path in &project_files {
+            let Some(doc) =
+                load_or_parse_document(path, documents, &mut run_cache, position_encoding)
+            else {
+                continue;
+            };
+
+            for frag in doc.fragments() {
+                global_metadata.push(graphox_core::engine::FragmentMetadata {
+                    name: frag.name.clone(),
+                    path: Arc::from(path.to_string_lossy().to_string()),
+                    project_idx,
+                    import_alias: import_alias.clone(),
+                    is_public: frag.is_public,
+                    is_type_only: frag.is_type_only,
+                    masked_source: Some(doc.masked_source.clone()),
+                    direct_deps: frag.used_fragments.clone(),
+                    transitive_deps: Arc::from([]),
+                    type_fields: frag.type_fields.clone(),
+                });
+            }
+        }
+
+        project_files_by_index.push(project_files);
+    }
+
+    graphox_core::engine::Engine::compute_fragment_dependencies(&mut global_metadata);
+
+    (global_metadata, project_files_by_index, run_cache)
+}
 
 /// Runs the codegen process for specified projects or all projects
 #[allow(clippy::too_many_arguments)]
@@ -21,7 +126,6 @@ pub async fn run_codegen(
         dashmap::DashMap<String, Arc<graphox_codegen::SchemaAnalysisCaches>, ahash::RandomState>,
     >,
     documents: DocumentsMap,
-    metadata: MetadataMap,
     supports_progress: bool,
     projects_to_run: Option<HashSet<String>>,
     position_encoding: tower_lsp::lsp_types::PositionEncodingKind,
@@ -38,65 +142,20 @@ pub async fn run_codegen(
         .report("Preparing codegen metadata...", Some(5))
         .await;
 
-    // Build global metadata from existing metadata instead of re-scanning disk
-    let mut global_metadata = Vec::new();
-    for entry in metadata.iter() {
-        let uri = entry.key();
-        let meta = entry.value();
-
-        let (import_path, project_idx) = if let Ok(p) = uri.to_file_path() {
-            (
-                config
-                    .get_project_for_path(&p)
-                    .and_then(|proj| proj.import().map(|s| s.to_string())),
-                config.get_project_index_for_path(&p).unwrap_or(0),
-            )
-        } else {
-            (None, 0)
-        };
-
-        let document_path: Arc<str> = if let Ok(p) = uri.to_file_path() {
-            Arc::from(p.to_string_lossy().to_string())
-        } else {
-            Arc::from(uri.to_string())
-        };
-
-        let masked_source = if let Some(d) = documents.get(uri) {
-            Some(d.masked_source.clone())
-        } else if let Ok(path) = uri.to_file_path() {
-            std::fs::read_to_string(&path).ok().map(|content| {
-                graphox_core::document::DocumentState::mask_source_from_thread_local(uri, &content)
-            })
-        } else {
-            None
-        };
-
-        for frag in meta.fragments.iter() {
-            global_metadata.push(graphox_core::engine::FragmentMetadata {
-                name: frag.name.clone(),
-                path: document_path.clone(),
-                project_idx,
-                import_alias: import_path.as_deref().map(Arc::from),
-                is_public: frag.is_public,
-                is_type_only: frag.is_type_only,
-                masked_source: masked_source.clone(),
-                direct_deps: frag.used_fragments.clone(),
-                transitive_deps: frag.transitive_deps.clone(),
-                type_fields: frag.type_fields.clone(),
-            });
-        }
-    }
+    let (global_metadata, project_files_by_index, run_cache) =
+        collect_codegen_metadata(&config, &documents, &position_encoding);
 
     // Identify which projects to run
     let projects_configs: Vec<_> = config
         .projects()
         .iter()
+        .enumerate()
         .filter(|p| {
-            if !config.get_project_codegen_enabled(p) {
+            if !config.get_project_codegen_enabled(p.1) {
                 return false;
             }
             if let Some(to_run) = &projects_to_run {
-                to_run.contains(&p.include().as_key())
+                to_run.contains(&p.1.include().as_key())
             } else {
                 true
             }
@@ -114,30 +173,10 @@ pub async fn run_codegen(
     let mut successful_projects = Vec::with_capacity(total_projects);
 
     // Generate types for each project
-    for (idx, project) in projects_configs.iter().enumerate() {
+    for (idx, (project_idx, project)) in projects_configs.iter().enumerate() {
         let current_project = idx + 1;
 
-        // Find all files belonging to this project using metadata
-        let project_files: Vec<PathBuf> = metadata
-            .iter()
-            .filter_map(|entry| {
-                let uri = entry.key();
-                if let Ok(path) = uri.to_file_path() {
-                    let rel_path = config.relativize(&path);
-
-                    let include_match = project.include().is_match(&rel_path);
-                    let exclude_match = project
-                        .exclude()
-                        .as_ref()
-                        .is_some_and(|e| e.is_match(&rel_path));
-
-                    if include_match && !exclude_match {
-                        return Some(path);
-                    }
-                }
-                None
-            })
-            .collect();
+        let project_files = &project_files_by_index[*project_idx];
 
         if project_files.is_empty() {
             continue;
@@ -219,7 +258,7 @@ pub async fn run_codegen(
         let project_context = match graphox_core::engine::Engine::resolve_project_context(
             &valid_schema,
             &global_metadata,
-            &project_files,
+            project_files,
         ) {
             Ok(ctx) => ctx,
             Err(e) => {
@@ -264,29 +303,10 @@ pub async fn run_codegen(
 
         // Process files in parallel with immediate writes
         project_files.par_iter().for_each(|path| {
-            let uri = match tower_lsp::lsp_types::Url::from_file_path(path) {
-                Ok(u) => u,
-                Err(_) => {
-                    log::warn!("Failed to convert path to URL: {:?}", path);
-                    return;
-                }
-            };
-
-            // Load document on demand if not in memory
-            let doc = if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
-                doc
-            } else if let Ok(content) = std::fs::read_to_string(path) {
-                let doc = Arc::new(graphox_core::DocumentState::new_from_thread_local(
-                    uri.clone(),
-                    &content,
-                    position_encoding.clone(),
-                ));
-                // Cache it so other projects or subsequent runs can reuse it
-                documents.insert(uri.clone(), doc.clone());
-                doc
-            } else {
+            let Some(doc) = get_document_for_codegen(path, &documents, &run_cache) else {
                 return;
             };
+            let uri = doc.uri.clone();
 
             if doc.get_graphql_trees().is_empty() {
                 return;

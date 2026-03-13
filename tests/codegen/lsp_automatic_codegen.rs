@@ -3,12 +3,51 @@ use futures_util::StreamExt;
 use graphox::{
     Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
 };
+use graphox_cli::run_codegen as run_cli_codegen;
+use std::collections::BTreeMap;
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
+use tower_lsp::LspService;
 use tower_lsp::jsonrpc::Request;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
+
+fn snapshot_generated_tree(root: &std::path::Path) -> BTreeMap<String, String> {
+    fn walk(
+        current: &std::path::Path,
+        root: &std::path::Path,
+        files: &mut BTreeMap<String, String>,
+    ) {
+        let entries = match fs::read_dir(current) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, root, files);
+                continue;
+            }
+
+            let rel = path
+                .strip_prefix(root)
+                .expect("failed to strip prefix for test file path")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let content = fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("failed to read test file: {}", path.display()));
+            files.insert(rel, content);
+        }
+    }
+
+    let mut files = BTreeMap::new();
+    if root.exists() {
+        walk(root, root, &mut files);
+    }
+    files
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_automatic_codegen() {
@@ -38,47 +77,7 @@ async fn test_lsp_automatic_codegen() {
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    // Wait for background scan to complete
-    let _ = tokio::time::timeout(Duration::from_millis(100), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
     let gen_path = base_dir.join("query.codegen.ts");
@@ -266,47 +265,7 @@ async fn test_lsp_automatic_codegen_disabled() {
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    // Wait for background scan to complete
-    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let enabled_uri = Url::from_file_path(&enabled_query_path).unwrap();
     let disabled_uri = Url::from_file_path(&disabled_query_path).unwrap();
@@ -550,46 +509,7 @@ async fn test_lsp_automatic_codegen_disabled_project_before_enabled_keeps_entryp
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let _ = tokio::time::timeout(Duration::from_millis(300), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let enabled_uri = Url::from_file_path(&enabled_path).unwrap();
     service
@@ -668,46 +588,7 @@ async fn test_lsp_automatic_codegen_didsave_uses_disk_state_for_ts_host() {
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let host_uri = Url::from_file_path(&host_path).unwrap();
     service
@@ -767,46 +648,7 @@ async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
     service
@@ -922,49 +764,11 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let gen_dir = base_dir.join("gen");
     let gen_path = gen_dir.join("query.codegen.ts");
+    let manifest_path = gen_dir.join("manifest.json");
     let query_uri = Url::from_file_path(&query_path).unwrap();
 
     service
@@ -984,7 +788,8 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         .await
         .unwrap();
 
-    assert!(support::wait_for_file_async(&gen_path, Duration::from_millis(2000), None).await);
+    // Wait for the last file written by run_codegen to ensure the run is fully complete
+    assert!(support::wait_for_file_async(&manifest_path, Duration::from_millis(2000), None).await);
 
     assert!(
         gen_path.exists(),
@@ -1038,6 +843,14 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
         .filter(|e| e.as_ref().unwrap().path().is_file())
         .count();
 
+    if initial_file_count != final_file_count {
+        let files: Vec<_> = std::fs::read_dir(&gen_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        println!("Files in gen_dir: {:?}", files);
+    }
+
     assert_eq!(
         initial_file_count, final_file_count,
         "Codegen loop detected: output file changes triggered additional codegen runs"
@@ -1072,46 +885,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
     .with_lsp_codegen_throttle_ms(50)
     .with_enable_schema_cache(true);
 
-    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
-    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
-
-    tokio::spawn(async move {
-        while let Some(msg) = messages.next().await {
-            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
-                let params_json = msg
-                    .get("params")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
-                if params.message.starts_with("Workspace scan complete") {
-                    let _ = scan_done_tx.send(()).await;
-                }
-            }
-        }
-    });
-
-    service
-        .call(
-            Request::build("initialize")
-                .params(serde_json::to_value(InitializeParams::default()).unwrap())
-                .id(0)
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    service
-        .call(
-            Request::build("initialized")
-                .params(serde_json::json!({}))
-                .finish(),
-        )
-        .await
-        .unwrap();
-
-    let _ = tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
-        .await
-        .expect("Scan did not complete in time");
+    let mut service = setup_lsp_with_scan_complete(config).await;
 
     let query_uri = Url::from_file_path(&query_path).unwrap();
     service
@@ -1188,4 +962,349 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
         content.starts_with("// touched by formatter"),
         "Non-GraphQL host edit should not trigger codegen"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_regenerates_nested_ts_host_for_directory_include() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    let host_path = base_dir.join("apps/mobile/app/navigation/main/home/home-data.ts");
+    fs::create_dir_all(host_path.parent().unwrap()).unwrap();
+
+    let initial_text = r#"
+      import { graphql } from "app/graphql";
+
+      export const HomeDataDoc = graphql(/* GraphQL */ `
+        query HomeData {
+          me { id }
+        }
+      `);
+    "#;
+    fs::write(&host_path, initial_text).unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("apps/mobile/app".to_string()))
+                .with_output_dir("apps/mobile/app/graphql".to_string())
+                .with_codegen(
+                    CodegenConfig::default()
+                        .with_generate_ast_for_fragments(true)
+                        .with_fragment_suffix("Fragment".to_string())
+                        .with_fragment_document_suffix("Doc".to_string())
+                        .with_re_exports(true),
+                ),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+
+    let host_uri = Url::from_file_path(&host_path).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: host_uri.clone(),
+                            language_id: "typescript".to_string(),
+                            version: 1,
+                            text: initial_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let gen_path =
+        base_dir.join("apps/mobile/app/graphql/navigation/main/home/home-data.codegen.ts");
+    assert!(
+        support::wait_for_file_async(
+            &gen_path,
+            Duration::from_millis(2000),
+            Some("HomeDataQuery")
+        )
+        .await,
+        "didOpen should generate codegen for nested TS hosts covered by a directory include"
+    );
+
+    let changed_text = r#"
+      import { graphql } from "app/graphql";
+
+      export const HomeDataDoc = graphql(/* GraphQL */ `
+        query HomeDataUpdated {
+          me { id name }
+        }
+      `);
+    "#;
+
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: host_uri,
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: changed_text.to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        support::wait_for_file_async(
+            &gen_path,
+            Duration::from_millis(2000),
+            Some("HomeDataUpdatedQuery"),
+        )
+        .await,
+        "didChange should regenerate the nested TS host codegen file"
+    );
+
+    let generated = fs::read_to_string(&gen_path).unwrap();
+    assert!(
+        generated.contains("name: string | null"),
+        "Regenerated codegen should include the updated field selection"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_project() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        r#"
+        type Query {
+          me: User
+        }
+
+        type User {
+          id: ID!
+          name: String
+          display: Display
+        }
+
+        type Display {
+          title: String
+        }
+        "#,
+    )
+    .unwrap();
+
+    let playback_path = base_dir.join("apps/mobile/app/lib/playback/graphql.ts");
+    fs::create_dir_all(playback_path.parent().unwrap()).unwrap();
+    fs::write(
+        &playback_path,
+        r#"
+        import type { ResultOf } from '@graphql-typed-document-node/core';
+        import { graphql } from 'app/graphql';
+
+        const PlaybackDisplayFragmentDoc = graphql(/* GraphQL */ `
+          fragment PlaybackDisplay on Display {
+            title
+          }
+        `);
+        export type PlaybackDisplayFragment = ResultOf<typeof PlaybackDisplayFragmentDoc>;
+        "#,
+    )
+    .unwrap();
+
+    let home_path = base_dir.join("apps/mobile/app/navigation/main/home/home-data.ts");
+    fs::create_dir_all(home_path.parent().unwrap()).unwrap();
+    let home_text = r#"
+      import { graphql } from "app/graphql";
+
+      export const HomeDataDoc = graphql(/* GraphQL */ `
+        query HomeData {
+          me {
+            id
+          }
+        }
+      `);
+    "#;
+    fs::write(&home_path, home_text).unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("apps/mobile/app".to_string()))
+                .with_output_dir("apps/mobile/app/graphql".to_string())
+                .with_codegen(
+                    CodegenConfig::default()
+                        .with_generate_ast_for_fragments(true)
+                        .with_fragment_suffix("Fragment".to_string())
+                        .with_fragment_document_suffix("Doc".to_string())
+                        .with_re_exports(true),
+                ),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    assert!(
+        config
+            .get_codegen_config(Some(&config.projects()[0]))
+            .generate_ast_for_fragments(),
+        "Fixture config should enable fragment AST generation"
+    );
+
+    run_cli_codegen(config.clone(), false, false, false).await;
+
+    let output_dir = base_dir.join("apps/mobile/app/graphql");
+    let cli_snapshot = snapshot_generated_tree(&output_dir);
+    assert!(
+        cli_snapshot.contains_key("lib/playback/graphql.codegen.ts"),
+        "CLI snapshot should contain generated playback fragment module"
+    );
+    assert!(
+        cli_snapshot["lib/playback/graphql.codegen.ts"].contains("PlaybackDisplayFragmentDoc"),
+        "CLI snapshot should export the playback fragment document. content={}",
+        cli_snapshot["lib/playback/graphql.codegen.ts"]
+    );
+
+    fs::remove_dir_all(&output_dir).unwrap();
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+
+    let playback_uri = Url::from_file_path(&playback_path).unwrap();
+    {
+        // This manipulation is intentional for testing the cold-cache scenario (i.e., to simulate files
+        // absent from the live cache). It couples the test to internal state (backend.metadata, backend.documents)
+        // so that we can verify the engine correctly re-discovers files from disk when they are missing from
+        // the in-memory cache but still present on disk and within the project's include patterns.
+        let backend = service.inner();
+        backend.metadata.remove(&playback_uri);
+        backend.documents.remove(&playback_uri);
+    }
+
+    let home_uri = Url::from_file_path(&home_path).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: home_uri,
+                            language_id: "typescript".to_string(),
+                            version: 1,
+                            text: home_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let playback_codegen = output_dir.join("lib/playback/graphql.codegen.ts");
+    assert!(
+        support::wait_for_file_async(
+            &playback_codegen,
+            Duration::from_millis(2000),
+            Some("PlaybackDisplayFragmentDoc"),
+        )
+        .await,
+        "LSP auto-codegen should regenerate fragment-only project files even when they were absent from the live metadata cache. exists={} content={}",
+        playback_codegen.exists(),
+        if playback_codegen.exists() {
+            fs::read_to_string(&playback_codegen).unwrap()
+        } else {
+            "<missing>".to_string()
+        }
+    );
+    assert!(
+        service.inner().documents.get(&playback_uri).is_none(),
+        "LSP codegen should not populate backend.documents for unopened files from disk during codegen runs"
+    );
+    assert!(
+        support::wait_for_file_async(
+            &output_dir.join("manifest.json"),
+            Duration::from_millis(2000),
+            Some("PlaybackDisplayFragmentDoc"),
+        )
+        .await,
+        "LSP auto-codegen should finish writing the manifest before comparing bundle snapshots"
+    );
+
+    let lsp_snapshot = snapshot_generated_tree(&output_dir);
+    assert_eq!(
+        lsp_snapshot, cli_snapshot,
+        "LSP auto-codegen output should match CLI codegen for directory-include projects"
+    );
+}
+
+async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                if let Ok(params) = serde_json::from_value::<LogMessageParams>(params_json)
+                    && params.message.starts_with("Workspace scan complete")
+                {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let _ = tokio::time::timeout(Duration::from_millis(10000), scan_done_rx.recv())
+        .await
+        .expect("Scan did not complete in time");
+
+    service
 }
