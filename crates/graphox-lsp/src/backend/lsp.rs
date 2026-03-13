@@ -71,6 +71,7 @@ impl LanguageServer for Backend {
             codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
             bypass_cache: false,
+            diagnostic_cache: self.diagnostic_cache.clone(),
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
             workspace_version: self.workspace_version.clone(),

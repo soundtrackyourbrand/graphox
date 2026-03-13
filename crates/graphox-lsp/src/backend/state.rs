@@ -11,8 +11,8 @@ use ahash::{AHashMap, AHashSet};
 use apollo_compiler::Schema;
 use dashmap::DashMap;
 use rayon::prelude::*;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
 use tower_lsp::{Client, jsonrpc::Result, lsp_types::*};
 
 // Re-export ClientCapabilities for backward compatibility
@@ -56,9 +56,12 @@ pub struct Backend {
     /// Version of the workspace when the last full validation was completed
     pub last_full_validation_version: Arc<std::sync::atomic::AtomicUsize>,
     /// Throttled codegen runner
-    pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
+    pub codegen_throttle:
+        Arc<std::sync::RwLock<Option<Arc<super::codegen_throttle::CodegenThrottle>>>>,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
+    /// Weak reference to self for use in background tasks
+    pub self_weak: Weak<Backend>,
 }
 
 impl Backend {
@@ -153,7 +156,7 @@ impl Backend {
 
         Arc::new_cyclic(|this| {
             // Create codegen throttle if automatic codegen is enabled
-            let codegen_throttle = {
+            let codegen_throttle = Arc::new(std::sync::RwLock::new({
                 let cfg = config_arc.read().unwrap();
                 if cfg.lsp_automatic_codegen() {
                     Some(Arc::new(super::codegen_throttle::CodegenThrottle::new(
@@ -162,7 +165,7 @@ impl Backend {
                 } else {
                     None
                 }
-            };
+            }));
 
             Self {
                 client,
@@ -190,6 +193,7 @@ impl Backend {
                 last_full_validation_version,
                 codegen_throttle,
                 fragment_metadata_cache,
+                self_weak: this.clone(),
             }
         })
     }
@@ -676,6 +680,7 @@ impl Backend {
             codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
             bypass_cache: true,
+            diagnostic_cache: self.diagnostic_cache.clone(),
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
             workspace_version: self.workspace_version.clone(),
@@ -762,6 +767,28 @@ impl Backend {
 
         // Update the config
         *self.config.write().unwrap() = new_config.clone();
+
+        // Cancel any active scan and reset workspace loaded state
+        {
+            let mut cancelled_lock = self.workspace_scan_cancelled.write().unwrap();
+            cancelled_lock.store(true, Ordering::SeqCst);
+            *cancelled_lock = Arc::new(AtomicBool::new(false));
+        }
+        self.workspace_loaded.store(false, Ordering::SeqCst);
+
+        // Update codegen throttle
+        {
+            let mut throttle_lock = self.codegen_throttle.write().unwrap();
+            if new_config.lsp_automatic_codegen() {
+                if throttle_lock.is_none() {
+                    *throttle_lock = Some(Arc::new(super::codegen_throttle::CodegenThrottle::new(
+                        self.self_weak.clone(),
+                    )));
+                }
+            } else {
+                *throttle_lock = None;
+            }
+        }
 
         // Clear all state
         self.schemas.clear();
@@ -888,7 +915,14 @@ impl Backend {
             operation_names: self.operation_names.clone(),
             workspace_loaded: self.workspace_loaded.clone(),
             codegen_requested_during_scan: self.codegen_requested_during_scan.clone(),
-            trigger_codegen_after_scan: None,
+            trigger_codegen_after_scan: {
+                let throttle_handle = self.codegen_throttle.clone();
+                Some(Arc::new(move || {
+                    if let Some(throttle) = throttle_handle.read().unwrap().as_ref() {
+                        throttle.request_codegen(None);
+                    }
+                }) as Arc<dyn Fn() + Send + Sync>)
+            },
             empty_schema: self.empty_schema.clone(),
             schemas: self.schemas.clone(),
             subgraphs: self.subgraphs.clone(),
@@ -897,6 +931,7 @@ impl Backend {
             codegen_throttle: self.codegen_throttle.clone(),
             supports_progress,
             bypass_cache: false,
+            diagnostic_cache: self.diagnostic_cache.clone(),
             fragment_metadata_cache: self.fragment_metadata_cache.clone(),
             position_encoding,
             workspace_version: self.workspace_version.clone(),

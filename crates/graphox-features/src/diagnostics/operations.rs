@@ -37,6 +37,7 @@ pub(super) fn validate_operation(
     ctx.response_key_type_conditions.clear();
     ctx.type_condition_fields.clear();
     ctx.root_response_keys.clear();
+    ctx.response_key_anchor_ranges.clear();
     ctx.response_key_types.clear();
 
     let mut operation_type_string = String::from("query");
@@ -271,26 +272,21 @@ pub(super) fn check_required_fields(
                             continue;
                         }
 
-                        let anchor_node = find_root_selection_anchor_for_response_key(
+                        let Some(anchor_range) = resolve_anchor_and_check_ignore(
                             this,
                             node,
                             offset,
-                            Some(response_key.as_ref()),
-                        );
-                        if let Some(anchor) = anchor_node
-                            && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                                this, anchor, offset,
-                            )
-                        {
+                            ctx,
+                            response_key,
+                            operation_range,
+                        ) else {
                             continue;
-                        }
+                        };
 
                         push_required_field_diagnostic(
                             ctx.diagnostics,
                             Diagnostic {
-                                range: anchor_node
-                                    .map(|n| this.translate_to_file_range(n, offset))
-                                    .unwrap_or(operation_range),
+                                range: anchor_range,
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
                                     "Required field '{}' must be selected in '{}'",
@@ -349,26 +345,21 @@ pub(super) fn check_required_fields(
                                     continue;
                                 }
 
-                                let anchor_node = find_root_selection_anchor_for_response_key(
+                                let Some(anchor_range) = resolve_anchor_and_check_ignore(
                                     this,
                                     node,
                                     offset,
-                                    Some(response_key.as_ref()),
-                                );
-                                if let Some(anchor) = anchor_node
-                                    && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                                        this, anchor, offset,
-                                    )
-                                {
+                                    ctx,
+                                    response_key,
+                                    operation_range,
+                                ) else {
                                     continue;
-                                }
+                                };
 
                                 push_required_field_diagnostic(
                                     ctx.diagnostics,
                                     Diagnostic {
-                                        range: anchor_node
-                                            .map(|n| this.translate_to_file_range(n, offset))
-                                            .unwrap_or(operation_range),
+                                        range: anchor_range,
                                         severity: Some(DiagnosticSeverity::ERROR),
                                         message: format!(
                                             "Required field '{}' must be selected in '... on {}'",
@@ -438,6 +429,68 @@ fn find_root_selection_anchor_for_response_key<'a>(
     }
 
     None
+}
+
+fn resolve_anchor_and_check_ignore(
+    this: &DocumentState,
+    node: Node,
+    offset: usize,
+    ctx: &ValidationContext,
+    response_key: &str,
+    operation_range: Range,
+) -> Option<Range> {
+    if let Some(ranges) = ctx.response_key_anchor_ranges.get(response_key) {
+        let mut first_non_ignored = None;
+        let mut all_ignored = true;
+
+        for anchor_range in ranges {
+            if let Some(anchor_node) = find_node_for_range(this, node, offset, anchor_range)
+                && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                    this,
+                    anchor_node,
+                    offset,
+                )
+            {
+                continue;
+            }
+            all_ignored = false;
+            if first_non_ignored.is_none() {
+                first_non_ignored = Some(*anchor_range);
+            }
+        }
+
+        if all_ignored && !ranges.is_empty() {
+            return None;
+        }
+
+        return Some(first_non_ignored.unwrap_or(operation_range));
+    }
+
+    // Fallback to operation level
+    if let Some(anchor_node) = find_node_for_range(this, node, offset, &operation_range)
+        && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+            this,
+            anchor_node,
+            offset,
+        )
+    {
+        return None;
+    }
+
+    Some(operation_range)
+}
+
+fn find_node_for_range<'a>(
+    this: &DocumentState,
+    operation_node: Node<'a>,
+    offset: usize,
+    range: &Range,
+) -> Option<Node<'a>> {
+    let start_byte = this.position_to_byte(range.start);
+    let end_byte = this.position_to_byte(range.end);
+    let local_start = start_byte.checked_sub(offset)?;
+    let local_end = end_byte.checked_sub(offset)?;
+    operation_node.descendant_for_byte_range(local_start, local_end)
 }
 
 pub(super) fn validate_type_node(

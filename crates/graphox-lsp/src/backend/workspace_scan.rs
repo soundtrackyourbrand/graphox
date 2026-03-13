@@ -11,7 +11,8 @@ use dashmap::{DashMap, DashSet};
 use graphox_core::Config;
 use graphox_core::document::DocumentState;
 use graphox_core::types::{
-    DocumentsMap, FragmentDefinitionsMap, FragmentDependentsMap, MetadataMap, OperationNamesMap,
+    DiagnosticCacheMap, DocumentsMap, FragmentDefinitionsMap, FragmentDependentsMap, MetadataMap,
+    OperationNamesMap,
 };
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
@@ -46,9 +47,11 @@ pub struct WorkspaceScanParams {
     pub validated_schemas:
         Arc<DashMap<String, Arc<apollo_compiler::validation::Valid<Schema>>, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<AtomicBool>,
-    pub codegen_throttle: Option<Arc<super::codegen_throttle::CodegenThrottle>>,
+    pub codegen_throttle:
+        Arc<std::sync::RwLock<Option<Arc<super::codegen_throttle::CodegenThrottle>>>>,
     pub supports_progress: bool,
     pub bypass_cache: bool,
+    pub diagnostic_cache: DiagnosticCacheMap,
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
     pub position_encoding: PositionEncodingKind,
     pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
@@ -237,9 +240,45 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         .await;
 
     // Run full workspace validation
-    if validate_all_documents_cancellable(&params, &progress).await {
+    let (success, valid_empty_schema) =
+        validate_all_documents_cancellable(&params, &progress).await;
+    if success {
         // Mark workspace as loaded
         params.workspace_loaded.store(true, Ordering::SeqCst);
+
+        if params.supports_pull_diagnostics {
+            let open_uris: Vec<Url> = params
+                .open_documents
+                .iter()
+                .map(|entry| entry.key().clone())
+                .collect();
+            if !open_uris.is_empty() {
+                let validation_params = super::validation::ValidationParams {
+                    client: &params.client,
+                    documents: &params.documents,
+                    config: &params.config,
+                    metadata: &params.metadata,
+                    validated_schemas: &params.validated_schemas,
+                    valid_empty_schema: &valid_empty_schema,
+                    workspace_loaded: &params.workspace_loaded,
+                    open_documents: &params.open_documents,
+                    fragment_dependents: &params.fragment_dependents,
+                    fragment_definitions: &params.fragment_definitions,
+                    operation_names: &params.operation_names,
+                    subgraphs: &params.subgraphs,
+                    schemas: &params.schemas,
+                    supports_progress: false,
+                    position_encoding: params.position_encoding.clone(),
+                };
+                super::validation::validate_uris(
+                    validation_params,
+                    open_uris,
+                    false,
+                    Some(&params.diagnostic_cache),
+                )
+                .await;
+            }
+        }
 
         let elapsed = start_time.elapsed();
         params
@@ -271,7 +310,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
 async fn validate_all_documents_cancellable(
     params: &WorkspaceScanParams,
     progress: &super::progress::ProgressReporter,
-) -> bool {
+) -> (bool, Arc<apollo_compiler::validation::Valid<Schema>>) {
     let documents = &params.documents;
     let metadata = &params.metadata;
     let config = &params.config;
@@ -280,16 +319,16 @@ async fn validate_all_documents_cancellable(
     let cancelled = &params.workspace_scan_cancelled;
     let client = &params.client;
 
-    let total = documents.len();
-    if total == 0 {
-        return true;
-    }
-
     let valid_empty_schema = Arc::new(
         <apollo_compiler::Schema as Clone>::clone(empty_schema)
             .validate()
             .expect("Empty schema should always be valid"),
     );
+
+    let total = documents.len();
+    if total == 0 {
+        return (true, valid_empty_schema);
+    }
 
     // Pre-calculate all fragments info
     let all_fragments_info: Vec<(FragmentCompletionInfo, Option<Arc<str>>)> =
@@ -325,10 +364,11 @@ async fn validate_all_documents_cancellable(
     // Validate in parallel batches to allow for progress updates and cancellation
     let batch_size = 50;
     let uris: Vec<Url> = documents.iter().map(|e| e.key().clone()).collect();
+    let mut staged_diagnostics = Vec::new();
 
     for (batch_idx, batch) in uris.chunks(batch_size).enumerate() {
         if cancelled.load(Ordering::Relaxed) {
-            return false;
+            return (false, valid_empty_schema);
         }
 
         let results: Vec<_> = batch
@@ -407,14 +447,8 @@ async fn validate_all_documents_cancellable(
             })
             .collect();
 
-        // Publish batch results
-        for (uri, version, diagnostics) in results {
-            if !params.supports_pull_diagnostics {
-                client
-                    .publish_diagnostics(uri, diagnostics, Some(version))
-                    .await;
-            }
-        }
+        // Stage batch results
+        staged_diagnostics.extend(results);
 
         // Update progress
         let current_count = ((batch_idx + 1) * batch_size).min(total);
@@ -431,7 +465,24 @@ async fn validate_all_documents_cancellable(
             .await;
     }
 
-    true
+    // Final cancellation check before committing staged diagnostics
+    if cancelled.load(Ordering::Relaxed) {
+        return (false, valid_empty_schema);
+    }
+
+    // Commit all staged diagnostics only if we finished without cancellation
+    for (uri, version, diagnostics) in staged_diagnostics {
+        params
+            .diagnostic_cache
+            .insert(uri.clone(), (version, diagnostics.clone()));
+        if !params.supports_pull_diagnostics {
+            client
+                .publish_diagnostics(uri, diagnostics, Some(version))
+                .await;
+        }
+    }
+
+    (true, valid_empty_schema)
 }
 
 /// Adds diagnostics for duplicate operation names within the same project

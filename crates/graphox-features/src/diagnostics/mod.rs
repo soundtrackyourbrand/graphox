@@ -34,6 +34,7 @@ pub struct ValidationContext<'a> {
     pub type_condition_fields:
         ahash::AHashMap<Arc<str>, ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>>,
     pub root_response_keys: ahash::AHashSet<Arc<str>>,
+    pub response_key_anchor_ranges: ahash::AHashMap<Arc<str>, Vec<Range>>,
     pub documents: Option<&'a graphox_core::types::DocumentsMap>,
     pub response_key_types: ahash::AHashMap<Arc<str>, apollo_compiler::schema::ExtendedType>,
 }
@@ -110,6 +111,7 @@ impl DocumentDiagnostics for DocumentState {
                 response_key_type_conditions: ahash::AHashMap::default(),
                 type_condition_fields: ahash::AHashMap::default(),
                 root_response_keys: ahash::AHashSet::default(),
+                response_key_anchor_ranges: ahash::AHashMap::default(),
                 response_key_types: ahash::AHashMap::default(),
                 documents: None,
             };

@@ -425,3 +425,163 @@ async fn test_fallback_to_push_diagnostics() {
         "Should have diagnostics for invalid field"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_refresh_after_config_reload_restores_fragment_context() {
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String! }",
+        )
+        .with_file("query.graphql", "query GetUser { user { ...UserFields } }")
+        .with_file(
+            "fragments.graphql",
+            "fragment UserFields on User { id name }",
+        )
+        .with_file(
+            "graphox.yaml",
+            r#"
+projects:
+  - schema: schema.graphql
+    include: "*.graphql"
+    codegen: false
+rules:
+  required_fields:
+    id: true
+"#,
+        );
+
+    let base_dir = scenario.write_files().unwrap();
+    let query_path = base_dir.join("query.graphql");
+    let config_path = base_dir.join("graphox.yaml");
+
+    let config = Config::load_from_dir(&base_dir).unwrap().unwrap();
+    let (mut service, mut messages) = create_lsp_service_with_socket(config);
+    let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(4);
+
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage") {
+                let params_json = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let params: LogMessageParams = serde_json::from_value(params_json).unwrap();
+                if params.message.starts_with("Workspace scan complete") {
+                    let _ = scan_done_tx.send(()).await;
+                }
+            }
+        }
+    });
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let result: InitializeResult =
+        lsp_request_typed(&mut service, "initialize", &init_params).await;
+    assert!(result.capabilities.diagnostic_provider.is_some());
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
+        .await
+        .expect("Initial workspace scan did not complete in time")
+        .expect("scan_done_rx closed before initial scan completed");
+
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_text = std::fs::read_to_string(&query_path).unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
+
+    let diag_params = DocumentDiagnosticParams {
+        text_document: TextDocumentIdentifier::new(query_uri.clone()),
+        identifier: None,
+        previous_result_id: None,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let before_reload: DocumentDiagnosticReportResult =
+        lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
+    let before_items = match before_reload {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            report.full_document_diagnostic_report.items
+        }
+        _ => panic!("Expected full diagnostic report before reload"),
+    };
+    assert!(
+        before_items.iter().all(|diag| {
+            diag.code != Some(NumberOrString::String("required_field_missing".to_string()))
+        }),
+        "Fragment selections should satisfy required fields before config reload: {before_items:#?}"
+    );
+
+    std::fs::write(
+        &config_path,
+        r#"
+projects:
+  - schema: schema.graphql
+    include: "*.graphql"
+    codegen: false
+rules:
+  required_fields:
+    id: true
+# reload
+"#,
+    )
+    .unwrap();
+
+    let changes = vec![FileEvent {
+        uri: Url::from_file_path(&config_path).unwrap(),
+        typ: FileChangeType::CHANGED,
+    }];
+
+    // Drain any buffered scan_done messages before triggering the change
+    while scan_done_rx.try_recv().is_ok() {}
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("workspace/didChangeWatchedFiles")
+                .params(serde_json::to_value(DidChangeWatchedFilesParams { changes }).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
+        .await
+        .expect("Reload workspace scan did not complete in time")
+        .expect("scan_done_rx closed before reload scan completed");
+
+    let after_reload: DocumentDiagnosticReportResult =
+        lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
+    let after_items = match after_reload {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            report.full_document_diagnostic_report.items
+        }
+        _ => panic!("Expected full diagnostic report after reload"),
+    };
+    assert!(
+        after_items.iter().all(|diag| {
+            diag.code != Some(NumberOrString::String("required_field_missing".to_string()))
+        }),
+        "Pull diagnostics should be refreshed after reload so cross-file fragment fields remain visible: {after_items:#?}"
+    );
+}
