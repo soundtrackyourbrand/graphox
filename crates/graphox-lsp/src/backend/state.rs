@@ -704,7 +704,6 @@ impl Backend {
             config,
             self.type_caches.clone(),
             self.documents.clone(),
-            self.metadata.clone(),
             supports_progress,
             None,
             self.get_position_encoding(),

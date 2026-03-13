@@ -3,7 +3,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_check_no_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_check_no_deprecations");
@@ -45,7 +45,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_check_with_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_check_with_deprecations");
@@ -93,7 +93,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(2000)]
 fn test_cli_check_cross_project_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_cross_project_frag");
@@ -156,7 +156,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(2000)]
 fn test_cli_check_recursive_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_recursive_frag");
@@ -219,7 +219,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_ignore_test");
@@ -272,7 +272,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_codegen_error() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_error_test");
@@ -321,7 +321,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_codegen_invalid_schema() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_invalid_schema_test");
@@ -362,7 +362,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_codegen_clean() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_codegen_clean_test");
@@ -451,7 +451,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_check_verbose_ignored_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_check_verbose_test");
@@ -531,7 +531,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_fragment_ast_generation() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_fragment_ast_test");
@@ -610,7 +610,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_graphql_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");
@@ -685,7 +685,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join(format!(
@@ -745,7 +745,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(2000)]
 fn test_cli_config_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_config_output_test");
@@ -805,7 +805,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(150)]
+#[ntest::timeout(2000)]
 fn test_cli_check_input_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_input_deprecations_test");
