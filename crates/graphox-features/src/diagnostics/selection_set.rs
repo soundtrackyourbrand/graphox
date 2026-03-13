@@ -147,6 +147,20 @@ pub(super) fn validate_field(
         } else {
             this.get_node_text(name_node, offset)
         };
+        let anchor_range = if let Some(alias) = alias_node {
+            let mut a_cursor = alias.walk();
+            alias
+                .children(&mut a_cursor)
+                .find(|c| c.kind() == "name")
+                .map(|n| this.translate_to_file_range(n, offset))
+                .unwrap_or_else(|| this.translate_to_file_range(name_node, offset))
+        } else {
+            this.translate_to_file_range(name_node, offset)
+        };
+        ctx.response_key_anchor_ranges
+            .entry(response_key.clone().into())
+            .or_default()
+            .push(anchor_range);
 
         let actual_field_name = this.get_node_text(name_node, offset);
 

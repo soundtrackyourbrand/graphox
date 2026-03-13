@@ -157,9 +157,10 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     });
     let has_graphql = !doc_arc.get_graphql_trees().is_empty();
 
+    let throttle = backend.codegen_throttle.read().unwrap().clone();
     if (had_graphql || has_graphql)
         && backend.workspace_loaded.load(Ordering::SeqCst)
-        && let Some(throttle) = &backend.codegen_throttle
+        && let Some(throttle) = throttle
     {
         let config = backend.config.read().unwrap().clone();
         let (is_enabled, project_key) = if let Ok(path) = uri.to_file_path() {
@@ -207,8 +208,9 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
             backend.validate_uris(result.uris_to_validate).await;
         }
 
+        let throttle = backend.codegen_throttle.read().unwrap().clone();
         if backend.workspace_loaded.load(Ordering::SeqCst)
-            && let Some(throttle) = &backend.codegen_throttle
+            && let Some(throttle) = throttle
         {
             let (is_enabled, project_key) = if let Ok(path) = uri.to_file_path() {
                 let project = config.get_project_for_path(&path);
@@ -258,10 +260,11 @@ pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParam
         None
     };
 
+    let throttle = backend.codegen_throttle.read().unwrap().clone();
     if let Some(doc) = doc_for_codegen
         && !doc.get_graphql_trees().is_empty()
         && backend.workspace_loaded.load(Ordering::SeqCst)
-        && let Some(throttle) = &backend.codegen_throttle
+        && let Some(throttle) = throttle
     {
         let config = backend.config.read().unwrap().clone();
         let project_key = if let Ok(path) = uri.to_file_path() {
@@ -336,7 +339,6 @@ pub async fn handle_did_change_watched_files(
                 // Config reload takes precedence - if config changed, reload everything
                 if result.should_reload_config {
                     backend.reload_config().await;
-                    backend.validate_all_documents().await;
                     continue; // Skip other processing since we're doing a full reload
                 }
 
@@ -351,10 +353,11 @@ pub async fn handle_did_change_watched_files(
                     backend.validate_uris(result.uris_to_validate.clone()).await;
                 }
 
+                let throttle = backend.codegen_throttle.read().unwrap().clone();
                 // Request throttled codegen if enabled and workspace is loaded
                 if result.should_run_codegen
                     && backend.workspace_loaded.load(Ordering::SeqCst)
-                    && let Some(throttle) = &backend.codegen_throttle
+                    && let Some(throttle) = throttle
                 {
                     let (is_enabled, project_key) = if let Ok(path) = change_uri.to_file_path() {
                         let project = config.get_project_for_path(&path);
