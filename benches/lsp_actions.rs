@@ -5,6 +5,7 @@ use graphox_features::diagnostics::DocumentDiagnostics;
 use graphox_lsp::backend::state::Backend;
 use graphox_lsp::backend::validation::ValidationParams;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tempfile::tempdir;
 use tower_lsp::LanguageServer;
@@ -99,6 +100,7 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
                 schemas: &backend.schemas,
                 supports_progress: false,
                 position_encoding: PositionEncodingKind::UTF16,
+                result_id_epoch: backend.last_full_validation_version.load(Ordering::SeqCst),
             };
 
             graphox_lsp::backend::validation::validate_uris(params, all_uris, false, None).await;

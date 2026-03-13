@@ -1,8 +1,21 @@
 use crate::backend::state::Backend;
 use ahash::AHashMap;
+use std::sync::atomic::Ordering;
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
+
+fn compose_diagnostic_result_id(version: i32, workspace_epoch: usize) -> String {
+    format!("{version}:{workspace_epoch}")
+}
+
+fn parse_diagnostic_result_id(result_id: &str) -> Option<(i32, usize)> {
+    if let Some((version, workspace_epoch)) = result_id.split_once(':') {
+        Some((version.parse().ok()?, workspace_epoch.parse().ok()?))
+    } else {
+        Some((result_id.parse().ok()?, 0))
+    }
+}
 
 pub async fn handle_diagnostic(
     backend: &Backend,
@@ -19,6 +32,7 @@ pub async fn handle_diagnostic(
     // Apply timeout
     let res = match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async move {
         let uri = backend.normalize_uri(params.text_document.uri.clone());
+        let current_workspace_epoch = backend.last_full_validation_version.load(Ordering::SeqCst);
 
         // Get the current document version
         let doc_version = if let Some(doc) = backend.documents.get(&uri) {
@@ -38,31 +52,37 @@ pub async fn handle_diagnostic(
 
         // Check if we have cached diagnostics
         if let Some(cached) = backend.diagnostic_cache.get(&uri) {
-            let (cached_version, cached_diagnostics) = cached.value();
+            let (cached_version, cached_workspace_epoch, cached_diagnostics) = cached.value();
+            let cached_result_id =
+                compose_diagnostic_result_id(*cached_version, *cached_workspace_epoch);
+            let cache_is_current = *cached_version == doc_version
+                && *cached_workspace_epoch == current_workspace_epoch;
 
             // If the cached version matches the previous result ID, return unchanged
             if let Some(prev_result_id) = &params.previous_result_id
-                && let Ok(prev_version) = prev_result_id.parse::<i32>()
+                && let Some((prev_version, prev_workspace_epoch)) =
+                    parse_diagnostic_result_id(prev_result_id)
+                && cache_is_current
                 && prev_version == *cached_version
-                && prev_version == doc_version
+                && prev_workspace_epoch == *cached_workspace_epoch
             {
                 return Ok(DocumentDiagnosticReportResult::Report(
                     DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
                         related_documents: None,
                         unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
-                            result_id: cached_version.to_string(),
+                            result_id: cached_result_id,
                         },
                     }),
                 ));
             }
 
             // Return cached diagnostics if version matches
-            if *cached_version == doc_version {
+            if cache_is_current {
                 return Ok(DocumentDiagnosticReportResult::Report(
                     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                         related_documents: None,
                         full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                            result_id: Some(cached_version.to_string()),
+                            result_id: Some(cached_result_id),
                             items: cached_diagnostics.clone(),
                         },
                     }),
@@ -76,12 +96,12 @@ pub async fn handle_diagnostic(
 
         // Retrieve from cache
         if let Some(cached) = backend.diagnostic_cache.get(&uri) {
-            let (version, diagnostics) = cached.value();
+            let (version, workspace_epoch, diagnostics) = cached.value();
             return Ok(DocumentDiagnosticReportResult::Report(
                 DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                     related_documents: None,
                     full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                        result_id: Some(version.to_string()),
+                        result_id: Some(compose_diagnostic_result_id(*version, *workspace_epoch)),
                         items: diagnostics.clone(),
                     },
                 }),
@@ -93,7 +113,10 @@ pub async fn handle_diagnostic(
             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                    result_id: Some(doc_version.to_string()),
+                    result_id: Some(compose_diagnostic_result_id(
+                        doc_version,
+                        current_workspace_epoch,
+                    )),
                     items: vec![],
                 },
             }),
@@ -164,13 +187,35 @@ pub async fn handle_workspace_diagnostic(
 
     // Apply timeout
     let res = match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async move {
-        let mut items = Vec::new();
+        if !backend.workspace_loaded.load(Ordering::SeqCst) {
+            return Ok(WorkspaceDiagnosticReportResult::Report(
+                WorkspaceDiagnosticReport { items: vec![] },
+            ));
+        }
+        let current_workspace_epoch = backend.last_full_validation_version.load(Ordering::SeqCst);
 
         // Get all document URIs
         let all_uris: Vec<Url> = backend.documents.iter().map(|e| e.key().clone()).collect();
 
-        // Validate all documents (this will cache diagnostics)
-        backend.validate_all_documents().await;
+        let uncached_uris: Vec<Url> = all_uris
+            .iter()
+            .filter(|uri| {
+                let current_doc_version = backend.documents.get(*uri).map(|doc| doc.version);
+                match (backend.diagnostic_cache.get(*uri), current_doc_version) {
+                    (Some(cached), Some(doc_version)) => {
+                        let (cached_version, cached_workspace_epoch, _) = cached.value();
+                        *cached_version != doc_version
+                            || *cached_workspace_epoch != current_workspace_epoch
+                    }
+                    _ => true,
+                }
+            })
+            .cloned()
+            .collect();
+
+        if !uncached_uris.is_empty() {
+            backend.validate_uris(uncached_uris).await;
+        }
 
         // Convert previous_result_ids to a map for faster O(1) lookup
         let previous_ids: AHashMap<Url, String> = params
@@ -179,39 +224,32 @@ pub async fn handle_workspace_diagnostic(
             .map(|prev| (prev.uri.clone(), prev.value.clone()))
             .collect();
 
+        let mut items = Vec::new();
+
         // Collect diagnostics from cache
         for uri in all_uris {
             if let Some(cached) = backend.diagnostic_cache.get(&uri) {
-                let (version, diagnostics) = cached.value();
+                let (version, workspace_epoch, diagnostics) = cached.value();
+                let result_id = compose_diagnostic_result_id(*version, *workspace_epoch);
 
-                // Check if this URI was in the previous result with same version
-                let unchanged = previous_ids
+                // Omitting unchanged entries keeps workspace polling cheap for clients like VS Code.
+                if previous_ids
                     .get(&uri)
-                    .is_some_and(|prev_val| prev_val == &version.to_string());
-
-                if unchanged {
-                    items.push(WorkspaceDocumentDiagnosticReport::Unchanged(
-                        WorkspaceUnchangedDocumentDiagnosticReport {
-                            uri: uri.clone(),
-                            version: Some((*version) as i64),
-                            unchanged_document_diagnostic_report:
-                                UnchangedDocumentDiagnosticReport {
-                                    result_id: version.to_string(),
-                                },
-                        },
-                    ));
-                } else {
-                    items.push(WorkspaceDocumentDiagnosticReport::Full(
-                        WorkspaceFullDocumentDiagnosticReport {
-                            uri: uri.clone(),
-                            version: Some((*version) as i64),
-                            full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                                result_id: Some(version.to_string()),
-                                items: diagnostics.clone(),
-                            },
-                        },
-                    ));
+                    .is_some_and(|prev_val| prev_val == &result_id)
+                {
+                    continue;
                 }
+
+                items.push(WorkspaceDocumentDiagnosticReport::Full(
+                    WorkspaceFullDocumentDiagnosticReport {
+                        uri: uri.clone(),
+                        version: Some((*version) as i64),
+                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                            result_id: Some(result_id),
+                            items: diagnostics.clone(),
+                        },
+                    },
+                ));
             }
         }
 

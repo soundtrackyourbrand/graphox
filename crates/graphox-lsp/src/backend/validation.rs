@@ -43,6 +43,7 @@ pub struct ValidationParams<'a> {
     pub schemas: &'a Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
     pub supports_progress: bool,
     pub position_encoding: PositionEncodingKind,
+    pub result_id_epoch: usize,
 }
 
 /// Validates a list of document URIs and publishes diagnostics
@@ -185,7 +186,10 @@ pub async fn validate_uris(
     for (idx, (uri, version, diagnostics)) in results.into_iter().enumerate() {
         // Cache diagnostics for pull-based diagnostics
         if let Some(cache) = diagnostic_cache {
-            cache.insert(uri.clone(), (version, diagnostics.clone()));
+            cache.insert(
+                uri.clone(),
+                (version, params.result_id_epoch, diagnostics.clone()),
+            );
         }
 
         if use_push {

@@ -49,7 +49,7 @@ pub struct Backend {
         Arc<DashMap<String, Arc<graphox_codegen::SchemaAnalysisCaches>, ahash::RandomState>>,
     /// Client capabilities for conditional feature enablement
     pub client_capabilities: Arc<std::sync::RwLock<ClientCapabilities>>,
-    /// Cached diagnostics for pull-based diagnostics (URI -> (version, diagnostics))
+    /// Cached diagnostics for pull-based diagnostics (URI -> (version, workspace epoch, diagnostics))
     pub diagnostic_cache: DiagnosticCacheMap,
     /// Current version of the workspace, incremented on any change
     pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
@@ -1025,6 +1025,7 @@ impl Backend {
             schemas: &self.schemas,
             supports_progress,
             position_encoding,
+            result_id_epoch: self.last_full_validation_version.load(Ordering::SeqCst),
         };
         super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
             .await;
@@ -1066,6 +1067,7 @@ impl Backend {
             schemas: &self.schemas,
             supports_progress,
             position_encoding,
+            result_id_epoch: current_version,
         };
 
         let uris: Vec<Url> = self
