@@ -2,7 +2,7 @@
   "name": "graphox",
   "displayName": "Graphox",
   "description": "Rust-powered GraphQL language server, validation, and codegen for VS Code",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "soundtrack",
   "license": "UNLICENSED",
   "repository": {
