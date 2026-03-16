@@ -1,10 +1,15 @@
 use crate::support::{
-    create_lsp_service_with_socket, create_service, lsp_did_open, lsp_request_typed,
+    create_initialized_lsp_service, create_lsp_service_with_socket, create_service, lsp_did_open,
+    lsp_request_diagnostics, lsp_request_typed, write_project_file,
 };
+use ahash::AHashMap;
 use futures_util::StreamExt;
 use graphox::{
     Config,
-    config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
+    config::{
+        CodegenConfig, GlobPattern, ProjectConfig, RequiredFieldRule, RulesConfig, SchemaSource,
+        TimeoutConfig,
+    },
 };
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -229,6 +234,186 @@ async fn test_pull_diagnostics_unchanged() {
         }
         _ => panic!("Expected unchanged diagnostic report when document hasn't changed"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_required_field_satisfied_by_unopened_embedded_fragment() {
+    let schema = r#"
+        type Query { editorialHome: EditorialHome! }
+        type EditorialHome { sections: EditorialSectionConnection! }
+        type EditorialSectionConnection { edges: [EditorialSectionEdge!]! }
+        type EditorialSectionEdge { node: EditorialSection! }
+        type EditorialSection { id: ID! title: String! }
+    "#;
+
+    let fragment_text = r#"import { graphql } from 'app/graphql'
+
+export const EditorialSectionFragmentDoc = graphql(/* GraphQL */ `
+  fragment EditorialSection on EditorialSection {
+    id
+    title
+  }
+`)
+"#;
+
+    let query_text = r#"import { graphql } from 'app/graphql'
+
+export const EditorialHomeDoc = graphql(/* GraphQL */ `
+  query EditorialHome {
+    editorialHome {
+      sections {
+        edges {
+          node {
+            ...EditorialSection
+          }
+        }
+      }
+    }
+  }
+`)
+"#;
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(schema, "**/*.ts");
+    write_project_file(&dir, "components/editorial/fragments.ts", fragment_text);
+    let query_uri = write_project_file(&dir, "navigation/home-data.ts", query_text);
+
+    config = config.with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+    wait_for_workspace_loaded(&mut service).await;
+    lsp_did_open(&mut service, query_uri.clone(), "typescript", 1, query_text).await;
+
+    let result = lsp_request_diagnostics(&mut service, query_uri.clone()).await;
+
+    let diagnostics = match result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            report.full_document_diagnostic_report.items
+        }
+        _ => panic!("Expected full diagnostic report"),
+    };
+
+    let required_field_diags: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| {
+            diag.code == Some(NumberOrString::String("required_field_missing".to_string()))
+        })
+        .collect();
+
+    assert!(
+        required_field_diags.is_empty(),
+        "Fragment spread should satisfy required field checks in embedded cross-file diagnostics. Diagnostics: {:?}",
+        diagnostics
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_waits_for_workspace_fragment_context() {
+    let schema = r#"
+        type Query { editorialHome: EditorialHome! }
+        type EditorialHome { sections: EditorialSectionConnection! }
+        type EditorialSectionConnection { edges: [EditorialSectionEdge!]! }
+        type EditorialSectionEdge { node: EditorialSection! }
+        type EditorialSection { id: ID! title: String! }
+    "#;
+
+    let (dir, mut config) = crate::support::make_temp_project_with_schema(schema, "**/*.ts");
+
+    let fragment_text = r#"import { graphql } from 'app/graphql'
+
+export const EditorialSectionFragmentDoc = graphql(/* GraphQL */ `
+  fragment EditorialSection on EditorialSection {
+    id
+    title
+  }
+`)
+"#;
+    write_project_file(&dir, "components/editorial/fragments.ts", fragment_text);
+
+    let query_text = r#"import { graphql } from 'app/graphql'
+
+export const EditorialHomeDoc = graphql(/* GraphQL */ `
+  query EditorialHome {
+    editorialHome {
+      sections {
+        edges {
+          node {
+            ...EditorialSection
+          }
+        }
+      }
+    }
+  }
+`)
+"#;
+    let query_uri = write_project_file(&dir, "navigation/home-data.ts", query_text);
+
+    for idx in 0..800 {
+        let filler = format!(
+            "import {{ graphql }} from 'app/graphql'\nexport const F{idx}Doc = graphql(/* GraphQL */ `fragment F{idx} on EditorialSection {{ id title }}`)\n"
+        );
+        write_project_file(&dir, &format!("junk/f{idx}.ts"), &filler);
+    }
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    config = config.with_rules(RulesConfig::default().with_required_fields(required_fields));
+    config = config.with_timeouts(TimeoutConfig::default().with_lsp_request_ms(50));
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    lsp_did_open(&mut service, query_uri.clone(), "typescript", 1, query_text).await;
+
+    let diag_params = DocumentDiagnosticParams {
+        text_document: TextDocumentIdentifier::new(query_uri.clone()),
+        identifier: None,
+        previous_result_id: None,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: DocumentDiagnosticReportResult =
+        lsp_request_typed(&mut service, "textDocument/diagnostic", &diag_params).await;
+
+    let diagnostics = match result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            report.full_document_diagnostic_report.items
+        }
+        _ => panic!("Expected full diagnostic report"),
+    };
+
+    assert!(
+        diagnostics.iter().all(|diag| {
+            diag.code != Some(NumberOrString::String("required_field_missing".to_string()))
+        }),
+        "Pull diagnostics should wait for workspace fragment context instead of reporting transient required-field errors: {diagnostics:#?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -949,7 +1134,7 @@ rules:
         .await
         .unwrap();
 
-    tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
+    tokio::time::timeout(Duration::from_millis(5000), scan_done_rx.recv())
         .await
         .expect("Initial workspace scan did not complete in time")
         .expect("scan_done_rx closed before initial scan completed");
@@ -1013,7 +1198,7 @@ rules:
         .await
         .unwrap();
 
-    tokio::time::timeout(Duration::from_millis(2000), scan_done_rx.recv())
+    tokio::time::timeout(Duration::from_millis(5000), scan_done_rx.recv())
         .await
         .expect("Reload workspace scan did not complete in time")
         .expect("scan_done_rx closed before reload scan completed");

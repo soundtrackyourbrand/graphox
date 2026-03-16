@@ -80,30 +80,11 @@ async fn test_goto_definition_type_vs_fragment_collision() {
         lsp_request_typed(&mut service, "textDocument/definition", &params).await;
 
     if let Some(GotoDefinitionResponse::Scalar(ref loc)) = result {
-        if loc.uri == frag_uri {
-            // Expected: definition points to the fragment in this file
-            assert_eq!(
-                loc.range,
-                crate::support::range_for_token_at_index(&frag_doc, &frag_text, "Displayable", 0)
-            );
-        } else if loc.uri == schema_uri {
-            // Some environments may resolve the spread name to the type definition
-            // (fallback). Accept either but validate the schema location roughly.
-            assert_eq!(
-                loc.range,
-                crate::support::range_for_token_at_index(
-                    &schema_doc,
-                    &schema_text,
-                    "Displayable",
-                    0
-                )
-            );
-        } else {
-            panic!(
-                "Expected definition of Displayable fragment (or schema type), got {:?}",
-                result
-            );
-        }
+        assert_eq!(loc.uri, frag_uri);
+        assert_eq!(
+            loc.range,
+            crate::support::range_for_token_at_index(&frag_doc, &frag_text, "Displayable", 0)
+        );
     } else {
         panic!(
             "Expected definition of Displayable fragment, got {:?}",
@@ -155,6 +136,60 @@ async fn test_goto_definition_directive() {
         );
     } else {
         panic!("Expected definition of customDirective, got {:?}", result);
+    }
+}
+
+#[tokio::test]
+#[ntest::timeout(500)]
+async fn test_goto_definition_directive_on_fragment_spread() {
+    let schema = "directive @customDirective(if: Boolean!) on FRAGMENT_SPREAD\n\
+type Query { user: User }\n\
+type User { id: ID! }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_path = tmpdir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
+
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
+
+    let frag_text = "fragment UserFields on User { id }";
+    let frag_uri = write_project_file(&tmpdir, "frag.graphql", frag_text);
+    lsp_did_open(&mut service, frag_uri, "graphql", 1, frag_text).await;
+
+    let (query_text, position) =
+        with_cursor("query { user { ...UserFields @custom|Directive(if: true) } }");
+    let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
+
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
+
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        assert_eq!(loc.uri, schema_uri);
+        assert_eq!(
+            loc.range,
+            crate::support::range_for_token(&schema_doc, &schema_text, "customDirective")
+        );
+    } else {
+        panic!(
+            "Expected definition of customDirective from fragment spread directive, got {:?}",
+            result
+        );
     }
 }
 

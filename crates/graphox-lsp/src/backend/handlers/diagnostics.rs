@@ -1,6 +1,7 @@
 use crate::backend::state::Backend;
 use ahash::AHashMap;
 use std::sync::atomic::Ordering;
+use tokio::time::{Duration, Instant};
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -15,6 +16,19 @@ fn parse_diagnostic_result_id(result_id: &str) -> Option<(i32, usize)> {
     } else {
         Some((result_id.parse().ok()?, 0))
     }
+}
+
+fn should_suppress_initial_required_field_diagnostics(
+    backend: &Backend,
+    diagnostics: &[Diagnostic],
+) -> bool {
+    !backend.workspace_loaded.load(Ordering::SeqCst)
+        && diagnostics.iter().any(|diag| {
+            matches!(
+                diag.code.as_ref(),
+                Some(NumberOrString::String(code)) if code == "required_field_missing"
+            )
+        })
 }
 
 pub async fn handle_diagnostic(
@@ -32,7 +46,6 @@ pub async fn handle_diagnostic(
     // Apply timeout
     let res = match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async move {
         let uri = backend.normalize_uri(params.text_document.uri.clone());
-        let current_workspace_epoch = backend.last_full_validation_version.load(Ordering::SeqCst);
 
         // Get the current document version
         let doc_version = if let Some(doc) = backend.documents.get(&uri) {
@@ -49,6 +62,19 @@ pub async fn handle_diagnostic(
                 }),
             ));
         };
+
+        if !backend.workspace_loaded.load(Ordering::SeqCst) {
+            let wait_deadline =
+                Instant::now() + Duration::from_millis(timeout_ms.min(200).saturating_sub(25));
+            while Instant::now() < wait_deadline {
+                if backend.workspace_loaded.load(Ordering::SeqCst) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+
+        let current_workspace_epoch = backend.last_full_validation_version.load(Ordering::SeqCst);
 
         // Check if we have cached diagnostics
         if let Some(cached) = backend.diagnostic_cache.get(&uri) {
@@ -78,6 +104,18 @@ pub async fn handle_diagnostic(
 
             // Return cached diagnostics if version matches
             if cache_is_current {
+                if should_suppress_initial_required_field_diagnostics(backend, cached_diagnostics) {
+                    return Ok(DocumentDiagnosticReportResult::Report(
+                        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                            related_documents: None,
+                            full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                                result_id: Some(compose_diagnostic_result_id(doc_version, 0)),
+                                items: vec![],
+                            },
+                        }),
+                    ));
+                }
+
                 return Ok(DocumentDiagnosticReportResult::Report(
                     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                         related_documents: None,
@@ -97,6 +135,18 @@ pub async fn handle_diagnostic(
         // Retrieve from cache
         if let Some(cached) = backend.diagnostic_cache.get(&uri) {
             let (version, workspace_epoch, diagnostics) = cached.value();
+            if should_suppress_initial_required_field_diagnostics(backend, diagnostics) {
+                return Ok(DocumentDiagnosticReportResult::Report(
+                    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                        related_documents: None,
+                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                            result_id: Some(compose_diagnostic_result_id(doc_version, 0)),
+                            items: vec![],
+                        },
+                    }),
+                ));
+            }
+
             return Ok(DocumentDiagnosticReportResult::Report(
                 DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                     related_documents: None,

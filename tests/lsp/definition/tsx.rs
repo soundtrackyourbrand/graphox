@@ -1,6 +1,6 @@
 use crate::support::{
-    create_initialized_lsp_service, lsp_did_open, lsp_request_typed, make_temp_project_with_schema,
-    with_cursor, write_project_file,
+    create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_typed,
+    make_temp_project_with_schema, with_cursor, write_project_file,
 };
 use std::fs;
 use tower_lsp::lsp_types::*;
@@ -94,6 +94,57 @@ async fn test_goto_definition_embedded_fragment_spread() {
         "Expected definition for fragment, got {:?}",
         result
     );
+}
+
+/// Fragment spread navigation in embedded GraphQL must prefer fragment definitions over
+/// same-named schema types.
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_goto_definition_embedded_fragment_spread_prefers_fragment_over_type() {
+    let schema = "type Query { user: User }\ntype User { id: ID! }\ntype Displayable { id: ID! }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.{graphql,ts,tsx}");
+    config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let schema_path = tmpdir.path().join("schema.graphql");
+    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_text = fs::read_to_string(&schema_path).unwrap();
+    lsp_did_open(&mut service, schema_uri, "graphql", 1, &schema_text).await;
+
+    let frag_text = "fragment Displayable on Displayable { id }";
+    let frag_uri = write_project_file(&tmpdir, "displayable.graphql", frag_text);
+    lsp_did_open(&mut service, frag_uri.clone(), "graphql", 1, frag_text).await;
+    let frag_doc = create_doc(frag_uri.as_str(), frag_text);
+
+    let tsx_text = r#"const query = graphql(/* GraphQL */ `query { user { ...|Displayable } }`);"#;
+    let (tsx_text, position) = with_cursor(tsx_text);
+    let tsx_uri = write_project_file(&tmpdir, "query.ts", &tsx_text);
+    lsp_did_open(&mut service, tsx_uri.clone(), "typescript", 1, &tsx_text).await;
+
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: tsx_uri },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let result: Option<GotoDefinitionResponse> =
+        lsp_request_typed(&mut service, "textDocument/definition", &params).await;
+
+    if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+        assert_eq!(loc.uri, frag_uri);
+        assert_eq!(
+            loc.range,
+            crate::support::range_for_token_at_index(&frag_doc, frag_text, "Displayable", 0)
+        );
+    } else {
+        panic!(
+            "Expected fragment definition for embedded spread collision, got {:?}",
+            result
+        );
+    }
 }
 
 /// Navigate to type in TSX gql tag
