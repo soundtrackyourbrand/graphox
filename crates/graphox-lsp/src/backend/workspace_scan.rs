@@ -248,6 +248,10 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         // Mark workspace as loaded
         params.workspace_loaded.store(true, Ordering::SeqCst);
 
+        params
+            .last_full_validation_version
+            .store(validated_version, Ordering::SeqCst);
+
         if params.supports_pull_diagnostics {
             let open_uris: Vec<Url> = params
                 .open_documents
@@ -281,11 +285,37 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                 )
                 .await;
             }
-        }
 
-        params
-            .last_full_validation_version
-            .store(validated_version, Ordering::SeqCst);
+            let client = params.client.clone();
+            tokio::spawn(async move {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    client.workspace_diagnostic_refresh(),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        client
+                            .log_message(
+                                MessageType::WARNING,
+                                format!(
+                                    "workspace/diagnostic/refresh failed after workspace scan: {err}"
+                                ),
+                            )
+                            .await;
+                    }
+                    Err(_) => {
+                        client
+                            .log_message(
+                                MessageType::WARNING,
+                                "workspace/diagnostic/refresh timed out after workspace scan",
+                            )
+                            .await;
+                    }
+                }
+            });
+        }
 
         let elapsed = start_time.elapsed();
         params

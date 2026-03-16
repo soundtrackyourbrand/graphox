@@ -64,6 +64,119 @@ pub enum SemanticSymbol {
     },
 }
 
+fn resolve_executable_named_symbol(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+    cursor_offset: usize,
+) -> Option<SemanticSymbol> {
+    let mut curr = Some(node);
+    while let Some(current_node) = curr {
+        match current_node.kind() {
+            "fragment_spread" => {
+                let is_on_ellipsis = current_node.child(0).is_some_and(|k| {
+                    let r = (k.start_byte() + offset)..(k.end_byte() + offset);
+                    cursor_offset >= r.start && cursor_offset <= r.end
+                });
+                if let Some(name_node) = doc
+                    .find_child_by_kind(current_node, "fragment_name")
+                    .and_then(|fn_node| doc.find_child_by_kind(fn_node, "name"))
+                {
+                    let name_range =
+                        (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
+                        || is_on_ellipsis
+                    {
+                        let frag_name = doc.get_node_text(name_node, offset);
+                        return Some(SemanticSymbol::Fragment {
+                            name: frag_name,
+                            type_condition: String::new(),
+                            description: None,
+                        });
+                    }
+                }
+            }
+            "operation_definition" => {
+                if let Some(name_node) = doc.find_child_by_kind(current_node, "name") {
+                    let name_range =
+                        (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+
+                    let is_on_keyword = current_node.child(0).is_some_and(|k| {
+                        let r = (k.start_byte() + offset)..(k.end_byte() + offset);
+                        cursor_offset >= r.start && cursor_offset <= r.end
+                    });
+
+                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
+                        || is_on_keyword
+                    {
+                        let op_name = doc.get_node_text(name_node, offset);
+                        let op_type = doc.get_operation_type(current_node, offset);
+                        let variables =
+                            ast_utils::extract_operation_variables(doc, current_node, offset);
+                        let description = doc_utils::find_description(doc, &op_name);
+                        return Some(SemanticSymbol::Operation {
+                            op_type,
+                            name: Some(op_name),
+                            variables,
+                            description,
+                        });
+                    }
+                } else {
+                    let op_type_node = doc.find_child_by_kind(current_node, "operation_type");
+                    if let Some(ot_node) = op_type_node {
+                        let range = (ot_node.start_byte() + offset)..(ot_node.end_byte() + offset);
+                        if cursor_offset >= range.start && cursor_offset <= range.end {
+                            let op_type = doc.get_node_text(ot_node, offset);
+                            let variables =
+                                ast_utils::extract_operation_variables(doc, current_node, offset);
+                            return Some(SemanticSymbol::Operation {
+                                op_type,
+                                name: None,
+                                variables,
+                                description: None,
+                            });
+                        }
+                    }
+                }
+            }
+            "fragment_definition" => {
+                if let Some(name_node) = doc
+                    .find_child_by_kind(current_node, "fragment_name")
+                    .and_then(|fn_node| doc.find_child_by_kind(fn_node, "name"))
+                    .or_else(|| doc.find_child_by_kind(current_node, "name"))
+                {
+                    let name_range =
+                        (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
+
+                    let is_on_keyword = current_node.child(0).is_some_and(|k| {
+                        let r = (k.start_byte() + offset)..(k.end_byte() + offset);
+                        cursor_offset >= r.start && cursor_offset <= r.end
+                    });
+
+                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
+                        || is_on_keyword
+                    {
+                        let frag_name = doc.get_node_text(name_node, offset);
+                        let type_condition = doc
+                            .get_fragment_type_condition(current_node, offset)
+                            .unwrap_or_default();
+                        let description = doc_utils::find_description(doc, &frag_name);
+                        return Some(SemanticSymbol::Fragment {
+                            name: frag_name,
+                            type_condition,
+                            description,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+        curr = current_node.parent();
+    }
+
+    None
+}
+
 pub fn resolve_symbol_at_node(
     doc: &DocumentState,
     node: Node,
@@ -160,7 +273,13 @@ pub fn resolve_symbol_at_node(
         }
     }
 
-    // 3. Type resolution (Schema types) - AFTER extension check
+    // 3. Executable symbol resolution must run before generic schema type resolution so
+    // fragment and operation names do not get misclassified as schema types.
+    if let Some(symbol) = resolve_executable_named_symbol(doc, node, offset, cursor_offset) {
+        return Some(symbol);
+    }
+
+    // 4. Type resolution (Schema types) - AFTER extension/executable checks
     if kind == "name" {
         let symbol_name = doc.get_node_text(node, offset);
         if let Some(ty) = schema.types.get(symbol_name.as_str()) {
@@ -199,7 +318,7 @@ pub fn resolve_symbol_at_node(
         }
     }
 
-    // 4. Field/Argument/Directive resolution
+    // 5. Field/Argument/Directive resolution
     let mut curr = Some(node);
     while let Some(current_node) = curr {
         match current_node.kind() {
@@ -536,91 +655,6 @@ pub fn resolve_symbol_at_node(
         curr = current_node.parent();
     }
 
-    // 5. Operation/Fragment resolution
-    let mut curr = Some(node);
-    while let Some(current_node) = curr {
-        match current_node.kind() {
-            "operation_definition" => {
-                if let Some(name_node) = doc.find_child_by_kind(current_node, "name") {
-                    let name_range =
-                        (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
-
-                    // Also resolve if on the operation keyword (query/mutation/subscription)
-                    let is_on_keyword = current_node.child(0).is_some_and(|k| {
-                        let r = (k.start_byte() + offset)..(k.end_byte() + offset);
-                        cursor_offset >= r.start && cursor_offset <= r.end
-                    });
-
-                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
-                        || is_on_keyword
-                    {
-                        let op_name = doc.get_node_text(name_node, offset);
-                        let op_type = doc.get_operation_type(current_node, offset);
-                        let variables =
-                            ast_utils::extract_operation_variables(doc, current_node, offset);
-                        let description = doc_utils::find_description(doc, &op_name);
-                        return Some(SemanticSymbol::Operation {
-                            op_type,
-                            name: Some(op_name),
-                            variables,
-                            description,
-                        });
-                    }
-                } else {
-                    // Anonymous operation
-                    let op_type_node = doc.find_child_by_kind(current_node, "operation_type");
-                    if let Some(ot_node) = op_type_node {
-                        let range = (ot_node.start_byte() + offset)..(ot_node.end_byte() + offset);
-                        if cursor_offset >= range.start && cursor_offset <= range.end {
-                            let op_type = doc.get_node_text(ot_node, offset);
-                            let variables =
-                                ast_utils::extract_operation_variables(doc, current_node, offset);
-                            return Some(SemanticSymbol::Operation {
-                                op_type,
-                                name: None,
-                                variables,
-                                description: None,
-                            });
-                        }
-                    }
-                }
-            }
-            "fragment_definition" => {
-                if let Some(name_node) = doc
-                    .find_child_by_kind(current_node, "fragment_name")
-                    .and_then(|fn_node| doc.find_child_by_kind(fn_node, "name"))
-                    .or_else(|| doc.find_child_by_kind(current_node, "name"))
-                {
-                    let name_range =
-                        (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
-
-                    // Also resolve if on the "fragment" keyword (helpful for cross-file navigation fallback)
-                    let is_on_keyword = current_node.child(0).is_some_and(|k| {
-                        let r = (k.start_byte() + offset)..(k.end_byte() + offset);
-                        cursor_offset >= r.start && cursor_offset <= r.end
-                    });
-
-                    if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
-                        || is_on_keyword
-                    {
-                        let frag_name = doc.get_node_text(name_node, offset);
-                        let type_condition = doc
-                            .get_fragment_type_condition(current_node, offset)
-                            .unwrap_or_default();
-                        let description = doc_utils::find_description(doc, &frag_name);
-                        return Some(SemanticSymbol::Fragment {
-                            name: frag_name,
-                            type_condition,
-                            description,
-                        });
-                    }
-                }
-            }
-            _ => {}
-        }
-        curr = current_node.parent();
-    }
-
     // Default value check (MUST check before literal check)
 
     if kind == "string_value"
@@ -672,33 +706,8 @@ pub fn resolve_fragment_spread_at_node(
     offset: usize,
     cursor_offset: usize,
 ) -> Option<SemanticSymbol> {
-    let mut curr = Some(node);
-    while let Some(current_node) = curr {
-        if current_node.kind() == "fragment_spread" {
-            let is_on_ellipsis = current_node.child(0).is_some_and(|k| {
-                let r = (k.start_byte() + offset)..(k.end_byte() + offset);
-                cursor_offset >= r.start && cursor_offset <= r.end
-            });
-            if let Some(name_node) = doc
-                .find_child_by_kind(current_node, "fragment_name")
-                .and_then(|fn_node| doc.find_child_by_kind(fn_node, "name"))
-            {
-                let name_range = (name_node.start_byte() + offset)..(name_node.end_byte() + offset);
-                if (cursor_offset >= name_range.start && cursor_offset <= name_range.end)
-                    || is_on_ellipsis
-                {
-                    let frag_name = doc.get_node_text(name_node, offset);
-                    return Some(SemanticSymbol::Fragment {
-                        name: frag_name,
-                        type_condition: String::new(),
-                        description: None,
-                    });
-                }
-            }
-        }
-        curr = current_node.parent();
-    }
-    None
+    resolve_executable_named_symbol(doc, node, offset, cursor_offset)
+        .and_then(|symbol| matches!(symbol, SemanticSymbol::Fragment { .. }).then_some(symbol))
 }
 
 pub fn parse_type_string(text: &str) -> Option<ast::Type> {

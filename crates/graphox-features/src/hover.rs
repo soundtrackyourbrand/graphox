@@ -550,6 +550,10 @@ impl DocumentHover for DocumentState {
                                 }
                             }
 
+                            if current.kind() != "fragment_definition" {
+                                return None;
+                            }
+
                             let mut md = describe_fragment_markdown(
                                 name,
                                 type_condition,

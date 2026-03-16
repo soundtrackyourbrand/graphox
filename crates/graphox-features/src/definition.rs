@@ -12,6 +12,7 @@ use crate::shared::type_resolver::{self, SemanticSymbol};
 
 pub trait DocumentDefinition {
     fn find_definition_in_tree(&self, name: &str) -> Option<Location>;
+    fn find_fragment_definition_in_tree(&self, name: &str) -> Option<Location>;
     fn find_type_definition_in_schema(
         &self,
         name: &str,
@@ -118,6 +119,54 @@ impl DocumentDefinition for DocumentState {
                 }
             }
         }
+        None
+    }
+
+    fn find_fragment_definition_in_tree(&self, name: &str) -> Option<Location> {
+        let query = GQL_DEFINITION_QUERY_CACHE.get_or_init(|| {
+            let lang = tree_sitter_graphql::LANGUAGE.into();
+            tree_sitter::Query::new(&lang, GQL_DEFINITION_QUERY).unwrap()
+        });
+
+        let mut cursor = QueryCursor::new();
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            let mut matches =
+                cursor.matches(query, block.tree.root_node(), |n: tree_sitter::Node| {
+                    let start = n.start_byte();
+                    let end = n.end_byte();
+                    self.rope
+                        .byte_slice((start + offset)..(end + offset))
+                        .chunks()
+                });
+
+            while let Some(m) = matches.next() {
+                for cap in m.captures {
+                    if self.get_node_text(cap.node, offset).trim() != name {
+                        continue;
+                    }
+
+                    let Some(parent) = cap.node.parent() else {
+                        continue;
+                    };
+                    if parent.kind() != "fragment_name" {
+                        continue;
+                    }
+                    let Some(grandparent) = parent.parent() else {
+                        continue;
+                    };
+                    if grandparent.kind() != "fragment_definition" {
+                        continue;
+                    }
+
+                    return Some(Location {
+                        uri: self.uri.clone(),
+                        range: self.translate_to_file_range(cap.node, offset),
+                    });
+                }
+            }
+        }
+
         None
     }
 
@@ -381,6 +430,29 @@ impl DocumentDefinition for DocumentState {
         // Try to resolve symbol first
         let byte_offset = self.position_to_byte(position);
         if let Some((node, offset)) = self.find_node_at_position(position)
+            && let Some(SemanticSymbol::Fragment { name, .. }) =
+                type_resolver::resolve_fragment_spread_at_node(self, node, offset, byte_offset)
+        {
+            if let Some(loc) = self.find_fragment_definition_in_tree(&name) {
+                return Some(loc);
+            }
+
+            for p_uri in preferred_uris {
+                if p_uri == &self.uri {
+                    continue;
+                }
+                let doc_arc = load_document_for_uri(p_uri, documents, &self.position_encoding);
+                if let Some(doc) = doc_arc
+                    && let Some(loc) = doc.find_fragment_definition_in_tree(&name)
+                {
+                    return Some(loc);
+                }
+            }
+
+            return None;
+        }
+
+        if let Some((node, offset)) = self.find_node_at_position(position)
             && let Some(symbol) =
                 type_resolver::resolve_symbol_at_node(self, node, offset, byte_offset, schema)
         {
@@ -447,6 +519,24 @@ impl DocumentDefinition for DocumentState {
                         if let Some(doc) = doc_arc
                             && let Some(loc) =
                                 doc.find_type_definition_in_schema(type_name, symbol_query)
+                        {
+                            return Some(loc);
+                        }
+                    }
+                }
+                SemanticSymbol::Fragment { name, .. } => {
+                    if let Some(loc) = self.find_fragment_definition_in_tree(&name) {
+                        return Some(loc);
+                    }
+
+                    for p_uri in preferred_uris {
+                        if p_uri == &self.uri {
+                            continue;
+                        }
+                        let doc_arc =
+                            load_document_for_uri(p_uri, documents, &self.position_encoding);
+                        if let Some(doc) = doc_arc
+                            && let Some(loc) = doc.find_fragment_definition_in_tree(&name)
                         {
                             return Some(loc);
                         }
