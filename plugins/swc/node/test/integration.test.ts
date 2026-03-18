@@ -88,7 +88,7 @@ describe('SWC Plugin WASM Wrapper', () => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-test-'));
       const outputDir = path.join(tempDir, 'gen');
       fs.mkdirSync(outputDir, { recursive: true });
-      
+
       const tsconfig = {
         compilerOptions: {
           baseUrl: '.',
@@ -117,9 +117,93 @@ describe('SWC Plugin WASM Wrapper', () => {
         const result = createSWCPlugin({
           outputDir: 'gen'
         }, { cwd: tempDir });
-        
+
         expect(result[1].graphqlImportPaths).toContain('@gql');
         expect(result[1].graphqlImportPaths).toContain('#gql');
+      } finally {
+        fs.unlinkSync(dummyWasmPath);
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('resolves outputDir relative to package root in monorepo when options.cwd is missing', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-monorepo-test-auto-'));
+      const pkgDir = path.join(tempDir, 'packages', 'app');
+      const outputDir = './src/generated';
+      const absoluteOutputDir = path.join(pkgDir, 'src', 'generated');
+
+      fs.mkdirSync(absoluteOutputDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({ name: 'app' }),
+      );
+
+      const manifestData = [
+        { source: 'query { me { id } }', path: './query.codegen', name: 'MyQueryDocument' }
+      ];
+      fs.writeFileSync(
+        path.join(absoluteOutputDir, 'manifest.json'),
+        JSON.stringify(manifestData),
+      );
+
+      // Create dummy WASM
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const wasmDir = path.join(testDir, '..', 'wasm');
+      if (!fs.existsSync(wasmDir)) fs.mkdirSync(wasmDir, { recursive: true });
+      const dummyWasmPath = path.join(wasmDir, 'graphox_swc_plugin.wasm');
+      fs.writeFileSync(dummyWasmPath, '');
+
+      try {
+        // We use filename to trigger root detection
+        const result = createSWCPlugin({
+          outputDir: outputDir
+        }, { 
+          filename: path.join(pkgDir, 'src', 'test.ts')
+        });
+
+        expect(result[1].outputDir).toBe(absoluteOutputDir);
+        expect(result[1].manifestData).toEqual(manifestData);
+      } finally {
+        fs.unlinkSync(dummyWasmPath);
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('resolves outputDir relative to package root in monorepo when cwd differs', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-monorepo-test-'));
+      const pkgDir = path.join(tempDir, 'packages', 'app');
+      const outputDir = './src/generated';
+      const absoluteOutputDir = path.join(pkgDir, 'src', 'generated');
+
+      fs.mkdirSync(absoluteOutputDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({ name: 'app' }),
+      );
+
+      const manifestData = [
+        { source: 'query { me { id } }', path: './query.codegen', name: 'MyQueryDocument' }
+      ];
+      fs.writeFileSync(
+        path.join(absoluteOutputDir, 'manifest.json'),
+        JSON.stringify(manifestData),
+      );
+
+      // Create dummy WASM
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const wasmDir = path.join(testDir, '..', 'wasm');
+      if (!fs.existsSync(wasmDir)) fs.mkdirSync(wasmDir, { recursive: true });
+      const dummyWasmPath = path.join(wasmDir, 'graphox_swc_plugin.wasm');
+      fs.writeFileSync(dummyWasmPath, '');
+
+      try {
+        // Run with cwd = tempDir (monorepo root), but options.cwd = pkgDir (package root)
+        const result = createSWCPlugin({
+          outputDir: outputDir
+        }, { cwd: pkgDir });
+
+        expect(result[1].outputDir).toBe(absoluteOutputDir);
+        expect(result[1].manifestData).toEqual(manifestData);
       } finally {
         fs.unlinkSync(dummyWasmPath);
         fs.rmSync(tempDir, { recursive: true });
@@ -185,7 +269,7 @@ describe('SWC Plugin WASM Wrapper', () => {
   describe('isWasmAvailable', () => {
     it('exports isWasmAvailable function', () => {
       expect(isWasmAvailable).toBeDefined();
-      expect(typeof isWasmAvailable).toBe('function');
+      expect(typeof isWasmAvailable()).toBe('boolean');
     });
 
     it('returns false when WASM is not built', () => {

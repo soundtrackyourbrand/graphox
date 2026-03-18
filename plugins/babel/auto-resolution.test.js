@@ -3,6 +3,7 @@ import * as babel from '@babel/core';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { execFileSync } from 'child_process';
 import plugin from './index.js';
 
 function transform(code, options, filename) {
@@ -182,6 +183,113 @@ describe('@graphox/babel-plugin auto-resolution', () => {
     const output = transform(code, { outputDir }, path.join(pkgDir, 'src', 'components', 'Test.tsx'));
 
     expect(output).toContain('import { MyQueryDocument } from "../generated/query.codegen";');
+  });
+
+  it('rewrites graphql calls when outputDir is relative and cwd differs from package root', () => {
+    const rootDir = tmpDir;
+    const pkgDir = path.join(rootDir, 'packages', 'app');
+    const outputDir = './src/generated';
+    const absoluteOutputDir = path.join(pkgDir, 'src', 'generated');
+
+    fs.mkdirSync(absoluteOutputDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'app' }),
+    );
+    fs.writeFileSync(
+      path.join(absoluteOutputDir, 'manifest.json'),
+      JSON.stringify(manifestData),
+    );
+
+    const code =
+      "import { graphql } from './generated/graphql'; const q = graphql(`query { me { id } }`);";
+    const pluginPath = path.join(process.cwd(), 'index.js');
+    const presetPath = require.resolve('@babel/preset-typescript');
+    const filePath = path.join(pkgDir, 'src', 'test.ts');
+
+    const output = execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+          const babel = require('@babel/core');
+          const plugin = require(${JSON.stringify(pluginPath)});
+          process.chdir(${JSON.stringify(rootDir)});
+          const result = babel.transformSync(${JSON.stringify(code)}, {
+            plugins: [[plugin, { outputDir: ${JSON.stringify(outputDir)} }]],
+            presets: [${JSON.stringify(presetPath)}],
+            filename: ${JSON.stringify(filePath)},
+            babelrc: false,
+            configFile: false,
+          });
+          process.stdout.write(result.code);
+        `,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      },
+    );
+
+    expect(output).toContain(
+      'import { MyQueryDocument } from "./generated/query.codegen";',
+    );
+  });
+
+  it('rewrites graphql calls when manifestPath is relative and cwd differs from package root', () => {
+    const rootDir = tmpDir;
+    const pkgDir = path.join(rootDir, 'packages', 'app');
+    const outputDir = './src/generated';
+    const absoluteOutputDir = path.join(pkgDir, 'src', 'generated');
+    const relativeManifestPath = './custom-manifest.json';
+    const absoluteManifestPath = path.join(pkgDir, 'custom-manifest.json');
+
+    fs.mkdirSync(absoluteOutputDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, 'package.json'),
+      JSON.stringify({ name: 'app' }),
+    );
+    fs.writeFileSync(
+      absoluteManifestPath,
+      JSON.stringify(manifestData),
+    );
+
+    const code =
+      "import { graphql } from './generated/graphql'; const q = graphql(`query { me { id } }`);";
+    const pluginPath = path.join(process.cwd(), 'index.js');
+    const presetPath = require.resolve('@babel/preset-typescript');
+    const filePath = path.join(pkgDir, 'src', 'test.ts');
+
+    const output = execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+          const babel = require('@babel/core');
+          const plugin = require(${JSON.stringify(pluginPath)});
+          process.chdir(${JSON.stringify(rootDir)});
+          const result = babel.transformSync(${JSON.stringify(code)}, {
+            plugins: [[plugin, { 
+              outputDir: ${JSON.stringify(outputDir)},
+              manifestPath: ${JSON.stringify(relativeManifestPath)}
+            }]],
+            presets: [${JSON.stringify(presetPath)}],
+            filename: ${JSON.stringify(filePath)},
+            babelrc: false,
+            configFile: false,
+          });
+          process.stdout.write(result.code);
+        `,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      },
+    );
+
+    expect(output).toContain(
+      'import { MyQueryDocument } from "./generated/query.codegen";',
+    );
   });
   
   it('ignores tsconfig paths that do not point to output dir', () => {

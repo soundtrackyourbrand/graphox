@@ -256,7 +256,7 @@ const importPathsCache = new Map<string, string[]>();
  * Returns a tuple [wasmPath, options] that can be passed directly to SWC's
  * experimental plugins configuration.
  */
-export function createSWCPlugin(config: PluginConfig, options?: { cwd?: string }): [string, PluginConfig] {
+export function createSWCPlugin(config: PluginConfig, options?: { cwd?: string; filename?: string }): [string, PluginConfig] {
   // Validate required fields first
   if (!config.outputDir) {
     throw new Error('outputDir is required in PluginConfig');
@@ -264,8 +264,21 @@ export function createSWCPlugin(config: PluginConfig, options?: { cwd?: string }
   
   const wasmPath = getWasmPath();
   
-  const rootDir = options?.cwd || process.cwd();
-  // Resolve outputDir and manifestPath to absolute paths relative to cwd
+  let rootDir = options?.cwd || process.cwd();
+  let tsconfigPath: string | null = null;
+  let pkgJsonPath: string | null = null;
+
+  if (!options?.cwd && !path.isAbsolute(config.outputDir)) {
+    const startDir = options?.filename ? path.dirname(path.resolve(options.filename)) : rootDir;
+    tsconfigPath = findNearestFile(startDir, 'tsconfig.json');
+    pkgJsonPath = findNearestFile(startDir, 'package.json');
+    const rootFile = pkgJsonPath || tsconfigPath;
+    if (rootFile) {
+      rootDir = path.dirname(rootFile);
+    }
+  }
+
+  // Resolve outputDir and manifestPath to absolute paths relative to rootDir
   const resolvedOutputDir = path.resolve(rootDir, config.outputDir);
   const resolvedManifestPath = config.manifestPath 
     ? path.resolve(rootDir, config.manifestPath)
@@ -284,9 +297,9 @@ export function createSWCPlugin(config: PluginConfig, options?: { cwd?: string }
   if (!autoDetectedPaths) {
     autoDetectedPaths = [];
 
-    const tsconfigPath = findNearestFile(resolvedOutputDir, 'tsconfig.json') || findNearestFile(rootDir, 'tsconfig.json');
-    if (tsconfigPath) {
-      const paths = resolveTsConfigPaths(tsconfigPath, resolvedOutputDir);
+    const projectTsconfig = findNearestFile(resolvedOutputDir, 'tsconfig.json') || tsconfigPath;
+    if (projectTsconfig) {
+      const paths = resolveTsConfigPaths(projectTsconfig, resolvedOutputDir);
       for (const p of paths) {
         if (!autoDetectedPaths.includes(p)) {
           autoDetectedPaths.push(p);
@@ -294,9 +307,9 @@ export function createSWCPlugin(config: PluginConfig, options?: { cwd?: string }
       }
     }
 
-    const pkgJsonPath = findNearestFile(resolvedOutputDir, 'package.json') || findNearestFile(rootDir, 'package.json');
-    if (pkgJsonPath) {
-      const imports = resolvePackageJsonImports(pkgJsonPath, resolvedOutputDir);
+    const projectPkgJson = findNearestFile(resolvedOutputDir, 'package.json') || pkgJsonPath;
+    if (projectPkgJson) {
+      const imports = resolvePackageJsonImports(projectPkgJson, resolvedOutputDir);
       for (const p of imports) {
         if (!autoDetectedPaths.includes(p)) {
           autoDetectedPaths.push(p);

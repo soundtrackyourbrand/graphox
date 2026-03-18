@@ -59,20 +59,30 @@ module.exports = function (babel) {
             throw new Error('outputDir is required for @graphox/babel-plugin');
           }
 
-          const absoluteOutputDir = path.resolve(outputDir);
-          
+          const currentFile = state.file.opts.filename;
+          const currentDir = currentFile ? path.dirname(currentFile) : process.cwd();
+
+          const tsconfigPath = findNearestFile(currentDir, 'tsconfig.json');
+          const pkgJsonPath = findNearestFile(currentDir, 'package.json');
+          const rootDir = (pkgJsonPath || tsconfigPath) ? path.dirname(pkgJsonPath || tsconfigPath) : process.cwd();
+
+          const absoluteOutputDir = path.isAbsolute(outputDir)
+            ? outputDir
+            : path.resolve(rootDir, outputDir);
+
+          // Resolve manifestPath relative to rootDir if provided as relative
+          if (manifestPath && !path.isAbsolute(manifestPath)) {
+            manifestPath = path.resolve(rootDir, manifestPath);
+          }
+
           // Default manifestPath if not provided
           if (!manifestPath && !manifestData) {
             manifestPath = path.join(absoluteOutputDir, 'manifest.json');
           }
 
-          const currentFile = state.file.opts.filename;
-          const currentDir = currentFile ? path.dirname(currentFile) : process.cwd();
-
           // Auto-detect import paths from tsconfig.json and package.json
           const importPathsSet = new Set(configuredImportPaths.map(toPosixPath));
 
-          const tsconfigPath = findNearestFile(currentDir, 'tsconfig.json');
           if (tsconfigPath) {
             const paths = resolveTsConfigPaths(tsconfigPath, absoluteOutputDir);
             for (const p of paths) {
@@ -80,7 +90,6 @@ module.exports = function (babel) {
             }
           }
 
-          const pkgJsonPath = findNearestFile(currentDir, 'package.json');
           if (pkgJsonPath) {
              const imports = resolvePackageJsonImports(pkgJsonPath, absoluteOutputDir);
              for (const p of imports) {
