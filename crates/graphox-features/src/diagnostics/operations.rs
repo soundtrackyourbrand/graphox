@@ -176,7 +176,6 @@ pub(super) fn check_required_fields(
         && let Some(operation_type) = ctx.current_operation_type.clone()
     {
         let rules = config.rules();
-        let required_fields = rules.required_fields();
         let mut emitted_operation_requirements = ahash::AHashSet::default();
         let mut emitted_response_key_requirements = ahash::AHashSet::default();
         let mut emitted_type_condition_requirements = ahash::AHashSet::default();
@@ -188,39 +187,39 @@ pub(super) fn check_required_fields(
             .map(|n| this.translate_to_file_range(n, offset))
             .unwrap_or_else(|| this.translate_to_file_range(node, offset));
 
-        for (field_name, rule) in required_fields {
-            if !rule.applies_to_operation(operation_type.as_ref()) {
-                continue;
-            }
+        // 1. Check root-level required fields (fields on Query/Mutation/Subscription)
+        let root_type_name = match operation_type.as_ref() {
+            "query" => ctx.schema.root_operation(OperationType::Query),
+            "mutation" => ctx.schema.root_operation(OperationType::Mutation),
+            "subscription" => ctx.schema.root_operation(OperationType::Subscription),
+            _ => None,
+        };
 
-            let field_name_str = field_name.as_str();
-
-            // 1. Check root-level required fields (fields on Query/Mutation/Subscription)
-            let root_type_name = match operation_type.as_ref() {
-                "query" => ctx.schema.root_operation(OperationType::Query),
-                "mutation" => ctx.schema.root_operation(OperationType::Mutation),
-                "subscription" => ctx.schema.root_operation(OperationType::Subscription),
-                _ => None,
+        if let Some(rtn) = root_type_name
+            && let Some(root_type) = ctx.schema.types.get(rtn.as_str())
+        {
+            let rtn_str = rtn.as_str();
+            let fields_to_check = match root_type {
+                ExtendedType::Object(obj) => obj.fields.keys().collect::<Vec<_>>(),
+                ExtendedType::Interface(iface) => iface.fields.keys().collect::<Vec<_>>(),
+                _ => vec![],
             };
 
-            if let Some(rtn) = root_type_name
-                && let Some(root_type) = ctx.schema.types.get(rtn.as_str())
-            {
-                let field_exists_on_root = match root_type {
-                    ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                    ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
-                    _ => false,
-                };
+            for field_name_str in fields_to_check {
+                if let Some(rule) = rules.get_required_rule(rtn_str, field_name_str) {
+                    if !rule.applies_to_operation(operation_type.as_ref()) {
+                        continue;
+                    }
 
-                if field_exists_on_root {
                     // Check if this field was selected at root level
                     let is_selected =
                         ctx.response_key_selected_fields.iter().any(|(rk, fields)| {
-                            ctx.root_response_keys.contains(rk) && fields.contains(field_name_str)
+                            ctx.root_response_keys.contains(rk)
+                                && fields.contains(field_name_str.as_str())
                         });
 
                     if !is_selected {
-                        let op_key = format!("{}:{}", field_name_str, operation_type);
+                        let op_key = format!("{}:{}:{}", rtn_str, field_name_str, operation_type);
                         if !emitted_operation_requirements.insert(op_key) {
                             continue;
                         }
@@ -244,7 +243,7 @@ pub(super) fn check_required_fields(
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
                                     "Required field '{}' must be selected in {} operations{}",
-                                    field_name,
+                                    field_name_str,
                                     operation_type,
                                     rule.reason()
                                         .map(|r| format!(": {}", r))
@@ -261,23 +260,34 @@ pub(super) fn check_required_fields(
                     }
                 }
             }
+        }
 
-            // 2. Check ALL selected fields (recursive check)
-            for (response_key, type_def) in &ctx.response_key_types {
-                let empty_set = ahash::AHashSet::default();
-                let selected_fields = ctx
-                    .response_key_selected_fields
-                    .get(response_key)
-                    .unwrap_or(&empty_set);
+        // 2. Check ALL selected fields (recursive check)
+        for (response_key, type_def) in &ctx.response_key_types {
+            let type_name = type_def.name().as_str();
 
-                let field_exists = match type_def {
-                    ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                    ExtendedType::Interface(iface) => iface.fields.contains_key(field_name_str),
-                    _ => false,
-                };
+            // We need to check ALL fields defined on this type in the schema,
+            // because a required field might be missing entirely from the selection.
 
-                if field_exists {
-                    let mut is_selected = selected_fields.contains(field_name_str);
+            let fields_to_check = match type_def {
+                ExtendedType::Object(obj) => obj.fields.keys().collect::<Vec<_>>(),
+                ExtendedType::Interface(iface) => iface.fields.keys().collect::<Vec<_>>(),
+                _ => vec![],
+            };
+
+            for field_name_str in fields_to_check {
+                if let Some(rule) = rules.get_required_rule(type_name, field_name_str) {
+                    if !rule.applies_to_operation(operation_type.as_ref()) {
+                        continue;
+                    }
+
+                    let empty_set = ahash::AHashSet::default();
+                    let selected_fields = ctx
+                        .response_key_selected_fields
+                        .get(response_key)
+                        .unwrap_or(&empty_set);
+
+                    let mut is_selected = selected_fields.contains(field_name_str.as_str());
 
                     // For object types, fields selected in an inline fragment on the same type also count
                     if !is_selected
@@ -285,12 +295,12 @@ pub(super) fn check_required_fields(
                         && let Some(type_fields) = ctx.type_condition_fields.get(response_key)
                         && let Some(fields) = type_fields.get(obj.name.as_str())
                     {
-                        is_selected = fields.contains(field_name_str);
+                        is_selected = fields.contains(field_name_str.as_str());
                     }
 
                     if !is_selected {
                         let response_key_requirement =
-                            format!("{}:{}", field_name_str, response_key.as_ref());
+                            format!("{}:{}:{}", type_name, field_name_str, response_key.as_ref());
                         if !emitted_response_key_requirements.insert(response_key_requirement) {
                             continue;
                         }
@@ -313,7 +323,7 @@ pub(super) fn check_required_fields(
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
                                     "Required field '{}' must be selected in '{}'{}",
-                                    field_name,
+                                    field_name_str,
                                     response_key,
                                     rule.reason()
                                         .map(|r| format!(": {}", r))
@@ -333,35 +343,42 @@ pub(super) fn check_required_fields(
                     }
                 }
             }
+        }
 
-            // 3. Check inline fragment type conditions (merging base selections)
-            for (response_key, type_conditions) in &ctx.response_key_type_conditions {
-                let base_selected_fields = ctx.response_key_selected_fields.get(response_key);
+        // 3. Check inline fragment type conditions (merging base selections)
+        for (response_key, type_conditions) in &ctx.response_key_type_conditions {
+            let base_selected_fields = ctx.response_key_selected_fields.get(response_key);
 
-                for type_name in type_conditions {
-                    let type_fields = ctx
-                        .type_condition_fields
-                        .get(response_key)
-                        .and_then(|m| m.get(type_name));
+            for type_name in type_conditions {
+                let type_name_str = type_name.to_string();
+                if let Some(type_def) = ctx.schema.types.get(&*type_name_str) {
+                    let fields_to_check = match type_def {
+                        ExtendedType::Object(obj) => obj.fields.keys().collect::<Vec<_>>(),
+                        ExtendedType::Interface(iface) => iface.fields.keys().collect::<Vec<_>>(),
+                        _ => vec![],
+                    };
 
-                    let type_name_str = type_name.to_string();
-                    if let Some(type_def) = ctx.schema.types.get(&*type_name_str) {
-                        let field_exists = match type_def {
-                            ExtendedType::Object(obj) => obj.fields.contains_key(field_name_str),
-                            ExtendedType::Interface(iface) => {
-                                iface.fields.contains_key(field_name_str)
+                    for field_name_str in fields_to_check {
+                        if let Some(rule) = rules.get_required_rule(&type_name_str, field_name_str)
+                        {
+                            if !rule.applies_to_operation(operation_type.as_ref()) {
+                                continue;
                             }
-                            _ => false,
-                        };
 
-                        if field_exists {
+                            let type_fields = ctx
+                                .type_condition_fields
+                                .get(response_key)
+                                .and_then(|m| m.get(type_name));
+
                             let is_selected = type_fields
-                                .is_some_and(|f| f.contains(field_name_str))
-                                || base_selected_fields.is_some_and(|f| f.contains(field_name_str));
+                                .is_some_and(|f| f.contains(field_name_str.as_str()))
+                                || base_selected_fields
+                                    .is_some_and(|f| f.contains(field_name_str.as_str()));
 
                             if !is_selected {
                                 let type_condition_requirement = format!(
-                                    "{}:{}:{}",
+                                    "{}:{}:{}:{}",
+                                    type_name_str,
                                     field_name_str,
                                     response_key.as_ref(),
                                     type_name
@@ -390,7 +407,7 @@ pub(super) fn check_required_fields(
                                         severity: Some(DiagnosticSeverity::ERROR),
                                         message: format!(
                                             "Required field '{}' must be selected in '... on {}'{}",
-                                            field_name,
+                                            field_name_str,
                                             type_name,
                                             rule.reason()
                                                 .map(|r| format!(": {}", r))
@@ -423,7 +440,6 @@ pub(super) fn check_forbidden_fields(
         && let Some(operation_type) = ctx.current_operation_type.clone()
     {
         let rules = config.rules();
-        let forbidden_fields = rules.forbidden_fields();
 
         // Find the name node of the operation for the diagnostic range fallback
         let mut cursor = node.walk();
@@ -432,169 +448,173 @@ pub(super) fn check_forbidden_fields(
             .map(|n| this.translate_to_file_range(n, offset))
             .unwrap_or_else(|| this.translate_to_file_range(node, offset));
 
-        for (field_name, rule) in forbidden_fields {
-            if !rule.applies_to_operation(operation_type.as_ref()) {
-                continue;
-            }
+        // 1. Check all selected fields (recursive check)
+        for (response_key, selected_fields) in &ctx.response_key_selected_fields {
+            if let Some(type_def) = ctx.response_key_types.get(response_key) {
+                let type_name = type_def.name().as_str();
 
-            let field_name_str = field_name.as_str();
-
-            // 1. Check root-level forbidden fields (fields on Query/Mutation/Subscription)
-            for (response_key, selected_fields) in &ctx.response_key_selected_fields {
-                if ctx.root_response_keys.contains(response_key)
-                    && selected_fields.contains(field_name_str)
-                {
-                    // Find the field node for the diagnostic at root level
-                    if let Some(field_node) = find_root_field_node_by_name(
-                        this,
-                        node,
-                        offset,
-                        response_key,
-                        field_name_str,
-                    ) {
-                        let Some(_anchor_range) = resolve_anchor_and_check_ignore(
-                            this,
-                            node,
-                            offset,
-                            ctx,
-                            response_key,
-                            operation_range,
-                        ) else {
+                for field_name_str in selected_fields {
+                    let rule = rules.get_forbidden_rule(type_name, field_name_str);
+                    if let Some(rule) = rule {
+                        if !rule.applies_to_operation(operation_type.as_ref()) {
                             continue;
+                        }
+
+                        // Find the field node for the diagnostic
+                        // The forbidden field is a selection INSIDE this response_key
+                        // OR it IS the root selection itself (if the root type has a forbidden field)
+
+                        let field_node = if ctx.root_response_keys.contains(response_key) {
+                            // Check if the root selection itself is the forbidden field
+                            // (e.g. Query.users is forbidden)
+                            let root_type_name = match operation_type.as_ref() {
+                                "query" => ctx.schema.root_operation(OperationType::Query),
+                                "mutation" => ctx.schema.root_operation(OperationType::Mutation),
+                                "subscription" => {
+                                    ctx.schema.root_operation(OperationType::Subscription)
+                                }
+                                _ => None,
+                            };
+
+                            let mut found_node = None;
+                            if let Some(rtn) = root_type_name
+                                && rtn.as_str() == type_name
+                                && let Some(n) = find_root_field_node_by_name(
+                                    this,
+                                    node,
+                                    offset,
+                                    response_key,
+                                    field_name_str,
+                                )
+                            {
+                                found_node = Some(n);
+                            }
+
+                            if found_node.is_none() {
+                                // It's a field inside the root selection
+                                find_field_node_by_name(
+                                    this,
+                                    node,
+                                    offset,
+                                    response_key,
+                                    field_name_str,
+                                )
+                            } else {
+                                found_node
+                            }
+                        } else {
+                            find_field_node_by_name(
+                                this,
+                                node,
+                                offset,
+                                response_key,
+                                field_name_str,
+                            )
                         };
 
-                        // Use the field_node range for the diagnostic, but only if the anchor is NOT ignored
-                        let diagnostic_range = this.translate_to_file_range(field_node, offset);
+                        if let Some(field_node) = field_node {
+                            let Some(_anchor_range) = resolve_anchor_and_check_ignore(
+                                this,
+                                node,
+                                offset,
+                                ctx,
+                                response_key,
+                                operation_range,
+                            ) else {
+                                continue;
+                            };
 
-                        push_forbidden_field_diagnostic(
-                            ctx.diagnostics,
-                            Diagnostic {
-                                range: diagnostic_range,
-                                severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!(
-                                    "Field '{}' is forbidden in {} operations{}",
-                                    field_name,
-                                    operation_type,
-                                    rule.reason()
-                                        .map(|r| format!(": {}", r))
-                                        .unwrap_or_default()
-                                ),
-                                code: Some(NumberOrString::String(
-                                    "forbidden_field_selected".to_string(),
-                                )),
-                                data: Some(serde_json::json!({
-                                    "scope": "operation",
-                                    "field_name": field_name_str
-                                })),
-                                source: DIAGNOSTIC_SOURCE.map(String::from),
-                                ..Default::default()
-                            },
-                        );
+                            let diagnostic_range = this.translate_to_file_range(field_node, offset);
+
+                            push_forbidden_field_diagnostic(
+                                ctx.diagnostics,
+                                Diagnostic {
+                                    range: diagnostic_range,
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: format!(
+                                        "Field '{}' is forbidden on type '{}' in {} operations{}",
+                                        field_name_str,
+                                        type_name,
+                                        operation_type,
+                                        rule.reason()
+                                            .map(|r| format!(": {}", r))
+                                            .unwrap_or_default()
+                                    ),
+                                    code: Some(NumberOrString::String(
+                                        "forbidden_field_selected".to_string(),
+                                    )),
+                                    data: Some(serde_json::json!({
+                                        "scope": "response_key",
+                                        "response_key": response_key.as_ref(),
+                                        "field_name": field_name_str.as_ref()
+                                    })),
+                                    source: DIAGNOSTIC_SOURCE.map(String::from),
+                                    ..Default::default()
+                                },
+                            );
+                        }
                     }
                 }
             }
+        }
 
-            // 2. Check all other levels (recursive results)
-            for (response_key, selected_fields) in &ctx.response_key_selected_fields {
-                if selected_fields.contains(field_name_str) {
-                    // Find the field node for the diagnostic
-                    if let Some(field_node) =
-                        find_field_node_by_name(this, node, offset, response_key, field_name_str)
-                    {
-                        let Some(_anchor_range) = resolve_anchor_and_check_ignore(
-                            this,
-                            node,
-                            offset,
-                            ctx,
-                            response_key,
-                            operation_range,
-                        ) else {
+        // Also check type conditions (inline fragments)
+        for (response_key, type_fields) in &ctx.type_condition_fields {
+            for (type_name, fields) in type_fields {
+                for field_name_str in fields {
+                    if let Some(rule) = rules.get_forbidden_rule(type_name, field_name_str) {
+                        if !rule.applies_to_operation(operation_type.as_ref()) {
                             continue;
-                        };
+                        }
 
-                        let diagnostic_range = this.translate_to_file_range(field_node, offset);
-
-                        push_forbidden_field_diagnostic(
-                            ctx.diagnostics,
-                            Diagnostic {
-                                range: diagnostic_range,
-                                severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!(
-                                    "Field '{}' is forbidden in {} operations{}",
-                                    field_name,
-                                    operation_type,
-                                    rule.reason()
-                                        .map(|r| format!(": {}", r))
-                                        .unwrap_or_default()
-                                ),
-                                code: Some(NumberOrString::String(
-                                    "forbidden_field_selected".to_string(),
-                                )),
-                                data: Some(serde_json::json!({
-                                    "scope": "response_key",
-                                    "response_key": response_key.as_ref(),
-                                    "field_name": field_name_str
-                                })),
-                                source: DIAGNOSTIC_SOURCE.map(String::from),
-                                ..Default::default()
-                            },
-                        );
-                    }
-                }
-            }
-
-            // Also check type conditions (inline fragments)
-            for (response_key, type_fields) in &ctx.type_condition_fields {
-                for (type_name, fields) in type_fields {
-                    if fields.contains(field_name_str)
-                        && let Some(field_node) = find_field_node_in_type_condition(
+                        if let Some(field_node) = find_field_node_in_type_condition(
                             this,
                             node,
                             offset,
                             response_key,
                             type_name,
                             field_name_str,
-                        )
-                    {
-                        let Some(_anchor_range) = resolve_anchor_and_check_ignore(
-                            this,
-                            node,
-                            offset,
-                            ctx,
-                            response_key,
-                            operation_range,
-                        ) else {
-                            continue;
-                        };
+                        ) {
+                            let Some(_anchor_range) = resolve_anchor_and_check_ignore(
+                                this,
+                                node,
+                                offset,
+                                ctx,
+                                response_key,
+                                operation_range,
+                            ) else {
+                                continue;
+                            };
 
-                        let diagnostic_range = this.translate_to_file_range(field_node, offset);
+                            let diagnostic_range = this.translate_to_file_range(field_node, offset);
 
-                        push_forbidden_field_diagnostic(
-                            ctx.diagnostics,
-                            Diagnostic {
-                                range: diagnostic_range,
-                                severity: Some(DiagnosticSeverity::ERROR),
-                                message: format!(
-                                    "Field '{}' is forbidden on '... on {}' in {} operations{}",
-                                    field_name,
-                                    type_name,
-                                    operation_type,
-                                    rule.reason()
-                                        .map(|r| format!(": {}", r))
-                                        .unwrap_or_default()
-                                ),
-                                code: Some(NumberOrString::String(
-                                    "forbidden_field_selected".to_string(),
-                                )),
-                                data: Some(serde_json::json!({
-                                    "scope": "response_key",
-                                    "response_key": response_key.as_ref(),
-                                    "field_name": field_name_str
-                                })),
-                                source: DIAGNOSTIC_SOURCE.map(String::from),
-                                ..Default::default()
-                            },
-                        );
+                            push_forbidden_field_diagnostic(
+                                ctx.diagnostics,
+                                Diagnostic {
+                                    range: diagnostic_range,
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: format!(
+                                        "Field '{}' is forbidden on '... on {}' in {} operations{}",
+                                        field_name_str,
+                                        type_name,
+                                        operation_type,
+                                        rule.reason()
+                                            .map(|r| format!(": {}", r))
+                                            .unwrap_or_default()
+                                    ),
+                                    code: Some(NumberOrString::String(
+                                        "forbidden_field_selected".to_string(),
+                                    )),
+                                    data: Some(serde_json::json!({
+                                        "scope": "response_key",
+                                        "response_key": response_key.as_ref(),
+                                        "field_name": field_name_str.as_ref()
+                                    })),
+                                    source: DIAGNOSTIC_SOURCE.map(String::from),
+                                    ..Default::default()
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -682,11 +702,7 @@ fn find_field_node_by_name<'a>(
                         key = this.get_node_text(alias_name, offset);
                     }
 
-                    // For find_field_node_by_name (recursive check), the forbidden field
-                    // is a selection INSIDE this field.
                     if key == response_key {
-                        // Skip if the field itself is the forbidden field (that's root level or other level)
-                        // Actually, if key == response_key, we want to look inside.
                         if let Some(selection_set) = components.selection_set {
                             let mut inner_cursor = selection_set.walk();
                             for inner_selection in selection_set.children(&mut inner_cursor) {
@@ -713,13 +729,9 @@ fn find_field_node_by_name<'a>(
                         }
                     } else if let Some(_selection_set) = components.selection_set {
                         // Recurse into nested selection sets
-                        if let Some(found) = find_field_node_by_name(
-                            this,
-                            field, // Use field as new root
-                            offset,
-                            response_key,
-                            field_name,
-                        ) {
+                        if let Some(found) =
+                            find_field_node_by_name(this, field, offset, response_key, field_name)
+                        {
                             return Some(found);
                         }
                     }
@@ -817,7 +829,7 @@ fn find_field_node_in_type_condition<'a>(
                         // Recurse into nested selection sets
                         if let Some(found) = find_field_node_in_type_condition(
                             this,
-                            field, // Use field as new root
+                            field,
                             offset,
                             response_key,
                             type_name,

@@ -35,12 +35,17 @@ pub fn clear_globset_cache() {
 
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
-    required_fields: Option<AHashMap<String, RequiredFieldRule>>,
-    forbidden_fields: Option<AHashMap<String, ForbiddenFieldRule>>,
+    required_fields: Option<AHashMap<String, FieldRule>>,
+    forbidden_fields: Option<AHashMap<String, FieldRule>>,
+    required_fields_by_type: Option<AHashMap<String, AHashMap<String, FieldRule>>>,
+    forbidden_fields_by_type: Option<AHashMap<String, AHashMap<String, FieldRule>>>,
     unique_operation_name: Option<bool>,
     no_duplicate_fields: Option<bool>,
     no_unused_fragments: Option<bool>,
 }
+
+pub type RequiredFieldRule = FieldRule;
+pub type ForbiddenFieldRule = FieldRule;
 
 impl RulesConfig {
     pub fn with_unique_operation_name(mut self, enabled: bool) -> Self {
@@ -58,26 +63,60 @@ impl RulesConfig {
         self
     }
 
-    pub fn with_required_fields(mut self, fields: AHashMap<String, RequiredFieldRule>) -> Self {
+    pub fn with_required_fields(mut self, fields: AHashMap<String, FieldRule>) -> Self {
         self.required_fields = Some(fields);
         self
     }
 
-    pub fn with_forbidden_fields(mut self, fields: AHashMap<String, ForbiddenFieldRule>) -> Self {
+    pub fn with_forbidden_fields(mut self, fields: AHashMap<String, FieldRule>) -> Self {
         self.forbidden_fields = Some(fields);
         self
     }
 
-    pub fn required_fields(&self) -> &AHashMap<String, RequiredFieldRule> {
-        static EMPTY: LazyLock<AHashMap<String, RequiredFieldRule>> =
-            LazyLock::new(AHashMap::default);
+    pub fn required_fields(&self) -> &AHashMap<String, FieldRule> {
+        static EMPTY: LazyLock<AHashMap<String, FieldRule>> = LazyLock::new(AHashMap::default);
         self.required_fields.as_ref().unwrap_or(&EMPTY)
     }
 
-    pub fn forbidden_fields(&self) -> &AHashMap<String, ForbiddenFieldRule> {
-        static EMPTY: LazyLock<AHashMap<String, ForbiddenFieldRule>> =
-            LazyLock::new(AHashMap::default);
+    pub fn forbidden_fields(&self) -> &AHashMap<String, FieldRule> {
+        static EMPTY: LazyLock<AHashMap<String, FieldRule>> = LazyLock::new(AHashMap::default);
         self.forbidden_fields.as_ref().unwrap_or(&EMPTY)
+    }
+
+    pub fn required_fields_by_type(&self) -> &AHashMap<String, AHashMap<String, FieldRule>> {
+        static EMPTY: LazyLock<AHashMap<String, AHashMap<String, FieldRule>>> =
+            LazyLock::new(AHashMap::default);
+        self.required_fields_by_type.as_ref().unwrap_or(&EMPTY)
+    }
+
+    pub fn forbidden_fields_by_type(&self) -> &AHashMap<String, AHashMap<String, FieldRule>> {
+        static EMPTY: LazyLock<AHashMap<String, AHashMap<String, FieldRule>>> =
+            LazyLock::new(AHashMap::default);
+        self.forbidden_fields_by_type.as_ref().unwrap_or(&EMPTY)
+    }
+
+    pub fn get_required_rule(&self, type_name: &str, field_name: &str) -> Option<&FieldRule> {
+        // 1. Check type-specific rule
+        if let Some(type_rules) = self.required_fields_by_type().get(type_name)
+            && let Some(rule) = type_rules.get(field_name)
+        {
+            return Some(rule);
+        }
+
+        // 2. Fall back to global rule
+        self.required_fields().get(field_name)
+    }
+
+    pub fn get_forbidden_rule(&self, type_name: &str, field_name: &str) -> Option<&FieldRule> {
+        // 1. Check type-specific rule
+        if let Some(type_rules) = self.forbidden_fields_by_type().get(type_name)
+            && let Some(rule) = type_rules.get(field_name)
+        {
+            return Some(rule);
+        }
+
+        // 2. Fall back to global rule
+        self.forbidden_fields().get(field_name)
     }
 
     pub fn unique_operation_name(&self) -> bool {
@@ -103,6 +142,14 @@ impl RulesConfig {
             merged.forbidden_fields = other.forbidden_fields.clone();
         }
 
+        if other.required_fields_by_type.is_some() {
+            merged.required_fields_by_type = other.required_fields_by_type.clone();
+        }
+
+        if other.forbidden_fields_by_type.is_some() {
+            merged.forbidden_fields_by_type = other.forbidden_fields_by_type.clone();
+        }
+
         if other.unique_operation_name.is_some() {
             merged.unique_operation_name = other.unique_operation_name;
         }
@@ -124,33 +171,83 @@ impl RulesConfig {
         let mut rules = RulesConfig::default();
 
         if let Some(rf_hash) = node["required_fields"].as_hash() {
-            let mut required_fields = AHashMap::default();
+            let mut global_fields = AHashMap::default();
+            let mut type_specific_fields = AHashMap::default();
+
             for (k, v) in rf_hash {
-                if let (Some(k), Some(rule)) = (k.as_str(), RequiredFieldRule::from_yaml(v)) {
-                    required_fields.insert(k.to_string(), rule);
+                if let Some(key) = k.as_str() {
+                    // Distinguish between field rule and type namespace
+                    if v.as_bool().is_some()
+                        || v.as_vec().is_some()
+                        || v["enabled"].as_str().is_some()
+                        || v["enabled"].as_bool().is_some()
+                        || v["enabled"].as_vec().is_some()
+                    {
+                        if let Some(rule) = FieldRule::from_yaml(v) {
+                            global_fields.insert(key.to_string(), rule);
+                        }
+                    } else if let Some(type_hash) = v.as_hash() {
+                        // It's a type namespace
+                        let mut field_rules = AHashMap::default();
+                        for (fk, fv) in type_hash {
+                            if let (Some(field_key), Some(rule)) =
+                                (fk.as_str(), FieldRule::from_yaml(fv))
+                            {
+                                field_rules.insert(field_key.to_string(), rule);
+                            }
+                        }
+                        type_specific_fields.insert(key.to_string(), field_rules);
+                    }
                 }
             }
-            rules.required_fields = Some(required_fields);
+            rules.required_fields = Some(global_fields);
+            rules.required_fields_by_type = Some(type_specific_fields);
         }
 
         // Handle `required_fields: false` shorthand to disable all required fields
         if let Some(false) = node["required_fields"].as_bool() {
             rules.required_fields = Some(AHashMap::default());
+            rules.required_fields_by_type = Some(AHashMap::default());
         }
 
         if let Some(ff_hash) = node["forbidden_fields"].as_hash() {
-            let mut forbidden_fields = AHashMap::default();
+            let mut global_fields = AHashMap::default();
+            let mut type_specific_fields = AHashMap::default();
+
             for (k, v) in ff_hash {
-                if let (Some(k), Some(rule)) = (k.as_str(), ForbiddenFieldRule::from_yaml(v)) {
-                    forbidden_fields.insert(k.to_string(), rule);
+                if let Some(key) = k.as_str() {
+                    // Distinguish between field rule and type namespace
+                    if v.as_bool().is_some()
+                        || v.as_vec().is_some()
+                        || v["enabled"].as_str().is_some()
+                        || v["enabled"].as_bool().is_some()
+                        || v["enabled"].as_vec().is_some()
+                    {
+                        if let Some(rule) = FieldRule::from_yaml(v) {
+                            global_fields.insert(key.to_string(), rule);
+                        }
+                    } else if let Some(type_hash) = v.as_hash() {
+                        // It's a type namespace
+                        let mut field_rules = AHashMap::default();
+                        for (fk, fv) in type_hash {
+                            if let (Some(field_key), Some(rule)) =
+                                (fk.as_str(), FieldRule::from_yaml(fv))
+                            {
+                                field_rules.insert(field_key.to_string(), rule);
+                            }
+                        }
+                        type_specific_fields.insert(key.to_string(), field_rules);
+                    }
                 }
             }
-            rules.forbidden_fields = Some(forbidden_fields);
+            rules.forbidden_fields = Some(global_fields);
+            rules.forbidden_fields_by_type = Some(type_specific_fields);
         }
 
         // Handle `forbidden_fields: false` shorthand to disable all forbidden fields
         if let Some(false) = node["forbidden_fields"].as_bool() {
             rules.forbidden_fields = Some(AHashMap::default());
+            rules.forbidden_fields_by_type = Some(AHashMap::default());
         }
 
         rules.unique_operation_name = node["unique_operation_name"].as_bool();
@@ -181,6 +278,9 @@ impl FieldEnabled {
         if let Some(b) = node.as_bool() {
             return Some(FieldEnabled::Always(b));
         }
+        if let Some(s) = node.as_str() {
+            return Some(FieldEnabled::Operations(vec![s.to_string()]));
+        }
         if let Some(v) = node.as_vec() {
             let ops = v
                 .iter()
@@ -193,12 +293,12 @@ impl FieldEnabled {
 }
 
 #[derive(Debug, Clone)]
-pub struct RequiredFieldRule {
+pub struct FieldRule {
     enabled: FieldEnabled,
     reason: Option<String>,
 }
 
-impl RequiredFieldRule {
+impl FieldRule {
     pub fn new_always(enabled: bool) -> Self {
         Self {
             enabled: FieldEnabled::Always(enabled),
@@ -228,7 +328,7 @@ impl RequiredFieldRule {
 
     fn from_yaml(node: &Yaml) -> Option<Self> {
         if let Some(enabled) = FieldEnabled::from_yaml(node) {
-            return Some(RequiredFieldRule {
+            return Some(FieldRule {
                 enabled,
                 reason: None,
             });
@@ -239,62 +339,7 @@ impl RequiredFieldRule {
             let reason = node["reason"].as_str().map(String::from);
 
             if let Some(enabled) = FieldEnabled::from_yaml(enabled_node) {
-                return Some(RequiredFieldRule { enabled, reason });
-            }
-        }
-
-        None
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ForbiddenFieldRule {
-    enabled: FieldEnabled,
-    reason: Option<String>,
-}
-
-impl ForbiddenFieldRule {
-    pub fn new_always(enabled: bool) -> Self {
-        Self {
-            enabled: FieldEnabled::Always(enabled),
-            reason: None,
-        }
-    }
-
-    pub fn new_operations(ops: Vec<String>) -> Self {
-        Self {
-            enabled: FieldEnabled::Operations(ops),
-            reason: None,
-        }
-    }
-
-    pub fn with_reason(mut self, reason: String) -> Self {
-        self.reason = Some(reason);
-        self
-    }
-
-    pub fn applies_to_operation(&self, operation_type: &str) -> bool {
-        self.enabled.applies_to_operation(operation_type)
-    }
-
-    pub fn reason(&self) -> Option<&str> {
-        self.reason.as_deref()
-    }
-
-    fn from_yaml(node: &Yaml) -> Option<Self> {
-        if let Some(enabled) = FieldEnabled::from_yaml(node) {
-            return Some(ForbiddenFieldRule {
-                enabled,
-                reason: None,
-            });
-        }
-
-        if let Some(_map) = node.as_hash() {
-            let enabled_node = &node["enabled"];
-            let reason = node["reason"].as_str().map(String::from);
-
-            if let Some(enabled) = FieldEnabled::from_yaml(enabled_node) {
-                return Some(ForbiddenFieldRule { enabled, reason });
+                return Some(FieldRule { enabled, reason });
             }
         }
 

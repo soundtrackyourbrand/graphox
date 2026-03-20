@@ -18,7 +18,7 @@ fn test_required_field_always_true() {
         query GetUsers {
             users {
                 id
-                username
+                name
             }
         }
     "#;
@@ -80,30 +80,82 @@ fn test_required_field_missing_always_true() {
     );
 
     assert_diagnostics_count(&diagnostics, 1);
-    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'users' must be selected in query operations",
+    );
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
     assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "posts"));
 }
 
 #[test]
 #[ntest::timeout(300)]
-fn test_required_field_always_false() {
+fn test_required_field_type_specific() {
     let text = r#"
-        query GetPosts {
-            posts {
+        query GetData {
+            users {
                 id
+            }
+            posts {
                 title
             }
         }
     "#;
     let doc = create_doc("file:///test.graphql", text);
 
-    // Create config with required field rule (always false)
-    let mut required_fields = AHashMap::default();
-    required_fields.insert("users".to_string(), RequiredFieldRule::new_always(false));
+    let yaml = r#"
+      required_fields:
+        User:
+          name: true
+    "#;
+    let yaml_docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+    let rules = RulesConfig::from_yaml(&yaml_docs[0]).unwrap();
 
-    let config =
-        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+    let config = Config::default().with_rules(rules);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // Should error on User (missing name) but NOT on Post (name not required there)
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'name' must be selected in 'users'",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_type_override() {
+    let text = r#"
+        query GetUsers {
+            users {
+                name
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    // Global required, but disabled on User
+    let yaml = r#"
+      required_fields:
+        id: true
+        User:
+          id: false
+    "#;
+    let yaml_docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+    let rules = RulesConfig::from_yaml(&yaml_docs[0]).unwrap();
+
+    let config = Config::default().with_rules(rules);
 
     let diagnostics = doc.get_semantic_diagnostics(
         &fixtures::user_with_posts_schema()
@@ -156,7 +208,10 @@ fn test_required_field_specific_operation_query() {
     );
 
     assert_diagnostics_count(&diagnostics, 1);
-    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'users' must be selected in query operations",
+    );
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
     assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "posts"));
 }
@@ -235,7 +290,10 @@ fn test_multiple_required_fields() {
     // both users and posts should be selected on Query
     // but users is missing
     assert_diagnostics_count(&diagnostics, 1);
-    let d = assert_diagnostic_with_message(&diagnostics, "Required field 'users'");
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'users' must be selected in query operations",
+    );
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
     assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "posts"));
 }
@@ -277,7 +335,7 @@ fn test_required_field_with_reason() {
     let text = r#"
         query GetUsers {
             users {
-                username
+                name
             }
         }
     "#;
@@ -434,7 +492,7 @@ fn test_required_field_ignored_with_inline_comment() {
     let text = r#"
         query {
             users { # graphox-ignore
-                username
+                name
             }
         }
     "#;
