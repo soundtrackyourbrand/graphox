@@ -163,7 +163,7 @@ pub fn user_with_posts_schema() -> &'static Schema {
                 }
                 type User {
                     id: ID!
-                    username: String
+                    name: String
                     password: String
                 }
                 type Post {

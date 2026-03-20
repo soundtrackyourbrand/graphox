@@ -169,7 +169,7 @@ fn test_validation_nested_missing_field() {
                 posts {
                     id
                     author {
-                        username
+                        name
                         missingInAuthor
                     }
                 }
@@ -199,7 +199,7 @@ fn test_validation_nested_missing_field() {
                 posts {
                     id
                     author {
-                        username
+                        name
                         missingInAuthor
                     }
                 }

@@ -107,24 +107,32 @@ query GetUser {
 
 ## required_fields
 
-Ensures operations include required fields if the types expose them. Each field can be required for all operations or specific operation types.
+Ensures operations include required fields if the types expose them. Each field can be required for all operations or specific operation types. You can also restrict rules to specific GraphQL types.
 
 **Enable:**
 ```yaml
 rules:
   required_fields:
-    id: true               # Required in all operations
-    permissions: ["query"] # Required only in queries
-    requestId:
-      enabled: ["mutation"]
-      reason: "Request IDs are required for tracing mutation results"
+    id: true               # Required on ALL types in all operations
+    permissions: ["query"] # Required on ALL types only in queries
+
+    User:                  # Type-specific rules
+      email: true          # Required only on User type
+      name:
+        enabled: ["query"]
+        reason: "Names are required for display"
 ```
 
 **Options per field:**
 - `true` - Required in all operations (query, mutation, subscription)
-- `false` - Disabled (field not required)
+- `false` - Disabled (field not required). If used inside a type namespace, it overrides a global rule.
 - `["query", "mutation", "subscription"]` - Required only in specified operation types
 - `{ enabled: ..., reason: "..." }` - Specify rule and a reason that appears in diagnostics
+
+**Resolution Order:**
+1. Type-specific rule (e.g., `User: { email: true }`)
+2. Global rule (e.g., `email: true`)
+3. If neither exists, the field is not required.
 
 **Inline ignore comments:**
 
@@ -160,24 +168,33 @@ query GetUser {
 
 ## forbidden_fields
 
-Ensures operations do NOT include forbidden fields. Each field can be forbidden for all operations or specific operation types.
+Ensures operations do NOT include forbidden fields. Each field can be forbidden for all operations or specific operation types. You can also restrict rules to specific GraphQL types.
 
 **Enable:**
 ```yaml
 rules:
   forbidden_fields:
-    password: true               # Forbidden in all operations
-    internalNote: ["mutation"]   # Forbidden only in mutations
-    auditLog:
-      enabled: true
-      reason: "Use the dedicated audit system instead of fetching logs directly"
+    password: true               # Forbidden on ALL types in all operations
+    internalNote: ["mutation"]   # Forbidden on ALL types only in mutations
+    
+    User:                        # Type-specific rules
+      name: true                 # Forbidden only on User type
+      email: false               # Explicitly allowed on User (overrides global)
+      auditLog:
+        enabled: true
+        reason: "Use the dedicated audit system"
 ```
 
 **Options per field:**
 - `true` - Forbidden in all operations (query, mutation, subscription)
-- `false` - Disabled (field not forbidden)
+- `false` - Disabled (field not forbidden). If used inside a type namespace, it overrides a global rule.
 - `["query", "mutation", "subscription"]` - Forbidden only in specified operation types
 - `{ enabled: ..., reason: "..." }` - Specify rule and a reason that appears in diagnostics
+
+**Resolution Order:**
+1. Type-specific rule (e.g., `User: { name: true }`)
+2. Global rule (e.g., `name: true`)
+3. If neither exists, the field is not forbidden.
 
 **Inline ignore comments:**
 
