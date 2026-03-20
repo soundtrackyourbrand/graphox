@@ -102,6 +102,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
 
     if !success {
         reporter.report_failure();
+        graphox_core::utils::flush_stdio();
         std::process::exit(1);
     } else {
         reporter.report_success(verbose);

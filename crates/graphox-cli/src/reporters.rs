@@ -39,7 +39,7 @@ impl Reporter for DefaultReporter {
                 _ => ("Diagnostic".normal(), diagnostic.message.normal()),
             };
 
-            println!(
+            let rendered = format!(
                 "File: {}\n  [{}:{}] {}: {}",
                 path.display().to_string().blue(),
                 (diagnostic.range.start.line + 1).to_string().bright_black(),
@@ -49,18 +49,23 @@ impl Reporter for DefaultReporter {
                 severity_label,
                 colored_msg
             );
+            if is_issue {
+                eprintln!("{rendered}");
+            } else {
+                println!("{rendered}");
+            }
         }
     }
 
     fn report_duplicate_operation(&self, op_name: &str, project_name: &str, paths: &[&Path]) {
-        println!(
+        eprintln!(
             "\n{} Duplicate operation name '{}' in project {}:",
             "Error:".red(),
             op_name.yellow(),
             project_name.blue()
         );
         for path in paths {
-            println!("  - {}", path.display().to_string().blue());
+            eprintln!("  - {}", path.display().to_string().blue());
         }
     }
 
@@ -77,7 +82,7 @@ impl Reporter for DefaultReporter {
     }
 
     fn report_failure(&self) {
-        println!("\n{}", "Check failed.".red());
+        eprintln!("\n{}", "Check failed.".red());
     }
 }
 

@@ -2,6 +2,7 @@ use crate::document::DocumentState;
 use crate::queries::*;
 use colored::*;
 use lsp_types::*;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tree_sitter::StreamingIterator;
 
@@ -16,6 +17,11 @@ pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
 ];
 
 pub const DIAGNOSTIC_SOURCE: Option<&'static str> = Some("graphox");
+
+pub fn flush_stdio() {
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+}
 
 #[repr(u32)]
 pub enum SemanticTokenKind {
