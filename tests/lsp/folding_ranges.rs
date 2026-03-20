@@ -34,6 +34,37 @@ query GetUser($id: ID!) {
 
 #[test]
 #[ntest::timeout(3000)]
+fn test_folding_ranges_description_string() {
+    let text = r#"
+        """
+        {
+          "data": ...
+          "errors": [...]
+        }
+        """
+    type Mutation {
+        user: User
+    }
+    "#;
+    let doc = create_doc("file:///schema.graphqls", text);
+    let ranges = doc.get_folding_ranges();
+
+    // Should NOT have any folding ranges that span INSIDE the string_value
+    // (the description content should not be foldable as regions)
+    let has_string_value_folding = ranges.iter().any(|r| {
+        // Check if any folding range starts AFTER the description start line (line 1)
+        // but BEFORE where the actual type definition starts (line 8)
+        r.start_line > 1 && r.end_line < 8
+    });
+    assert!(
+        !has_string_value_folding,
+        "Should not fold content inside string_value, got: {:?}",
+        ranges
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
 fn test_folding_ranges_fragment() {
     let text = r#"
 fragment UserFields on User {
