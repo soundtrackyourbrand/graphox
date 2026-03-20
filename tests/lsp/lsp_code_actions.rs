@@ -104,7 +104,7 @@ async fn test_lsp_required_field_code_action() {
 
     // Create config with required field rule
     let mut required_fields = AHashMap::default();
-    required_fields.insert("requestId".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("requestId".to_string(), RequiredFieldRule::new_always(true));
 
     let schema = "type User { id: ID! name: String } type Query { me: User requestId: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "query.graphql");
@@ -207,7 +207,10 @@ async fn test_lsp_required_field_nested_code_action_targets_nested_selection() {
     use ahash::AHashMap;
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("permissions".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_always(true),
+    );
 
     let schema = "type Query { radioPlaylist(id: ID!, kind: RadioPlaylistKind): RadioPlaylist } enum RadioPlaylistKind { A } interface Displayable { id: ID } type RadioPlaylist { id: ID permissions: String playlist: Playlist } type Playlist implements Displayable { id: ID permissions: String name: String composerType: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.{tsx,graphql}");
@@ -316,7 +319,7 @@ async fn test_lsp_required_field_code_actions_dedup_duplicate_diagnostics() {
     use ahash::AHashMap;
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("requestId".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("requestId".to_string(), RequiredFieldRule::new_always(true));
 
     let schema = "type User { id: ID! name: String } type Query { me: User requestId: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "query.graphql");

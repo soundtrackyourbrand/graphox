@@ -10,8 +10,8 @@ use tower_lsp::lsp_types::*;
 #[ntest::timeout(3000)]
 async fn test_add_multiple_required() {
     let mut required_fields = AHashMap::default();
-    required_fields.insert("name".to_string(), RequiredFieldRule::Always(true));
-    required_fields.insert("email".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("name".to_string(), RequiredFieldRule::new_always(true));
+    required_fields.insert("email".to_string(), RequiredFieldRule::new_always(true));
 
     let schema = "type User { id: ID! name: String! email: String! } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -97,7 +97,7 @@ async fn test_add_multiple_required() {
 #[ntest::timeout(3000)]
 async fn test_ignore_nested_required() {
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let schema = "type User { id: ID! posts: [Post!] } type Post { id: ID! title: String! } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -164,7 +164,7 @@ async fn test_ignore_nested_required() {
 #[ntest::timeout(3000)]
 async fn test_add_required_to_fragment() {
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let schema = "type User { id: ID! name: String! } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -231,7 +231,7 @@ async fn test_add_required_to_fragment() {
 #[ntest::timeout(3000)]
 async fn test_add_required_field_targets_nested_response_key_selection() {
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let schema = r#"
         type Query { viewer: Viewer }

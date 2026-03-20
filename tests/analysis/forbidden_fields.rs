@@ -24,7 +24,7 @@ fn test_forbidden_field_always_true() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut forbidden_fields = AHashMap::default();
-    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::Always(true));
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
 
     let config = Config::default()
         .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
@@ -62,7 +62,10 @@ fn test_forbidden_field_always_false() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut forbidden_fields = AHashMap::default();
-    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::Always(false));
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_always(false),
+    );
 
     let config = Config::default()
         .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
@@ -99,7 +102,7 @@ fn test_forbidden_field_specific_operation_mutation() {
     let mut forbidden_fields = AHashMap::default();
     forbidden_fields.insert(
         "password".to_string(),
-        ForbiddenFieldRule::Operations(vec!["mutation".to_string()]),
+        ForbiddenFieldRule::new_operations(vec!["mutation".to_string()]),
     );
 
     let config = Config::default()
@@ -126,16 +129,16 @@ fn test_forbidden_field_specific_operation_mutation() {
 fn test_forbidden_field_ignored_with_inline_comment() {
     let text = r#"
         query GetUsers {
-            users {
+            users { # graphox-ignore
                 id
-                password # graphox-ignore
+                password
             }
         }
     "#;
     let doc = create_doc("file:///test.graphql", text);
 
     let mut forbidden_fields = AHashMap::default();
-    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::Always(true));
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
 
     let config = Config::default()
         .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
@@ -157,6 +160,48 @@ fn test_forbidden_field_ignored_with_inline_comment() {
 
 #[test]
 #[ntest::timeout(300)]
+fn test_forbidden_field_with_reason() {
+    let text = r#"
+        query GetUsers {
+            users {
+                id
+                password
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_always(true)
+            .with_reason("Passwords must not be fetched directly".to_string()),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'password' is forbidden in query operations: Passwords must not be fetched directly",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
 fn test_forbidden_field_nested() {
     let text = r#"
         query GetPosts {
@@ -169,7 +214,10 @@ fn test_forbidden_field_nested() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut forbidden_fields = AHashMap::default();
-    forbidden_fields.insert("secretField".to_string(), ForbiddenFieldRule::Always(true));
+    forbidden_fields.insert(
+        "secretField".to_string(),
+        ForbiddenFieldRule::new_always(true),
+    );
 
     let config = Config::default()
         .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));

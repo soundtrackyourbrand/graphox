@@ -243,8 +243,12 @@ pub(super) fn check_required_fields(
                                     .unwrap_or(operation_range),
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
-                                    "Required field '{}' must be selected in {} operations",
-                                    field_name, operation_type
+                                    "Required field '{}' must be selected in {} operations{}",
+                                    field_name,
+                                    operation_type,
+                                    rule.reason()
+                                        .map(|r| format!(": {}", r))
+                                        .unwrap_or_default()
                                 ),
                                 code: Some(NumberOrString::String(
                                     "required_field_missing".to_string(),
@@ -308,8 +312,12 @@ pub(super) fn check_required_fields(
                                 range: anchor_range,
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
-                                    "Required field '{}' must be selected in '{}'",
-                                    field_name, response_key
+                                    "Required field '{}' must be selected in '{}'{}",
+                                    field_name,
+                                    response_key,
+                                    rule.reason()
+                                        .map(|r| format!(": {}", r))
+                                        .unwrap_or_default()
                                 ),
                                 code: Some(NumberOrString::String(
                                     "required_field_missing".to_string(),
@@ -381,8 +389,12 @@ pub(super) fn check_required_fields(
                                         range: anchor_range,
                                         severity: Some(DiagnosticSeverity::ERROR),
                                         message: format!(
-                                            "Required field '{}' must be selected in '... on {}'",
-                                            field_name, type_name
+                                            "Required field '{}' must be selected in '... on {}'{}",
+                                            field_name,
+                                            type_name,
+                                            rule.reason()
+                                                .map(|r| format!(": {}", r))
+                                                .unwrap_or_default()
                                         ),
                                         code: Some(NumberOrString::String(
                                             "required_field_missing".to_string(),
@@ -413,6 +425,13 @@ pub(super) fn check_forbidden_fields(
         let rules = config.rules();
         let forbidden_fields = rules.forbidden_fields();
 
+        // Find the name node of the operation for the diagnostic range fallback
+        let mut cursor = node.walk();
+        let name_node = node.children(&mut cursor).find(|c| c.kind() == "name");
+        let operation_range = name_node
+            .map(|n| this.translate_to_file_range(n, offset))
+            .unwrap_or_else(|| this.translate_to_file_range(node, offset));
+
         for (field_name, rule) in forbidden_fields {
             if !rule.applies_to_operation(operation_type.as_ref()) {
                 continue;
@@ -433,20 +452,32 @@ pub(super) fn check_forbidden_fields(
                         response_key,
                         field_name_str,
                     ) {
-                        if crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                            this, field_node, offset,
-                        ) {
+                        let Some(_anchor_range) = resolve_anchor_and_check_ignore(
+                            this,
+                            node,
+                            offset,
+                            ctx,
+                            response_key,
+                            operation_range,
+                        ) else {
                             continue;
-                        }
+                        };
+
+                        // Use the field_node range for the diagnostic, but only if the anchor is NOT ignored
+                        let diagnostic_range = this.translate_to_file_range(field_node, offset);
 
                         push_forbidden_field_diagnostic(
                             ctx.diagnostics,
                             Diagnostic {
-                                range: this.translate_to_file_range(field_node, offset),
+                                range: diagnostic_range,
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
-                                    "Field '{}' is forbidden in {} operations",
-                                    field_name, operation_type
+                                    "Field '{}' is forbidden in {} operations{}",
+                                    field_name,
+                                    operation_type,
+                                    rule.reason()
+                                        .map(|r| format!(": {}", r))
+                                        .unwrap_or_default()
                                 ),
                                 code: Some(NumberOrString::String(
                                     "forbidden_field_selected".to_string(),
@@ -470,20 +501,31 @@ pub(super) fn check_forbidden_fields(
                     if let Some(field_node) =
                         find_field_node_by_name(this, node, offset, response_key, field_name_str)
                     {
-                        if crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                            this, field_node, offset,
-                        ) {
+                        let Some(_anchor_range) = resolve_anchor_and_check_ignore(
+                            this,
+                            node,
+                            offset,
+                            ctx,
+                            response_key,
+                            operation_range,
+                        ) else {
                             continue;
-                        }
+                        };
+
+                        let diagnostic_range = this.translate_to_file_range(field_node, offset);
 
                         push_forbidden_field_diagnostic(
                             ctx.diagnostics,
                             Diagnostic {
-                                range: this.translate_to_file_range(field_node, offset),
+                                range: diagnostic_range,
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
-                                    "Field '{}' is forbidden in {} operations",
-                                    field_name, operation_type
+                                    "Field '{}' is forbidden in {} operations{}",
+                                    field_name,
+                                    operation_type,
+                                    rule.reason()
+                                        .map(|r| format!(": {}", r))
+                                        .unwrap_or_default()
                                 ),
                                 code: Some(NumberOrString::String(
                                     "forbidden_field_selected".to_string(),
@@ -514,20 +556,32 @@ pub(super) fn check_forbidden_fields(
                             field_name_str,
                         )
                     {
-                        if crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                            this, field_node, offset,
-                        ) {
+                        let Some(_anchor_range) = resolve_anchor_and_check_ignore(
+                            this,
+                            node,
+                            offset,
+                            ctx,
+                            response_key,
+                            operation_range,
+                        ) else {
                             continue;
-                        }
+                        };
+
+                        let diagnostic_range = this.translate_to_file_range(field_node, offset);
 
                         push_forbidden_field_diagnostic(
                             ctx.diagnostics,
                             Diagnostic {
-                                range: this.translate_to_file_range(field_node, offset),
+                                range: diagnostic_range,
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
-                                    "Field '{}' is forbidden on '... on {}' in {} operations",
-                                    field_name, type_name, operation_type
+                                    "Field '{}' is forbidden on '... on {}' in {} operations{}",
+                                    field_name,
+                                    type_name,
+                                    operation_type,
+                                    rule.reason()
+                                        .map(|r| format!(": {}", r))
+                                        .unwrap_or_default()
                                 ),
                                 code: Some(NumberOrString::String(
                                     "forbidden_field_selected".to_string(),

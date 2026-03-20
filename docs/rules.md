@@ -115,12 +115,16 @@ rules:
   required_fields:
     id: true               # Required in all operations
     permissions: ["query"] # Required only in queries
+    requestId:
+      enabled: ["mutation"]
+      reason: "Request IDs are required for tracing mutation results"
 ```
 
 **Options per field:**
 - `true` - Required in all operations (query, mutation, subscription)
 - `false` - Disabled (field not required)
 - `["query", "mutation", "subscription"]` - Required only in specified operation types
+- `{ enabled: ..., reason: "..." }` - Specify rule and a reason that appears in diagnostics
 
 **Inline ignore comments:**
 
@@ -163,22 +167,26 @@ Ensures operations do NOT include forbidden fields. Each field can be forbidden 
 rules:
   forbidden_fields:
     password: true               # Forbidden in all operations
-    internalNote: ["mutation"] # Forbidden only in mutations
+    internalNote: ["mutation"]   # Forbidden only in mutations
+    auditLog:
+      enabled: true
+      reason: "Use the dedicated audit system instead of fetching logs directly"
 ```
 
 **Options per field:**
 - `true` - Forbidden in all operations (query, mutation, subscription)
 - `false` - Disabled (field not forbidden)
 - `["query", "mutation", "subscription"]` - Forbidden only in specified operation types
+- `{ enabled: ..., reason: "..." }` - Specify rule and a reason that appears in diagnostics
 
 **Inline ignore comments:**
 
-You can suppress a specific `forbidden_fields` diagnostic by adding `# graphox-ignore` on the same line as the forbidden field.
+You can suppress a specific `forbidden_fields` diagnostic by adding `# graphox-ignore` on the same line as the parent selection field (similar to `required_fields`).
 
 ```graphql
 query GetUser {
-  user {
-    password # graphox-ignore
+  user { # graphox-ignore
+    password
   }
 }
 ```

@@ -274,7 +274,7 @@ export const EditorialHomeDoc = graphql(/* GraphQL */ `
 "#;
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let (dir, mut config) = crate::support::make_temp_project_with_schema(schema, "**/*.ts");
     write_project_file(&dir, "components/editorial/fragments.ts", fragment_text);
@@ -358,7 +358,7 @@ export const EditorialHomeDoc = graphql(/* GraphQL */ `
     }
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
     config = config.with_rules(RulesConfig::default().with_required_fields(required_fields));
     config = config.with_timeouts(TimeoutConfig::default().with_lsp_request_ms(50));
 
