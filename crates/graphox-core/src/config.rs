@@ -36,6 +36,7 @@ pub fn clear_globset_cache() {
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
     required_fields: Option<AHashMap<String, RequiredFieldRule>>,
+    forbidden_fields: Option<AHashMap<String, ForbiddenFieldRule>>,
     unique_operation_name: Option<bool>,
     no_duplicate_fields: Option<bool>,
     no_unused_fragments: Option<bool>,
@@ -62,10 +63,21 @@ impl RulesConfig {
         self
     }
 
+    pub fn with_forbidden_fields(mut self, fields: AHashMap<String, ForbiddenFieldRule>) -> Self {
+        self.forbidden_fields = Some(fields);
+        self
+    }
+
     pub fn required_fields(&self) -> &AHashMap<String, RequiredFieldRule> {
         static EMPTY: LazyLock<AHashMap<String, RequiredFieldRule>> =
             LazyLock::new(AHashMap::default);
         self.required_fields.as_ref().unwrap_or(&EMPTY)
+    }
+
+    pub fn forbidden_fields(&self) -> &AHashMap<String, ForbiddenFieldRule> {
+        static EMPTY: LazyLock<AHashMap<String, ForbiddenFieldRule>> =
+            LazyLock::new(AHashMap::default);
+        self.forbidden_fields.as_ref().unwrap_or(&EMPTY)
     }
 
     pub fn unique_operation_name(&self) -> bool {
@@ -85,6 +97,10 @@ impl RulesConfig {
 
         if other.required_fields.is_some() {
             merged.required_fields = other.required_fields.clone();
+        }
+
+        if other.forbidden_fields.is_some() {
+            merged.forbidden_fields = other.forbidden_fields.clone();
         }
 
         if other.unique_operation_name.is_some() {
@@ -122,6 +138,21 @@ impl RulesConfig {
             rules.required_fields = Some(AHashMap::default());
         }
 
+        if let Some(ff_hash) = node["forbidden_fields"].as_hash() {
+            let mut forbidden_fields = AHashMap::default();
+            for (k, v) in ff_hash {
+                if let (Some(k), Some(rule)) = (k.as_str(), ForbiddenFieldRule::from_yaml(v)) {
+                    forbidden_fields.insert(k.to_string(), rule);
+                }
+            }
+            rules.forbidden_fields = Some(forbidden_fields);
+        }
+
+        // Handle `forbidden_fields: false` shorthand to disable all forbidden fields
+        if let Some(false) = node["forbidden_fields"].as_bool() {
+            rules.forbidden_fields = Some(AHashMap::default());
+        }
+
         rules.unique_operation_name = node["unique_operation_name"].as_bool();
         rules.no_duplicate_fields = node["no_duplicate_fields"].as_bool();
         rules.no_unused_fragments = node["no_unused_fragments"].as_bool();
@@ -156,6 +187,37 @@ impl RequiredFieldRule {
                 .filter_map(|n| n.as_str().map(String::from))
                 .collect();
             return Some(RequiredFieldRule::Operations(ops));
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ForbiddenFieldRule {
+    Always(bool),
+    Operations(Vec<String>),
+}
+
+impl ForbiddenFieldRule {
+    pub fn applies_to_operation(&self, operation_type: &str) -> bool {
+        match self {
+            ForbiddenFieldRule::Always(enabled) => *enabled,
+            ForbiddenFieldRule::Operations(ops) => {
+                ops.iter().any(|op| op.eq_ignore_ascii_case(operation_type))
+            }
+        }
+    }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        if let Some(b) = node.as_bool() {
+            return Some(ForbiddenFieldRule::Always(b));
+        }
+        if let Some(v) = node.as_vec() {
+            let ops = v
+                .iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect();
+            return Some(ForbiddenFieldRule::Operations(ops));
         }
         None
     }

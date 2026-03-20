@@ -10,6 +10,7 @@ graphox includes configurable validation rules that you can enable in `graphox.y
 | `no_duplicate_fields` | `boolean` | `false` | Detects duplicate fields in selection sets |
 | `no_unused_fragments` | `boolean` | `false` | Detects unused fragment definitions |
 | `required_fields` | `map` | `{}` | Ensures operations include required fields |
+| `forbidden_fields` | `map` | `{}` | Ensures operations exclude forbidden fields |
 
 ## Enabling Rules
 
@@ -150,6 +151,50 @@ query GetUser {
   }
 }
 ```
+
+---
+
+## forbidden_fields
+
+Ensures operations do NOT include forbidden fields. Each field can be forbidden for all operations or specific operation types.
+
+**Enable:**
+```yaml
+rules:
+  forbidden_fields:
+    password: true               # Forbidden in all operations
+    internalNote: ["mutation"] # Forbidden only in mutations
+```
+
+**Options per field:**
+- `true` - Forbidden in all operations (query, mutation, subscription)
+- `false` - Disabled (field not forbidden)
+- `["query", "mutation", "subscription"]` - Forbidden only in specified operation types
+
+**Inline ignore comments:**
+
+You can suppress a specific `forbidden_fields` diagnostic by adding `# graphox-ignore` on the same line as the forbidden field.
+
+```graphql
+query GetUser {
+  user {
+    password # graphox-ignore
+  }
+}
+```
+
+**Disallows:**
+```graphql
+# With rule: forbidden_fields: { password: true }
+
+query GetUser {
+  user {
+    password  # Error: field 'password' is forbidden
+  }
+}
+```
+
+**Provides code action:** "Remove forbidden field" to automatically delete the field.
 
 ---
 

@@ -161,6 +161,13 @@ pub async fn handle_code_action(
                         for action in field_actions {
                             actions.push(CodeActionOrCommand::CodeAction(action));
                         }
+                    } else if code == "forbidden_field_selected"
+                        && let Some(doc) = backend.documents.get(uri).map(|r| r.value().clone())
+                    {
+                        let field_actions = doc.get_forbidden_field_actions(&diagnostic);
+                        for action in field_actions {
+                            actions.push(CodeActionOrCommand::CodeAction(action));
+                        }
                     } else if code == "deprecated"
                         && let Some(doc) = backend.documents.get(uri).map(|r| r.value().clone())
                     {

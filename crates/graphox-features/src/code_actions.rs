@@ -179,6 +179,7 @@ pub trait DocumentCodeActions {
     fn get_missing_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
     fn get_duplicate_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
     fn get_required_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
+    fn get_forbidden_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
     fn get_deprecation_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
 }
 
@@ -787,7 +788,117 @@ impl DocumentCodeActions for DocumentState {
         actions
     }
 
-    /// Get code actions for deprecated field diagnostics - adds # graphox-ignore comment
+    /// Get code actions for forbidden field diagnostics - removes the forbidden field
+    fn get_forbidden_field_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
+        let mut actions = Vec::new();
+
+        if let Some(action) = create_inline_ignore_action(
+            self,
+            diagnostic,
+            "Ignore forbidden field with # graphox-ignore",
+        ) {
+            actions.push(action);
+        }
+
+        // Extract the field name from the diagnostic message
+        // Message format: "Field 'fieldName' is forbidden in <operation> operations"
+        // or "Field 'fieldName' is forbidden in 'responseKey'"
+        let field_name = if let Some(start) = diagnostic.message.find('\'') {
+            if let Some(end) = diagnostic.message[start + 1..].find('\'') {
+                &diagnostic.message[start + 1..start + 1 + end]
+            } else {
+                return actions;
+            }
+        } else {
+            return actions;
+        };
+
+        // Find the field node and remove it (same logic as duplicate fields)
+        let start_byte = self.position_to_byte(diagnostic.range.start);
+        let end_byte = self.position_to_byte(diagnostic.range.end);
+
+        for block in self.get_graphql_trees() {
+            let offset = block.offset;
+            if start_byte >= offset && end_byte <= offset + block.tree.root_node().end_byte() {
+                let local_start = start_byte - offset;
+                let local_end = end_byte - offset;
+                let root = block.tree.root_node();
+                if let Some(mut node) = root.descendant_for_byte_range(local_start, local_end) {
+                    while node.kind() != "field" && node.kind() != "selection" {
+                        if let Some(parent) = node.parent() {
+                            node = parent;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if node.kind() == "field" || node.kind() == "selection" {
+                        let abs_start = offset + node.start_byte();
+                        let abs_end = offset + node.end_byte();
+
+                        let start_pos = self.byte_to_position(abs_start);
+                        let line_start_byte =
+                            self.position_to_byte(Position::new(start_pos.line, 0));
+
+                        let mut remove_start = abs_start;
+                        if line_start_byte < abs_start {
+                            let before_text =
+                                self.rope.byte_slice(line_start_byte..abs_start).to_string();
+                            if before_text.trim().is_empty() {
+                                remove_start = line_start_byte;
+                            }
+                        }
+
+                        let total_lines = self.rope.len_lines() as u32;
+                        let end_pos = self.byte_to_position(abs_end);
+                        let mut remove_end = abs_end;
+                        if end_pos.line + 1 < total_lines {
+                            let next_line_start =
+                                self.position_to_byte(Position::new(end_pos.line + 1, 0));
+                            let after_text =
+                                self.rope.byte_slice(abs_end..next_line_start).to_string();
+                            if after_text.trim().is_empty() {
+                                remove_end = next_line_start;
+                            }
+                        }
+
+                        let mut changes = std::collections::HashMap::new();
+                        changes.insert(
+                            self.uri.clone(),
+                            vec![TextEdit {
+                                range: Range::new(
+                                    self.byte_to_position(remove_start),
+                                    self.byte_to_position(remove_end),
+                                ),
+                                new_text: String::new(),
+                            }],
+                        );
+
+                        let mut ca = CodeAction {
+                            title: format!("Remove forbidden field '{}'", field_name),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![diagnostic.clone()]),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            is_preferred: Some(true),
+                            ..Default::default()
+                        };
+
+                        if let Some(data) = &diagnostic.data {
+                            ca.data = Some(data.clone());
+                        }
+
+                        actions.push(ca);
+                    }
+                }
+            }
+        }
+
+        actions
+    }
+
     fn get_deprecation_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction> {
         let mut actions = Vec::new();
 
