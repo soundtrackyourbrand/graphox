@@ -30,6 +30,11 @@ impl DocumentFoldingRange for DocumentState {
             ranges.push(range);
         }
 
+        // Skip string_value and comment nodes - their content is opaque text
+        if node.kind() == "string_value" || node.kind() == "comment" {
+            return;
+        }
+
         // Recursively process children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {

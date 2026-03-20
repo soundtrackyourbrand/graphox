@@ -331,6 +331,13 @@ impl DocumentDiagnostics for DocumentState {
                 });
             }
 
+            // Skip descending into string_value and comment nodes
+            // as their content is opaque text
+            let kind = node.kind();
+            if kind == "string_value" || kind == "comment" {
+                continue;
+            }
+
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 stack.push(child);

@@ -236,3 +236,34 @@ fn test_invalid_argument_syntax() {
         "Should report error for invalid argument syntax"
     );
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_description_with_json_like_content_no_spurious_errors() {
+    let schema = user_schema().clone().validate().unwrap();
+    let text = r#"
+        """
+        Mutations may fail with:
+        {
+          "data": ...
+          "errors": [...]
+        }
+        """
+    type Mutation {
+        user: User
+    }
+    "#;
+    let doc = create_doc("file:///schema.graphqls", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, None, false, true);
+
+    let spurious_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("unexpected 'ERROR'"))
+        .collect();
+
+    assert!(
+        spurious_errors.is_empty(),
+        "Should not have spurious ERROR diagnostics, got: {:?}",
+        spurious_errors
+    );
+}
