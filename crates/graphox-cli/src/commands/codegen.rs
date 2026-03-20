@@ -32,6 +32,8 @@ pub struct CodegenParams<'a> {
 pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
     if !watch {
         if !execute_codegen(config, verbose, clean).await {
+            eprintln!("{}", "Codegen failed.".red());
+            graphox_core::utils::flush_stdio();
             std::process::exit(1);
         }
         return;

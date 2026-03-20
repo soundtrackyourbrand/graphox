@@ -85,9 +85,10 @@ projects:
 
     // It should exit with 1 because it found deprecations
     assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Field 'oldField' is deprecated"));
-    assert!(stdout.contains("Use username instead"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Field 'oldField' is deprecated"));
+    assert!(stderr.contains("Use username instead"));
+    assert!(stderr.contains("Check failed."));
 
     std::fs::remove_dir_all(temp_dir).ok();
 }
@@ -315,6 +316,7 @@ projects:
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("unknownField"));
+    assert!(stderr.contains("Codegen failed."));
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
@@ -356,6 +358,7 @@ projects:
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("NonExistentType"));
+    assert!(stderr.contains("Codegen failed."));
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
@@ -865,11 +868,12 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    println!("Check Output:\n{}", stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!("Check Output:\n{}", stderr);
 
     assert_eq!(output.status.code(), Some(1));
-    assert!(stdout.contains("Input field 'oldField' is deprecated: Use newField"));
+    assert!(stderr.contains("Input field 'oldField' is deprecated: Use newField"));
+    assert!(stderr.contains("Check failed."));
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
@@ -1288,9 +1292,10 @@ projects:
 
     // Should fail because of validation error
     assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    println!("Check output: {}", stdout);
-    assert!(stdout.contains("invalidField"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!("Check output: {}", stderr);
+    assert!(stderr.contains("invalidField"));
+    assert!(stderr.contains("Check failed."));
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();

@@ -1434,6 +1434,7 @@ impl Config {
                 "Error".red(),
                 e.to_string().red()
             );
+            crate::utils::flush_stdio();
             std::process::exit(1);
         });
         loop {
@@ -1447,6 +1448,7 @@ impl Config {
                             "{}: No graphox.yaml or graphox.yml found in current or parent directories. This tool requires a configuration file to run.",
                             "Error".red()
                         );
+                        crate::utils::flush_stdio();
                         std::process::exit(1);
                     }
                 }
@@ -1457,6 +1459,7 @@ impl Config {
                         path.display().to_string().red(),
                         error.red()
                     );
+                    crate::utils::flush_stdio();
                     std::process::exit(1);
                 }
             }
