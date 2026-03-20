@@ -164,11 +164,13 @@ pub fn user_with_posts_schema() -> &'static Schema {
                 type User {
                     id: ID!
                     username: String
+                    password: String
                 }
                 type Post {
                     id: ID!
                     title: String
                     author: User
+                    secretField: String
                 }
             "#,
             "user_with_posts_schema.graphql",

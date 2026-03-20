@@ -806,7 +806,7 @@ query GetUser {
 
 This is particularly useful when you have a justified use of a deprecated field but want to maintain warnings for the rest of your codebase.
 
-The same inline `# graphox-ignore` comment is also supported for `required_fields` diagnostics when placed on the parent selection field line.
+The same inline `# graphox-ignore` comment is also supported for `required_fields` and `forbidden_fields` diagnostics.
 
 ---
 

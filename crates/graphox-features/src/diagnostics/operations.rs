@@ -24,6 +24,24 @@ fn push_required_field_diagnostic(diagnostics: &mut Vec<Diagnostic>, diagnostic:
     }
 }
 
+fn push_forbidden_field_diagnostic(diagnostics: &mut Vec<Diagnostic>, diagnostic: Diagnostic) {
+    let is_duplicate = diagnostics.iter().any(|existing| {
+        existing.range == diagnostic.range
+            && existing.message == diagnostic.message
+            && matches!(
+                (&existing.code, &diagnostic.code),
+                (
+                    Some(NumberOrString::String(existing_code)),
+                    Some(NumberOrString::String(new_code))
+                ) if existing_code == new_code
+            )
+    });
+
+    if !is_duplicate {
+        diagnostics.push(diagnostic);
+    }
+}
+
 pub(super) fn validate_operation(
     this: &DocumentState,
     node: Node,
@@ -103,8 +121,9 @@ pub(super) fn validate_operation(
         }
     }
 
-    // Check required fields after validating the selection set
+    // Check required/forbidden fields after validating the selection set
     check_required_fields(this, node, offset, ctx);
+    check_forbidden_fields(this, node, offset, ctx);
 
     // 3. Check for unused variables
     if ctx.workspace_loaded {
@@ -380,6 +399,384 @@ pub(super) fn check_required_fields(
             }
         }
     }
+}
+
+pub(super) fn check_forbidden_fields(
+    this: &DocumentState,
+    node: Node,
+    offset: usize,
+    ctx: &mut ValidationContext,
+) {
+    if let Some(config) = ctx.config
+        && let Some(operation_type) = ctx.current_operation_type.clone()
+    {
+        let rules = config.rules();
+        let forbidden_fields = rules.forbidden_fields();
+
+        for (field_name, rule) in forbidden_fields {
+            if !rule.applies_to_operation(operation_type.as_ref()) {
+                continue;
+            }
+
+            let field_name_str = field_name.as_str();
+
+            // 1. Check root-level forbidden fields (fields on Query/Mutation/Subscription)
+            for (response_key, selected_fields) in &ctx.response_key_selected_fields {
+                if ctx.root_response_keys.contains(response_key)
+                    && selected_fields.contains(field_name_str)
+                {
+                    // Find the field node for the diagnostic at root level
+                    if let Some(field_node) = find_root_field_node_by_name(
+                        this,
+                        node,
+                        offset,
+                        response_key,
+                        field_name_str,
+                    ) {
+                        if crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                            this, field_node, offset,
+                        ) {
+                            continue;
+                        }
+
+                        push_forbidden_field_diagnostic(
+                            ctx.diagnostics,
+                            Diagnostic {
+                                range: this.translate_to_file_range(field_node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!(
+                                    "Field '{}' is forbidden in {} operations",
+                                    field_name, operation_type
+                                ),
+                                code: Some(NumberOrString::String(
+                                    "forbidden_field_selected".to_string(),
+                                )),
+                                data: Some(serde_json::json!({
+                                    "scope": "operation",
+                                    "field_name": field_name_str
+                                })),
+                                source: DIAGNOSTIC_SOURCE.map(String::from),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+            }
+
+            // 2. Check all other levels (recursive results)
+            for (response_key, selected_fields) in &ctx.response_key_selected_fields {
+                if selected_fields.contains(field_name_str) {
+                    // Find the field node for the diagnostic
+                    if let Some(field_node) =
+                        find_field_node_by_name(this, node, offset, response_key, field_name_str)
+                    {
+                        if crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                            this, field_node, offset,
+                        ) {
+                            continue;
+                        }
+
+                        push_forbidden_field_diagnostic(
+                            ctx.diagnostics,
+                            Diagnostic {
+                                range: this.translate_to_file_range(field_node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!(
+                                    "Field '{}' is forbidden in {} operations",
+                                    field_name, operation_type
+                                ),
+                                code: Some(NumberOrString::String(
+                                    "forbidden_field_selected".to_string(),
+                                )),
+                                data: Some(serde_json::json!({
+                                    "scope": "response_key",
+                                    "response_key": response_key.as_ref(),
+                                    "field_name": field_name_str
+                                })),
+                                source: DIAGNOSTIC_SOURCE.map(String::from),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+            }
+
+            // Also check type conditions (inline fragments)
+            for (response_key, type_fields) in &ctx.type_condition_fields {
+                for (type_name, fields) in type_fields {
+                    if fields.contains(field_name_str)
+                        && let Some(field_node) = find_field_node_in_type_condition(
+                            this,
+                            node,
+                            offset,
+                            response_key,
+                            type_name,
+                            field_name_str,
+                        )
+                    {
+                        if crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+                            this, field_node, offset,
+                        ) {
+                            continue;
+                        }
+
+                        push_forbidden_field_diagnostic(
+                            ctx.diagnostics,
+                            Diagnostic {
+                                range: this.translate_to_file_range(field_node, offset),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!(
+                                    "Field '{}' is forbidden on '... on {}' in {} operations",
+                                    field_name, type_name, operation_type
+                                ),
+                                code: Some(NumberOrString::String(
+                                    "forbidden_field_selected".to_string(),
+                                )),
+                                data: Some(serde_json::json!({
+                                    "scope": "response_key",
+                                    "response_key": response_key.as_ref(),
+                                    "field_name": field_name_str
+                                })),
+                                source: DIAGNOSTIC_SOURCE.map(String::from),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn find_root_field_node_by_name<'a>(
+    this: &DocumentState,
+    node: Node<'a>,
+    offset: usize,
+    response_key: &str,
+    field_name: &str,
+) -> Option<Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "selection_set" {
+            let mut sel_cursor = child.walk();
+            for selection in child.children(&mut sel_cursor) {
+                let field_node = if selection.kind() == "selection" {
+                    this.find_child_by_kind(selection, "field")
+                } else if selection.kind() == "field" {
+                    Some(selection)
+                } else {
+                    None
+                };
+
+                if let Some(field) = field_node {
+                    let components = this.extract_field_components(field);
+                    let mut key = components
+                        .name
+                        .map(|n| this.get_node_text(n, offset))
+                        .unwrap_or_default();
+                    if let Some(alias) = components.alias
+                        && let Some(alias_name) = this.find_child_by_kind(alias, "name")
+                    {
+                        key = this.get_node_text(alias_name, offset);
+                    }
+
+                    if key == response_key {
+                        let name = components
+                            .name
+                            .map(|n| this.get_node_text(n, offset))
+                            .unwrap_or_default();
+                        if name == field_name {
+                            return Some(field);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_field_node_by_name<'a>(
+    this: &DocumentState,
+    node: Node<'a>,
+    offset: usize,
+    response_key: &str,
+    field_name: &str,
+) -> Option<Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "selection_set" {
+            let mut sel_cursor = child.walk();
+            for selection in child.children(&mut sel_cursor) {
+                let field_node = if selection.kind() == "selection" {
+                    this.find_child_by_kind(selection, "field")
+                } else if selection.kind() == "field" {
+                    Some(selection)
+                } else {
+                    None
+                };
+
+                if let Some(field) = field_node {
+                    let components = this.extract_field_components(field);
+                    let mut key = components
+                        .name
+                        .map(|n| this.get_node_text(n, offset))
+                        .unwrap_or_default();
+                    if let Some(alias) = components.alias
+                        && let Some(alias_name) = this.find_child_by_kind(alias, "name")
+                    {
+                        key = this.get_node_text(alias_name, offset);
+                    }
+
+                    // For find_field_node_by_name (recursive check), the forbidden field
+                    // is a selection INSIDE this field.
+                    if key == response_key {
+                        // Skip if the field itself is the forbidden field (that's root level or other level)
+                        // Actually, if key == response_key, we want to look inside.
+                        if let Some(selection_set) = components.selection_set {
+                            let mut inner_cursor = selection_set.walk();
+                            for inner_selection in selection_set.children(&mut inner_cursor) {
+                                let inner_field_node = if inner_selection.kind() == "selection" {
+                                    this.find_child_by_kind(inner_selection, "field")
+                                } else if inner_selection.kind() == "field" {
+                                    Some(inner_selection)
+                                } else {
+                                    None
+                                };
+
+                                if let Some(inner_field) = inner_field_node {
+                                    let inner_components =
+                                        this.extract_field_components(inner_field);
+                                    let name = inner_components
+                                        .name
+                                        .map(|n| this.get_node_text(n, offset))
+                                        .unwrap_or_default();
+                                    if name == field_name {
+                                        return Some(inner_field);
+                                    }
+                                }
+                            }
+                        }
+                    } else if let Some(_selection_set) = components.selection_set {
+                        // Recurse into nested selection sets
+                        if let Some(found) = find_field_node_by_name(
+                            this,
+                            field, // Use field as new root
+                            offset,
+                            response_key,
+                            field_name,
+                        ) {
+                            return Some(found);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_field_node_in_type_condition<'a>(
+    this: &DocumentState,
+    node: Node<'a>,
+    offset: usize,
+    response_key: &str,
+    type_name: &str,
+    field_name: &str,
+) -> Option<Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "selection_set" {
+            let mut sel_cursor = child.walk();
+            for selection in child.children(&mut sel_cursor) {
+                let field_node = if selection.kind() == "selection" {
+                    this.find_child_by_kind(selection, "field")
+                } else if selection.kind() == "field" {
+                    Some(selection)
+                } else {
+                    None
+                };
+
+                if let Some(field) = field_node {
+                    let components = this.extract_field_components(field);
+                    let mut key = components
+                        .name
+                        .map(|n| this.get_node_text(n, offset))
+                        .unwrap_or_default();
+                    if let Some(alias) = components.alias
+                        && let Some(alias_name) = this.find_child_by_kind(alias, "name")
+                    {
+                        key = this.get_node_text(alias_name, offset);
+                    }
+
+                    if key == response_key {
+                        if let Some(selection_set) = components.selection_set {
+                            let mut inner_cursor = selection_set.walk();
+                            for inner_selection in selection_set.children(&mut inner_cursor) {
+                                let t = if inner_selection.kind() == "selection" {
+                                    inner_selection.child(0)
+                                } else {
+                                    Some(inner_selection)
+                                };
+
+                                if let Some(t) = t
+                                    && t.kind() == "inline_fragment"
+                                {
+                                    let type_cond = this.find_child_by_kind(t, "type_condition");
+                                    if let Some(tc) = type_cond
+                                        && let Some(name_node) =
+                                            this.find_child_by_kind(tc, "named_type")
+                                        && this.get_node_text(name_node, offset) == type_name
+                                        && let Some(frag_selection_set) =
+                                            this.find_child_by_kind(t, "selection_set")
+                                    {
+                                        let mut frag_cursor = frag_selection_set.walk();
+                                        for frag_sel in
+                                            frag_selection_set.children(&mut frag_cursor)
+                                        {
+                                            let frag_field_node = if frag_sel.kind() == "selection"
+                                            {
+                                                this.find_child_by_kind(frag_sel, "field")
+                                            } else if frag_sel.kind() == "field" {
+                                                Some(frag_sel)
+                                            } else {
+                                                None
+                                            };
+
+                                            if let Some(frag_field) = frag_field_node {
+                                                let frag_components =
+                                                    this.extract_field_components(frag_field);
+                                                let name = frag_components
+                                                    .name
+                                                    .map(|n| this.get_node_text(n, offset))
+                                                    .unwrap_or_default();
+                                                if name == field_name {
+                                                    return Some(frag_field);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if let Some(_selection_set) = components.selection_set {
+                        // Recurse into nested selection sets
+                        if let Some(found) = find_field_node_in_type_condition(
+                            this,
+                            field, // Use field as new root
+                            offset,
+                            response_key,
+                            type_name,
+                            field_name,
+                        ) {
+                            return Some(found);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn find_root_selection_anchor_for_response_key<'a>(
