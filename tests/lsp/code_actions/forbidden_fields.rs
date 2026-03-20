@@ -10,7 +10,7 @@ use tower_lsp::lsp_types::*;
 #[ntest::timeout(3000)]
 async fn test_remove_forbidden_field() {
     let mut forbidden_fields = AHashMap::default();
-    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::Always(true));
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
 
     let schema = "type User { id: ID! name: String! password: String! } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -100,7 +100,7 @@ async fn test_remove_forbidden_field() {
 #[ntest::timeout(3000)]
 async fn test_ignore_forbidden_field() {
     let mut forbidden_fields = AHashMap::default();
-    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::Always(true));
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
 
     let schema = "type User { id: ID! name: String! password: String! } type Query { me: User }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");

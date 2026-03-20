@@ -26,7 +26,7 @@ fn test_required_field_always_true() {
 
     // Create config with required field rule (always true)
     let mut required_fields = AHashMap::default();
-    required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("users".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -62,7 +62,7 @@ fn test_required_field_missing_always_true() {
 
     // Create config with required field rule (always true)
     let mut required_fields = AHashMap::default();
-    required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("users".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -100,7 +100,7 @@ fn test_required_field_always_false() {
 
     // Create config with required field rule (always false)
     let mut required_fields = AHashMap::default();
-    required_fields.insert("users".to_string(), RequiredFieldRule::Always(false));
+    required_fields.insert("users".to_string(), RequiredFieldRule::new_always(false));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -137,7 +137,7 @@ fn test_required_field_specific_operation_query() {
     let mut required_fields = AHashMap::default();
     required_fields.insert(
         "users".to_string(),
-        RequiredFieldRule::Operations(vec!["query".to_string()]),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
     );
 
     let config =
@@ -178,7 +178,7 @@ fn test_required_field_specific_operation_mutation_not_required() {
     let mut required_fields = AHashMap::default();
     required_fields.insert(
         "users".to_string(),
-        RequiredFieldRule::Operations(vec!["query".to_string()]),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
     );
 
     let config =
@@ -214,8 +214,8 @@ fn test_multiple_required_fields() {
 
     // Create config with multiple required field rules
     let mut required_fields = AHashMap::default();
-    required_fields.insert("users".to_string(), RequiredFieldRule::Always(true));
-    required_fields.insert("posts".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("users".to_string(), RequiredFieldRule::new_always(true));
+    required_fields.insert("posts".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -273,6 +273,47 @@ fn test_no_required_fields_config() {
 
 #[test]
 #[ntest::timeout(300)]
+fn test_required_field_with_reason() {
+    let text = r#"
+        query GetUsers {
+            users {
+                username
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_always(true)
+            .with_reason("IDs are required for client-side caching".to_string()),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'users': IDs are required for client-side caching",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
 fn test_required_field_case_sensitive() {
     let text = r#"
         query GetPosts {
@@ -285,7 +326,7 @@ fn test_required_field_case_sensitive() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("USERS".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("USERS".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -320,7 +361,10 @@ fn test_required_field_not_in_schema() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("nonExistent".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert(
+        "nonExistent".to_string(),
+        RequiredFieldRule::new_always(true),
+    );
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -356,7 +400,7 @@ fn test_required_field_subscription() {
     let mut required_fields = AHashMap::default();
     required_fields.insert(
         "id".to_string(),
-        RequiredFieldRule::Operations(vec!["subscription".to_string()]),
+        RequiredFieldRule::new_operations(vec!["subscription".to_string()]),
     );
 
     let config =
@@ -397,7 +441,7 @@ fn test_required_field_ignored_with_inline_comment() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -442,7 +486,7 @@ fn test_required_field_inline_fragment() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -491,7 +535,7 @@ fn test_required_field_inline_fragment_partial_coverage() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -541,7 +585,7 @@ fn test_required_field_nested_with_inline_fragment() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -625,7 +669,7 @@ fn test_required_id_with_fragment_spread() {
     let doc = create_doc("file:///test.graphql", query_text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
@@ -688,7 +732,7 @@ async fn test_required_fields_in_fragment_spread_with_inline_fragment() {
     .with_rules(
         RulesConfig::default().with_required_fields(ahash::AHashMap::from([(
             "name".to_string(),
-            RequiredFieldRule::Always(true),
+            RequiredFieldRule::new_always(true),
         )])),
     )
     .with_enable_schema_cache(false)
@@ -731,7 +775,7 @@ fn test_required_field_partial_selection_with_alias() {
     let doc = create_doc("file:///test.graphql", text);
 
     let mut required_fields = AHashMap::default();
-    required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
     let config =
         Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
 
@@ -823,9 +867,12 @@ async fn test_required_fields_merging_and_nesting_complex() {
     )
     .with_rules(
         RulesConfig::default().with_required_fields(ahash::AHashMap::from([
-            ("id".to_string(), RequiredFieldRule::Always(true)),
-            ("permissions".to_string(), RequiredFieldRule::Always(true)),
-            ("syncedAt".to_string(), RequiredFieldRule::Always(true)),
+            ("id".to_string(), RequiredFieldRule::new_always(true)),
+            (
+                "permissions".to_string(),
+                RequiredFieldRule::new_always(true),
+            ),
+            ("syncedAt".to_string(), RequiredFieldRule::new_always(true)),
         ])),
     )
     .with_enable_schema_cache(false)
@@ -894,7 +941,7 @@ async fn test_project_level_rules_override_global() {
     // 1. Global rules: required_fields { id: true } - should require 'id' field
     // 2. Project rules: required_fields: false - should override global
     let mut global_required_fields = ahash::AHashMap::default();
-    global_required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    global_required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
@@ -970,7 +1017,7 @@ async fn test_project_level_rules_without_override_uses_global() {
 
     // Create config with global rules but NO project-level rules override
     let mut global_required_fields = ahash::AHashMap::default();
-    global_required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
+    global_required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
@@ -1048,11 +1095,17 @@ async fn test_project_level_field_override_replaces_global() {
     // Result should be ONLY: { permissions: false }
     // 'id' should NOT be required anymore for this project.
     let mut global_required_fields = ahash::AHashMap::default();
-    global_required_fields.insert("id".to_string(), RequiredFieldRule::Always(true));
-    global_required_fields.insert("permissions".to_string(), RequiredFieldRule::Always(true));
+    global_required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+    global_required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_always(true),
+    );
 
     let mut project_required_fields = ahash::AHashMap::default();
-    project_required_fields.insert("permissions".to_string(), RequiredFieldRule::Always(false));
+    project_required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_always(false),
+    );
 
     let config = Config::new_test(
         dir.path().to_path_buf(),

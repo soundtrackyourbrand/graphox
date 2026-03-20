@@ -162,16 +162,16 @@ impl RulesConfig {
 }
 
 #[derive(Debug, Clone)]
-pub enum RequiredFieldRule {
+pub enum FieldEnabled {
     Always(bool),
     Operations(Vec<String>),
 }
 
-impl RequiredFieldRule {
+impl FieldEnabled {
     pub fn applies_to_operation(&self, operation_type: &str) -> bool {
         match self {
-            RequiredFieldRule::Always(enabled) => *enabled,
-            RequiredFieldRule::Operations(ops) => {
+            FieldEnabled::Always(enabled) => *enabled,
+            FieldEnabled::Operations(ops) => {
                 ops.iter().any(|op| op.eq_ignore_ascii_case(operation_type))
             }
         }
@@ -179,46 +179,125 @@ impl RequiredFieldRule {
 
     fn from_yaml(node: &Yaml) -> Option<Self> {
         if let Some(b) = node.as_bool() {
-            return Some(RequiredFieldRule::Always(b));
+            return Some(FieldEnabled::Always(b));
         }
         if let Some(v) = node.as_vec() {
             let ops = v
                 .iter()
                 .filter_map(|n| n.as_str().map(String::from))
                 .collect();
-            return Some(RequiredFieldRule::Operations(ops));
+            return Some(FieldEnabled::Operations(ops));
         }
         None
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum ForbiddenFieldRule {
-    Always(bool),
-    Operations(Vec<String>),
+pub struct RequiredFieldRule {
+    enabled: FieldEnabled,
+    reason: Option<String>,
 }
 
-impl ForbiddenFieldRule {
-    pub fn applies_to_operation(&self, operation_type: &str) -> bool {
-        match self {
-            ForbiddenFieldRule::Always(enabled) => *enabled,
-            ForbiddenFieldRule::Operations(ops) => {
-                ops.iter().any(|op| op.eq_ignore_ascii_case(operation_type))
-            }
+impl RequiredFieldRule {
+    pub fn new_always(enabled: bool) -> Self {
+        Self {
+            enabled: FieldEnabled::Always(enabled),
+            reason: None,
         }
     }
 
+    pub fn new_operations(ops: Vec<String>) -> Self {
+        Self {
+            enabled: FieldEnabled::Operations(ops),
+            reason: None,
+        }
+    }
+
+    pub fn with_reason(mut self, reason: String) -> Self {
+        self.reason = Some(reason);
+        self
+    }
+
+    pub fn applies_to_operation(&self, operation_type: &str) -> bool {
+        self.enabled.applies_to_operation(operation_type)
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        self.reason.as_deref()
+    }
+
     fn from_yaml(node: &Yaml) -> Option<Self> {
-        if let Some(b) = node.as_bool() {
-            return Some(ForbiddenFieldRule::Always(b));
+        if let Some(enabled) = FieldEnabled::from_yaml(node) {
+            return Some(RequiredFieldRule {
+                enabled,
+                reason: None,
+            });
         }
-        if let Some(v) = node.as_vec() {
-            let ops = v
-                .iter()
-                .filter_map(|n| n.as_str().map(String::from))
-                .collect();
-            return Some(ForbiddenFieldRule::Operations(ops));
+
+        if let Some(_map) = node.as_hash() {
+            let enabled_node = &node["enabled"];
+            let reason = node["reason"].as_str().map(String::from);
+
+            if let Some(enabled) = FieldEnabled::from_yaml(enabled_node) {
+                return Some(RequiredFieldRule { enabled, reason });
+            }
         }
+
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ForbiddenFieldRule {
+    enabled: FieldEnabled,
+    reason: Option<String>,
+}
+
+impl ForbiddenFieldRule {
+    pub fn new_always(enabled: bool) -> Self {
+        Self {
+            enabled: FieldEnabled::Always(enabled),
+            reason: None,
+        }
+    }
+
+    pub fn new_operations(ops: Vec<String>) -> Self {
+        Self {
+            enabled: FieldEnabled::Operations(ops),
+            reason: None,
+        }
+    }
+
+    pub fn with_reason(mut self, reason: String) -> Self {
+        self.reason = Some(reason);
+        self
+    }
+
+    pub fn applies_to_operation(&self, operation_type: &str) -> bool {
+        self.enabled.applies_to_operation(operation_type)
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        self.reason.as_deref()
+    }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        if let Some(enabled) = FieldEnabled::from_yaml(node) {
+            return Some(ForbiddenFieldRule {
+                enabled,
+                reason: None,
+            });
+        }
+
+        if let Some(_map) = node.as_hash() {
+            let enabled_node = &node["enabled"];
+            let reason = node["reason"].as_str().map(String::from);
+
+            if let Some(enabled) = FieldEnabled::from_yaml(enabled_node) {
+                return Some(ForbiddenFieldRule { enabled, reason });
+            }
+        }
+
         None
     }
 }
