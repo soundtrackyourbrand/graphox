@@ -1025,7 +1025,7 @@ impl Backend {
             schemas: &self.schemas,
             supports_progress,
             position_encoding,
-            result_id_epoch: self.last_full_validation_version.load(Ordering::SeqCst),
+            result_id_epoch: self.workspace_version.load(Ordering::SeqCst),
         };
         super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
             .await;

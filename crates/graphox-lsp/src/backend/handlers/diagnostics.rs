@@ -74,7 +74,7 @@ pub async fn handle_diagnostic(
             }
         }
 
-        let current_workspace_epoch = backend.last_full_validation_version.load(Ordering::SeqCst);
+        let current_workspace_epoch = backend.workspace_version.load(Ordering::SeqCst);
 
         // Check if we have cached diagnostics
         if let Some(cached) = backend.diagnostic_cache.get(&uri) {
@@ -242,7 +242,7 @@ pub async fn handle_workspace_diagnostic(
                 WorkspaceDiagnosticReport { items: vec![] },
             ));
         }
-        let current_workspace_epoch = backend.last_full_validation_version.load(Ordering::SeqCst);
+        let current_workspace_epoch = backend.workspace_version.load(Ordering::SeqCst);
 
         // Get all document URIs
         let all_uris: Vec<Url> = backend.documents.iter().map(|e| e.key().clone()).collect();

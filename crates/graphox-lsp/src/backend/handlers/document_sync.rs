@@ -282,8 +282,45 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
     let uri = backend.normalize_uri(params.text_document.uri);
     backend.open_documents.remove(&uri);
 
-    // Clear from in-memory documents map to save memory
-    backend.documents.remove(&uri);
+    let missing_on_disk = uri.to_file_path().ok().is_some_and(|path| !path.exists());
+    let mut removed_from_workspace = false;
+
+    if missing_on_disk {
+        let config = backend.config.read().unwrap().clone();
+        let change_params = file_change_handler::FileChangeParams {
+            client: &backend.client,
+            config: &config,
+            documents: &backend.documents,
+            metadata: &backend.metadata,
+            fragment_dependents: &backend.fragment_dependents,
+            fragment_definitions: &backend.fragment_definitions,
+            operation_names: &backend.operation_names,
+            gitignore: &backend.gitignore,
+            diagnostic_cache: &backend.diagnostic_cache,
+            position_encoding: backend.get_position_encoding(),
+        };
+
+        if let Some(result) =
+            file_change_handler::process_file_deleted(uri.clone(), &change_params, |uri| {
+                backend.normalize_uri(uri)
+            })
+        {
+            backend.invalidate_fragment_cache();
+            backend.increment_workspace_version();
+            removed_from_workspace = true;
+
+            if result.should_reload_config {
+                backend.reload_config().await;
+            } else if !result.uris_to_validate.is_empty() {
+                backend.validate_uris(result.uris_to_validate).await;
+            }
+        }
+    }
+
+    if !removed_from_workspace {
+        // Clear from in-memory documents map to save memory.
+        backend.documents.remove(&uri);
+    }
 
     // Clear diagnostics on client
     backend.client.publish_diagnostics(uri, vec![], None).await;
