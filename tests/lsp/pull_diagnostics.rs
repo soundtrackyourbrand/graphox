@@ -1,6 +1,7 @@
 use crate::support::{
-    create_initialized_lsp_service, create_lsp_service_with_socket, create_service, lsp_did_open,
-    lsp_request_diagnostics, lsp_request_typed, write_project_file,
+    create_initialized_lsp_service, create_lsp_service_with_socket, create_service, lsp_did_close,
+    lsp_did_open, lsp_request_diagnostics, lsp_request_typed, make_temp_project_with_schema,
+    write_project_file,
 };
 use ahash::AHashMap;
 use futures_util::StreamExt;
@@ -233,6 +234,112 @@ async fn test_pull_diagnostics_unchanged() {
             // Success - document unchanged
         }
         _ => panic!("Expected unchanged diagnostic report when document hasn't changed"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_refresh_after_duplicate_file_deleted_and_closed() {
+    let schema = "type User { id: ID! name: String! } type Query { user(id: ID!): User }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config = config.with_rules(RulesConfig::default().with_unique_operation_name(true));
+
+    let query1_text = "query GetUser { user(id: \"1\") { id name } }";
+    let query2_text = "query GetUser { user(id: \"2\") { id } }";
+    let query1_uri = write_project_file(&tmpdir, "query1.graphql", query1_text);
+    let query2_uri = write_project_file(&tmpdir, "query2.graphql", query2_text);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    lsp_did_open(&mut service, query1_uri.clone(), "graphql", 1, query1_text).await;
+    lsp_did_open(&mut service, query2_uri.clone(), "graphql", 1, query2_text).await;
+
+    let first_result: DocumentDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "textDocument/diagnostic",
+        &DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier::new(query1_uri.clone()),
+            identifier: None,
+            previous_result_id: None,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    let previous_result_id = match first_result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            let diagnostics = &report.full_document_diagnostic_report.items;
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("Duplicate operation name 'GetUser'")),
+                "Expected duplicate operation diagnostic before deleting the second file: {diagnostics:#?}"
+            );
+            report
+                .full_document_diagnostic_report
+                .result_id
+                .expect("Expected initial result_id")
+        }
+        _ => panic!("Expected full diagnostic report before deletion"),
+    };
+
+    let query2_path = tmpdir.path().join("query2.graphql");
+    std::fs::remove_file(&query2_path).expect("delete duplicate query file");
+    lsp_did_close(&mut service, query2_uri).await;
+
+    let refreshed_result: DocumentDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "textDocument/diagnostic",
+        &DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier::new(query1_uri),
+            identifier: None,
+            previous_result_id: Some(previous_result_id.clone()),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match refreshed_result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            let refreshed_result_id = report
+                .full_document_diagnostic_report
+                .result_id
+                .expect("Expected refreshed result_id after delete");
+            let diagnostics = report.full_document_diagnostic_report.items;
+            assert_ne!(refreshed_result_id, previous_result_id);
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|d| !d.message.contains("Duplicate operation name 'GetUser'")),
+                "Duplicate operation diagnostic should clear after the duplicate file is deleted: {diagnostics:#?}"
+            );
+        }
+        _ => panic!("Expected refreshed full diagnostic report after deletion"),
     }
 }
 
@@ -490,9 +597,7 @@ async fn test_pull_diagnostics_refreshes_when_workspace_epoch_changes() {
     };
 
     let backend = service.inner();
-    backend
-        .last_full_validation_version
-        .store(99, Ordering::SeqCst);
+    backend.workspace_version.store(99, Ordering::SeqCst);
 
     let second_result: DocumentDiagnosticReportResult = lsp_request_typed(
         &mut service,
@@ -718,9 +823,7 @@ async fn test_workspace_diagnostics_refresh_when_workspace_epoch_changes() {
     };
 
     let backend = service.inner();
-    backend
-        .last_full_validation_version
-        .store(42, Ordering::SeqCst);
+    backend.workspace_version.store(42, Ordering::SeqCst);
 
     let refreshed_result: WorkspaceDiagnosticReportResult = lsp_request_typed(
         &mut service,

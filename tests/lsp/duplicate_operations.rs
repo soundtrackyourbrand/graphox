@@ -1,6 +1,6 @@
 use crate::support::{
-    create_doc, create_initialized_lsp_service, create_lsp_service_with_socket, lsp_did_open,
-    lsp_initialize_sequence, lsp_request_diagnostics, lsp_request_typed,
+    create_doc, create_initialized_lsp_service, create_lsp_service_with_socket, lsp_did_close,
+    lsp_did_open, lsp_initialize_sequence, lsp_request_diagnostics, lsp_request_typed,
     make_temp_project_with_schema, write_project_file,
 };
 use futures_util::StreamExt;
@@ -192,5 +192,78 @@ async fn test_unique_operation_names_no_duplicates() {
     assert!(
         diags_empty,
         "Should not find duplicate operation diagnostics when names are unique"
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_duplicate_operation_name_clears_after_deleted_file_closes() {
+    let schema = "type User { id: ID! name: String! } type Query { user(id: ID!): User }";
+    let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config = config.with_rules(RulesConfig::default().with_unique_operation_name(true));
+
+    let query1_text = "query GetUser { user(id: \"1\") { id name } }";
+    let query2_text = "query GetUser { user(id: \"2\") { id } }";
+    let query1_uri = write_project_file(&tmpdir, "query1.graphql", query1_text);
+    let query2_uri = write_project_file(&tmpdir, "query2.graphql", query2_text);
+
+    let (mut service, _messages) = create_lsp_service_with_socket(config);
+    lsp_initialize_sequence(&mut service).await;
+
+    lsp_did_open(&mut service, query1_uri.clone(), "graphql", 1, query1_text).await;
+    lsp_did_open(&mut service, query2_uri.clone(), "graphql", 1, query2_text).await;
+
+    let mut found_dup = false;
+    let start = std::time::Instant::now();
+    while start.elapsed().as_millis() < 2000 {
+        let result = lsp_request_diagnostics(&mut service, query1_uri.clone()).await;
+        if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+            result
+        {
+            let diagnostics = &full_report.full_document_diagnostic_report.items;
+            if diagnostics
+                .iter()
+                .any(|d| d.message.contains("Duplicate operation name 'GetUser'"))
+            {
+                found_dup = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        found_dup,
+        "Expected duplicate operation diagnostic before deleting the second file"
+    );
+
+    let query2_path = tmpdir.path().join("query2.graphql");
+    std::fs::remove_file(&query2_path).expect("delete second query file");
+    lsp_did_close(&mut service, query2_uri).await;
+
+    let mut cleared_dup = false;
+    let mut last_diags_json: Option<String> = None;
+    let start = std::time::Instant::now();
+    while start.elapsed().as_millis() < 2000 {
+        let result = lsp_request_diagnostics(&mut service, query1_uri.clone()).await;
+        if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full_report)) =
+            result
+        {
+            let diagnostics = &full_report.full_document_diagnostic_report.items;
+            last_diags_json = Some(serde_json::to_string_pretty(diagnostics).unwrap_or_default());
+            if diagnostics
+                .iter()
+                .all(|d| !d.message.contains("Duplicate operation name 'GetUser'"))
+            {
+                cleared_dup = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    assert!(
+        cleared_dup,
+        "Duplicate operation diagnostic should clear after the duplicate file is deleted and closed; last diagnostics: {:?}",
+        last_diags_json
     );
 }
