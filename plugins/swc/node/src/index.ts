@@ -86,6 +86,15 @@ export interface PluginConfig {
  * and bundled with this package.
  */
 function getWasmPath(): string {
+  // Allow overriding the WASM plugin path via environment variable
+  if (process.env.GRAPHOX_SWC_PLUGIN_PATH) {
+    const overridePath = path.resolve(process.env.GRAPHOX_SWC_PLUGIN_PATH);
+    if (fs.existsSync(overridePath)) {
+      return overridePath;
+    }
+    console.warn(`GRAPHOX_SWC_PLUGIN_PATH is set but file not found at ${overridePath}. Falling back to default.`);
+  }
+
   // The WASM file is built using cargo build --target wasm32-wasip1
   // and placed in the wasm/ directory.
   const wasmPath = path.join(_dirname, '..', 'wasm', 'graphox_swc_plugin.wasm');

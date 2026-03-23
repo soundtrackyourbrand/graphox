@@ -116,6 +116,14 @@ module.exports = nextConfig;
 
 *Either `manifestPath` or `manifestData` is required.
 
+### Local Development
+
+You can override the WASM plugin path by setting the `GRAPHOX_SWC_PLUGIN_PATH` environment variable. This is useful for testing local builds of the Rust plugin without copying files.
+
+```bash
+export GRAPHOX_SWC_PLUGIN_PATH=$(pwd)/target/wasm32-wasip1/release/graphox_swc_plugin.wasm
+```
+
 ### emitExtensions
 
 Controls the file extension appended to generated import paths. Should match the `emit_extensions` setting in your `graphox.yaml`:
