@@ -84,6 +84,66 @@ fn strip_script_extension_path(path: &Path) -> PathBuf {
     PathBuf::from(strip_script_extension(&path.to_string_lossy()))
 }
 
+#[derive(Clone)]
+struct DynamicImportRequest {
+    imported_name: String,
+    source_path: String,
+}
+
+fn get_static_string(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Lit(Lit::Str(s)) => Some(s.value.as_str().unwrap_or("").to_string()),
+        Expr::Tpl(tpl) if tpl.exprs.is_empty() && tpl.quasis.len() == 1 => tpl.quasis[0]
+            .cooked
+            .as_ref()
+            .and_then(|c| c.as_str().map(|value| value.to_string()))
+            .or_else(|| Some(tpl.quasis[0].raw.as_str().to_string())),
+        _ => None,
+    }
+}
+
+fn get_dynamic_import_source(expr: &Expr) -> Option<(String, bool)> {
+    match expr {
+        Expr::Await(await_expr) => {
+            let Expr::Call(call) = &*await_expr.arg else {
+                return None;
+            };
+
+            if !matches!(call.callee, Callee::Import(_)) {
+                return None;
+            }
+
+            call.args
+                .first()
+                .and_then(|arg| get_static_string(arg.expr.as_ref()))
+                .map(|source| (source, true))
+        }
+        Expr::Call(call) if matches!(call.callee, Callee::Import(_)) => call
+            .args
+            .first()
+            .and_then(|arg| get_static_string(arg.expr.as_ref()))
+            .map(|source| (source, false)),
+        _ => None,
+    }
+}
+
+fn parse_expression(source: &str) -> Expr {
+    let cm = std::sync::Arc::<swc_core::common::SourceMap>::default();
+    let fm = cm.new_source_file(
+        swc_core::common::FileName::Custom("graphox_dynamic_import.ts".into()).into(),
+        source.to_string(),
+    );
+    let mut parser = swc_core::ecma::parser::Parser::new(
+        swc_core::ecma::parser::Syntax::Typescript(swc_core::ecma::parser::TsSyntax::default()),
+        swc_core::ecma::parser::StringInput::from(&*fm),
+        None,
+    );
+
+    *parser
+        .parse_expr()
+        .unwrap_or_else(|err| panic!("failed to parse generated expression `{source}`: {err:?}"))
+}
+
 impl TransformVisitor {
     pub fn new(config: &Config, current_file: Option<String>) -> Self {
         let entries = if let Some(data) = &config.manifest_data {
@@ -272,6 +332,111 @@ impl TransformVisitor {
 
         false
     }
+
+    fn dynamic_import_error(&self, source: &str) -> String {
+        format!(
+            "could not fully rewrite this dynamic import from \"{}\". Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.",
+            source
+        )
+    }
+
+    fn collect_dynamic_import_requests(
+        &self,
+        source: &str,
+        pattern: &ObjectPat,
+    ) -> Vec<DynamicImportRequest> {
+        let mut requests = Vec::new();
+
+        for prop in &pattern.props {
+            let imported_name = match prop {
+                ObjectPatProp::Assign(assign) => assign.key.sym.to_string(),
+                ObjectPatProp::KeyValue(key_value) => match &key_value.key {
+                    PropName::Ident(ident) => ident.sym.to_string(),
+                    PropName::Str(s) => s.value.as_str().unwrap_or("").to_string(),
+                    _ => self.fail(self.dynamic_import_error(source)),
+                },
+                ObjectPatProp::Rest(_) => self.fail(self.dynamic_import_error(source)),
+            };
+
+            if imported_name == "graphql" || imported_name == "gql" {
+                self.fail(self.dynamic_import_error(source));
+            }
+
+            let Some(entry) = self.name_to_entry.get(&imported_name) else {
+                self.fail(format!(
+                    "could not rewrite \"{}\" from \"{}\". Run Graphox codegen and ensure the manifest includes this document.",
+                    imported_name, source
+                ));
+            };
+
+            requests.push(DynamicImportRequest {
+                imported_name,
+                source_path: self.get_relative_import_path(&entry.path),
+            });
+        }
+
+        requests
+    }
+
+    fn rewrite_dynamic_import_expr(
+        &self,
+        awaited: bool,
+        requests: &[DynamicImportRequest],
+    ) -> Expr {
+        let mut unique_paths = Vec::<String>::new();
+        let mut module_name_by_path = HashMap::<String, String>::new();
+
+        for request in requests {
+            if !module_name_by_path.contains_key(&request.source_path) {
+                let module_name = format!("_graphoxModule{}", unique_paths.len());
+                module_name_by_path.insert(request.source_path.clone(), module_name);
+                unique_paths.push(request.source_path.clone());
+            }
+        }
+
+        let base_expr = if unique_paths.len() == 1 {
+            parse_expression(&format!(
+                "import({})",
+                serde_json::to_string(&unique_paths[0]).unwrap()
+            ))
+        } else {
+            let imports = unique_paths
+                .iter()
+                .map(|path| format!("import({})", serde_json::to_string(path).unwrap()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let module_names = unique_paths
+                .iter()
+                .map(|path| module_name_by_path.get(path).unwrap().clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let object_properties = requests
+                .iter()
+                .map(|request| {
+                    let module_name = module_name_by_path.get(&request.source_path).unwrap();
+                    format!(
+                        "{}: {}.{}",
+                        request.imported_name, module_name, request.imported_name
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            parse_expression(&format!(
+                "Promise.all([{}]).then(([{}]) => ({{ {} }}))",
+                imports, module_names, object_properties
+            ))
+        };
+
+        if awaited {
+            Expr::Await(AwaitExpr {
+                span: DUMMY_SP,
+                arg: Box::new(base_expr),
+            })
+        } else {
+            base_expr
+        }
+    }
 }
 
 impl VisitMut for TransformVisitor {
@@ -451,7 +616,7 @@ impl VisitMut for TransformVisitor {
         n.visit_mut_children_with(self);
 
         let mut validator = GraphqlUsageValidator {
-            graphql_ids: &self.graphql_ids,
+            visitor: self,
             error: None,
         };
         n.visit_with(&mut validator);
@@ -459,7 +624,7 @@ impl VisitMut for TransformVisitor {
             self.fail(error);
         }
 
-        // Remove ALL imports from graphql.ts/index.ts (it's cleared to stubs)
+        // Remove rewritten imports from graphql.ts/index.ts in consumer modules.
         n.body.retain_mut(|item| {
             if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
                 let src = import.src.value.as_str().unwrap_or("");
@@ -511,6 +676,27 @@ impl VisitMut for TransformVisitor {
     fn visit_mut_ident(&mut self, n: &mut Ident) {
         if let Some(new_name) = self.id_renames.get(&n.to_id()) {
             n.sym = new_name.clone().into();
+        }
+    }
+
+    fn visit_mut_var_declarator(&mut self, n: &mut VarDeclarator) {
+        n.name.visit_mut_with(self);
+
+        if let Some(init) = &mut n.init {
+            if let Some((source, awaited)) = get_dynamic_import_source(init.as_ref())
+                && self.is_our_graphql_path(&source)
+            {
+                let Pat::Object(pattern) = &n.name else {
+                    self.fail(self.dynamic_import_error(&source));
+                };
+
+                let requests = self.collect_dynamic_import_requests(&source, pattern);
+                if !requests.is_empty() {
+                    *init = Box::new(self.rewrite_dynamic_import_expr(awaited, &requests));
+                }
+            }
+
+            init.visit_mut_with(self);
         }
     }
 
@@ -572,7 +758,7 @@ impl VisitMut for TransformVisitor {
 }
 
 struct GraphqlUsageValidator<'a> {
-    graphql_ids: &'a std::collections::HashSet<Id>,
+    visitor: &'a TransformVisitor,
     error: Option<String>,
 }
 
@@ -583,12 +769,19 @@ impl Visit for GraphqlUsageValidator<'_> {
         }
 
         if let Expr::Ident(ident) = n
-            && self.graphql_ids.contains(&ident.to_id())
+            && self.visitor.graphql_ids.contains(&ident.to_id())
         {
             self.error = Some(format!(
                 "left a runtime reference to \"{}\" after rewriting. All Graphox graphql/gql imports must be fully inlined before the import is removed.",
                 ident.sym
             ));
+            return;
+        }
+
+        if let Some((source, _)) = get_dynamic_import_source(n)
+            && self.visitor.is_our_graphql_path(&source)
+        {
+            self.error = Some(self.visitor.dynamic_import_error(&source));
             return;
         }
 
@@ -1168,6 +1361,111 @@ mod tests {
         assert!(output.contains("export const graphql = ()=>null"));
         assert!(output.contains("export const gql = graphql"));
         assert!(!output.contains("big map"));
+    }
+
+    #[test]
+    fn test_rewrites_dynamic_import_destructuring_from_graphql_js() {
+        let manifest = vec![ManifestEntry {
+            source: "mutation CreatePlaybackClient { createPlaybackClient { id } }".to_string(),
+            path: "./CreatePlaybackClientMutation.codegen".to_string(),
+            name: "CreatePlaybackClientDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "/root/gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            r#"
+            async function load() {
+                const { CreatePlaybackClientDocument } = await import("../gen/graphql.js");
+                return CreatePlaybackClientDocument;
+            }
+            "#,
+            config,
+            "/root/app/TokenManager.ts",
+        );
+
+        assert!(output.contains(
+            "const { CreatePlaybackClientDocument } = await import(\"../gen/CreatePlaybackClientMutation.codegen\");"
+        ));
+        assert!(!output.contains("graphql.js"));
+    }
+
+    #[test]
+    fn test_rewrites_multi_document_dynamic_imports() {
+        let manifest = vec![
+            ManifestEntry {
+                source: "query GetUser { user { id } }".to_string(),
+                path: "./user.codegen".to_string(),
+                name: "GetUserDocument".to_string(),
+            },
+            ManifestEntry {
+                source: "query GetPost { post { id } }".to_string(),
+                path: "./post.codegen".to_string(),
+                name: "GetPostDocument".to_string(),
+            },
+        ];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "./gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        let output = transform(
+            r#"
+            async function load() {
+                const { GetUserDocument, GetPostDocument } = await import("./gen/graphql.js");
+                return [GetUserDocument, GetPostDocument];
+            }
+            "#,
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("import(\"./gen/user.codegen\")"));
+        assert!(output.contains("import(\"./gen/post.codegen\")"));
+        assert!(output.contains("GetUserDocument: _graphoxModule0.GetUserDocument"));
+        assert!(output.contains("GetPostDocument: _graphoxModule1.GetPostDocument"));
+        assert!(!output.contains("graphql.js"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "could not fully rewrite this dynamic import from \"./gen/graphql.js\""
+    )]
+    fn test_rejects_unsupported_dynamic_import_namespaces() {
+        let manifest = vec![ManifestEntry {
+            source: "query GetUser { user { id } }".to_string(),
+            path: "./user.codegen".to_string(),
+            name: "GetUserDocument".to_string(),
+        }];
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: "./gen".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+        };
+
+        transform(
+            r#"
+            async function load() {
+                const docs = await import("./gen/graphql.js");
+                return docs.GetUserDocument;
+            }
+            "#,
+            config,
+            "test.ts",
+        );
     }
 
     #[test]
