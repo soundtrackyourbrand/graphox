@@ -197,6 +197,115 @@ module.exports = function (babel) {
             return false;
           };
 
+          const getStaticString = (node) => {
+            if (t.isStringLiteral(node)) {
+              return node.value;
+            }
+
+            if (
+              t.isTemplateLiteral(node) &&
+              node.expressions.length === 0 &&
+              node.quasis.length === 1
+            ) {
+              return node.quasis[0].value.cooked || node.quasis[0].value.raw;
+            }
+
+            return null;
+          };
+
+          const getRelativeImportPath = (entryPath) => {
+            const codegenAbsPath = path.join(absoluteOutputDir, entryPath);
+            let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
+            relPath = toPosixPath(relPath);
+            if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
+              relPath = './' + relPath;
+            }
+            return relPath + extension;
+          };
+
+          const getDynamicImportInfo = (exprPath) => {
+            if (!exprPath?.node) {
+              return null;
+            }
+
+            if (exprPath.isAwaitExpression()) {
+              const importCallPath = exprPath.get('argument');
+              if (!importCallPath.isCallExpression()) {
+                return null;
+              }
+
+              if (!importCallPath.get('callee').isImport()) {
+                return null;
+              }
+
+              const [sourceArgPath] = importCallPath.get('arguments');
+              if (!sourceArgPath?.node) {
+                return null;
+              }
+
+              return { awaited: true, sourceArgPath };
+            }
+
+            if (!exprPath.isCallExpression() || !exprPath.get('callee').isImport()) {
+              return null;
+            }
+
+            const [sourceArgPath] = exprPath.get('arguments');
+            if (!sourceArgPath?.node) {
+              return null;
+            }
+
+            return { awaited: false, sourceArgPath };
+          };
+
+          const buildDynamicImportRewrite = (requests, scope) => {
+            const moduleNameByPath = new Map();
+            const uniquePaths = [];
+
+            for (const { sourcePath } of requests) {
+              if (!moduleNameByPath.has(sourcePath)) {
+                moduleNameByPath.set(sourcePath, scope.generateUid('graphoxModule'));
+                uniquePaths.push(sourcePath);
+              }
+            }
+
+            if (uniquePaths.length === 1) {
+              return t.callExpression(t.import(), [t.stringLiteral(uniquePaths[0])]);
+            }
+
+            const imports = uniquePaths.map((sourcePath) =>
+              t.callExpression(t.import(), [t.stringLiteral(sourcePath)])
+            );
+            const moduleParams = uniquePaths.map((sourcePath) =>
+              t.identifier(moduleNameByPath.get(sourcePath))
+            );
+            const properties = requests.map(({ importedName, sourcePath }) =>
+              t.objectProperty(
+                t.identifier(importedName),
+                t.memberExpression(
+                  t.identifier(moduleNameByPath.get(sourcePath)),
+                  t.identifier(importedName),
+                ),
+              ),
+            );
+
+            return t.callExpression(
+              t.memberExpression(
+                t.callExpression(
+                  t.memberExpression(t.identifier('Promise'), t.identifier('all')),
+                  [t.arrayExpression(imports)],
+                ),
+                t.identifier('then'),
+              ),
+              [
+                t.arrowFunctionExpression(
+                  [t.arrayPattern(moduleParams)],
+                  t.objectExpression(properties),
+                ),
+              ],
+            );
+          };
+
           const graphqlIds = new Set();
           // newImports stores: localName -> { sourcePath, importedName }
           const newImports = new Map();
@@ -268,14 +377,7 @@ module.exports = function (babel) {
                     } else if (documentNameToEntry.has(importedName) && !specifierIsTypeOnly) {
                       // Only rewrite non-type-only imports of document names
                       const entry = documentNameToEntry.get(importedName);
-                      const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
-                      let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
-                      relPath = toPosixPath(relPath);
-                      if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
-                        relPath = './' + relPath;
-                      }
-                      // Append the emit extension
-                      relPath += extension;
+                      const relPath = getRelativeImportPath(entry.path);
 
                       // If the original import was aliased (e.g. import { D as MyD }),
                       // we want to keep that alias if possible.
@@ -340,20 +442,81 @@ module.exports = function (babel) {
                     );
                   }
 
-                  const codegenAbsPath = path.join(absoluteOutputDir, entry.path);
-                  let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
-                  relPath = toPosixPath(relPath);
-                  if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
-                    relPath = './' + relPath;
-                  }
-                  // Append the emit extension
-                  relPath += extension;
+                  const relPath = getRelativeImportPath(entry.path);
 
                   const uniqueLocalName = getLocalName(entry.name, callPath.scope);
                   newImports.set(uniqueLocalName, { sourcePath: relPath, importedName: entry.name });
                   callPath.replaceWith(t.identifier(uniqueLocalName));
                 }
               }
+            },
+          });
+
+          // Third pass: rewrite supported dynamic import patterns from graphql.ts/index.ts.
+          programPath.traverse({
+            VariableDeclarator(varPath) {
+              const initPath = varPath.get('init');
+              const info = getDynamicImportInfo(initPath);
+              if (!info) {
+                return;
+              }
+
+              const source = getStaticString(info.sourceArgPath.node);
+              if (!source || !isOurGraphqlPath(source)) {
+                return;
+              }
+
+              const idPath = varPath.get('id');
+              if (!idPath.isObjectPattern()) {
+                throw varPath.buildCodeFrameError(
+                  `@graphox/babel-plugin could not fully rewrite this dynamic import from "${source}". ` +
+                  'Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.',
+                );
+              }
+
+              const requests = [];
+              for (const propertyPath of idPath.get('properties')) {
+                if (!propertyPath.isObjectProperty() || propertyPath.node.computed) {
+                  throw propertyPath.buildCodeFrameError(
+                    `@graphox/babel-plugin could not fully rewrite this dynamic import from "${source}". ` +
+                    'Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.',
+                  );
+                }
+
+                const key = propertyPath.node.key;
+                const importedName = t.isIdentifier(key)
+                  ? key.name
+                  : t.isStringLiteral(key)
+                    ? key.value
+                    : null;
+
+                if (!importedName || importedName === 'graphql' || importedName === 'gql') {
+                  throw propertyPath.buildCodeFrameError(
+                    `@graphox/babel-plugin could not fully rewrite this dynamic import from "${source}". ` +
+                    'Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.',
+                  );
+                }
+
+                const entry = documentNameToEntry.get(importedName);
+                if (!entry) {
+                  throw propertyPath.buildCodeFrameError(
+                    `@graphox/babel-plugin could not rewrite "${importedName}" from "${source}". ` +
+                    'Run Graphox codegen and ensure the manifest includes this document.',
+                  );
+                }
+
+                requests.push({
+                  importedName,
+                  sourcePath: getRelativeImportPath(entry.path),
+                });
+              }
+
+              if (requests.length === 0) {
+                return;
+              }
+
+              const replacement = buildDynamicImportRewrite(requests, varPath.scope);
+              initPath.replaceWith(info.awaited ? t.awaitExpression(replacement) : replacement);
             },
           });
 
@@ -376,7 +539,31 @@ module.exports = function (babel) {
             },
           });
 
-          // Third pass: remove ALL imports from graphql.ts/index.ts
+          // Reject runtime dynamic imports we could not rewrite before the entrypoint is cleared.
+          programPath.traverse({
+            CallExpression(callPath) {
+              if (!callPath.get('callee').isImport()) {
+                return;
+              }
+
+              const [sourceArgPath] = callPath.get('arguments');
+              if (!sourceArgPath?.node) {
+                return;
+              }
+
+              const source = getStaticString(sourceArgPath.node);
+              if (!source || !isOurGraphqlPath(source)) {
+                return;
+              }
+
+              throw callPath.buildCodeFrameError(
+                `@graphox/babel-plugin could not fully rewrite this dynamic import from "${source}". ` +
+                'Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.',
+              );
+            },
+          });
+
+          // Fourth pass: remove ALL imports from graphql.ts/index.ts
           programPath.traverse({
             ImportDeclaration(importPath) {
               const src = importPath.node.source.value;

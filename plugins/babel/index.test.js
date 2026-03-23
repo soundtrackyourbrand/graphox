@@ -209,6 +209,82 @@ describe('@graphox/babel-plugin', () => {
     expect(output).not.toContain('big map');
   });
 
+  it('rewrites dynamic import destructuring from graphql.js to the codegen module', () => {
+    const manifest = [
+      {
+        source: 'mutation CreatePlaybackClient { createPlaybackClient { id } }',
+        path: './CreatePlaybackClientMutation.codegen',
+        name: 'CreatePlaybackClientDocument',
+      },
+    ];
+    const outputDir = path.resolve('/root/gen');
+    const filename = '/root/app/TokenManager.ts';
+    const output = transform(
+      `
+        async function load() {
+          const { CreatePlaybackClientDocument } = await import('../gen/graphql.js');
+          return CreatePlaybackClientDocument;
+        }
+      `,
+      { manifestData: manifest, outputDir },
+      filename,
+    );
+
+    expect(output).toContain('CreatePlaybackClientDocument');
+    expect(output).toContain('await import("../gen/CreatePlaybackClientMutation.codegen")');
+    expect(output).not.toContain('graphql.js');
+  });
+
+  it('rewrites multi-document dynamic imports across codegen files', () => {
+    const manifest = [
+      {
+        source: 'query GetUser { user { id } }',
+        path: './user.codegen',
+        name: 'GetUserDocument',
+      },
+      {
+        source: 'query GetPost { post { id } }',
+        path: './post.codegen',
+        name: 'GetPostDocument',
+      },
+    ];
+    const output = transform(
+      `
+        async function load() {
+          const { GetUserDocument, GetPostDocument } = await import('./gen/graphql.js');
+          return [GetUserDocument, GetPostDocument];
+        }
+      `,
+      { manifestData: manifest, outputDir: './gen' },
+      'test.ts',
+    );
+
+    expect(output).toContain('Promise.all([import("./gen/user.codegen"), import("./gen/post.codegen")])');
+    expect(output).toMatch(/GetUserDocument:\s*_graphoxModule\d*\.GetUserDocument/);
+    expect(output).toMatch(/GetPostDocument:\s*_graphoxModule\d*\.GetPostDocument/);
+    expect(output).not.toContain('graphql.js');
+  });
+
+  it('throws on unsupported dynamic import namespaces from the graphql entrypoint', () => {
+    const manifest = [
+      {
+        source: 'query GetUser { user { id } }',
+        path: './user.codegen',
+        name: 'GetUserDocument',
+      },
+    ];
+    const code = `
+      async function load() {
+        const docs = await import('./gen/graphql.js');
+        return docs.GetUserDocument;
+      }
+    `;
+
+    expect(() => transform(code, { manifestData: manifest, outputDir: './gen' })).toThrow(
+      /could not fully rewrite this dynamic import from "\.\/gen\/graphql\.js"/,
+    );
+  });
+
   describe('emit extensions', () => {
     it('appends .ts extension when emitExtensions is "ts"', () => {
       const code = "import { graphql } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
