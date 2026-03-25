@@ -455,7 +455,8 @@ impl Backend {
     }
 
     pub fn get_used_fragments(&self) -> AHashSet<Arc<str>> {
-        super::validation::get_used_fragments(&self.metadata)
+        let config = self.config.read().unwrap();
+        super::validation::get_used_fragments(&self.metadata, &config)
     }
 
     pub async fn with_tracing<T, Fut>(&self, name: &str, fut: Fut) -> Result<Option<T>>

@@ -243,9 +243,15 @@ pub async fn handle_workspace_diagnostic(
             ));
         }
         let current_workspace_epoch = backend.workspace_version.load(Ordering::SeqCst);
+        let config = backend.config.read().unwrap().clone();
 
         // Get all document URIs
-        let all_uris: Vec<Url> = backend.documents.iter().map(|e| e.key().clone()).collect();
+        let all_uris: Vec<Url> = backend
+            .documents
+            .iter()
+            .map(|e| e.key().clone())
+            .filter(|uri| crate::backend::validation::is_configured_document_uri(uri, &config))
+            .collect();
 
         let uncached_uris: Vec<Url> = all_uris
             .iter()

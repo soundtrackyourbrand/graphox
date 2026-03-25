@@ -363,7 +363,13 @@ async fn validate_all_documents_cancellable(
             .expect("Empty schema should always be valid"),
     );
 
-    let total = documents.len();
+    let used_fragments = super::validation::get_used_fragments(&params.metadata, config);
+    let uris: Vec<Url> = documents
+        .iter()
+        .map(|e| e.key().clone())
+        .filter(|uri| super::validation::is_configured_document_uri(uri, config))
+        .collect();
+    let total = uris.len();
     if total == 0 {
         return (true, valid_empty_schema);
     }
@@ -396,12 +402,8 @@ async fn validate_all_documents_cancellable(
         }
     }
 
-    // Get all used fragments
-    let used_fragments = super::validation::get_used_fragments(&params.metadata);
-
     // Validate in parallel batches to allow for progress updates and cancellation
     let batch_size = 50;
-    let uris: Vec<Url> = documents.iter().map(|e| e.key().clone()).collect();
     let mut staged_diagnostics = Vec::new();
 
     for (batch_idx, batch) in uris.chunks(batch_size).enumerate() {

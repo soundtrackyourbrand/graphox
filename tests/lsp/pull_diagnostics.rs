@@ -140,6 +140,99 @@ async fn test_pull_diagnostics_basic() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_returns_empty_for_unconfigured_file() {
+    let configured_text = "query Configured { user { id } }";
+    let ignored_text = "query Ignored { user { invalidField } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .with_file("configured.graphql", configured_text)
+        .with_file("ignored.graphql", ignored_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let ignored_path = base_dir.join("ignored.graphql");
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("configured.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let ignored_uri = Url::from_file_path(&ignored_path).unwrap();
+    lsp_did_open(
+        &mut service,
+        ignored_uri.clone(),
+        "graphql",
+        1,
+        ignored_text,
+    )
+    .await;
+
+    let result: DocumentDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "textDocument/diagnostic",
+        &DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier::new(ignored_uri),
+            identifier: None,
+            previous_result_id: None,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            assert!(
+                report.full_document_diagnostic_report.items.is_empty(),
+                "Unconfigured files should return empty pull diagnostics"
+            );
+            assert!(
+                report.full_document_diagnostic_report.result_id.is_some(),
+                "Unconfigured files should still return a result_id"
+            );
+        }
+        _ => panic!("Expected full diagnostic report"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_pull_diagnostics_unchanged() {
     let query_text = "query GetUser { user { id name } }"; // Valid query
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -737,6 +830,110 @@ async fn test_workspace_diagnostics() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_workspace_diagnostics_omit_unconfigured_files() {
+    let configured_text = "query Configured { user { id } }";
+    let ignored_text = "query Ignored { user { invalidField } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .with_file("configured.graphql", configured_text)
+        .with_file("ignored.graphql", ignored_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let configured_uri = Url::from_file_path(base_dir.join("configured.graphql")).unwrap();
+    let ignored_uri = Url::from_file_path(base_dir.join("ignored.graphql")).unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("configured.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+    lsp_did_open(
+        &mut service,
+        ignored_uri.clone(),
+        "graphql",
+        1,
+        ignored_text,
+    )
+    .await;
+
+    let result: WorkspaceDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "workspace/diagnostic",
+        &WorkspaceDiagnosticParams {
+            identifier: None,
+            previous_result_ids: vec![],
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match result {
+        WorkspaceDiagnosticReportResult::Report(report) => {
+            let reported_uris: Vec<_> = report
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    WorkspaceDocumentDiagnosticReport::Full(full_report) => {
+                        Some(full_report.uri.clone())
+                    }
+                    WorkspaceDocumentDiagnosticReport::Unchanged(_) => None,
+                })
+                .collect();
+
+            assert!(
+                reported_uris.contains(&configured_uri),
+                "Expected configured file to remain in workspace diagnostics"
+            );
+            assert!(
+                !reported_uris.contains(&ignored_uri),
+                "Unconfigured files should be omitted from workspace diagnostics"
+            );
+        }
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_workspace_diagnostics_refresh_when_workspace_epoch_changes() {
     let query1_text = "query GetUser { user { id } }";
     let query2_text = "query GetPost { post { title } }";
@@ -1159,6 +1356,118 @@ async fn test_fallback_to_push_diagnostics() {
     assert!(
         !query_diag["diagnostics"].as_array().unwrap().is_empty(),
         "Should have diagnostics for invalid field"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_push_diagnostics_publish_empty_for_unconfigured_file() {
+    let configured_text = "query Configured { user { id } }";
+    let ignored_text = "query Ignored { user { invalidField } }";
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .with_file("configured.graphql", configured_text)
+        .with_file("ignored.graphql", ignored_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let ignored_path = base_dir.join("ignored.graphql");
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("configured.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, mut messages) = create_lsp_service_with_socket(config);
+
+    let received_push_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let received_push_diags_clone = received_push_diags.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                received_push_diags_clone.lock().unwrap().push(params);
+            }
+        }
+    });
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let ignored_uri = Url::from_file_path(&ignored_path).unwrap();
+    lsp_did_open(
+        &mut service,
+        ignored_uri.clone(),
+        "graphql",
+        1,
+        ignored_text,
+    )
+    .await;
+
+    let start = tokio::time::Instant::now();
+    loop {
+        {
+            let push_diags = received_push_diags.lock().unwrap();
+            if push_diags
+                .iter()
+                .any(|d| d["uri"].as_str() == Some(ignored_uri.as_str()))
+            {
+                break;
+            }
+        }
+        if start.elapsed() > Duration::from_secs(2) {
+            panic!("Timed out waiting for push diagnostics for unconfigured file");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let push_diags = received_push_diags.lock().unwrap();
+    let ignored_reports: Vec<_> = push_diags
+        .iter()
+        .filter(|d| d["uri"].as_str() == Some(ignored_uri.as_str()))
+        .collect();
+
+    assert!(
+        !ignored_reports.is_empty(),
+        "Expected an empty push diagnostic publication for the unconfigured file"
+    );
+    assert!(
+        ignored_reports.iter().all(|report| report["diagnostics"]
+            .as_array()
+            .is_some_and(|items| items.is_empty())),
+        "Unconfigured files should only publish empty diagnostics: {:?}",
+        ignored_reports
     );
 }
 

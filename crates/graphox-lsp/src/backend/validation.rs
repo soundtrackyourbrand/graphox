@@ -17,6 +17,7 @@ use graphox_core::{Config, DocumentState};
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
 use rayon::prelude::*;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -74,7 +75,7 @@ pub async fn validate_uris(
         None
     };
 
-    let used_fragments = get_used_fragments(params.metadata);
+    let used_fragments = get_used_fragments(params.metadata, params.config);
     let workspace_loaded = params.workspace_loaded.load(Ordering::SeqCst);
     let total = uris.len();
 
@@ -113,8 +114,12 @@ pub async fn validate_uris(
                 }
             }
 
-            unique_package_roots.insert(doc.package_root.clone());
-            docs_to_validate.push((uri, doc));
+            let is_configured = is_configured_document_uri(&uri, params.config);
+            if is_configured {
+                unique_package_roots.insert(doc.package_root.clone());
+            }
+
+            docs_to_validate.push((uri, doc, is_configured));
         }
     }
 
@@ -128,7 +133,11 @@ pub async fn validate_uris(
     // Process documents in parallel
     let results: Vec<_> = docs_to_validate
         .into_par_iter()
-        .map(|(uri, doc)| {
+        .map(|(uri, doc, is_configured)| {
+            if !is_configured {
+                return (uri, doc.version, Vec::new());
+            }
+
             let schema = get_schema_for_doc(
                 &uri,
                 params.config,
@@ -138,7 +147,7 @@ pub async fn validate_uris(
 
             let filtered_fragments = fragments_by_pkg
                 .get(&doc.package_root)
-                .expect("Package root should be in cache");
+                .expect("Configured document package root should be in cache");
 
             // Use project-specific rules if defined, otherwise fall back to global rules
             let project_config = uri
@@ -226,6 +235,16 @@ pub async fn validate_all_documents(
     validate_uris(params, all_uris, use_push, diagnostic_cache).await;
 }
 
+pub fn get_configured_document_path(uri: &Url, config: &Config) -> Option<PathBuf> {
+    let path = uri.to_file_path().ok()?;
+    config.get_project_for_path(&path)?;
+    Some(path)
+}
+
+pub fn is_configured_document_uri(uri: &Url, config: &Config) -> bool {
+    get_configured_document_path(uri, config).is_some()
+}
+
 /// Computes the set of URIs that need validation based on affected fragments and operations
 #[allow(clippy::too_many_arguments)]
 pub fn get_affected_uris(
@@ -284,10 +303,14 @@ pub fn get_affected_uris(
     uris_to_validate.into_iter().collect()
 }
 
-/// Gets all used fragments across the workspace
-pub fn get_used_fragments(metadata: &MetadataMap) -> AHashSet<Arc<str>> {
+/// Gets all used fragments across the configured workspace
+pub fn get_used_fragments(metadata: &MetadataMap, config: &Config) -> AHashSet<Arc<str>> {
     let mut used = AHashSet::default();
     for entry in metadata.iter() {
+        if !is_configured_document_uri(entry.key(), config) {
+            continue;
+        }
+
         for spread in entry.value().fragment_spreads.iter() {
             used.insert(spread.clone());
         }

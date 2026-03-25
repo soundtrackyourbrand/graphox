@@ -126,24 +126,20 @@ pub fn collect_fragment_metadata(
             let uri = entry.key();
             let meta = entry.value();
 
-            // Get project info once per file
-            let (import_path, project_subgraphs, schema) = if let Ok(p) = uri.to_file_path() {
-                let project = config.get_project_for_path(&p);
-                let schema_key = project.map(|p| p.schema().as_key());
-                (
-                    project.and_then(|proj| proj.import().map(|s| s.to_string())),
-                    schema_key
-                        .as_ref()
-                        .and_then(|key: &String| subgraphs_arc.get(key.as_str()))
-                        .map(|r| r.value().clone()),
-                    schema_key
-                        .as_ref()
-                        .and_then(|key: &String| schemas_arc.get(key.as_str()))
-                        .map(|r| r.value().clone()),
-                )
-            } else {
-                (None, None, None)
+            let Some(path) = super::validation::get_configured_document_path(uri, config) else {
+                return Vec::<FragmentCompletionInfo>::new();
             };
+            let Some(project) = config.get_project_for_path(&path) else {
+                return Vec::<FragmentCompletionInfo>::new();
+            };
+            let schema_key = project.schema().as_key();
+            let import_path = project.import().map(|s| s.to_string());
+            let project_subgraphs = subgraphs_arc
+                .get(schema_key.as_str())
+                .map(|r| r.value().clone());
+            let schema = schemas_arc
+                .get(schema_key.as_str())
+                .map(|r| r.value().clone());
 
             let doc = documents_arc.get(uri).map(|r| r.value().clone());
             let fragment_nodes = doc
@@ -232,23 +228,22 @@ pub fn collect_fragment_metadata_with_schema(
             let uri = entry.key();
             let meta = entry.value();
 
-            let (import_path, schema_key, project_subgraphs, schema) =
-                if let Ok(p) = uri.to_file_path() {
-                    let project = config.get_project_for_path(&p);
-                    let key = project.map(|proj| Arc::from(proj.schema().as_key()));
-                    (
-                        project.and_then(|proj| proj.import().map(Arc::from)),
-                        key.clone(),
-                        key.as_ref()
-                            .and_then(|k: &Arc<str>| subgraphs_arc.get::<str>(k.as_ref()))
-                            .map(|r| r.value().clone()),
-                        key.as_ref()
-                            .and_then(|k: &Arc<str>| schemas_arc.get::<str>(k.as_ref()))
-                            .map(|r| r.value().clone()),
-                    )
-                } else {
-                    (None, None, None, None)
-                };
+            let Some(path) = super::validation::get_configured_document_path(uri, config) else {
+                return Vec::<(FragmentCompletionInfo, Option<Arc<str>>)>::new();
+            };
+            let Some(project) = config.get_project_for_path(&path) else {
+                return Vec::<(FragmentCompletionInfo, Option<Arc<str>>)>::new();
+            };
+            let schema_key = Some(Arc::from(project.schema().as_key()));
+            let import_path = project.import().map(Arc::from);
+            let project_subgraphs = schema_key
+                .as_ref()
+                .and_then(|k: &Arc<str>| subgraphs_arc.get::<str>(k.as_ref()))
+                .map(|r| r.value().clone());
+            let schema = schema_key
+                .as_ref()
+                .and_then(|k: &Arc<str>| schemas_arc.get::<str>(k.as_ref()))
+                .map(|r| r.value().clone());
 
             let doc = documents_arc.get(uri).map(|r| r.value().clone());
             let fragment_nodes = doc
