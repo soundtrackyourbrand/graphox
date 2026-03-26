@@ -134,4 +134,4 @@ Check the Output panel in VSCode:
 3. Look for error messages
 
 You can also increase the log level to `debug` or `trace` in the settings for more verbose output.
-
+If you need a Rust crash backtrace while debugging the extension, set `graphox.rustBacktrace` to `1` or `full` and restart the server.

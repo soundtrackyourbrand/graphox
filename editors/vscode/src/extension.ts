@@ -156,10 +156,12 @@ async function startServer(context: ExtensionContext): Promise<void> {
   const serverPath = findServerPath(configuredPath);
   const usedNpm = serverPath.includes('node_modules');
   const logLevel = config.get<string>('logLevel', 'info');
+  const rustBacktrace = config.get<string>('rustBacktrace', '').trim();
 
   outputChannel.appendLine('Starting Graphox LSP server...');
   outputChannel.appendLine(`- Path: ${serverPath}`);
   outputChannel.appendLine(`- Log Level: ${logLevel}`);
+  outputChannel.appendLine(`- RUST_BACKTRACE: ${rustBacktrace || '(unset)'}`);
   outputChannel.appendLine(`- Root: ${configRoot}`);
 
   const run: Executable = {
@@ -169,7 +171,8 @@ async function startServer(context: ExtensionContext): Promise<void> {
       cwd: configRoot || workspace.workspaceFolders?.[0]?.uri.fsPath,
       env: {
         ...process.env,
-        RUST_LOG: logLevel === 'debug' || logLevel === 'trace' ? logLevel : undefined
+        RUST_LOG: logLevel === 'debug' || logLevel === 'trace' ? logLevel : undefined,
+        RUST_BACKTRACE: rustBacktrace || undefined
       }
     }
   };
@@ -258,7 +261,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
   context.subscriptions.push(
     workspace.onDidChangeConfiguration(async (e) => {
-      if (e.affectsConfiguration('graphox.serverPath') || e.affectsConfiguration('graphox.logLevel')) {
+      if (e.affectsConfiguration('graphox.serverPath') || e.affectsConfiguration('graphox.logLevel') || e.affectsConfiguration('graphox.rustBacktrace')) {
         const action = await window.showInformationMessage(
           'Graphox configuration changed. Would you like to restart the server?',
           'Restart Now'

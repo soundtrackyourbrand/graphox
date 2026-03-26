@@ -68,6 +68,11 @@
           ],
           "default": "info",
           "description": "Set the logging level for the LSP server."
+        },
+        "graphox.rustBacktrace": {
+          "type": "string",
+          "default": "",
+          "description": "Value to set for RUST_BACKTRACE when launching the Graphox language server. Use \"1\" or \"full\" for Rust backtraces, \"0\" to disable, or leave empty to keep it unset."
         }
       }
     },
