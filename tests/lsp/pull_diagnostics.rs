@@ -4,9 +4,9 @@ use crate::support::{
     write_project_file,
 };
 use ahash::AHashMap;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use graphox::{
-    Config,
+    Backend, Config,
     config::{
         CodegenConfig, GlobPattern, ProjectConfig, RequiredFieldRule, RulesConfig, SchemaSource,
         TimeoutConfig,
@@ -15,6 +15,8 @@ use graphox::{
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
+use tower_lsp::LspService;
+use tower_lsp::jsonrpc::Response;
 use tower_lsp::lsp_types::*;
 use tower_service::Service;
 
@@ -137,6 +139,106 @@ async fn test_pull_diagnostics_basic() {
         }
         _ => panic!("Expected full diagnostic report"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_workspace_diagnostic_refresh_survives_delayed_client_response() {
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type Query { user: User } type User { id: ID! }",
+        )
+        .with_file("query.graphql", "query GetUser { user { id } }");
+
+    let base_dir = scenario.write_files().unwrap();
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, socket) = LspService::new(move |client| Backend::new(client, config));
+    let (mut requests, mut responses) = socket.split();
+    let (refresh_responded_tx, refresh_responded_rx) = tokio::sync::oneshot::channel();
+
+    let response_task = tokio::spawn(async move {
+        while let Some(request) = requests.next().await {
+            if request.method() != "workspace/diagnostic/refresh" {
+                continue;
+            }
+
+            let request_id = request
+                .id()
+                .cloned()
+                .expect("workspace/diagnostic/refresh should include a request id");
+
+            tokio::time::sleep(Duration::from_millis(650)).await;
+
+            responses
+                .send(Response::from_ok(request_id, serde_json::Value::Null))
+                .await
+                .expect("failed to send delayed workspace/diagnostic/refresh response");
+
+            refresh_responded_tx
+                .send(())
+                .expect("refresh response receiver dropped unexpectedly");
+            return;
+        }
+
+        panic!("workspace/diagnostic/refresh was never requested");
+    });
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    tokio::time::timeout(Duration::from_secs(3), refresh_responded_rx)
+        .await
+        .expect("timed out waiting to send delayed workspace/diagnostic/refresh response")
+        .expect("workspace/diagnostic/refresh response task dropped unexpectedly");
+
+    response_task
+        .await
+        .expect("workspace/diagnostic/refresh response task panicked");
+
+    let _: Option<Vec<SymbolInformation>> = lsp_request_typed(
+        &mut service,
+        "workspace/symbol",
+        &WorkspaceSymbolParams {
+            query: "GetUser".to_string(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

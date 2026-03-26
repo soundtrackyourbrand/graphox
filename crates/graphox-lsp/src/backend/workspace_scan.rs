@@ -25,6 +25,8 @@ use tower_lsp::lsp_types::*;
 
 /// Percentage of progress where validation starts
 pub const VALIDATION_PROGRESS_START: u32 = 70;
+const WORKSPACE_DIAGNOSTIC_REFRESH_WARNING_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(500);
 
 /// Parameters for workspace scanning operation
 pub struct WorkspaceScanParams {
@@ -66,6 +68,52 @@ pub fn spawn_workspace_scan(params: WorkspaceScanParams) {
     tokio::spawn(async move {
         // Run the scan
         perform_workspace_scan(params).await;
+    });
+}
+
+/// Keep the refresh request alive after a slow-response warning so tower-lsp
+/// never sees a late client response for a dropped receiver.
+fn spawn_workspace_diagnostic_refresh(client: Client) {
+    tokio::spawn(async move {
+        let request_client = client.clone();
+        let refresh_request = request_client.workspace_diagnostic_refresh();
+        tokio::pin!(refresh_request);
+
+        match tokio::time::timeout(
+            WORKSPACE_DIAGNOSTIC_REFRESH_WARNING_TIMEOUT,
+            &mut refresh_request,
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("workspace/diagnostic/refresh failed after workspace scan: {err}"),
+                    )
+                    .await;
+            }
+            Err(_) => {
+                client
+                    .log_message(
+                        MessageType::WARNING,
+                        "workspace/diagnostic/refresh is taking longer than expected after workspace scan",
+                    )
+                    .await;
+
+                if let Err(err) = refresh_request.await {
+                    client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!(
+                                "workspace/diagnostic/refresh failed after workspace scan: {err}"
+                            ),
+                        )
+                        .await;
+                }
+            }
+        }
     });
 }
 
@@ -286,35 +334,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                 .await;
             }
 
-            let client = params.client.clone();
-            tokio::spawn(async move {
-                match tokio::time::timeout(
-                    std::time::Duration::from_millis(500),
-                    client.workspace_diagnostic_refresh(),
-                )
-                .await
-                {
-                    Ok(Ok(())) => {}
-                    Ok(Err(err)) => {
-                        client
-                            .log_message(
-                                MessageType::WARNING,
-                                format!(
-                                    "workspace/diagnostic/refresh failed after workspace scan: {err}"
-                                ),
-                            )
-                            .await;
-                    }
-                    Err(_) => {
-                        client
-                            .log_message(
-                                MessageType::WARNING,
-                                "workspace/diagnostic/refresh timed out after workspace scan",
-                            )
-                            .await;
-                    }
-                }
-            });
+            spawn_workspace_diagnostic_refresh(params.client.clone());
         }
 
         let elapsed = start_time.elapsed();
