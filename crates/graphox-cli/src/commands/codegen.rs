@@ -197,6 +197,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         }
     }
 
+    if clean {
+        return execute_clean_only(&cfg, verbose) && success;
+    }
+
     let workspace_metadata =
         Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
     let global_metadata = &workspace_metadata.fragments;
@@ -748,6 +752,76 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     success
 }
 
+fn execute_clean_only(cfg: &Config, verbose: bool) -> bool {
+    let mut success = true;
+
+    for project in cfg.projects() {
+        let output_dir = project.output_dir().map(Path::new);
+        let project_files = if output_dir.is_none() {
+            utils::get_project_scan_files(cfg, project, None)
+                .into_iter()
+                .map(|path| {
+                    if path.is_absolute() {
+                        path
+                    } else {
+                        cfg.base_dir().join(path)
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let res = clean_project_files_sync(
+            CleanParams {
+                base_dir: cfg.base_dir(),
+                include: project.include(),
+                project_files: &project_files,
+                output_dir,
+            },
+            verbose,
+        );
+
+        if res.is_err() {
+            success = false;
+        }
+    }
+
+    let schema_types = cfg.schema_types();
+    if !schema_types.is_empty() {
+        let schema_results: Vec<_> = schema_types
+            .par_iter()
+            .map(|st| {
+                let abs_output = cfg.base_dir().join(st.output());
+                if abs_output.exists() {
+                    if let Err(e) = std::fs::remove_file(&abs_output) {
+                        eprintln!(
+                            "{}: {} - {}",
+                            "Failed to remove".red(),
+                            abs_output.display().to_string().red(),
+                            e
+                        );
+                        return Err(());
+                    } else if verbose {
+                        println!(
+                            "{}: {}",
+                            "Removed".bright_black(),
+                            abs_output.display().to_string().bright_black()
+                        );
+                    }
+                }
+                Ok(())
+            })
+            .collect();
+
+        if schema_results.iter().any(|r| r.is_err()) {
+            success = false;
+        }
+    }
+
+    success
+}
+
 fn execute_schema_codegen_sync(
     base_dir: &Path,
     source: &SchemaSource,
@@ -814,8 +888,23 @@ fn execute_project_codegen_sync(
     if !clean {
         generate_project_files_sync(params, verbose)
     } else {
-        clean_project_files_sync(params, verbose)
+        clean_project_files_sync(
+            CleanParams {
+                base_dir: params.base_dir,
+                include: params.include,
+                project_files: params.project_files,
+                output_dir: params.output_dir,
+            },
+            verbose,
+        )
     }
+}
+
+struct CleanParams<'a> {
+    base_dir: &'a Path,
+    include: &'a graphox_core::config::GlobPattern,
+    project_files: &'a [PathBuf],
+    output_dir: Option<&'a Path>,
 }
 
 fn generate_project_files_sync(
@@ -1029,7 +1118,7 @@ fn generate_project_files_sync(
 }
 
 fn clean_project_files_sync(
-    params: CodegenParams<'_>,
+    params: CleanParams<'_>,
     verbose: bool,
 ) -> Result<
     (
@@ -1043,18 +1132,11 @@ fn clean_project_files_sync(
     match params.output_dir {
         Some(out_dir) => {
             let abs_out_dir = params.base_dir.join(out_dir);
-            let mut is_surgical = false;
-
-            for pattern in patterns {
-                let include_root = utils::get_glob_root(&pattern);
-                let abs_include_root = params.base_dir.join(&include_root);
-                if abs_out_dir == abs_include_root
-                    || utils::path_starts_with(&abs_include_root, &abs_out_dir)
-                {
-                    is_surgical = true;
-                    break;
-                }
-            }
+            let is_surgical = utils::output_dir_requires_surgical_handling(
+                params.base_dir,
+                &patterns,
+                &abs_out_dir,
+            );
 
             if !is_surgical {
                 if abs_out_dir.exists() {

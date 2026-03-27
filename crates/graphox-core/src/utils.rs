@@ -1,9 +1,14 @@
 use crate::document::DocumentState;
 use crate::queries::*;
+use crate::{Config, config::ProjectConfig};
 use colored::*;
 use lsp_types::*;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tree_sitter::StreamingIterator;
 
 pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
@@ -21,6 +26,189 @@ pub const DIAGNOSTIC_SOURCE: Option<&'static str> = Some("graphox");
 pub fn flush_stdio() {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+}
+
+const PROJECT_WALK_LOG_INTERVAL: usize = 1_000;
+
+#[derive(Clone)]
+pub struct WorkspaceScanInstrumentation {
+    inner: Arc<WorkspaceScanInstrumentationInner>,
+}
+
+struct WorkspaceScanInstrumentationInner {
+    start: Instant,
+    path: PathBuf,
+    writer: Mutex<std::io::BufWriter<File>>,
+}
+
+#[derive(Clone)]
+pub struct ProjectWalkInstrumentation {
+    instrumentation: WorkspaceScanInstrumentation,
+    project_idx: usize,
+    include_key: Arc<str>,
+    codegen_enabled: bool,
+    output_dir: Option<Arc<str>>,
+    counters: Arc<ProjectWalkCounters>,
+}
+
+struct ProjectWalkCounters {
+    entries: AtomicUsize,
+    dirs: AtomicUsize,
+    files: AtomicUsize,
+    matched_files: AtomicUsize,
+    skipped_dirs: AtomicUsize,
+    next_log_at: AtomicUsize,
+}
+
+impl WorkspaceScanInstrumentation {
+    pub fn create(path: &Path) -> std::io::Result<Self> {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)?;
+        Ok(Self {
+            inner: Arc::new(WorkspaceScanInstrumentationInner {
+                start: Instant::now(),
+                path: path.to_path_buf(),
+                writer: Mutex::new(std::io::BufWriter::new(file)),
+            }),
+        })
+    }
+
+    pub fn path(&self) -> PathBuf {
+        self.inner.path.clone()
+    }
+
+    pub fn log_phase(&self, event: &str, message: impl AsRef<str>) {
+        self.log_line(&format!("event={event} {}", message.as_ref()));
+    }
+
+    pub fn project_walk(
+        &self,
+        project_idx: usize,
+        include_key: &str,
+        codegen_enabled: bool,
+        output_dir: Option<&str>,
+    ) -> ProjectWalkInstrumentation {
+        ProjectWalkInstrumentation {
+            instrumentation: self.clone(),
+            project_idx,
+            include_key: Arc::from(include_key),
+            codegen_enabled,
+            output_dir: output_dir.map(Arc::from),
+            counters: Arc::new(ProjectWalkCounters {
+                entries: AtomicUsize::new(0),
+                dirs: AtomicUsize::new(0),
+                files: AtomicUsize::new(0),
+                matched_files: AtomicUsize::new(0),
+                skipped_dirs: AtomicUsize::new(0),
+                next_log_at: AtomicUsize::new(PROJECT_WALK_LOG_INTERVAL),
+            }),
+        }
+    }
+
+    fn log_line(&self, message: &str) {
+        let elapsed_ms = self.inner.start.elapsed().as_millis();
+        if let Ok(mut writer) = self.inner.writer.lock() {
+            let _ = writeln!(writer, "{elapsed_ms:>8}ms {message}");
+            let _ = writer.flush();
+        }
+    }
+}
+
+impl ProjectWalkInstrumentation {
+    pub fn start(
+        &self,
+        roots: &[PathBuf],
+        include_patterns: &[String],
+        exclude_patterns: &[String],
+    ) {
+        self.instrumentation.log_line(&format!(
+            "event=project_walk_start project={} include={:?} codegen_enabled={} output_dir={:?} roots={:?} include_patterns={:?} exclude_patterns={:?}",
+            self.project_idx,
+            self.include_key,
+            self.codegen_enabled,
+            self.output_dir,
+            roots,
+            include_patterns,
+            exclude_patterns
+        ));
+    }
+
+    pub fn log_no_roots(&self, include_patterns: &[String], exclude_patterns: &[String]) {
+        self.instrumentation.log_line(&format!(
+            "event=project_walk_no_roots project={} include={:?} codegen_enabled={} output_dir={:?} include_patterns={:?} exclude_patterns={:?}",
+            self.project_idx,
+            self.include_key,
+            self.codegen_enabled,
+            self.output_dir,
+            include_patterns,
+            exclude_patterns
+        ));
+    }
+
+    pub fn observe_dir(&self, path: &Path, skipped: bool) {
+        self.counters.entries.fetch_add(1, Ordering::Relaxed);
+        self.counters.dirs.fetch_add(1, Ordering::Relaxed);
+        if skipped {
+            self.counters.skipped_dirs.fetch_add(1, Ordering::Relaxed);
+        }
+        self.maybe_log_progress(path);
+    }
+
+    pub fn observe_file(&self, path: &Path, matched: bool) {
+        self.counters.entries.fetch_add(1, Ordering::Relaxed);
+        self.counters.files.fetch_add(1, Ordering::Relaxed);
+        if matched {
+            self.counters.matched_files.fetch_add(1, Ordering::Relaxed);
+        }
+        self.maybe_log_progress(path);
+    }
+
+    pub fn finish(&self, returned_files: usize) {
+        self.instrumentation.log_line(&format!(
+            "event=project_walk_complete project={} include={:?} entries={} dirs={} files={} matched_files={} skipped_dirs={} returned_files={}",
+            self.project_idx,
+            self.include_key,
+            self.counters.entries.load(Ordering::Relaxed),
+            self.counters.dirs.load(Ordering::Relaxed),
+            self.counters.files.load(Ordering::Relaxed),
+            self.counters.matched_files.load(Ordering::Relaxed),
+            self.counters.skipped_dirs.load(Ordering::Relaxed),
+            returned_files
+        ));
+    }
+
+    fn maybe_log_progress(&self, path: &Path) {
+        let entries = self.counters.entries.load(Ordering::Relaxed);
+        let mut next_log_at = self.counters.next_log_at.load(Ordering::Relaxed);
+        while entries >= next_log_at {
+            let new_next = next_log_at.saturating_add(PROJECT_WALK_LOG_INTERVAL);
+            match self.counters.next_log_at.compare_exchange(
+                next_log_at,
+                new_next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    self.instrumentation.log_line(&format!(
+                        "event=project_walk_progress project={} include={:?} entries={} dirs={} files={} matched_files={} skipped_dirs={} last_path={:?}",
+                        self.project_idx,
+                        self.include_key,
+                        entries,
+                        self.counters.dirs.load(Ordering::Relaxed),
+                        self.counters.files.load(Ordering::Relaxed),
+                        self.counters.matched_files.load(Ordering::Relaxed),
+                        self.counters.skipped_dirs.load(Ordering::Relaxed),
+                        path
+                    ));
+                    break;
+                }
+                Err(observed) => next_log_at = observed,
+            }
+        }
+    }
 }
 
 #[repr(u32)]
@@ -162,10 +350,34 @@ pub fn get_glob_root(pattern: &str) -> PathBuf {
     root
 }
 
+fn should_skip_project_walk_dir(
+    path: &Path,
+    base_dir: &Path,
+    exclude_set: &globset::GlobSet,
+) -> bool {
+    if path.components().any(|c| {
+        matches!(
+            c.as_os_str().to_str(),
+            Some("node_modules" | ".git" | "__generated__")
+        )
+    }) {
+        return true;
+    }
+
+    if exclude_set.is_match(path) || exclude_set.is_match(to_posix_path(path)) {
+        return true;
+    }
+
+    pathdiff::diff_paths(path, base_dir).is_some_and(|rel_to_base| {
+        exclude_set.is_match(&rel_to_base) || exclude_set.is_match(to_posix_path(&rel_to_base))
+    })
+}
+
 pub fn get_project_files(
     include_patterns: &[String],
     exclude_patterns: &[String],
     base_dir: &Path,
+    instrumentation: Option<ProjectWalkInstrumentation>,
 ) -> Vec<PathBuf> {
     use globset::{Glob, GlobSetBuilder};
     use ignore::WalkBuilder;
@@ -253,6 +465,10 @@ pub fn get_project_files(
             }
         }
 
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.start(&unique_roots, include_patterns, exclude_patterns);
+        }
+
         let mut walk_builder = WalkBuilder::new(&unique_roots[0]);
         for root in &unique_roots[1..] {
             walk_builder.add(root);
@@ -266,24 +482,41 @@ pub fn get_project_files(
 
         let include_set_ref = &include_set;
         let exclude_set_ref = &exclude_set;
+        let instrumentation_ref = instrumentation.clone();
 
         walk.run(|| {
             let tx = tx.clone();
+            let instrumentation = instrumentation_ref.clone();
             Box::new(move |entry| {
-                if let Ok(entry) = entry
-                    && entry.file_type().is_some_and(|ft| ft.is_file())
-                {
+                if let Ok(entry) = entry {
                     let path = entry.path();
-                    if is_relevant_file(path) {
+                    if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+                        let should_skip =
+                            should_skip_project_walk_dir(path, base_dir, exclude_set_ref);
+                        if let Some(instrumentation) = instrumentation.as_ref() {
+                            instrumentation.observe_dir(path, should_skip);
+                        }
+                        if should_skip {
+                            return ignore::WalkState::Skip;
+                        }
+                    }
+
+                    if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                        let mut matched_file = false;
                         let mut matched = include_set_ref.is_match(path)
                             || include_set_ref.is_match(to_posix_path(path));
 
-                        if !matched && let Ok(abs_path) = std::fs::canonicalize(path) {
+                        if !matched
+                            && is_relevant_file(path)
+                            && let Ok(abs_path) = std::fs::canonicalize(path)
+                        {
                             matched = include_set_ref.is_match(&abs_path)
                                 || include_set_ref.is_match(to_posix_path(&abs_path));
                         }
 
-                        if !matched && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
+                        if !matched
+                            && is_relevant_file(path)
+                            && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
                         {
                             let posix_rel_path = to_posix_path(&rel_to_base);
                             matched = include_set_ref.is_match(&rel_to_base)
@@ -291,13 +524,14 @@ pub fn get_project_files(
                         }
 
                         if !matched
+                            && is_relevant_file(path)
                             && let Some(file_name) = path.file_name()
                             && include_set_ref.is_match(file_name)
                         {
                             matched = true;
                         }
 
-                        if matched {
+                        if matched && is_relevant_file(path) {
                             let mut excluded = exclude_set_ref.is_match(path)
                                 || exclude_set_ref.is_match(to_posix_path(path));
                             if !excluded
@@ -309,6 +543,7 @@ pub fn get_project_files(
                             }
 
                             if !excluded {
+                                matched_file = true;
                                 let send_path = if cfg!(windows) {
                                     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
                                 } else {
@@ -317,11 +552,17 @@ pub fn get_project_files(
                                 let _ = tx.send(send_path);
                             }
                         }
+
+                        if let Some(instrumentation) = instrumentation.as_ref() {
+                            instrumentation.observe_file(path, matched_file);
+                        }
                     }
                 }
                 ignore::WalkState::Continue
             })
         });
+    } else if let Some(instrumentation) = instrumentation.as_ref() {
+        instrumentation.log_no_roots(include_patterns, exclude_patterns);
     }
 
     drop(tx);
@@ -331,7 +572,72 @@ pub fn get_project_files(
 
     files.sort();
     files.dedup();
+    if let Some(instrumentation) = instrumentation.as_ref() {
+        instrumentation.finish(files.len());
+    }
     files
+}
+
+pub fn output_dir_requires_surgical_handling(
+    base_dir: &Path,
+    include_patterns: &[String],
+    output_dir: &Path,
+) -> bool {
+    include_patterns.iter().any(|pattern| {
+        let include_root = get_glob_root(pattern);
+        let abs_include_root = base_dir.join(&include_root);
+        output_dir == abs_include_root || path_starts_with(&abs_include_root, output_dir)
+    })
+}
+
+pub fn get_project_scan_files(
+    config: &Config,
+    project: &ProjectConfig,
+    instrumentation: Option<ProjectWalkInstrumentation>,
+) -> Vec<PathBuf> {
+    let abs_includes: Vec<String> = project
+        .include()
+        .patterns()
+        .iter()
+        .map(|pattern| {
+            let abs = config.base_dir().join(pattern);
+            to_posix_path(&abs)
+        })
+        .collect();
+
+    let mut abs_excludes: Vec<String> = project
+        .exclude()
+        .map(|exclude| exclude.patterns())
+        .unwrap_or_default()
+        .iter()
+        .map(|pattern| {
+            let abs = config.base_dir().join(pattern);
+            to_posix_path(&abs)
+        })
+        .collect();
+
+    if let Some(output_dir) = project.output_dir() {
+        let abs_output_dir = config.base_dir().join(output_dir);
+        let include_patterns = project.include().patterns();
+        if !output_dir_requires_surgical_handling(
+            config.base_dir(),
+            &include_patterns,
+            &abs_output_dir,
+        ) {
+            abs_excludes.push(to_posix_path(&abs_output_dir));
+            abs_excludes.push(output_dir.to_string());
+        }
+    }
+
+    abs_excludes.push("**/__generated__".to_string());
+    abs_excludes.push("**/__generated__/**".to_string());
+
+    get_project_files(
+        &abs_includes,
+        &abs_excludes,
+        config.base_dir(),
+        instrumentation,
+    )
 }
 
 pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
@@ -956,6 +1262,7 @@ pub fn normalize_windows_path(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use globset::{Glob, GlobSetBuilder};
 
     #[test]
     #[ntest::timeout(3000)]
@@ -1043,6 +1350,47 @@ mod tests {
         );
         assert_eq!(get_glob_root("*.graphql"), PathBuf::from(""));
         assert_eq!(get_glob_root("docs/"), PathBuf::from("docs/"));
+    }
+
+    #[test]
+    fn test_should_skip_project_walk_dir_for_irrelevant_dirs() {
+        let exclude_set = GlobSetBuilder::new().build().unwrap();
+        let base_dir = Path::new("/repo");
+
+        assert!(should_skip_project_walk_dir(
+            Path::new("/repo/node_modules/pkg"),
+            base_dir,
+            &exclude_set
+        ));
+        assert!(should_skip_project_walk_dir(
+            Path::new("/repo/.git/objects"),
+            base_dir,
+            &exclude_set
+        ));
+        assert!(!should_skip_project_walk_dir(
+            Path::new("/repo/src"),
+            base_dir,
+            &exclude_set
+        ));
+    }
+
+    #[test]
+    fn test_should_skip_project_walk_dir_for_excluded_paths() {
+        let mut builder = GlobSetBuilder::new();
+        builder.add(Glob::new("dist/**").unwrap());
+        let exclude_set = builder.build().unwrap();
+        let base_dir = Path::new("/repo");
+
+        assert!(should_skip_project_walk_dir(
+            Path::new("/repo/dist/assets"),
+            base_dir,
+            &exclude_set
+        ));
+        assert!(!should_skip_project_walk_dir(
+            Path::new("/repo/src/components"),
+            base_dir,
+            &exclude_set
+        ));
     }
 
     #[test]

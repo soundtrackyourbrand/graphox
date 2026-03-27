@@ -76,13 +76,7 @@ fn collect_codegen_metadata(
             continue;
         }
 
-        let include_patterns = project.include().patterns();
-        let exclude_patterns = project.exclude().map(|e| e.patterns()).unwrap_or_default();
-        let project_files = graphox_core::utils::get_project_files(
-            &include_patterns,
-            &exclude_patterns,
-            config.base_dir(),
-        );
+        let project_files = graphox_core::utils::get_project_scan_files(config, project, None);
 
         let import_alias = project.import().map(Arc::<str>::from);
 

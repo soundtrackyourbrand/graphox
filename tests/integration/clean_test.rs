@@ -430,3 +430,101 @@ projects:
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }
+
+#[test]
+fn test_codegen_clean_with_missing_schema_still_removes_output_dir() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_clean_missing_schema_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    std::fs::write(temp_dir.join("query.graphql"), "query { me { id } }").unwrap();
+    let generated_dir = temp_dir.join("generated");
+    std::fs::create_dir_all(&generated_dir).unwrap();
+    std::fs::write(generated_dir.join("query.codegen.ts"), "// generated").unwrap();
+
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "missing-schema.graphql"
+    include: "query.graphql"
+    output_dir: "generated"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("codegen")
+        .arg("--clean")
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "clean should not depend on loading schemas: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !generated_dir.exists(),
+        "generated directory should be removed even when schema is missing"
+    );
+
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+#[test]
+fn test_check_skips_output_dir_inside_include_root() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = std::env::temp_dir().join("graphox_skip_output_dir_scan_test");
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    std::fs::create_dir_all(&temp_dir).ok();
+
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type User { id: ID! } type Query { me: User }",
+    )
+    .unwrap();
+
+    let src_dir = temp_dir.join("src");
+    let generated_dir = src_dir.join("graphql");
+    std::fs::create_dir_all(&generated_dir).unwrap();
+    std::fs::write(src_dir.join("query.graphql"), "query { me { id } }").unwrap();
+    std::fs::write(
+        generated_dir.join("broken.graphql"),
+        "query BrokenOutput { missing }",
+    )
+    .unwrap();
+
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "src"
+    output_dir: "src/graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(bin_path)
+        .current_dir(&temp_dir)
+        .arg("check")
+        .output()
+        .expect("Failed to execute process");
+
+    assert!(
+        output.status.success(),
+        "output_dir should be excluded from scan: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::fs::remove_dir_all(temp_dir).ok();
+}

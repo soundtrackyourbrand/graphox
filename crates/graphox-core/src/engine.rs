@@ -1,6 +1,8 @@
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState, FragmentId, TransitiveDeps};
-use crate::utils::{get_project_files, has_generated_header, is_relevant_file};
+use crate::utils::{
+    WorkspaceScanInstrumentation, get_project_scan_files, has_generated_header, is_relevant_file,
+};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
 use lsp_types::Url;
@@ -186,6 +188,20 @@ impl Engine {
         position_encoding: lsp_types::PositionEncodingKind,
         previous_metadata: Option<&WorkspaceMetadata>,
     ) -> WorkspaceMetadata {
+        Self::scan_workspace_with_instrumentation(
+            config,
+            position_encoding,
+            previous_metadata,
+            None,
+        )
+    }
+
+    pub fn scan_workspace_with_instrumentation(
+        config: &Config,
+        position_encoding: lsp_types::PositionEncodingKind,
+        previous_metadata: Option<&WorkspaceMetadata>,
+        instrumentation: Option<WorkspaceScanInstrumentation>,
+    ) -> WorkspaceMetadata {
         Self::scan_workspace_cancellable(
             config,
             |_, _| {},
@@ -193,6 +209,7 @@ impl Engine {
             Arc::new(AtomicBool::new(false)),
             position_encoding,
             previous_metadata,
+            instrumentation,
         )
     }
 
@@ -203,45 +220,61 @@ impl Engine {
         cancelled: Arc<AtomicBool>,
         position_encoding: lsp_types::PositionEncodingKind,
         previous_metadata: Option<&WorkspaceMetadata>,
+        instrumentation: Option<WorkspaceScanInstrumentation>,
     ) -> WorkspaceMetadata
     where
         F: FnMut(PathBuf, DocumentState) + Send,
         P: FnMut(usize, usize) + Send,
     {
         let mut timings = WorkspaceScanTimings::default();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "workspace_scan_start",
+                format!(
+                    "base_dir={:?} projects={} previous_metadata={}",
+                    config.base_dir(),
+                    config.projects().len(),
+                    previous_metadata.is_some()
+                ),
+            );
+        }
 
         // 1. Glob Resolution
         let start_glob = Instant::now();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "glob_resolution_start",
+                format!("projects={}", config.projects().len()),
+            );
+        }
         let project_info: Vec<_> = config
             .projects()
-            .par_iter()
-            .map(|p| {
-                let abs_includes: Vec<String> = p
-                    .include()
-                    .patterns()
-                    .iter()
-                    .map(|p_inc| {
-                        let abs = config.base_dir().join(p_inc);
-                        crate::utils::to_posix_path(&abs)
-                    })
-                    .collect();
-                let abs_excludes: Vec<String> = p
-                    .exclude()
-                    .map(|e: &crate::config::GlobPattern| e.patterns())
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|p_exc| {
-                        let abs = config.base_dir().join(p_exc);
-                        crate::utils::to_posix_path(&abs)
-                    })
-                    .collect();
+            .iter()
+            .enumerate()
+            .map(|(project_idx, p)| {
+                // `get_project_scan_files` already uses a parallel walker, so keep project
+                // iteration itself serial to avoid nesting multiple filesystem thread pools.
+                let project_instrumentation = instrumentation.as_ref().map(|instrumentation| {
+                    instrumentation.project_walk(
+                        project_idx,
+                        &p.include().as_key(),
+                        config.get_project_codegen_enabled(p),
+                        p.output_dir(),
+                    )
+                });
                 (
-                    get_project_files(&abs_includes, &abs_excludes, config.base_dir()),
+                    get_project_scan_files(config, p, project_instrumentation),
                     p.import().map(String::from),
                 )
             })
             .collect();
         timings.glob_resolution = start_glob.elapsed();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "glob_resolution_complete",
+                format!("duration_ms={}", timings.glob_resolution.as_millis()),
+            );
+        }
 
         // 2. Unique File Identification
         let mut all_unique_paths = HashSet::default();
@@ -250,9 +283,21 @@ impl Engine {
                 all_unique_paths.insert(path.clone());
             }
         }
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "unique_paths_complete",
+                format!("count={}", all_unique_paths.len()),
+            );
+        }
 
         // 3. Parallel Document Parsing
         let start_parse = Instant::now();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "doc_parsing_start",
+                format!("candidate_files={}", all_unique_paths.len()),
+            );
+        }
         let docs_vec: Vec<(PathBuf, DocumentState)> = all_unique_paths
             .par_iter()
             .filter(|p| is_relevant_file(p))
@@ -312,6 +357,9 @@ impl Engine {
 
         let mut path_to_doc = HashMap::default();
         let total_docs = docs_vec.len();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase("doc_parsing_candidates_ready", format!("docs={total_docs}"));
+        }
         for (i, (p, doc)) in docs_vec.into_iter().enumerate() {
             if cancelled.load(Ordering::Relaxed) {
                 break;
@@ -328,9 +376,22 @@ impl Engine {
         }
 
         timings.doc_parsing = start_parse.elapsed();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "doc_parsing_complete",
+                format!(
+                    "duration_ms={} documents={}",
+                    timings.doc_parsing.as_millis(),
+                    path_to_doc.len()
+                ),
+            );
+        }
 
         // 4. Metadata Extraction & Project Association
         let start_metadata = Instant::now();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase("metadata_extraction_start", "");
+        }
 
         let mut prev_fragments_by_path: HashMap<Arc<str>, Vec<FragmentMetadata>> =
             HashMap::default();
@@ -433,6 +494,17 @@ impl Engine {
                 );
 
         timings.metadata_extraction = start_metadata.elapsed();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "metadata_extraction_complete",
+                format!(
+                    "duration_ms={} fragments={} operations={}",
+                    timings.metadata_extraction.as_millis(),
+                    all_fragments.len(),
+                    all_operations.len()
+                ),
+            );
+        }
 
         // 5. Compute transitive fragment dependencies
         // This is done once during workspace scan to avoid repeated computation during codegen
@@ -447,6 +519,16 @@ impl Engine {
             Self::compute_fragment_dependencies(&mut all_fragments);
         }
         timings.fragment_deps_computation = start_deps.elapsed();
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "fragment_deps_complete",
+                format!(
+                    "duration_ms={} fragments={}",
+                    timings.fragment_deps_computation.as_millis(),
+                    all_fragments.len()
+                ),
+            );
+        }
 
         // 6. Build operation name index for duplicate detection
         let operation_names_by_project = project_info
@@ -481,7 +563,7 @@ impl Engine {
                 acc
             });
 
-        WorkspaceMetadata {
+        let workspace = WorkspaceMetadata {
             fragments: all_fragments,
             operations: all_operations,
             projects: project_info
@@ -495,7 +577,20 @@ impl Engine {
             timings,
             documents: path_to_doc,
             operation_names_by_project,
+        };
+        if let Some(instrumentation) = instrumentation.as_ref() {
+            instrumentation.log_phase(
+                "workspace_scan_complete",
+                format!(
+                    "projects={} documents={} fragments={} operations={}",
+                    workspace.projects.len(),
+                    workspace.documents.len(),
+                    workspace.fragments.len(),
+                    workspace.operations.len()
+                ),
+            );
         }
+        workspace
     }
 
     /// Transitive Fragment Resolving for a specific schema

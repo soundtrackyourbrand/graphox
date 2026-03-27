@@ -49,6 +49,9 @@ enum Commands {
         /// Show detailed fragment discovery information
         #[arg(short, long)]
         verbose: bool,
+        /// Write a kill-safe scan trace while benchmarking
+        #[arg(long)]
+        instrument_scan: bool,
     },
 }
 
@@ -81,8 +84,12 @@ async fn main() {
         }) => {
             run_codegen(config, watch, verbose, clean).await;
         }
-        Some(Commands::Benchmark { path: _, verbose }) => {
-            run_benchmark(config, verbose).await;
+        Some(Commands::Benchmark {
+            path: _,
+            verbose,
+            instrument_scan,
+        }) => {
+            run_benchmark(config, verbose, instrument_scan).await;
         }
     }
 }

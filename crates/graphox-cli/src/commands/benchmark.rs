@@ -4,22 +4,62 @@ use graphox_codegen as codegen;
 use graphox_core::Config;
 use graphox_core::engine::Engine;
 use graphox_core::schema;
+use graphox_core::utils::WorkspaceScanInstrumentation;
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
-pub async fn run_benchmark(config: Config, _verbose: bool) {
+pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool) {
     println!("{}", "Starting Benchmark...".bold());
     let total_start = Instant::now();
 
-    let workspace_metadata = Engine::scan_workspace(
+    let scan_instrumentation = if instrument_scan {
+        let trace_path = default_scan_trace_path(config.base_dir());
+        match WorkspaceScanInstrumentation::create(&trace_path) {
+            Ok(instrumentation) => {
+                println!(
+                    "{} {}",
+                    "Writing scan trace to".bright_black(),
+                    trace_path.display().to_string().bright_black()
+                );
+                Some(instrumentation)
+            }
+            Err(err) => {
+                eprintln!(
+                    "{}: {} ({})",
+                    "Failed to create scan trace".red(),
+                    trace_path.display(),
+                    err
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let workspace_metadata = Engine::scan_workspace_with_instrumentation(
         &config,
         tower_lsp::lsp_types::PositionEncodingKind::UTF8,
         None,
+        scan_instrumentation.clone(),
     );
     let global_metadata = &workspace_metadata.fragments;
     let scan_timings = &workspace_metadata.timings;
+
+    if let Some(instrumentation) = scan_instrumentation.as_ref() {
+        instrumentation.log_phase(
+            "benchmark_scan_ready",
+            format!(
+                "documents={} fragments={} operations={}",
+                workspace_metadata.documents.len(),
+                workspace_metadata.fragments.len(),
+                workspace_metadata.operations.len()
+            ),
+        );
+    }
 
     let mut fragment_to_path_global: HashMap<Arc<str>, Arc<str>> = HashMap::default();
     for meta in global_metadata {
@@ -375,4 +415,12 @@ pub async fn run_benchmark(config: Config, _verbose: bool) {
 
     println!("{}", "--------------------------".bright_black());
     println!("{:<30} {:>10?}", "Total Wall Time:".bold(), total_duration);
+}
+
+fn default_scan_trace_path(base_dir: &std::path::Path) -> PathBuf {
+    let millis = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    base_dir.join(format!("graphox-scan-{millis}.log"))
 }
