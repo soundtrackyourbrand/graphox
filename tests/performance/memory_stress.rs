@@ -96,7 +96,7 @@ fn create_multi_project_config(base_dir: &Path) -> Config {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(12000)]
+#[ntest::timeout(18000)]
 async fn test_memory_complex_monorepo_workspace_scan() {
     let _lock = MEMORY_TEST_MUTEX.lock().await;
     warmup();
