@@ -1076,7 +1076,7 @@ pub struct Config {
     rules: Option<RulesConfig>,
     codegen: Option<CodegenConfig>,
     base_dir: PathBuf,
-    project_cache: DashMap<PathBuf, Option<usize>>,
+    project_cache: Arc<DashMap<PathBuf, Option<usize>>>,
 }
 
 impl Clone for Config {
@@ -1096,19 +1096,27 @@ impl Clone for Config {
             rules: self.rules.clone(),
             codegen: self.codegen.clone(),
             base_dir: self.base_dir.clone(),
-            project_cache: DashMap::new(), // Cache is not cloned
+            // Project matching depends only on immutable config fields, so clones can
+            // share the same cache and keep request-scoped config snapshots cheap.
+            project_cache: self.project_cache.clone(),
         }
     }
 }
 
 impl Config {
+    fn reset_project_cache(&mut self) {
+        self.project_cache = Arc::new(DashMap::new());
+    }
+
     pub fn with_base_dir(mut self, base_dir: PathBuf) -> Self {
         self.base_dir = std::fs::canonicalize(&base_dir).unwrap_or(base_dir);
+        self.reset_project_cache();
         self
     }
 
     pub fn with_projects(mut self, projects: Vec<ProjectConfig>) -> Self {
         self.projects = projects;
+        self.reset_project_cache();
         self
     }
 
@@ -1600,7 +1608,7 @@ impl Config {
             rules: None,
             codegen: None,
             base_dir: PathBuf::from("."),
-            project_cache: DashMap::new(),
+            project_cache: Arc::new(DashMap::new()),
         }
     }
 
@@ -1810,5 +1818,80 @@ impl Config {
         config.rules = RulesConfig::from_yaml(&node["rules"]);
 
         Some(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn write_test_project(base_dir: &Path) {
+        fs::write(base_dir.join("schema.graphql"), "type Query { id: ID! }").expect("write schema");
+        fs::create_dir_all(base_dir.join("src")).expect("create src dir");
+        fs::write(base_dir.join("src/query.graphql"), "query Test { id }").expect("write query");
+    }
+
+    fn make_test_config(base_dir: &Path) -> Config {
+        write_test_project(base_dir);
+        Config::new_test(
+            base_dir.to_path_buf(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("src/query.graphql".to_string())),
+            ],
+        )
+    }
+
+    #[test]
+    fn config_clone_shares_project_cache() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let config = make_test_config(temp_dir.path());
+        let query_path = temp_dir.path().join("src/query.graphql");
+
+        assert!(config.get_project_for_path(&query_path).is_some());
+        assert_eq!(config.project_cache.len(), 1);
+
+        let cloned = config.clone();
+
+        assert!(Arc::ptr_eq(&config.project_cache, &cloned.project_cache));
+        assert_eq!(cloned.project_cache.len(), 1);
+        assert!(cloned.get_project_for_path(&query_path).is_some());
+        assert_eq!(cloned.project_cache.len(), 1);
+    }
+
+    #[test]
+    fn with_base_dir_resets_project_cache() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let other_dir = tempdir().expect("create other temp dir");
+        let config = make_test_config(temp_dir.path());
+        let query_path = temp_dir.path().join("src/query.graphql");
+
+        assert!(config.get_project_for_path(&query_path).is_some());
+        assert_eq!(config.project_cache.len(), 1);
+
+        let updated = config.clone().with_base_dir(other_dir.path().to_path_buf());
+
+        assert!(!Arc::ptr_eq(&config.project_cache, &updated.project_cache));
+        assert!(updated.project_cache.is_empty());
+    }
+
+    #[test]
+    fn with_projects_resets_project_cache() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let config = make_test_config(temp_dir.path());
+        let query_path = temp_dir.path().join("src/query.graphql");
+
+        assert!(config.get_project_for_path(&query_path).is_some());
+        assert_eq!(config.project_cache.len(), 1);
+
+        let updated = config.clone().with_projects(vec![]);
+
+        assert!(!Arc::ptr_eq(&config.project_cache, &updated.project_cache));
+        assert!(updated.project_cache.is_empty());
     }
 }
