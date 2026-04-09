@@ -1358,6 +1358,143 @@ async fn test_workspace_diagnostics_returns_empty_while_workspace_loading() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_workspace_diagnostics_omit_schema_files() {
+    let schema_text = "\"A described schema root\"\ntype Query { id: ID! }";
+    let scenario =
+        crate::support::lsp::LspTestScenario::new().with_file("schema.graphqls", schema_text);
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphqls".to_string()))
+                .with_include(GlobPattern::Single("queries/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let result: WorkspaceDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "workspace/diagnostic",
+        &WorkspaceDiagnosticParams {
+            identifier: None,
+            previous_result_ids: vec![],
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match result {
+        WorkspaceDiagnosticReportResult::Report(report) => {
+            assert!(
+                report.items.is_empty(),
+                "Expected schema SDL files to be omitted from workspace diagnostics"
+            );
+        }
+        WorkspaceDiagnosticReportResult::Partial(_) => {
+            panic!("Expected complete workspace diagnostics report")
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_return_empty_for_open_schema_file() {
+    let schema_text = "\"A described schema root\"\ntype Query { id: ID! }";
+    let scenario =
+        crate::support::lsp::LspTestScenario::new().with_file("schema.graphqls", schema_text);
+
+    let base_dir = scenario.write_files().unwrap();
+    let schema_uri = Url::from_file_path(base_dir.join("schema.graphqls")).unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphqls".to_string()))
+                .with_include(GlobPattern::Single("queries/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, _handle) = create_service(config);
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
+
+    let result = lsp_request_diagnostics(&mut service, schema_uri).await;
+
+    match result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            assert!(
+                report.full_document_diagnostic_report.items.is_empty(),
+                "Expected open schema files to return no executable-document diagnostics"
+            );
+        }
+        _ => panic!("Expected full diagnostic report"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_fallback_to_push_diagnostics() {
     let query_text = "query GetUser { user { invalidField } }";
     let scenario = crate::support::lsp::LspTestScenario::new()

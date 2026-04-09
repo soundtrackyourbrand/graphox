@@ -17,7 +17,7 @@ use graphox_core::{Config, DocumentState};
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower_lsp::Client;
@@ -94,26 +94,6 @@ pub async fn validate_uris(
 
     for uri in uris {
         if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
-            // Skip validating schema files as executable documents
-            if let Ok(path) = uri.to_file_path() {
-                // Check if this file is used as a schema in any project
-                let is_schema = params.config.projects().iter().any(|p| {
-                    p.schema().files().iter().any(|f| {
-                        let abs_schema = params.config.base_dir().join(f);
-                        graphox_core::utils::paths_match(Some(&path), Some(&abs_schema))
-                    })
-                }) || params.config.schema_types().iter().any(|st| {
-                    st.schema().files().iter().any(|f| {
-                        let abs_schema = params.config.base_dir().join(f);
-                        graphox_core::utils::paths_match(Some(&path), Some(&abs_schema))
-                    })
-                });
-
-                if is_schema && !params.open_documents.contains(&uri) {
-                    continue;
-                }
-            }
-
             let is_configured = is_configured_document_uri(&uri, params.config);
             if is_configured {
                 unique_package_roots.insert(doc.package_root.clone());
@@ -235,8 +215,29 @@ pub async fn validate_all_documents(
     validate_uris(params, all_uris, use_push, diagnostic_cache).await;
 }
 
+pub fn is_schema_document_path(path: &Path, config: &Config) -> bool {
+    let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+    config.projects().iter().any(|project| {
+        project.schema().files().iter().any(|schema_file| {
+            let abs_schema = config.base_dir().join(schema_file);
+            let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
+            graphox_core::utils::paths_match(Some(&abs_path), Some(&abs_schema))
+        })
+    }) || config.schema_types().iter().any(|schema_types| {
+        schema_types.schema().files().iter().any(|schema_file| {
+            let abs_schema = config.base_dir().join(schema_file);
+            let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
+            graphox_core::utils::paths_match(Some(&abs_path), Some(&abs_schema))
+        })
+    })
+}
+
 pub fn get_configured_document_path(uri: &Url, config: &Config) -> Option<PathBuf> {
     let path = uri.to_file_path().ok()?;
+    if is_schema_document_path(&path, config) {
+        return None;
+    }
     config.get_project_for_path(&path)?;
     Some(path)
 }
