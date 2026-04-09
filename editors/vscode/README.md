@@ -37,6 +37,8 @@ If the server does not start, open **View > Output** and select **Graphox Langua
 
 If the server crashes and you need a Rust backtrace, set `graphox.rustBacktrace` to `1` or `full`, restart the server, and reproduce the issue. The chosen value is echoed in the Graphox output channel when the server starts.
 
+If the workspace `@graphox/cli` installation changes while VS Code stays open, the extension warns when the running server no longer matches `node_modules` and offers a restart. It also warns when `package.json` expects a newer `@graphox/cli` than the one currently installed, which usually means `pnpm install` needs to be run.
+
 ## Resources
 
 - Repository: https://github.com/soundtrackyourbrand/graphox
