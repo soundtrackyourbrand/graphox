@@ -18,6 +18,9 @@ use tower_lsp::{Client, jsonrpc::Result, lsp_types::*};
 // Re-export ClientCapabilities for backward compatibility
 pub use super::capabilities::ClientCapabilities;
 
+type ConfiguredDocumentUrisSnapshot = (usize, Arc<Vec<Url>>);
+type ConfiguredDocumentUrisCache = Arc<std::sync::RwLock<Option<ConfiguredDocumentUrisSnapshot>>>;
+
 #[derive(Clone)]
 pub struct Backend {
     pub client: Client,
@@ -60,6 +63,8 @@ pub struct Backend {
         Arc<std::sync::RwLock<Option<Arc<super::codegen_throttle::CodegenThrottle>>>>,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
+    /// Configured document URIs for the current workspace version
+    pub configured_document_uris_cache: ConfiguredDocumentUrisCache,
     /// Weak reference to self for use in background tasks
     pub self_weak: Weak<Backend>,
 }
@@ -153,6 +158,7 @@ impl Backend {
         let workspace_version = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let last_full_validation_version = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let fragment_metadata_cache = Arc::new(std::sync::RwLock::new(None));
+        let configured_document_uris_cache = Arc::new(std::sync::RwLock::new(None));
 
         Arc::new_cyclic(|this| {
             // Create codegen throttle if automatic codegen is enabled
@@ -193,6 +199,7 @@ impl Backend {
                 last_full_validation_version,
                 codegen_throttle,
                 fragment_metadata_cache,
+                configured_document_uris_cache,
                 self_weak: this.clone(),
             }
         })
@@ -220,6 +227,31 @@ impl Backend {
     pub fn increment_workspace_version(&self) {
         self.workspace_version
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub(crate) fn get_configured_document_uris(&self) -> Arc<Vec<Url>> {
+        let workspace_epoch = self.workspace_version.load(Ordering::SeqCst);
+        if let Ok(cache) = self.configured_document_uris_cache.read()
+            && let Some((cached_epoch, uris)) = &*cache
+            && *cached_epoch == workspace_epoch
+        {
+            return uris.clone();
+        }
+
+        let config = self.config.read().unwrap().clone();
+        let uris: Arc<Vec<Url>> = Arc::new(
+            self.documents
+                .iter()
+                .map(|entry| entry.key().clone())
+                .filter(|uri| crate::backend::validation::is_configured_document_uri(uri, &config))
+                .collect(),
+        );
+
+        if let Ok(mut cache) = self.configured_document_uris_cache.write() {
+            *cache = Some((workspace_epoch, uris.clone()));
+        }
+
+        uris
     }
 
     pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<apollo_compiler::validation::Valid<Schema>> {
@@ -1240,5 +1272,80 @@ impl Backend {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphox_core::config::{GlobPattern as GqlGlobPattern, ProjectConfig, SchemaSource};
+    use std::fs;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tower_lsp::LspService;
+
+    #[tokio::test]
+    async fn configured_document_uris_cache_reuses_results_until_workspace_changes() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base_dir = std::env::temp_dir().join(format!("graphox-configured-uris-{unique}"));
+        fs::create_dir_all(&base_dir).unwrap();
+
+        let schema_path = base_dir.join("schema.graphql");
+        let query_path = base_dir.join("query.graphql");
+        fs::write(&schema_path, "type Query { hello: String }").unwrap();
+        fs::write(&query_path, "query Test { hello }").unwrap();
+
+        let config = Config::new_test(
+            base_dir.clone(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GqlGlobPattern::Single("*.graphql".to_string())),
+            ],
+        );
+
+        let (service, _) = LspService::new(|client| Backend::new(client, config));
+        let backend = service.inner();
+
+        let schema_uri = Url::from_file_path(&schema_path).unwrap();
+        let query_uri = Url::from_file_path(&query_path).unwrap();
+
+        backend.documents.insert(
+            schema_uri.clone(),
+            Arc::new(DocumentState::new_from_thread_local(
+                schema_uri.clone(),
+                "type Query { hello: String }",
+                PositionEncodingKind::UTF16,
+            )),
+        );
+        backend.documents.insert(
+            query_uri.clone(),
+            Arc::new(DocumentState::new_from_thread_local(
+                query_uri.clone(),
+                "query Test { hello }",
+                PositionEncodingKind::UTF16,
+            )),
+        );
+
+        let first = backend.get_configured_document_uris();
+        assert_eq!(first.len(), 1);
+        assert!(first.contains(&query_uri));
+        assert!(!first.contains(&schema_uri));
+
+        let second = backend.get_configured_document_uris();
+        assert!(Arc::ptr_eq(&first, &second));
+
+        backend.increment_workspace_version();
+
+        let third = backend.get_configured_document_uris();
+        assert_eq!(third.len(), 1);
+        assert!(third.contains(&query_uri));
+        assert!(!third.contains(&schema_uri));
+        assert!(!Arc::ptr_eq(&first, &third));
+
+        fs::remove_dir_all(base_dir).unwrap();
     }
 }

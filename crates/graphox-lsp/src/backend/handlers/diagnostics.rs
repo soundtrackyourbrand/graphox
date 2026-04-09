@@ -243,15 +243,7 @@ pub async fn handle_workspace_diagnostic(
             ));
         }
         let current_workspace_epoch = backend.workspace_version.load(Ordering::SeqCst);
-        let config = backend.config.read().unwrap().clone();
-
-        // Get all document URIs
-        let all_uris: Vec<Url> = backend
-            .documents
-            .iter()
-            .map(|e| e.key().clone())
-            .filter(|uri| crate::backend::validation::is_configured_document_uri(uri, &config))
-            .collect();
+        let all_uris = backend.get_configured_document_uris();
 
         let uncached_uris: Vec<Url> = all_uris
             .iter()
@@ -283,14 +275,14 @@ pub async fn handle_workspace_diagnostic(
         let mut items = Vec::new();
 
         // Collect diagnostics from cache
-        for uri in all_uris {
-            if let Some(cached) = backend.diagnostic_cache.get(&uri) {
+        for uri in all_uris.iter() {
+            if let Some(cached) = backend.diagnostic_cache.get(uri) {
                 let (version, workspace_epoch, diagnostics) = cached.value();
                 let result_id = compose_diagnostic_result_id(*version, *workspace_epoch);
 
                 // Omitting unchanged entries keeps workspace polling cheap for clients like VS Code.
                 if previous_ids
-                    .get(&uri)
+                    .get(uri)
                     .is_some_and(|prev_val| prev_val == &result_id)
                 {
                     continue;

@@ -220,23 +220,27 @@ async fn test_lsp_diagnostics_on_schema_change() {
     let query_text = "query { me { id name } }";
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
+    let latest_query_diagnostics = || {
+        received_diags
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|msg| msg["uri"].as_str() == Some(query_uri.as_str()))
+            .cloned()
+    };
+
     // Wait for initial diagnostics
     let _ = support::wait_for_condition_with_timeout(
-        || !received_diags.lock().unwrap().is_empty(),
+        || latest_query_diagnostics().is_some(),
         std::time::Duration::from_secs(10),
     )
     .await;
     {
-        let diags = received_diags.lock().unwrap();
+        let last = latest_query_diagnostics().expect("Should have received query diagnostics");
         assert!(
-            !diags.is_empty(),
-            "Should have received initial diagnostics"
-        );
-        assert!(
-            diags.last().unwrap()["diagnostics"]
-                .as_array()
-                .unwrap()
-                .is_empty()
+            last["diagnostics"].as_array().unwrap().is_empty(),
+            "Initial query diagnostics should be empty"
         );
     }
 
@@ -260,23 +264,19 @@ async fn test_lsp_diagnostics_on_schema_change() {
     // 6. Wait for diagnostics after schema change
     let _ = support::wait_for_condition_with_timeout(
         || {
-            let diags = received_diags.lock().unwrap();
-            if diags.is_empty() {
-                return false;
-            }
-            let last = diags.last().unwrap();
-            !last["diagnostics"].as_array().unwrap().is_empty()
+            latest_query_diagnostics()
+                .is_some_and(|msg| !msg["diagnostics"].as_array().unwrap().is_empty())
         },
         std::time::Duration::from_secs(10),
     )
     .await;
     {
-        let diags = received_diags.lock().unwrap();
-        let last = diags.last().unwrap();
+        let last = latest_query_diagnostics()
+            .expect("Should have received query diagnostics after schema change");
         let d_list = last["diagnostics"].as_array().unwrap();
         assert!(
             !d_list.is_empty(),
-            "Should have diagnostics after schema change"
+            "Query should have diagnostics after schema change"
         );
         assert!(d_list[0]["message"].as_str().unwrap().contains("name"));
     }
@@ -299,19 +299,15 @@ async fn test_lsp_diagnostics_on_schema_change() {
     // 8. Verify diagnostics cleared
     let _ = support::wait_for_condition_with_timeout(
         || {
-            let diags = received_diags.lock().unwrap();
-            if diags.is_empty() {
-                return false;
-            }
-            let last = diags.last().unwrap();
-            last["diagnostics"].as_array().unwrap().is_empty()
+            latest_query_diagnostics()
+                .is_some_and(|msg| msg["diagnostics"].as_array().unwrap().is_empty())
         },
         std::time::Duration::from_secs(10),
     )
     .await;
     {
-        let diags = received_diags.lock().unwrap();
-        let last = diags.last().unwrap();
+        let last = latest_query_diagnostics()
+            .expect("Should have received query diagnostics after fixing the query");
         assert!(last["diagnostics"].as_array().unwrap().is_empty());
     }
 }
