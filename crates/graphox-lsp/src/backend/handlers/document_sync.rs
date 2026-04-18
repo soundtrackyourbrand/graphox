@@ -205,7 +205,9 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
         backend.increment_workspace_version();
 
         if !result.uris_to_validate.is_empty() {
-            backend.validate_uris(result.uris_to_validate).await;
+            let uris_to_validate = result.uris_to_validate;
+            backend.validate_uris(uris_to_validate.clone()).await;
+            backend.refresh_pull_diagnostics_for(&uri, &uris_to_validate);
         }
 
         let throttle = backend.codegen_throttle.read().unwrap().clone();
@@ -312,7 +314,9 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
             if result.should_reload_config {
                 backend.reload_config().await;
             } else if !result.uris_to_validate.is_empty() {
-                backend.validate_uris(result.uris_to_validate).await;
+                let uris_to_validate = result.uris_to_validate;
+                backend.validate_uris(uris_to_validate.clone()).await;
+                backend.refresh_pull_diagnostics_for(&uri, &uris_to_validate);
             }
         }
     }
@@ -388,6 +392,7 @@ pub async fn handle_did_change_watched_files(
 
                 if !result.uris_to_validate.is_empty() {
                     backend.validate_uris(result.uris_to_validate.clone()).await;
+                    backend.refresh_pull_diagnostics_for(&change_uri, &result.uris_to_validate);
                 }
 
                 let throttle = backend.codegen_throttle.read().unwrap().clone();

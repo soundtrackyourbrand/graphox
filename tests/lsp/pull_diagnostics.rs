@@ -824,6 +824,195 @@ async fn test_pull_diagnostics_refreshes_when_workspace_epoch_changes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_diagnostics_refreshes_when_private_fragment_deletion_revalidates_query() {
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file("pkg_a/package.json", "{}")
+        .with_file(
+            "pkg_a/public.graphql",
+            "fragment UserFields on User @public { id }",
+        )
+        .with_file("pkg_b/package.json", "{}")
+        .with_file(
+            "pkg_b/local.graphql",
+            "fragment UserFields on User { name }",
+        )
+        .with_file("pkg_b/query.graphql", "query { me { ...UserFields } }");
+
+    let base_dir = scenario.write_files().unwrap();
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_a/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_b/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, socket) = LspService::new(move |client| Backend::new(client, config));
+    let (mut requests, mut responses) = socket.split();
+    let (refresh_seen_tx, refresh_seen_rx) = tokio::sync::oneshot::channel();
+
+    let response_task = tokio::spawn(async move {
+        let mut refresh_seen_tx = Some(refresh_seen_tx);
+        while let Some(request) = requests.next().await {
+            if request.method() != "workspace/diagnostic/refresh" {
+                continue;
+            }
+
+            let request_id = request
+                .id()
+                .cloned()
+                .expect("workspace/diagnostic/refresh should include a request id");
+
+            responses
+                .send(Response::from_ok(request_id, serde_json::Value::Null))
+                .await
+                .expect("failed to send workspace/diagnostic/refresh response");
+
+            if let Some(tx) = refresh_seen_tx.take() {
+                tx.send(())
+                    .expect("refresh response receiver dropped unexpectedly");
+            }
+        }
+    });
+
+    let init_params = InitializeParams {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities {
+                    dynamic_registration: Some(false),
+                    related_document_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let _: InitializeResult = lsp_request_typed(&mut service, "initialize", &init_params).await;
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    wait_for_workspace_loaded(&mut service).await;
+
+    let public_path = base_dir.join("pkg_a/public.graphql");
+    let local_path = base_dir.join("pkg_b/local.graphql");
+    let query_path = base_dir.join("pkg_b/query.graphql");
+    let public_uri = Url::from_file_path(&public_path).unwrap();
+    let local_uri = Url::from_file_path(&local_path).unwrap();
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+
+    let public_text = std::fs::read_to_string(&public_path).unwrap();
+    let local_text = std::fs::read_to_string(&local_path).unwrap();
+    let query_text = std::fs::read_to_string(&query_path).unwrap();
+
+    lsp_did_open(&mut service, public_uri, "graphql", 1, &public_text).await;
+    lsp_did_open(&mut service, local_uri.clone(), "graphql", 1, &local_text).await;
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
+
+    let first_result: DocumentDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "textDocument/diagnostic",
+        &DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier::new(query_uri.clone()),
+            identifier: None,
+            previous_result_id: None,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    let previous_result_id = match first_result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            assert!(
+                report.full_document_diagnostic_report.items.is_empty(),
+                "Query should initially resolve the local fragment"
+            );
+            report
+                .full_document_diagnostic_report
+                .result_id
+                .expect("Expected initial result_id")
+        }
+        _ => panic!("Expected full diagnostic report on first request"),
+    };
+
+    service
+        .call(
+            tower_lsp::jsonrpc::Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: local_uri,
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: "# local fragment deleted".to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(3), refresh_seen_rx)
+        .await
+        .expect("timed out waiting for workspace/diagnostic/refresh after fragment deletion")
+        .expect("workspace/diagnostic/refresh receiver dropped unexpectedly");
+
+    let refreshed_result: DocumentDiagnosticReportResult = lsp_request_typed(
+        &mut service,
+        "textDocument/diagnostic",
+        &DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier::new(query_uri),
+            identifier: None,
+            previous_result_id: Some(previous_result_id.clone()),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    )
+    .await;
+
+    match refreshed_result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+            let refreshed_result_id = report
+                .full_document_diagnostic_report
+                .result_id
+                .expect("Expected refreshed result_id");
+            assert_ne!(refreshed_result_id, previous_result_id);
+            assert!(
+                report.full_document_diagnostic_report.items.is_empty(),
+                "Query should fall back to the public fragment after deleting the private one"
+            );
+        }
+        _ => panic!("Expected full diagnostic report after fragment deletion"),
+    }
+
+    response_task.abort(); // The task loops forever waiting for refresh requests, so awaiting it would hang the test.
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_workspace_diagnostics() {
     let query1_text = "query GetUser { user { id } }";
     let query2_text = "query GetPost { post { title } }";

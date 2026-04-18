@@ -18,8 +18,52 @@ use tower_lsp::{Client, jsonrpc::Result, lsp_types::*};
 // Re-export ClientCapabilities for backward compatibility
 pub use super::capabilities::ClientCapabilities;
 
+const WORKSPACE_DIAGNOSTIC_REFRESH_WARNING_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(500);
+
 type ConfiguredDocumentUrisSnapshot = (usize, Arc<Vec<Url>>);
 type ConfiguredDocumentUrisCache = Arc<std::sync::RwLock<Option<ConfiguredDocumentUrisSnapshot>>>;
+
+pub(crate) fn spawn_workspace_diagnostic_refresh(client: Client) {
+    tokio::spawn(async move {
+        let refresh_request = client.workspace_diagnostic_refresh();
+        tokio::pin!(refresh_request);
+
+        match tokio::time::timeout(
+            WORKSPACE_DIAGNOSTIC_REFRESH_WARNING_TIMEOUT,
+            &mut refresh_request,
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("workspace/diagnostic/refresh failed: {err}"),
+                    )
+                    .await;
+            }
+            Err(_) => {
+                client
+                    .log_message(
+                        MessageType::WARNING,
+                        "workspace/diagnostic/refresh is taking longer than expected",
+                    )
+                    .await;
+
+                if let Err(err) = refresh_request.await {
+                    client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!("workspace/diagnostic/refresh failed: {err}"),
+                        )
+                        .await;
+                }
+            }
+        }
+    });
+}
 
 #[derive(Clone)]
 pub struct Backend {
@@ -349,6 +393,24 @@ impl Backend {
         if let Ok(mut cache) = self.fragment_metadata_cache.write() {
             *cache = None;
         }
+    }
+
+    pub fn refresh_pull_diagnostics_for(&self, source_uri: &Url, uris_to_validate: &[Url]) {
+        let supports_pull_diagnostics = self
+            .client_capabilities
+            .read()
+            .map(|caps| caps.supports_pull_diagnostics)
+            .unwrap_or(false);
+
+        if !supports_pull_diagnostics
+            || !uris_to_validate
+                .iter()
+                .any(|validated_uri| validated_uri != source_uri)
+        {
+            return;
+        }
+
+        spawn_workspace_diagnostic_refresh(self.client.clone());
     }
 
     pub fn get_fragments_for_doc(

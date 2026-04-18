@@ -482,6 +482,176 @@ async fn test_lsp_fragment_rename_same_project() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(10000)]
+async fn test_lsp_deleted_private_fragment_falls_back_to_public_fragment() {
+    let scenario = crate::support::lsp::LspTestScenario::new()
+        .with_file(
+            "schema.graphql",
+            "type User { id: ID! name: String } type Query { me: User }",
+        )
+        .with_file("pkg_a/package.json", "{}")
+        .with_file(
+            "pkg_a/public.graphql",
+            "fragment UserFields on User @public { id }",
+        )
+        .with_file("pkg_b/package.json", "{}")
+        .with_file(
+            "pkg_b/local.graphql",
+            "fragment UserFields on User { name }",
+        )
+        .with_file("pkg_b/query.graphql", "query { me { ...UserFields } }");
+
+    let base_dir = scenario.write_files().unwrap();
+
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_a/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("pkg_b/**/*.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_enable_schema_cache(true)
+    .with_lsp_automatic_codegen(false);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let received_diags = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let received_diags_clone = received_diags.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
+                let params = msg
+                    .get("params")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                received_diags_clone.lock().unwrap().push(params);
+            }
+        }
+    });
+
+    lsp_initialize_sequence(&mut service).await;
+
+    let public_path = base_dir.join("pkg_a/public.graphql");
+    let local_path = base_dir.join("pkg_b/local.graphql");
+    let query_path = base_dir.join("pkg_b/query.graphql");
+    let public_uri = Url::from_file_path(fs::canonicalize(&public_path).unwrap()).unwrap();
+    let local_uri = Url::from_file_path(fs::canonicalize(&local_path).unwrap()).unwrap();
+    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+
+    lsp_did_open(
+        &mut service,
+        public_uri,
+        "graphql",
+        1,
+        &fs::read_to_string(&public_path).unwrap(),
+    )
+    .await;
+    lsp_did_open(
+        &mut service,
+        local_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(&local_path).unwrap(),
+    )
+    .await;
+    lsp_did_open(
+        &mut service,
+        query_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(&query_path).unwrap(),
+    )
+    .await;
+
+    let latest_query_diagnostics = || {
+        received_diags
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|msg| msg["uri"].as_str() == Some(query_uri.as_str()))
+            .cloned()
+    };
+
+    let _ = support::wait_for_condition_with_timeout(
+        || latest_query_diagnostics().is_some(),
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    {
+        let last = latest_query_diagnostics().expect("Should have initial query diagnostics");
+        assert!(
+            last["diagnostics"].as_array().unwrap().is_empty(),
+            "Query should initially resolve the local fragment"
+        );
+    }
+
+    let initial_count = received_diags.lock().unwrap().len();
+
+    support::lsp_did_change(
+        &mut service,
+        local_uri.clone(),
+        2,
+        "# local fragment deleted",
+    )
+    .await;
+
+    let _ = support::wait_for_condition_with_timeout(
+        || received_diags.lock().unwrap().len() > initial_count,
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    {
+        let last =
+            latest_query_diagnostics().expect("Should have query diagnostics after deletion");
+        let diagnostics = last["diagnostics"].as_array().unwrap();
+        assert!(
+            diagnostics.is_empty(),
+            "Query should fall back to the public fragment after deleting the private one, got: {diagnostics:?}"
+        );
+    }
+
+    fs::remove_file(&local_path).unwrap();
+    let params = DidChangeWatchedFilesParams {
+        changes: vec![FileEvent {
+            uri: local_uri,
+            typ: FileChangeType::DELETED,
+        }],
+    };
+    lsp_send_notification(&mut service, "workspace/didChangeWatchedFiles", &params).await;
+
+    let _ = support::wait_for_condition_with_timeout(
+        || {
+            latest_query_diagnostics().is_some_and(|msg| {
+                msg["diagnostics"]
+                    .as_array()
+                    .is_some_and(|diagnostics| diagnostics.is_empty())
+            })
+        },
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    {
+        let last =
+            latest_query_diagnostics().expect("Should have query diagnostics after file deletion");
+        let diagnostics = last["diagnostics"].as_array().unwrap();
+        assert!(
+            diagnostics.is_empty(),
+            "Query should still resolve to the public fragment after file deletion, got: {diagnostics:?}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ntest::timeout(10000)]
 async fn test_lsp_fragment_rename_cross_project() {

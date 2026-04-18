@@ -128,6 +128,99 @@ fn test_diagnostics_update_on_fragment_change() {
     assert_eq!(diagnostics[0].message, "Unknown fragment: UserFrag");
 }
 
+#[test]
+#[ntest::timeout(300)]
+fn test_incremental_fragment_removal_falls_back_to_public_fragment() {
+    let schema_content = "type User { id: ID! name: String } type Query { me: User }";
+    let schema = Schema::parse(schema_content, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap();
+
+    let local_uri = Url::parse("file:///pkg_b/local.graphql").unwrap();
+    let query_uri = Url::parse("file:///pkg_b/query.graphql").unwrap();
+    let local_text = "fragment UserFields on User { name }";
+    let query_text = "query { me { ...UserFields } }";
+
+    let mut local_doc = create_doc(local_uri.as_str(), local_text);
+    let query_doc = create_doc(query_uri.as_str(), query_text);
+
+    let public_fragment = FragmentCompletionInfo {
+        name: "UserFields".into(),
+        type_condition: "User".into(),
+        description: None,
+        import_path: None,
+        is_public: true,
+        is_type_only: false,
+        uri: Url::parse("file:///pkg_a/public.graphql").unwrap(),
+        package_root: Some(std::path::PathBuf::from("/pkg_a")),
+        used_variables: Arc::from([]),
+        used_fragments: Arc::from([]),
+        transitive_deps: Arc::from([]),
+        selected_fields: Arc::from([Arc::<str>::from("id")]),
+        type_fields: Arc::from([]),
+        requirements: std::collections::BTreeMap::new(),
+        worst_slo: None,
+    };
+
+    let local_fragment = FragmentCompletionInfo {
+        name: "UserFields".into(),
+        type_condition: "User".into(),
+        description: None,
+        import_path: None,
+        is_public: false,
+        is_type_only: false,
+        uri: local_uri.clone(),
+        package_root: Some(std::path::PathBuf::from("/pkg_b")),
+        used_variables: Arc::from([]),
+        used_fragments: Arc::from([]),
+        transitive_deps: Arc::from([]),
+        selected_fields: Arc::from([Arc::<str>::from("name")]),
+        type_fields: Arc::from([]),
+        requirements: std::collections::BTreeMap::new(),
+        worst_slo: None,
+    };
+
+    let diagnostics = query_doc.get_semantic_diagnostics(
+        &schema,
+        &[local_fragment.clone(), public_fragment.clone()],
+        None,
+        None,
+        false,
+        true,
+    );
+    assert!(
+        diagnostics.is_empty(),
+        "Query should initially resolve the local fragment"
+    );
+
+    let change = TextDocumentContentChangeEvent {
+        range: Some(Range {
+            start: Position::new(0, 0),
+            end: Position::new(0, local_text.len() as u32),
+        }),
+        range_length: None,
+        text: "# local fragment deleted".to_string(),
+    };
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&graphox::DocumentLanguage::GraphQL.get_parser_language())
+        .unwrap();
+    local_doc.apply_change(&change, &mut parser, 2);
+
+    assert!(
+        local_doc.fragments().is_empty(),
+        "Incremental edit should remove the local fragment definition"
+    );
+
+    let diagnostics =
+        query_doc.get_semantic_diagnostics(&schema, &[public_fragment], None, None, false, true);
+    assert!(
+        diagnostics.is_empty(),
+        "Query should fall back to the public fragment after incremental removal, got {diagnostics:?}"
+    );
+}
+
 #[tokio::test]
 #[ntest::timeout(5000)]
 async fn test_backend_schema_reload() {
