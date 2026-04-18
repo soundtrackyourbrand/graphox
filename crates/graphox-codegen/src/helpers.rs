@@ -283,11 +283,11 @@ pub fn get_operation_deps_cached(
                 transitive_deps.extend(cached_transitive.iter().map(|(name, _, _)| name.clone()));
             } else if let Some(parsed_frag) = ctx.all_fragments.get(frag_name.as_ref()) {
                 let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
-                transitive_deps.extend(frag_deps.into_iter());
+                transitive_deps.extend(frag_deps);
             }
         } else if let Some(parsed_frag) = ctx.all_fragments.get(frag_name.as_ref()) {
             let frag_deps = get_fragment_fragment_dependencies(parsed_frag, ctx.all_fragments);
-            transitive_deps.extend(frag_deps.into_iter());
+            transitive_deps.extend(frag_deps);
         }
     }
 
