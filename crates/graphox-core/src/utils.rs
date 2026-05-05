@@ -1,13 +1,15 @@
 use crate::document::DocumentState;
 use crate::queries::*;
 use crate::{Config, config::ProjectConfig};
+use ahash::AHashMap;
 use colored::*;
 use lsp_types::*;
+use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Instant;
 use tree_sitter::StreamingIterator;
 
@@ -22,10 +24,121 @@ pub const SEMANTIC_TOKEN_LEGEND: &[SemanticTokenType] = &[
 ];
 
 pub const DIAGNOSTIC_SOURCE: Option<&'static str> = Some("graphox");
+const CANONICAL_PATH_CACHE_CAPACITY: usize = 256;
+const PATH_CACHE_ORDER_SLACK: usize = 4;
+
+static CANONICAL_PATH_CACHE: LazyLock<Mutex<BoundedPathCache<PathBuf>>> =
+    LazyLock::new(|| Mutex::new(BoundedPathCache::new(CANONICAL_PATH_CACHE_CAPACITY)));
+
+#[derive(Debug)]
+pub(crate) struct BoundedPathCache<V> {
+    entries: AHashMap<PathBuf, (V, u64)>,
+    order: VecDeque<(PathBuf, u64)>,
+    next_generation: u64,
+    capacity: usize,
+}
+
+impl<V: Clone> BoundedPathCache<V> {
+    pub(crate) fn new(capacity: usize) -> Self {
+        Self {
+            entries: AHashMap::default(),
+            order: VecDeque::new(),
+            next_generation: 0,
+            capacity,
+        }
+    }
+
+    pub(crate) fn get(&mut self, key: &Path) -> Option<V> {
+        let value = self.entries.get(key).map(|(value, _)| value.clone())?;
+        let generation = self.bump_generation();
+        if let Some((_, current_generation)) = self.entries.get_mut(key) {
+            *current_generation = generation;
+        }
+        self.order.push_back((key.to_path_buf(), generation));
+        self.compact_order_if_needed();
+        Some(value)
+    }
+
+    pub(crate) fn insert(&mut self, key: PathBuf, value: V) {
+        let generation = self.bump_generation();
+        self.entries.insert(key.clone(), (value, generation));
+        self.order.push_back((key, generation));
+        self.evict_stale_entries();
+        self.compact_order_if_needed();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn bump_generation(&mut self) -> u64 {
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        self.next_generation
+    }
+
+    fn evict_stale_entries(&mut self) {
+        while self.entries.len() > self.capacity {
+            let Some((key, generation)) = self.order.pop_front() else {
+                break;
+            };
+
+            let should_remove = self
+                .entries
+                .get(&key)
+                .is_some_and(|(_, current_generation)| *current_generation == generation);
+            if should_remove {
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    fn compact_order_if_needed(&mut self) {
+        let max_order_len = self
+            .capacity
+            .saturating_mul(PATH_CACHE_ORDER_SLACK)
+            .max(self.capacity.saturating_add(1));
+        if self.order.len() <= max_order_len {
+            return;
+        }
+
+        let mut entries = self
+            .entries
+            .iter()
+            .map(|(key, (_, generation))| (key.clone(), *generation))
+            .collect::<Vec<_>>();
+        entries.sort_unstable_by_key(|(_, generation)| *generation);
+        self.order = entries.into_iter().collect();
+    }
+}
 
 pub fn flush_stdio() {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+}
+
+pub fn canonicalize_cached(path: &Path) -> PathBuf {
+    if !path.is_absolute() {
+        return std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    }
+
+    if let Ok(mut cache) = CANONICAL_PATH_CACHE.lock()
+        && let Some(cached) = cache.get(path)
+    {
+        return cached;
+    }
+
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Ok(mut cache) = CANONICAL_PATH_CACHE.lock() {
+        cache.insert(path.to_path_buf(), canonical.clone());
+    }
+    canonical
+}
+
+pub fn clear_canonical_path_cache() {
+    if let Ok(mut cache) = CANONICAL_PATH_CACHE.lock() {
+        *cache = BoundedPathCache::new(CANONICAL_PATH_CACHE_CAPACITY);
+    }
 }
 
 const PROJECT_WALK_LOG_INTERVAL: usize = 1_000;
@@ -1220,8 +1333,7 @@ pub fn to_posix_path(path: &Path) -> String {
 
 pub fn normalize_uri(uri: Url) -> Url {
     if let Ok(path) = uri.to_file_path() {
-        // Try to canonicalize to resolve symlinks
-        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let path = canonicalize_cached(&path);
         let path_str = path.to_string_lossy();
 
         #[cfg(windows)]

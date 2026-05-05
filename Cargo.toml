@@ -139,6 +139,10 @@ name = "subgraph_slo"
 harness = false
 
 [[bench]]
+name = "path_classification"
+harness = false
+
+[[bench]]
 name = "tree_clone"
 harness = false
 

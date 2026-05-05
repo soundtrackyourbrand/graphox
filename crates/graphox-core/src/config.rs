@@ -4,10 +4,83 @@ use dashmap::DashMap;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use yaml_rust2::Yaml;
 
 static GLOBSET_CACHE: LazyLock<DashMap<Vec<String>, Arc<GlobSet>>> = LazyLock::new(DashMap::new);
+const OUTPUT_FILE_CACHE_CAPACITY: usize = 256;
+
+#[derive(Debug, Clone)]
+struct PathCandidate {
+    raw: PathBuf,
+    canonical: Option<PathBuf>,
+}
+
+impl PathCandidate {
+    fn new(raw: PathBuf) -> Self {
+        let canonical = fs::canonicalize(&raw)
+            .ok()
+            .filter(|canonical| canonical != &raw);
+        Self { raw, canonical }
+    }
+
+    fn matches_exact(&self, path: &Path) -> bool {
+        crate::utils::paths_match(Some(path), Some(&self.raw))
+            || self
+                .canonical
+                .as_ref()
+                .is_some_and(|canonical| crate::utils::paths_match(Some(path), Some(canonical)))
+    }
+
+    fn matches_prefix(&self, path: &Path) -> bool {
+        crate::utils::path_starts_with(path, &self.raw)
+            || self
+                .canonical
+                .as_ref()
+                .is_some_and(|canonical| crate::utils::path_starts_with(path, canonical))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct ResolvedOutputPaths {
+    directories: Vec<PathCandidate>,
+    files: Vec<PathCandidate>,
+}
+
+impl ResolvedOutputPaths {
+    fn build(config: &Config) -> Self {
+        let mut directories = Vec::new();
+        let mut files = Vec::new();
+
+        for project in &config.projects {
+            let output_dir = project.output_dir().unwrap_or("__generated__");
+            directories.push(PathCandidate::new(config.base_dir.join(output_dir)));
+
+            if let Some(possible_types) = project.possible_types() {
+                files.push(PathCandidate::new(config.base_dir.join(possible_types)));
+            }
+            if let Some(type_policies) = project.type_policies() {
+                files.push(PathCandidate::new(config.base_dir.join(type_policies)));
+            }
+        }
+
+        if let Some(schema_types) = &config.schema_types {
+            for schema_type in schema_types {
+                files.push(PathCandidate::new(
+                    config.base_dir.join(schema_type.output()),
+                ));
+                if let Some(possible_types) = schema_type.possible_types() {
+                    files.push(PathCandidate::new(config.base_dir.join(possible_types)));
+                }
+                if let Some(type_policies) = schema_type.type_policies() {
+                    files.push(PathCandidate::new(config.base_dir.join(type_policies)));
+                }
+            }
+        }
+
+        Self { directories, files }
+    }
+}
 
 fn get_glob_set(patterns: &[String]) -> Arc<GlobSet> {
     if let Some(set) = GLOBSET_CACHE.get(patterns) {
@@ -1060,7 +1133,7 @@ impl SchemaTypeConfig {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Config {
     projects: Vec<ProjectConfig>,
     schema_types: Option<Vec<SchemaTypeConfig>>,
@@ -1077,6 +1150,14 @@ pub struct Config {
     codegen: Option<CodegenConfig>,
     base_dir: PathBuf,
     project_cache: Arc<DashMap<PathBuf, Option<usize>>>,
+    output_file_cache: Arc<Mutex<crate::utils::BoundedPathCache<bool>>>,
+    resolved_output_paths: Arc<OnceLock<ResolvedOutputPaths>>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new_empty()
+    }
 }
 
 impl Clone for Config {
@@ -1097,8 +1178,10 @@ impl Clone for Config {
             codegen: self.codegen.clone(),
             base_dir: self.base_dir.clone(),
             // Project matching depends only on immutable config fields, so clones can
-            // share the same cache and keep request-scoped config snapshots cheap.
+            // share the same caches and keep request-scoped config snapshots cheap.
             project_cache: self.project_cache.clone(),
+            output_file_cache: self.output_file_cache.clone(),
+            resolved_output_paths: self.resolved_output_paths.clone(),
         }
     }
 }
@@ -1106,6 +1189,10 @@ impl Clone for Config {
 impl Config {
     fn reset_project_cache(&mut self) {
         self.project_cache = Arc::new(DashMap::new());
+        self.output_file_cache = Arc::new(Mutex::new(crate::utils::BoundedPathCache::new(
+            OUTPUT_FILE_CACHE_CAPACITY,
+        )));
+        self.resolved_output_paths = Arc::new(OnceLock::new());
     }
 
     pub fn with_base_dir(mut self, base_dir: PathBuf) -> Self {
@@ -1194,22 +1281,38 @@ impl Config {
             self.base_dir.join(path)
         };
 
-        // Resolve to canonical path to match how base_dir is stored
-        let abs_path = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
+        let abs_path = crate::utils::canonicalize_cached(&abs_path);
+        self.relativize_absolute(&abs_path)
+    }
 
+    fn relativize_absolute(&self, abs_path: &Path) -> PathBuf {
         #[cfg(windows)]
         {
             let normalized_abs = crate::utils::normalize_windows_path(&abs_path.to_string_lossy());
             let normalized_base =
                 crate::utils::normalize_windows_path(&self.base_dir.to_string_lossy());
 
-            pathdiff::diff_paths(&normalized_abs, &normalized_base).unwrap_or(abs_path)
+            pathdiff::diff_paths(&normalized_abs, &normalized_base)
+                .unwrap_or_else(|| abs_path.to_path_buf())
         }
 
         #[cfg(not(windows))]
         {
-            pathdiff::diff_paths(&abs_path, &self.base_dir).unwrap_or(abs_path)
+            pathdiff::diff_paths(abs_path, &self.base_dir).unwrap_or_else(|| abs_path.to_path_buf())
         }
+    }
+
+    fn output_cache_key_for_path(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.base_dir.join(path)
+        }
+    }
+
+    fn resolved_output_paths(&self) -> &ResolvedOutputPaths {
+        self.resolved_output_paths
+            .get_or_init(|| ResolvedOutputPaths::build(self))
     }
 
     pub fn get_codegen_config(&self, project: Option<&ProjectConfig>) -> CodegenConfig {
@@ -1315,15 +1418,16 @@ impl Config {
             return cached.value().and_then(|idx| self.projects.get(idx));
         }
 
-        let abs_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            self.base_dir.join(path)
-        };
-        // Canonicalize to resolve symlinks (e.g. /var vs /private/var on macOS)
-        let abs_path = std::fs::canonicalize(&abs_path).unwrap_or(abs_path);
+        let cache_key = self.output_cache_key_for_path(path);
+        if cache_key != path
+            && let Some(cached) = self.project_cache.get(&cache_key)
+        {
+            return cached.value().and_then(|idx| self.projects.get(idx));
+        }
 
-        let relative_path = Some(self.relativize(&abs_path));
+        let abs_path = crate::utils::canonicalize_cached(&cache_key);
+
+        let relative_path = Some(self.relativize_absolute(&abs_path));
 
         // First pass: Check if this is exactly a schema file for any project (Highest Priority)
         for (idx, project) in self.projects.iter().enumerate() {
@@ -1332,7 +1436,7 @@ impl Config {
                 // Canonicalize schema file path too
                 let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
                 if crate::utils::paths_match(Some(&abs_path), Some(&abs_schema)) {
-                    self.project_cache.insert(path.to_path_buf(), Some(idx));
+                    self.project_cache.insert(cache_key.clone(), Some(idx));
                     return Some(project);
                 }
             }
@@ -1414,17 +1518,15 @@ impl Config {
         }
 
         if let Some(idx) = best_idx {
-            self.project_cache.insert(path.to_path_buf(), Some(idx));
+            self.project_cache.insert(cache_key.clone(), Some(idx));
             return Some(&self.projects[idx]);
         }
 
-        self.project_cache.insert(path.to_path_buf(), None);
+        self.project_cache.insert(cache_key, None);
         None
     }
 
     pub fn is_output_file(&self, path: &Path) -> bool {
-        let abs_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-
         // Check for common generated file extensions
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             if ext == "json" && path.file_name().is_some_and(|n| n == "manifest.json") {
@@ -1435,70 +1537,29 @@ impl Config {
             }
         }
 
-        // Check project output directories
-        for project in &self.projects {
-            // Check explicit output_dir
-            if let Some(output_dir) = project.output_dir() {
-                let abs_output = self.base_dir.join(output_dir);
-                let abs_output = fs::canonicalize(&abs_output).unwrap_or(abs_output);
-                if crate::utils::path_starts_with(&abs_path, &abs_output) {
-                    return true;
-                }
-            } else {
-                // Check default __generated__ directory when output_dir is not set
-                let abs_output = self.base_dir.join("__generated__");
-                if let Ok(abs_output) = fs::canonicalize(abs_output)
-                    && crate::utils::path_starts_with(&abs_path, &abs_output)
-                {
-                    return true;
-                }
-            }
-
-            // Check per-project generated files
-            if let Some(pt) = project.possible_types() {
-                let abs_pt = self.base_dir.join(pt);
-                if let Ok(abs_pt) = fs::canonicalize(abs_pt)
-                    && crate::utils::paths_match(Some(&abs_path), Some(&abs_pt))
-                {
-                    return true;
-                }
-            }
-            if let Some(tp) = project.type_policies() {
-                let abs_tp = self.base_dir.join(tp);
-                if let Ok(abs_tp) = fs::canonicalize(abs_tp)
-                    && crate::utils::paths_match(Some(&abs_path), Some(&abs_tp))
-                {
-                    return true;
-                }
-            }
+        let cache_key = self.output_cache_key_for_path(path);
+        if let Ok(mut cache) = self.output_file_cache.lock()
+            && let Some(cached) = cache.get(&cache_key)
+        {
+            return cached;
         }
 
-        // Check global schema types output files
-        if let Some(schema_types) = &self.schema_types {
-            for st in schema_types {
-                let abs_output = self.base_dir.join(st.output());
-                let abs_output = fs::canonicalize(&abs_output).unwrap_or(abs_output);
-                if crate::utils::paths_match(Some(&abs_path), Some(&abs_output)) {
-                    return true;
-                }
-                if let Some(pt) = st.possible_types() {
-                    let abs_pt = self.base_dir.join(pt);
-                    let abs_pt = fs::canonicalize(&abs_pt).unwrap_or(abs_pt);
-                    if crate::utils::paths_match(Some(&abs_path), Some(&abs_pt)) {
-                        return true;
-                    }
-                }
-                if let Some(tp) = st.type_policies() {
-                    let abs_tp = self.base_dir.join(tp);
-                    let abs_tp = fs::canonicalize(&abs_tp).unwrap_or(abs_tp);
-                    if crate::utils::paths_match(Some(&abs_path), Some(&abs_tp)) {
-                        return true;
-                    }
-                }
-            }
+        let abs_path = crate::utils::canonicalize_cached(&cache_key);
+        let resolved_paths = self.resolved_output_paths();
+        let is_output = resolved_paths
+            .directories
+            .iter()
+            .any(|candidate| candidate.matches_prefix(&abs_path))
+            || resolved_paths
+                .files
+                .iter()
+                .any(|candidate| candidate.matches_exact(&abs_path));
+
+        if let Ok(mut cache) = self.output_file_cache.lock() {
+            cache.insert(cache_key, is_output);
         }
 
-        false
+        is_output
     }
 
     pub fn get_schema_for_path(&self, path: &Path) -> Option<String> {
@@ -1609,6 +1670,10 @@ impl Config {
             codegen: None,
             base_dir: PathBuf::from("."),
             project_cache: Arc::new(DashMap::new()),
+            output_file_cache: Arc::new(Mutex::new(crate::utils::BoundedPathCache::new(
+                OUTPUT_FILE_CACHE_CAPACITY,
+            ))),
+            resolved_output_paths: Arc::new(OnceLock::new()),
         }
     }
 
@@ -1847,6 +1912,19 @@ mod tests {
         )
     }
 
+    fn make_output_test_config(base_dir: &Path) -> Config {
+        write_test_project(base_dir);
+        Config::new_test(
+            base_dir.to_path_buf(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("src/query.graphql".to_string()))
+                    .with_output_dir("gen".to_string()),
+            ],
+        )
+    }
+
     #[test]
     fn config_clone_shares_project_cache() {
         let temp_dir = tempdir().expect("create temp dir");
@@ -1862,6 +1940,26 @@ mod tests {
         assert_eq!(cloned.project_cache.len(), 1);
         assert!(cloned.get_project_for_path(&query_path).is_some());
         assert_eq!(cloned.project_cache.len(), 1);
+    }
+
+    #[test]
+    fn config_clone_shares_output_file_cache() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let config = make_output_test_config(temp_dir.path());
+        let source_path = temp_dir.path().join("src/query.graphql");
+
+        assert!(!config.is_output_file(&source_path));
+        assert_eq!(config.output_file_cache.lock().unwrap().len(), 1);
+
+        let cloned = config.clone();
+
+        assert!(Arc::ptr_eq(
+            &config.output_file_cache,
+            &cloned.output_file_cache
+        ));
+        assert_eq!(cloned.output_file_cache.lock().unwrap().len(), 1);
+        assert!(!cloned.is_output_file(&source_path));
+        assert_eq!(cloned.output_file_cache.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -1881,6 +1979,25 @@ mod tests {
     }
 
     #[test]
+    fn with_base_dir_resets_output_file_cache() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let other_dir = tempdir().expect("create other temp dir");
+        let config = make_output_test_config(temp_dir.path());
+        let source_path = temp_dir.path().join("src/query.graphql");
+
+        assert!(!config.is_output_file(&source_path));
+        assert_eq!(config.output_file_cache.lock().unwrap().len(), 1);
+
+        let updated = config.clone().with_base_dir(other_dir.path().to_path_buf());
+
+        assert!(!Arc::ptr_eq(
+            &config.output_file_cache,
+            &updated.output_file_cache
+        ));
+        assert_eq!(updated.output_file_cache.lock().unwrap().len(), 0);
+    }
+
+    #[test]
     fn with_projects_resets_project_cache() {
         let temp_dir = tempdir().expect("create temp dir");
         let config = make_test_config(temp_dir.path());
@@ -1893,5 +2010,23 @@ mod tests {
 
         assert!(!Arc::ptr_eq(&config.project_cache, &updated.project_cache));
         assert!(updated.project_cache.is_empty());
+    }
+
+    #[test]
+    fn with_projects_resets_output_file_cache() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let config = make_output_test_config(temp_dir.path());
+        let source_path = temp_dir.path().join("src/query.graphql");
+
+        assert!(!config.is_output_file(&source_path));
+        assert_eq!(config.output_file_cache.lock().unwrap().len(), 1);
+
+        let updated = config.clone().with_projects(vec![]);
+
+        assert!(!Arc::ptr_eq(
+            &config.output_file_cache,
+            &updated.output_file_cache
+        ));
+        assert_eq!(updated.output_file_cache.lock().unwrap().len(), 0);
     }
 }
