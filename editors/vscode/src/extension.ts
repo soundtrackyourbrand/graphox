@@ -6,11 +6,39 @@ import {
   ErrorAction,
   LanguageClientOptions,
   ServerOptions,
-  Executable
+  Executable,
+  FileChangeType,
+  FileEvent
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
 let outputChannel: OutputChannel;
+
+function isVerboseWatcherLoggingEnabled(): boolean {
+  return workspace.getConfiguration('graphox').get<boolean>('verboseWatcherLogging', false);
+}
+
+function fileWatcherEventTypeLabel(type: FileChangeType): string {
+  switch (type) {
+    case FileChangeType.Created:
+      return 'created';
+    case FileChangeType.Changed:
+      return 'changed';
+    case FileChangeType.Deleted:
+      return 'deleted';
+    default:
+      return `unknown(${type})`;
+  }
+}
+
+async function logWatcherEvent(event: FileEvent, next: (event: FileEvent) => Promise<void>): Promise<void> {
+  if (isVerboseWatcherLoggingEnabled()) {
+    outputChannel.appendLine(
+      `[watcher] ${fileWatcherEventTypeLabel(event.type)} ${event.uri}`
+    );
+  }
+  await next(event);
+}
 
 function existsSync(filePath: string): boolean {
   try {
@@ -163,6 +191,7 @@ async function startServer(context: ExtensionContext): Promise<void> {
   outputChannel.appendLine(`- Log Level: ${logLevel}`);
   outputChannel.appendLine(`- RUST_BACKTRACE: ${rustBacktrace || '(unset)'}`);
   outputChannel.appendLine(`- Root: ${configRoot}`);
+  outputChannel.appendLine(`- Verbose Watcher Logging: ${isVerboseWatcherLoggingEnabled() ? 'enabled' : 'disabled'}`);
 
   const run: Executable = {
     command: serverPath,
@@ -197,6 +226,11 @@ async function startServer(context: ExtensionContext): Promise<void> {
       closed: () => ({ action: CloseAction.DoNotRestart })
     },
     middleware: {
+      workspace: {
+        didChangeWatchedFile: async (event, next) => {
+          await logWatcherEvent(event, next);
+        }
+      },
       executeCommand: async (command, args, next) => {
         try {
           const result = await next(command, args);
@@ -261,6 +295,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
   context.subscriptions.push(
     workspace.onDidChangeConfiguration(async (e) => {
+      if (e.affectsConfiguration('graphox.verboseWatcherLogging')) {
+        outputChannel.appendLine(
+          `Verbose watcher logging ${isVerboseWatcherLoggingEnabled() ? 'enabled' : 'disabled'}.`
+        );
+      }
+
       if (e.affectsConfiguration('graphox.serverPath') || e.affectsConfiguration('graphox.logLevel') || e.affectsConfiguration('graphox.rustBacktrace')) {
         const action = await window.showInformationMessage(
           'Graphox configuration changed. Would you like to restart the server?',

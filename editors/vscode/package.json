@@ -73,6 +73,11 @@
           "type": "string",
           "default": "",
           "description": "Value to set for RUST_BACKTRACE when launching the Graphox language server. Use \"1\" or \"full\" for Rust backtraces, \"0\" to disable, or leave empty to keep it unset."
+        },
+        "graphox.verboseWatcherLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log every watched file event forwarded by the VS Code language client, including file URI and event type, to help debug watcher storms."
         }
       }
     },
