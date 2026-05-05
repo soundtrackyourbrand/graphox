@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_lsp::lsp_types::*;
 
+use crate::backend::helpers::{named_operation_names, update_operation_name_index};
+
 /// Result of processing document changes
 pub struct ChangeResult {
     pub uris_to_validate: Vec<Url>,
@@ -40,6 +42,7 @@ pub fn process_document_change(
     let old_fragment_names: Arc<[Arc<str>]>;
     let mut affected_operation_names = AHashSet::default();
     let old_spreads: Arc<[Arc<str>]>;
+    let old_operation_names: Arc<[Arc<str>]>;
 
     let new_fragments: Arc<[graphox_core::document::FragmentDef]>;
     let new_spreads: Arc<[Arc<str>]>;
@@ -55,6 +58,7 @@ pub fn process_document_change(
         // Track old state for indices
         old_fragment_names = doc.fragments.iter().map(|f| f.name.clone()).collect();
         old_spreads = doc.fragment_spreads.clone();
+        old_operation_names = named_operation_names(&doc.operations);
         let old_fragments = doc.fragments.clone();
 
         for change in &changes {
@@ -114,7 +118,7 @@ pub fn process_document_change(
         fragments: new_fragments,
         fragment_spreads: new_spreads.clone(),
         package_root,
-        operations: new_operations,
+        operations: new_operations.clone(),
         version: new_version,
     });
     params.metadata.insert(uri.clone(), metadata);
@@ -133,49 +137,13 @@ pub fn process_document_change(
         new_fragment_names,
     );
 
-    // Update operation names index
-    if let Ok(path) = uri.to_file_path()
-        && let Some(schema_key) = params.config.get_schema_for_path(&path)
-    {
-        let project_key = params
-            .config
-            .get_project_for_path(&path)
-            .map(|p| p.include().as_key())
-            .unwrap_or_else(|| schema_key);
-        let project_key_arc: Arc<str> = project_key.into();
-
-        // Remove old entries for this URI
-        for mut entry in params.operation_names.iter_mut() {
-            let name = entry.key().clone();
-            let mut removed = false;
-            entry.value_mut().retain(|(_, op_uri)| {
-                if op_uri == uri {
-                    removed = true;
-                    false
-                } else {
-                    true
-                }
-            });
-            if removed {
-                affected_operation_names.insert(name);
-            }
-        }
-        params.operation_names.retain(|_, v| !v.is_empty());
-
-        // Add new entries
-        if let Some(m) = params.metadata.get(uri) {
-            for op in m.operations.iter() {
-                if let Some(name) = &op.name {
-                    affected_operation_names.insert(name.clone());
-                    params
-                        .operation_names
-                        .entry(name.clone())
-                        .or_default()
-                        .push((project_key_arc.clone(), uri.clone()));
-                }
-            }
-        }
-    }
+    affected_operation_names.extend(update_operation_name_index(
+        params.operation_names,
+        params.config,
+        uri,
+        Some(old_operation_names.as_ref()),
+        &new_operations,
+    ));
 
     // Compute affected URIs
     let uris_to_validate = super::validation::get_affected_uris(

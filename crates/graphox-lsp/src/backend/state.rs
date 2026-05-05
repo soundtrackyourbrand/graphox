@@ -354,10 +354,18 @@ impl Backend {
     }
 
     pub fn clear_operation_names_for_uri(&self, uri: &Url) {
-        for mut entry in self.operation_names.iter_mut() {
-            entry.value_mut().retain(|(_, op_uri)| op_uri != uri);
-        }
-        self.operation_names.retain(|_, v| !v.is_empty());
+        let old_operation_names = self
+            .metadata
+            .get(uri)
+            .map(|metadata| super::helpers::named_operation_names(&metadata.operations));
+        let config = self.config.read().unwrap().clone();
+        super::helpers::update_operation_name_index(
+            &self.operation_names,
+            &config,
+            uri,
+            old_operation_names.as_deref(),
+            &[],
+        );
     }
 
     pub fn find_type_definition_in_schema(

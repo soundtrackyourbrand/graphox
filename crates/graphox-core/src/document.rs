@@ -8,7 +8,7 @@ use ropey::Rope;
 use std::cell::RefCell;
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tree_sitter::{InputEdit, Node, Parser, Point, StreamingIterator, Tree};
 
 thread_local! {
@@ -147,7 +147,7 @@ pub struct DocumentState {
     pub version: i32,
     pub mtime: Option<std::time::SystemTime>,
     pub position_encoding: PositionEncodingKind,
-    pub executable_docs: Arc<DashMap<u64, CachedExecutableDocument>>,
+    pub executable_docs: Arc<OnceLock<DashMap<u64, CachedExecutableDocument>>>,
 }
 
 impl DocumentState {
@@ -192,7 +192,7 @@ impl DocumentState {
                 version: 0,
                 mtime: None,
                 position_encoding: PositionEncodingKind::UTF8,
-                executable_docs: Arc::new(DashMap::default()),
+                executable_docs: Arc::new(OnceLock::new()),
             };
 
             let graphql_trees = this.reparse_graphql_trees(&mut parser, false);
@@ -235,7 +235,7 @@ impl DocumentState {
             version: 0,
             mtime,
             position_encoding,
-            executable_docs: Arc::new(DashMap::default()),
+            executable_docs: Arc::new(OnceLock::new()),
         };
 
         this.graphql_trees = this.reparse_graphql_trees(parser, true);
@@ -264,7 +264,9 @@ impl DocumentState {
         hasher.write(text.as_bytes());
         let hash = hasher.finish();
 
-        if let Some(entry) = self.executable_docs.get(&hash) {
+        if let Some(cache) = self.executable_docs.get()
+            && let Some(entry) = cache.get(&hash)
+        {
             let (doc, errors) = entry.value();
             return Ok((doc.clone(), errors.clone()));
         }
@@ -308,6 +310,7 @@ impl DocumentState {
             Some(Arc::new(errors))
         };
         self.executable_docs
+            .get_or_init(DashMap::default)
             .insert(hash, (arc_doc.clone(), arc_errors.clone()));
         Ok((arc_doc, arc_errors))
     }
@@ -860,8 +863,9 @@ impl DocumentState {
         });
 
         let mut cursor = tree_sitter::QueryCursor::new();
-        let mut operations = Vec::new();
-        let mut all_fragment_spreads = Vec::new();
+        let estimated_definitions = block_tree.root_node().named_child_count();
+        let mut operations = Vec::with_capacity(estimated_definitions);
+        let mut all_fragment_spreads = Vec::with_capacity(estimated_definitions);
 
         struct PartialFragment {
             def: FragmentDef,
@@ -870,7 +874,7 @@ impl DocumentState {
             used_variables: Vec<Arc<str>>,
             used_fragments: Vec<Arc<str>>,
         }
-        let mut partial_fragments = Vec::new();
+        let mut partial_fragments = Vec::with_capacity(estimated_definitions);
 
         let mut matches = cursor.matches(symbol_query, block_tree.root_node(), |node: Node| {
             let start = node.start_byte();

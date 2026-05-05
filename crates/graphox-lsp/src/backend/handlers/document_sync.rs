@@ -1,3 +1,4 @@
+use crate::backend::helpers::{named_operation_names, update_operation_name_index};
 use crate::backend::state::Backend;
 use crate::backend::{document_changes, file_change_handler};
 use graphox_core::DocumentState;
@@ -44,52 +45,22 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
             .map(|f| f.name.clone())
             .collect::<Arc<[_]>>()
     });
-    let old_operation_names: Option<Arc<[Arc<str>]>> = old_metadata.as_ref().map(|m| {
-        m.operations
-            .iter()
-            .filter_map(|o| o.name.clone())
-            .collect::<Arc<[_]>>()
-    });
+    let old_operation_names: Option<Arc<[Arc<str>]>> = old_metadata
+        .as_ref()
+        .map(|m| named_operation_names(&m.operations));
 
     backend.update_dependency_indices(&uri, old_spreads.clone(), new_spreads.clone());
     backend.update_definition_indices(&uri, old_fragment_names.clone(), new_fragment_names.clone());
 
     // Update operation names index
-    let mut affected_operation_names = ahash::AHashSet::default();
-    if let Some(old) = old_operation_names {
-        for name in old.iter() {
-            affected_operation_names.insert(name.clone());
-            if let Some(mut entry) = backend.operation_names.get_mut(name) {
-                entry.value_mut().retain(|(_, op_uri)| op_uri != &uri);
-            }
-        }
-    }
-    backend.operation_names.retain(|_, v| !v.is_empty());
-
-    if let Ok(path) = uri.to_file_path()
-        && let Some(schema_key) = backend.config.read().unwrap().get_schema_for_path(&path)
-    {
-        let project_key = backend
-            .config
-            .read()
-            .unwrap()
-            .get_project_for_path(&path)
-            .map(|p| p.include().as_key())
-            .unwrap_or_else(|| schema_key);
-        let project_key_arc: Arc<str> = project_key.into();
-
-        // Add new entries
-        for op in new_operations.iter() {
-            if let Some(name) = &op.name {
-                affected_operation_names.insert(name.clone());
-                backend
-                    .operation_names
-                    .entry(name.clone())
-                    .or_default()
-                    .push((project_key_arc.clone(), uri.clone()));
-            }
-        }
-    }
+    let config = backend.config.read().unwrap().clone();
+    let affected_operation_names = update_operation_name_index(
+        &backend.operation_names,
+        &config,
+        &uri,
+        old_operation_names.as_deref(),
+        &new_operations,
+    );
 
     // Compute all affected fragment names using optimized HashSet comparison
     let mut affected_fragment_names = ahash::AHashSet::default();

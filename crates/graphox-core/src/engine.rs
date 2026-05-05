@@ -329,11 +329,7 @@ impl Engine {
                 let abs_path = if full_path.is_absolute() {
                     full_path.clone()
                 } else {
-                    config
-                        .base_dir()
-                        .join(&full_path)
-                        .canonicalize()
-                        .unwrap_or_else(|_| full_path.clone())
+                    crate::utils::canonicalize_cached(&config.base_dir().join(&full_path))
                 };
                 let uri = Url::from_file_path(&abs_path).ok()?;
                 let uri = crate::utils::normalize_uri(uri);
@@ -837,7 +833,7 @@ impl Engine {
         position_encoding: lsp_types::PositionEncodingKind,
     ) -> Option<DocumentState> {
         let content = std::fs::read_to_string(path).ok()?;
-        let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let abs_path = crate::utils::canonicalize_cached(path);
         let uri = Url::from_file_path(&abs_path).ok()?;
         let uri = crate::utils::normalize_uri(uri);
         let language = DocumentLanguage::from_uri(&uri);

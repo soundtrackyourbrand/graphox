@@ -4,12 +4,13 @@ use graphox::{
     config::{GlobPattern, ProjectConfig, SchemaSource},
     utils,
 };
+use graphox_core::Engine;
 use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
-use tower_lsp::lsp_types::Url;
+use tower_lsp::lsp_types::{PositionEncodingKind, Url};
 
 const HOT_SET_SIZES: &[usize] = &[1, 32, 256];
 const PROJECT_COUNT: usize = 8;
@@ -195,11 +196,38 @@ fn bench_normalize_uri(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_parse_doc(c: &mut Criterion) {
+    let workspace = PathBenchWorkspace::new();
+    let mut group = c.benchmark_group("Path Classification / parse_doc");
+    group.sample_size(20);
+    group.warm_up_time(Duration::from_millis(300));
+    group.measurement_time(Duration::from_millis(1500));
+
+    for &hot_set_size in HOT_SET_SIZES {
+        let source_paths = &workspace.source_paths[..hot_set_size];
+
+        group.bench_with_input(
+            BenchmarkId::new("source files", hot_set_size),
+            &hot_set_size,
+            |b, _| {
+                bench_path_set(b, source_paths, |path| {
+                    black_box(Engine::parse_doc(
+                        black_box(path),
+                        black_box(PositionEncodingKind::UTF16),
+                    ));
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default()
         .warm_up_time(Duration::from_millis(300))
         .measurement_time(Duration::from_millis(1500));
-    targets = bench_is_output_file, bench_get_project_for_path, bench_normalize_uri
+    targets = bench_is_output_file, bench_get_project_for_path, bench_normalize_uri, bench_parse_doc
 );
 criterion_main!(benches);

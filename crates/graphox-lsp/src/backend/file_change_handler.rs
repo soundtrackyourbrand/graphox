@@ -14,6 +14,8 @@ use std::sync::Arc;
 use tower_lsp::Client;
 use tower_lsp::lsp_types::*;
 
+use crate::backend::helpers::{named_operation_names, update_operation_name_index};
+
 /// Result of processing a file change
 pub struct FileChangeResult {
     pub uris_to_validate: Vec<Url>,
@@ -113,6 +115,10 @@ pub async fn process_file_created_or_changed(
         .metadata
         .get(&uri)
         .map(|m| m.fragment_spreads.clone());
+    let old_operation_names: Option<Arc<[Arc<str>]>> = params
+        .metadata
+        .get(&uri)
+        .map(|m| named_operation_names(&m.operations));
 
     let new_fragment_defs = new_doc.fragments.clone();
     let new_fragment_names: Arc<[Arc<str>]> =
@@ -170,45 +176,13 @@ pub async fn process_file_created_or_changed(
         new_spreads,
     );
 
-    // Update operation name index
-    if let Some(schema_key) = params.config.get_schema_for_path(&path) {
-        let project_key = params
-            .config
-            .get_project_for_path(&path)
-            .map(|p| p.include().as_key())
-            .unwrap_or_else(|| schema_key.clone());
-        let project_key_arc: Arc<str> = project_key.into();
-
-        // Remove old operations for this URI
-        for mut entry in params.operation_names.iter_mut() {
-            let op_name = entry.key().clone();
-            let mut removed = false;
-            entry.value_mut().retain(|(_, op_uri)| {
-                if op_uri == &uri {
-                    removed = true;
-                    false
-                } else {
-                    true
-                }
-            });
-            if removed {
-                affected_operation_names.insert(op_name);
-            }
-        }
-        params.operation_names.retain(|_, v| !v.is_empty());
-
-        // Add new operations
-        for op in new_doc.operations() {
-            if let Some(name) = &op.name {
-                affected_operation_names.insert(name.clone());
-                params
-                    .operation_names
-                    .entry(name.clone())
-                    .or_default()
-                    .push((project_key_arc.clone(), uri.clone()));
-            }
-        }
-    }
+    affected_operation_names.extend(update_operation_name_index(
+        params.operation_names,
+        params.config,
+        &uri,
+        old_operation_names.as_deref(),
+        new_doc.operations(),
+    ));
 
     // Enable codegen for watched file changes if it contains GraphQL
     let should_run_codegen = !new_doc.get_graphql_trees().is_empty();
@@ -276,6 +250,10 @@ pub fn process_file_deleted(
         .metadata
         .get(&uri)
         .map(|m| m.fragment_spreads.clone());
+    let old_operation_names: Option<Arc<[Arc<str>]>> = params
+        .metadata
+        .get(&uri)
+        .map(|m| named_operation_names(&m.operations));
 
     if let Some(old) = &old_fragments {
         for name in old.iter() {
@@ -306,23 +284,13 @@ pub fn process_file_deleted(
         Arc::from([]),
     );
 
-    // Remove operations from index
-    for mut entry in params.operation_names.iter_mut() {
-        let op_name = entry.key().clone();
-        let mut removed = false;
-        entry.value_mut().retain(|(_, op_uri)| {
-            if op_uri == &uri {
-                removed = true;
-                false
-            } else {
-                true
-            }
-        });
-        if removed {
-            affected_operation_names.insert(op_name);
-        }
-    }
-    params.operation_names.retain(|_, v| !v.is_empty());
+    affected_operation_names.extend(update_operation_name_index(
+        params.operation_names,
+        params.config,
+        &uri,
+        old_operation_names.as_deref(),
+        &[],
+    ));
 
     let uris_to_validate = super::validation::get_affected_uris(
         uri,

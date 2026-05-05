@@ -18,9 +18,8 @@ struct PathCandidate {
 
 impl PathCandidate {
     fn new(raw: PathBuf) -> Self {
-        let canonical = fs::canonicalize(&raw)
-            .ok()
-            .filter(|canonical| canonical != &raw);
+        let canonical = crate::utils::canonicalize_cached(&raw);
+        let canonical = (canonical != raw).then_some(canonical);
         Self { raw, canonical }
     }
 
@@ -1434,7 +1433,7 @@ impl Config {
             for schema_file in project.schema().files() {
                 let abs_schema = self.base_dir.join(schema_file);
                 // Canonicalize schema file path too
-                let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
+                let abs_schema = crate::utils::canonicalize_cached(&abs_schema);
                 if crate::utils::paths_match(Some(&abs_path), Some(&abs_schema)) {
                     self.project_cache.insert(cache_key.clone(), Some(idx));
                     return Some(project);
@@ -1489,13 +1488,14 @@ impl Config {
                         && !pattern.contains('?')
                         && !pattern.contains('[')
                         && !pattern.contains('{')
-                        && let Ok(include_path) = fs::canonicalize(include_path)
-                        && crate::utils::path_starts_with(&abs_path, &include_path)
                     {
-                        matched = true;
-                        current_specificity =
-                            current_specificity.max(include_path.components().count() as i32);
-                        break;
+                        let include_path = crate::utils::canonicalize_cached(&include_path);
+                        if crate::utils::path_starts_with(&abs_path, &include_path) {
+                            matched = true;
+                            current_specificity =
+                                current_specificity.max(include_path.components().count() as i32);
+                            break;
+                        }
                     }
                 }
             }

@@ -1,7 +1,11 @@
 use criterion::{Criterion, criterion_group, criterion_main};
+use dashmap::DashMap;
 use graphox_core::Config;
 use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox_core::document::OperationDef;
+use graphox_core::types::OperationNamesMap;
 use graphox_features::diagnostics::DocumentDiagnostics;
+use graphox_lsp::backend::helpers::update_operation_name_index;
 use graphox_lsp::backend::state::Backend;
 use graphox_lsp::backend::validation::ValidationParams;
 use std::sync::Arc;
@@ -63,6 +67,45 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
     }
 
     let target_uri = Url::from_file_path(base_dir.join("doc_0.graphql")).unwrap();
+    let index_uri = Url::from_file_path(base_dir.join("ops.graphql")).unwrap();
+    let other_uri = Url::from_file_path(base_dir.join("ops_other.graphql")).unwrap();
+    std::fs::write(
+        base_dir.join("ops.graphql"),
+        "query SharedQuery { user { id } }",
+    )
+    .unwrap();
+    std::fs::write(
+        base_dir.join("ops_other.graphql"),
+        "query SharedQuery { user { id } }",
+    )
+    .unwrap();
+    let operation_index: OperationNamesMap =
+        Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+    operation_index.insert(
+        Arc::from("SharedQuery"),
+        vec![
+            (Arc::from("**/*.graphql"), index_uri.clone()),
+            (Arc::from("**/*.graphql"), other_uri.clone()),
+        ],
+    );
+    operation_index.insert(
+        Arc::from("SecondaryQuery"),
+        vec![(Arc::from("**/*.graphql"), index_uri.clone())],
+    );
+    let old_operation_names: Arc<[Arc<str>]> =
+        vec![Arc::from("SharedQuery"), Arc::from("SecondaryQuery")].into();
+    let replacement_operations = vec![
+        OperationDef {
+            name: Some(Arc::from("SharedQuery")),
+            operation_type: Arc::from("query"),
+            source_text: Arc::from("query SharedQuery { user { id } }"),
+        },
+        OperationDef {
+            name: Some(Arc::from("SecondaryQuery")),
+            operation_type: Arc::from("query"),
+            source_text: Arc::from("query SecondaryQuery { user { id } }"),
+        },
+    ];
 
     let mut group = c.benchmark_group("LSP Actions");
     group.sample_size(10);
@@ -143,6 +186,19 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),
             })
+        });
+    });
+
+    group.bench_function("Update Operation Name Index", |b| {
+        b.iter(|| {
+            let affected = update_operation_name_index(
+                &operation_index,
+                &config,
+                &index_uri,
+                Some(old_operation_names.as_ref()),
+                &replacement_operations,
+            );
+            std::hint::black_box(affected);
         });
     });
 

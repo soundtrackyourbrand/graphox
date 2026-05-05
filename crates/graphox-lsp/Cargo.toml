@@ -34,3 +34,4 @@ globset = { workspace = true }
 
 [dev-dependencies]
 ntest = "0.9"
+tempfile = "3.24.0"

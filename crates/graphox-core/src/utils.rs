@@ -619,10 +619,8 @@ pub fn get_project_files(
                         let mut matched = include_set_ref.is_match(path)
                             || include_set_ref.is_match(to_posix_path(path));
 
-                        if !matched
-                            && is_relevant_file(path)
-                            && let Ok(abs_path) = std::fs::canonicalize(path)
-                        {
+                        if !matched && is_relevant_file(path) {
+                            let abs_path = canonicalize_cached(path);
                             matched = include_set_ref.is_match(&abs_path)
                                 || include_set_ref.is_match(to_posix_path(&abs_path));
                         }
@@ -658,7 +656,7 @@ pub fn get_project_files(
                             if !excluded {
                                 matched_file = true;
                                 let send_path = if cfg!(windows) {
-                                    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
+                                    canonicalize_cached(path)
                                 } else {
                                     path.to_owned()
                                 };
@@ -932,16 +930,11 @@ pub fn get_output_path(
     let mut output_path = base_dir.to_path_buf();
 
     // Canonicalize base_dir and path to handle symlinks (like /tmp -> /private/tmp on macOS)
-    let abs_base_dir = base_dir
-        .canonicalize()
-        .unwrap_or_else(|_| base_dir.to_path_buf());
-    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let abs_base_dir = canonicalize_cached(base_dir);
+    let abs_path = canonicalize_cached(path);
 
     let diff_target = if let Some(prefix) = include_prefix {
-        base_dir
-            .join(prefix)
-            .canonicalize()
-            .unwrap_or_else(|_| base_dir.join(prefix))
+        canonicalize_cached(&base_dir.join(prefix))
     } else {
         abs_base_dir
     };
