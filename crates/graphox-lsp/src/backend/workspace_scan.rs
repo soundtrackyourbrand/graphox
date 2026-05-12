@@ -155,33 +155,53 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
     // Parallel scan: Parse all files and collect basic metadata
     let position_encoding = params.position_encoding.clone();
     let cancelled = params.workspace_scan_cancelled.clone();
+    let scan_cancelled = cancelled.clone();
 
-    let scanned_docs: Vec<_> = files
-        .into_par_iter()
-        .filter_map(|path| {
-            if cancelled.load(Ordering::Relaxed) {
-                return None;
-            }
-
-            let content = std::fs::read_to_string(&path).ok()?;
-            if graphox_core::utils::has_generated_header(&content) {
-                return None;
-            }
-
-            let uri = Url::from_file_path(&path).ok()?;
-            let doc =
-                DocumentState::new_from_thread_local(uri, &content, position_encoding.clone());
-
-            if doc.get_graphql_trees().is_empty() {
-                // If it doesn't contain GraphQL and it's not a direct .graphql file, skip it
-                if path.extension().is_none_or(|ext| ext != "graphql") {
+    let scanned_docs = match tokio::task::spawn_blocking(move || {
+        files
+            .into_par_iter()
+            .filter_map(|path| {
+                if scan_cancelled.load(Ordering::Relaxed) {
                     return None;
                 }
-            }
 
-            Some(doc)
-        })
-        .collect();
+                let content = std::fs::read_to_string(&path).ok()?;
+                if graphox_core::utils::has_generated_header(&content) {
+                    return None;
+                }
+
+                let uri = Url::from_file_path(&path).ok()?;
+                let doc =
+                    DocumentState::new_from_thread_local(uri, &content, position_encoding.clone());
+
+                if doc.get_graphql_trees().is_empty() {
+                    // If it doesn't contain GraphQL and it's not a direct .graphql file, skip it
+                    if path.extension().is_none_or(|ext| ext != "graphql") {
+                        return None;
+                    }
+                }
+
+                Some(doc)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    {
+        Ok(scanned_docs) => scanned_docs,
+        Err(err) => {
+            params
+                .client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Workspace scan worker failed: {err}"),
+                )
+                .await;
+            progress
+                .end(Some("Workspace scan failed".to_string()))
+                .await;
+            return;
+        }
+    };
 
     if cancelled.load(Ordering::Relaxed) {
         return;
@@ -370,9 +390,7 @@ async fn validate_all_documents_cancellable(
     result_id_epoch: usize,
 ) -> (bool, Arc<apollo_compiler::validation::Valid<Schema>>) {
     let documents = &params.documents;
-    let metadata = &params.metadata;
     let config = &params.config;
-    let validated_schemas = &params.validated_schemas;
     let empty_schema = &params.empty_schema;
     let cancelled = &params.workspace_scan_cancelled;
     let client = &params.client;
@@ -431,81 +449,106 @@ async fn validate_all_documents_cancellable(
             return (false, valid_empty_schema);
         }
 
-        let results: Vec<_> = batch
-            .par_iter()
-            .filter_map(|uri: &Url| {
-                let doc = documents.get(uri)?;
-                let meta = metadata.get(uri)?;
+        let batch_uris: Vec<Url> = batch.to_vec();
+        let documents = params.documents.clone();
+        let metadata = params.metadata.clone();
+        let config = params.config.clone();
+        let validated_schemas = params.validated_schemas.clone();
+        let valid_empty_schema = valid_empty_schema.clone();
+        let fallback_schema = valid_empty_schema.clone();
+        let used_fragments = used_fragments.clone();
+        let all_fragments_info = all_fragments_info.clone();
+        let public_fragment_indices = public_fragment_indices.clone();
+        let fragments_by_package = fragments_by_package.clone();
+        let operation_names = params.operation_names.clone();
 
-                let schema = if let Ok(path) = uri.to_file_path()
-                    && let Some(schema_path) = config.get_schema_for_path(&path)
-                    && let Some(schema) = validated_schemas.get(&schema_path)
-                {
-                    schema.value().clone()
-                } else {
-                    valid_empty_schema.clone()
-                };
+        let results = match tokio::task::spawn_blocking(move || {
+            batch_uris
+                .par_iter()
+                .filter_map(|uri: &Url| {
+                    let doc = documents.get(uri)?;
+                    let meta = metadata.get(uri)?;
 
-                // Filter fragments for this document
-                let mut filtered_fragments = Vec::new();
-                for &idx in &public_fragment_indices {
-                    filtered_fragments.push(all_fragments_info[idx].0.clone());
-                }
+                    let schema = if let Ok(path) = uri.to_file_path()
+                        && let Some(schema_path) = config.get_schema_for_path(&path)
+                        && let Some(schema) = validated_schemas.get(&schema_path)
+                    {
+                        schema.value().clone()
+                    } else {
+                        fallback_schema.clone()
+                    };
 
-                if let Some(pkg_root) = &meta.package_root
-                    && let Some(indices) =
-                        fragments_by_package.get(&pkg_root.to_string_lossy().to_string())
-                {
-                    let mut seen: AHashSet<Arc<str>> = public_fragment_indices
-                        .iter()
-                        .map(|&i| all_fragments_info[i].0.name.clone())
-                        .collect();
-                    for &idx in indices {
-                        if seen.insert(all_fragments_info[idx].0.name.clone()) {
-                            filtered_fragments.push(all_fragments_info[idx].0.clone());
+                    let mut filtered_fragments = Vec::new();
+                    for &idx in &public_fragment_indices {
+                        filtered_fragments.push(all_fragments_info[idx].0.clone());
+                    }
+
+                    if let Some(pkg_root) = &meta.package_root
+                        && let Some(indices) =
+                            fragments_by_package.get(&pkg_root.to_string_lossy().to_string())
+                    {
+                        let mut seen: AHashSet<Arc<str>> = public_fragment_indices
+                            .iter()
+                            .map(|&i| all_fragments_info[i].0.name.clone())
+                            .collect();
+                        for &idx in indices {
+                            if seen.insert(all_fragments_info[idx].0.name.clone()) {
+                                filtered_fragments.push(all_fragments_info[idx].0.clone());
+                            }
                         }
                     }
-                }
 
-                // Use project-specific rules if defined
-                let project_config = uri
-                    .to_file_path()
-                    .ok()
-                    .and_then(|path| config.get_project_for_path(&path));
-                let effective_config = if let Some(project) = project_config {
-                    let merged_rules = if let Some(project_rules) = project.rules() {
-                        config.rules().merge(project_rules)
+                    let project_config = uri
+                        .to_file_path()
+                        .ok()
+                        .and_then(|path| config.get_project_for_path(&path));
+                    let effective_config = if let Some(project) = project_config {
+                        let merged_rules = if let Some(project_rules) = project.rules() {
+                            config.rules().merge(project_rules)
+                        } else {
+                            config.rules().clone()
+                        };
+                        config.clone().with_rules(merged_rules)
                     } else {
-                        config.rules().clone()
+                        config.clone()
                     };
-                    config.clone().with_rules(merged_rules)
-                } else {
-                    config.clone()
-                };
 
-                let mut diagnostics = doc.get_semantic_diagnostics(
-                    &schema,
-                    &filtered_fragments,
-                    Some(&used_fragments),
-                    Some(&effective_config),
-                    false, // verbose
-                    false, // workspace_loaded (false because we are STILL loading)
-                );
-
-                // Duplicate operation name check
-                if effective_config.rules().unique_operation_name() {
-                    add_duplicate_operation_diagnostics(
-                        &effective_config,
-                        uri,
-                        &doc,
-                        &params.operation_names,
-                        &mut diagnostics,
+                    let mut diagnostics = doc.get_semantic_diagnostics(
+                        &schema,
+                        &filtered_fragments,
+                        Some(&used_fragments),
+                        Some(&effective_config),
+                        false,
+                        false,
                     );
-                }
 
-                Some((uri.clone(), doc.version, diagnostics))
-            })
-            .collect();
+                    if effective_config.rules().unique_operation_name() {
+                        add_duplicate_operation_diagnostics(
+                            &effective_config,
+                            uri,
+                            &doc,
+                            &operation_names,
+                            &mut diagnostics,
+                        );
+                    }
+
+                    Some((uri.clone(), doc.version, diagnostics))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        {
+            Ok(results) => results,
+            Err(err) => {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!("Workspace validation worker failed: {err}"),
+                    )
+                    .await;
+                return (false, valid_empty_schema);
+            }
+        };
 
         // Stage batch results
         staged_diagnostics.extend(results);

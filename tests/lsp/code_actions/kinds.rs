@@ -244,3 +244,46 @@ async fn test_no_filter_returns_all() {
         "Should find Format GraphQL action when no filter is applied"
     );
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_unrelated_kind_filter_returns_no_actions() {
+    let schema = "type Query { user: User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.tsx");
+
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let tsx_text = r#"const q = gql`query{ user{ id } }`"#;
+    let tsx_uri = write_project_file(&dir, "Component.tsx", tsx_text);
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
+
+    let doc = create_doc(tsx_uri.as_str(), tsx_text);
+    let range = crate::support::range_for_token(&doc, tsx_text, "query{ user{ id } }");
+
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: tsx_uri.clone(),
+        },
+        range,
+        context: CodeActionContext {
+            diagnostics: vec![],
+            only: Some(vec![CodeActionKind::REFACTOR_INLINE]),
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let actions = lsp_request_code_actions(&mut service, params, 1).await;
+    assert!(
+        actions.is_none(),
+        "Unsupported kind filters should return no actions"
+    );
+}

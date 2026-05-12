@@ -75,101 +75,113 @@ pub async fn validate_uris(
         None
     };
 
-    let used_fragments = get_used_fragments(params.metadata, params.config);
     let workspace_loaded = params.workspace_loaded.load(Ordering::SeqCst);
     let total = uris.len();
 
-    // Collect fragment metadata once for all documents being validated
-    let all_fragments = super::fragment_manager::collect_fragment_metadata(
-        params.metadata,
-        params.config,
-        params.subgraphs,
-        params.documents,
-        params.schemas,
-    );
+    let config = params.config.clone();
+    let documents = params.documents.clone();
+    let metadata = params.metadata.clone();
+    let validated_schemas = params.validated_schemas.clone();
+    let valid_empty_schema = params.valid_empty_schema.clone();
+    let operation_names = params.operation_names.clone();
+    let subgraphs = params.subgraphs.clone();
+    let schemas = params.schemas.clone();
 
-    // Pre-collect documents and their package roots to optimize fragment filtering
-    let mut docs_to_validate = Vec::new();
-    let mut unique_package_roots = AHashSet::new();
+    let results = match tokio::task::spawn_blocking(move || {
+        let used_fragments = get_used_fragments(&metadata, &config);
 
-    for uri in uris {
-        if let Some(doc) = params.documents.get(&uri).map(|r| r.value().clone()) {
-            let is_configured = is_configured_document_uri(&uri, params.config);
-            if is_configured {
-                unique_package_roots.insert(doc.package_root.clone());
+        let all_fragments = super::fragment_manager::collect_fragment_metadata(
+            &metadata, &config, &subgraphs, &documents, &schemas,
+        );
+
+        let mut docs_to_validate = Vec::new();
+        let mut unique_package_roots = AHashSet::new();
+
+        for uri in uris {
+            if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
+                let is_configured = is_configured_document_uri(&uri, &config);
+                if is_configured {
+                    unique_package_roots.insert(doc.package_root.clone());
+                }
+
+                docs_to_validate.push((uri, doc, is_configured));
             }
-
-            docs_to_validate.push((uri, doc, is_configured));
         }
-    }
 
-    // Pre-calculate filtered fragments for each unique package root
-    let mut fragments_by_pkg = AHashMap::with_capacity(unique_package_roots.len());
-    for pkg_root in unique_package_roots {
-        let filtered = get_fragments_for_doc_with_metadata(pkg_root.as_deref(), &all_fragments);
-        fragments_by_pkg.insert(pkg_root, Arc::new(filtered));
-    }
+        let mut fragments_by_pkg = AHashMap::with_capacity(unique_package_roots.len());
+        for pkg_root in unique_package_roots {
+            let filtered = get_fragments_for_doc_with_metadata(pkg_root.as_deref(), &all_fragments);
+            fragments_by_pkg.insert(pkg_root, Arc::new(filtered));
+        }
 
-    // Process documents in parallel
-    let results: Vec<_> = docs_to_validate
-        .into_par_iter()
-        .map(|(uri, doc, is_configured)| {
-            if !is_configured {
-                return (uri, doc.version, Vec::new());
-            }
+        docs_to_validate
+            .into_par_iter()
+            .map(|(uri, doc, is_configured)| {
+                if !is_configured {
+                    return (uri, doc.version, Vec::new());
+                }
 
-            let schema = get_schema_for_doc(
-                &uri,
-                params.config,
-                params.validated_schemas,
-                params.valid_empty_schema,
-            );
+                let schema =
+                    get_schema_for_doc(&uri, &config, &validated_schemas, &valid_empty_schema);
 
-            let filtered_fragments = fragments_by_pkg
-                .get(&doc.package_root)
-                .expect("Configured document package root should be in cache");
+                let filtered_fragments = fragments_by_pkg
+                    .get(&doc.package_root)
+                    .expect("Configured document package root should be in cache");
 
-            // Use project-specific rules if defined, otherwise fall back to global rules
-            let project_config = uri
-                .to_file_path()
-                .ok()
-                .and_then(|path| params.config.get_project_for_path(&path));
-            let effective_config = if let Some(project) = project_config
-                && let Some(project_rules) = project.rules()
-            {
-                let merged_rules = params.config.rules().merge(project_rules);
-                params.config.clone().with_rules(merged_rules)
-            } else {
-                params.config.clone()
-            };
+                let project_config = uri
+                    .to_file_path()
+                    .ok()
+                    .and_then(|path| config.get_project_for_path(&path));
+                let effective_config = if let Some(project) = project_config
+                    && let Some(project_rules) = project.rules()
+                {
+                    let merged_rules = config.rules().merge(project_rules);
+                    config.clone().with_rules(merged_rules)
+                } else {
+                    config.clone()
+                };
 
-            let mut diagnostics = doc.get_semantic_diagnostics(
-                &schema,
-                filtered_fragments,
-                Some(&used_fragments),
-                Some(&effective_config),
-                false,
-                workspace_loaded,
-            );
-
-            // Add duplicate operation name diagnostics if enabled
-            if params.config.rules().unique_operation_name()
-                && let Ok(path) = uri.to_file_path()
-                && let Some(schema_key) = params.config.get_schema_for_path(&path)
-            {
-                add_duplicate_operation_diagnostics(
-                    params.config,
-                    &doc,
-                    &uri,
-                    &schema_key,
-                    params.operation_names,
-                    &mut diagnostics,
+                let mut diagnostics = doc.get_semantic_diagnostics(
+                    &schema,
+                    filtered_fragments,
+                    Some(&used_fragments),
+                    Some(&effective_config),
+                    false,
+                    workspace_loaded,
                 );
-            }
 
-            (uri, doc.version, diagnostics)
-        })
-        .collect();
+                if config.rules().unique_operation_name()
+                    && let Ok(path) = uri.to_file_path()
+                    && let Some(schema_key) = config.get_schema_for_path(&path)
+                {
+                    add_duplicate_operation_diagnostics(
+                        &config,
+                        &doc,
+                        &uri,
+                        &schema_key,
+                        &operation_names,
+                        &mut diagnostics,
+                    );
+                }
+
+                (uri, doc.version, diagnostics)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    {
+        Ok(results) => results,
+        Err(err) => {
+            params
+                .client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Validation worker failed: {err}"),
+                )
+                .await;
+            return;
+        }
+    };
 
     // Publish and cache results sequentially (async)
     for (idx, (uri, version, diagnostics)) in results.into_iter().enumerate() {

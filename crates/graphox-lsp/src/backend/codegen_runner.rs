@@ -176,8 +176,6 @@ pub async fn run_codegen(
             continue;
         }
 
-        let project_output_dir = project.output_dir();
-
         progress
             .report(
                 format!(
@@ -283,158 +281,176 @@ pub async fn run_codegen(
             .or_insert_with(|| Arc::new(graphox_codegen::SchemaAnalysisCaches::new()))
             .clone();
 
-        let mut project_ops = Vec::new();
-        let mut project_frags: Vec<graphox_codegen::FragmentGenerated> = Vec::new();
+        let config_for_project = config.clone();
+        let documents_for_project = documents.clone();
+        let run_cache_for_project = run_cache.clone();
+        let project_files_for_project = project_files.clone();
+        let project_for_codegen = (*project).clone();
+        let valid_schema = Arc::new(valid_schema);
+        let project_context = Arc::new(project_context);
+        let schema_import = schema_import.clone();
+        let type_imports = type_imports.clone();
+        let type_cache = type_cache.clone();
 
-        // Use DashMap for thread-safe result collection with per-key locking
-        let project_results: dashmap::DashMap<
-            PathBuf,
-            (
-                Vec<graphox_codegen::OperationGenerated>,
-                Vec<graphox_codegen::FragmentGenerated>,
-            ),
-        > = dashmap::DashMap::new();
+        let (project_ops, project_frags) = match tokio::task::spawn_blocking(move || {
+            let project_output_dir = project_for_codegen.output_dir().map(str::to_string);
+            let codegen_config = config_for_project.get_codegen_config(Some(&project_for_codegen));
 
-        // Process files in parallel with immediate writes
-        project_files.par_iter().for_each(|path| {
-            let Some(doc) = get_document_for_codegen(path, &documents, &run_cache) else {
-                return;
-            };
-            let uri = doc.uri.clone();
-
-            if doc.get_graphql_trees().is_empty() {
-                return;
-            }
-
-            let include_prefix_path = project
-                .include()
-                .patterns()
-                .iter()
-                .map(|p| graphox_core::utils::get_glob_root(p))
-                .find(|root| {
-                    let abs_root = config.base_dir().join(root);
-                    let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
-                    graphox_core::utils::path_starts_with(path, &abs_root)
-                });
-            let out_path = graphox_core::utils::get_output_path(
-                path,
-                config.base_dir(),
-                project_output_dir.map(Path::new),
-                include_prefix_path.as_deref(),
-            );
-            let abs_out_path = if out_path.is_absolute() {
-                out_path
-            } else {
-                config.base_dir().join(out_path)
-            };
-            let codegen_path = abs_out_path.clone();
-
-            let codegen_config = config.get_codegen_config(Some(project));
-
-            let ctx = graphox_codegen::CodegenContext::new(
-                &valid_schema,
-                &project_context.fragment_to_path,
-                &project_context.fragment_to_import,
-                &project_context.fragment_to_type_only,
-                &project_context.all_fragments,
-                &project_context.name_to_id,
-                path,
-                config.scalars(),
-                &schema_import,
-                &type_imports,
-                codegen_config.generate_ast_for_fragments(),
-                &project_context.fragment_dependencies,
-                &type_cache,
-                &codegen_config,
-                {
-                    if let Some(out_dir) = project_output_dir {
-                        let out_path = graphox_core::utils::get_output_path(
-                            path,
-                            config.base_dir(),
-                            project_output_dir.map(Path::new),
-                            include_prefix_path.as_deref(),
-                        );
-                        let abs_out_dir = if out_path.is_absolute() {
-                            out_path
-                                .parent()
-                                .map(|p| p.to_path_buf())
-                                .unwrap_or_else(|| out_path.clone())
-                        } else {
-                            let joined = config.base_dir().join(&out_path);
-                            joined
-                                .parent()
-                                .map(|p| p.to_path_buf())
-                                .unwrap_or_else(|| joined)
-                        };
-
-                        let abs_masking_dir = config.base_dir().join(out_dir);
-                        let rel_to_masking = pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
-                            .unwrap_or_else(|| PathBuf::from("."));
-
-                        let full_masking_path = rel_to_masking.join("fragment-masking");
-                        let mut path_str = graphox_core::utils::to_posix_path(&full_masking_path);
-                        if !path_str.starts_with('.')
-                            && !path_str.starts_with('/')
-                            && !full_masking_path.is_absolute()
-                        {
-                            path_str.insert_str(0, "./");
-                        }
-                        path_str.push_str(codegen_config.emit_extensions().as_str());
-                        path_str
-                    } else {
-                        let mut path_str = "./fragment-masking".to_string();
-                        path_str.push_str(codegen_config.emit_extensions().as_str());
-                        path_str
+            let project_results: Vec<_> = project_files_for_project
+                .par_iter()
+                .filter_map(|path| {
+                    let doc = get_document_for_codegen(
+                        path,
+                        &documents_for_project,
+                        &run_cache_for_project,
+                    )?;
+                    if doc.get_graphql_trees().is_empty() {
+                        return None;
                     }
-                },
-                codegen_path,
-            );
 
-            let result = graphox_codegen::generate_typescript(&doc, &ctx);
-            let (ts_code, mut ops, mut frags) = match result {
-                Ok(r) => r,
-                Err(e) => {
-                    log::error!("Failed to generate TypeScript for {}: {}", uri, e);
-                    return;
-                }
-            };
+                    let include_prefix_path = project_for_codegen
+                        .include()
+                        .patterns()
+                        .iter()
+                        .map(|pattern| graphox_core::utils::get_glob_root(pattern))
+                        .find(|root| {
+                            let abs_root = config_for_project.base_dir().join(root);
+                            let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
+                            graphox_core::utils::path_starts_with(path, &abs_root)
+                        });
+                    let out_path = graphox_core::utils::get_output_path(
+                        path,
+                        config_for_project.base_dir(),
+                        project_output_dir.as_deref().map(Path::new),
+                        include_prefix_path.as_deref(),
+                    );
+                    let abs_out_path = if out_path.is_absolute() {
+                        out_path
+                    } else {
+                        config_for_project.base_dir().join(out_path)
+                    };
+                    let codegen_path = abs_out_path.clone();
 
-            // Write file only if changed
-            let mut should_write = true;
-            if abs_out_path.exists()
-                && let Ok(existing) = std::fs::read_to_string(&abs_out_path)
-                && existing == ts_code
-            {
-                should_write = false;
+                    let ctx = graphox_codegen::CodegenContext::new(
+                        valid_schema.as_ref(),
+                        &project_context.fragment_to_path,
+                        &project_context.fragment_to_import,
+                        &project_context.fragment_to_type_only,
+                        &project_context.all_fragments,
+                        &project_context.name_to_id,
+                        path,
+                        config_for_project.scalars(),
+                        &schema_import,
+                        &type_imports,
+                        codegen_config.generate_ast_for_fragments(),
+                        &project_context.fragment_dependencies,
+                        &type_cache,
+                        &codegen_config,
+                        {
+                            if let Some(out_dir) = project_output_dir.as_deref() {
+                                let out_path = graphox_core::utils::get_output_path(
+                                    path,
+                                    config_for_project.base_dir(),
+                                    project_output_dir.as_deref().map(Path::new),
+                                    include_prefix_path.as_deref(),
+                                );
+                                let abs_out_dir = if out_path.is_absolute() {
+                                    out_path
+                                        .parent()
+                                        .map(|p| p.to_path_buf())
+                                        .unwrap_or_else(|| out_path.clone())
+                                } else {
+                                    let joined = config_for_project.base_dir().join(&out_path);
+                                    joined
+                                        .parent()
+                                        .map(|p| p.to_path_buf())
+                                        .unwrap_or_else(|| joined)
+                                };
+
+                                let abs_masking_dir = config_for_project.base_dir().join(out_dir);
+                                let rel_to_masking =
+                                    pathdiff::diff_paths(&abs_masking_dir, &abs_out_dir)
+                                        .unwrap_or_else(|| PathBuf::from("."));
+
+                                let full_masking_path = rel_to_masking.join("fragment-masking");
+                                let mut path_str =
+                                    graphox_core::utils::to_posix_path(&full_masking_path);
+                                if !path_str.starts_with('.')
+                                    && !path_str.starts_with('/')
+                                    && !full_masking_path.is_absolute()
+                                {
+                                    path_str.insert_str(0, "./");
+                                }
+                                path_str.push_str(codegen_config.emit_extensions().as_str());
+                                path_str
+                            } else {
+                                let mut path_str = "./fragment-masking".to_string();
+                                path_str.push_str(codegen_config.emit_extensions().as_str());
+                                path_str
+                            }
+                        },
+                        codegen_path,
+                    );
+
+                    let (ts_code, mut ops, mut frags) =
+                        graphox_codegen::generate_typescript(&doc, &ctx).ok()?;
+
+                    let mut should_write = true;
+                    if abs_out_path.exists()
+                        && let Ok(existing) = std::fs::read_to_string(&abs_out_path)
+                        && existing == ts_code
+                    {
+                        should_write = false;
+                    }
+
+                    if should_write {
+                        if let Some(parent) = abs_out_path.parent()
+                            && std::fs::create_dir_all(parent).is_err()
+                        {
+                            return None;
+                        }
+                        if std::fs::write(&abs_out_path, ts_code).is_err() {
+                            return None;
+                        }
+                    }
+
+                    for op in &mut ops {
+                        op.codegen_path = abs_out_path.clone();
+                    }
+                    for frag in &mut frags {
+                        frag.codegen_path = abs_out_path.clone();
+                    }
+
+                    Some((ops, frags))
+                })
+                .collect::<Vec<_>>();
+
+            let mut project_ops = Vec::new();
+            let mut project_frags: Vec<graphox_codegen::FragmentGenerated> = Vec::new();
+
+            for (ops, frags) in project_results {
+                project_ops.extend(ops);
+                project_frags.extend(frags);
             }
 
-            if should_write {
-                if let Some(parent) = abs_out_path.parent()
-                    && std::fs::create_dir_all(parent).is_err()
-                {
-                    return;
-                }
-                if std::fs::write(&abs_out_path, ts_code).is_err() {
-                    return;
-                }
+            (project_ops, project_frags)
+        })
+        .await
+        {
+            Ok((project_ops, project_frags)) => (project_ops, project_frags),
+            Err(err) => {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Codegen worker failed for project {}: {err}",
+                            project.include().as_key()
+                        ),
+                    )
+                    .await;
+                continue;
             }
-
-            // Update codegen_path and insert into shared DashMap
-            for op in &mut ops {
-                op.codegen_path = abs_out_path.clone();
-            }
-            for frag in &mut frags {
-                frag.codegen_path = abs_out_path.clone();
-            }
-            project_results.insert(abs_out_path, (ops, frags));
-        });
-
-        // Collect results after parallel phase
-        for entry in project_results.iter() {
-            let (ops, frags) = entry.value();
-            project_ops.extend(ops.clone());
-            project_frags.extend(frags.clone());
-        }
+        };
 
         successful_projects.push((project, project_ops, project_frags));
     }

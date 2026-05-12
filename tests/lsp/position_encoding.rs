@@ -104,6 +104,28 @@ async fn test_position_encoding_negotiation_utf32() {
         Some(PositionEncodingKind::UTF32),
         "Server should have negotiated UTF-32"
     );
+
+    let code_action_provider = result
+        .capabilities
+        .code_action_provider
+        .expect("Server should advertise code action support");
+
+    match code_action_provider {
+        CodeActionProviderCapability::Options(options) => {
+            assert_eq!(
+                options.code_action_kinds,
+                Some(vec![
+                    CodeActionKind::QUICKFIX,
+                    CodeActionKind::REFACTOR_EXTRACT,
+                    CodeActionKind::SOURCE_FIX_ALL,
+                ]),
+                "Server should advertise supported code action kinds"
+            );
+        }
+        CodeActionProviderCapability::Simple(_) => {
+            panic!("Expected code action options with supported kinds")
+        }
+    }
 }
 
 async fn wait_for_workspace_scan(backend: &graphox::Backend) {

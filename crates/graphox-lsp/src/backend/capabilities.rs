@@ -140,7 +140,15 @@ pub fn build_server_capabilities(client_caps: &ClientCapabilities) -> ServerCapa
             work_done_progress_options: Default::default(),
         }),
         call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
-        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            code_action_kinds: Some(vec![
+                CodeActionKind::QUICKFIX,
+                CodeActionKind::REFACTOR_EXTRACT,
+                CodeActionKind::SOURCE_FIX_ALL,
+            ]),
+            work_done_progress_options: Default::default(),
+            resolve_provider: Some(false),
+        })),
         execute_command_provider: Some(ExecuteCommandOptions {
             commands: vec![
                 "graphox.runCodegen".to_string(),
