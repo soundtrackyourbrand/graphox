@@ -1,0 +1,10 @@
+codegen:
+  react_apollo_hooks: true
+  re_exports: true
+  apolloReactCommonImportFrom: "@apollo/client/react"
+  apolloReactHooksImportFrom: "@apollo/client/react"
+
+projects:
+  - schema: "schema.graphql"
+    include: "**/*.graphql"
+    output_dir: "__generated__"

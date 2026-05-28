@@ -192,3 +192,96 @@ fn test_config_relative_schema_path() {
         "Should load config with relative schema path"
     );
 }
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_codegen_react_apollo_hooks_config_parsing() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("graphox.yaml");
+    let schema_path = temp_dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { user: String }").unwrap();
+
+    let config_content = r#"
+        codegen:
+          react_apollo_hooks: true
+          apolloReactCommonImportFrom: "@apollo/client/react"
+          apolloReactHooksImportFrom: "@apollo/client/react"
+        projects:
+          - name: test
+            schema: schema.graphql
+            include: "*.graphql"
+    "#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
+    let codegen = config.codegen();
+
+    assert!(codegen.react_apollo_hooks());
+    assert_eq!(
+        codegen.apollo_react_common_import_from(),
+        "@apollo/client/react"
+    );
+    assert_eq!(
+        codegen.apollo_react_hooks_import_from(),
+        "@apollo/client/react"
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_project_codegen_react_apollo_hooks_override() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("graphox.yaml");
+    let schema_path = temp_dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { user: String }").unwrap();
+
+    let config_content = r#"
+        codegen:
+          react_apollo_hooks: false
+          apolloReactCommonImportFrom: "@apollo/client"
+        projects:
+          - name: test
+            schema: schema.graphql
+            include: "*.graphql"
+            codegen:
+              react_apollo_hooks: true
+              apolloReactHooksImportFrom: "@apollo/client/react"
+    "#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
+    let codegen = config.get_codegen_config(Some(&config.projects()[0]));
+
+    assert!(codegen.react_apollo_hooks());
+    assert_eq!(codegen.apollo_react_common_import_from(), "@apollo/client");
+    assert_eq!(
+        codegen.apollo_react_hooks_import_from(),
+        "@apollo/client/react"
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_project_codegen_entrypoint_name_override() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("graphox.yaml");
+    let schema_path = temp_dir.path().join("schema.graphql");
+    fs::write(&schema_path, "type Query { user: String }").unwrap();
+
+    let config_content = r#"
+        codegen:
+          entrypoint_name: graphql
+        projects:
+          - name: test
+            schema: schema.graphql
+            include: "*.graphql"
+            codegen:
+              entrypoint_name: Queries
+    "#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
+    let codegen = config.get_codegen_config(Some(&config.projects()[0]));
+
+    assert_eq!(codegen.entrypoint_name(), "Queries");
+}

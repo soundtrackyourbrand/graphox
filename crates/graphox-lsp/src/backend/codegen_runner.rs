@@ -489,7 +489,7 @@ pub async fn run_codegen(
             .extend(project_frags);
 
         if let std::collections::hash_map::Entry::Vacant(e) =
-            dir_to_config.entry(canon_out_dir_path)
+            dir_to_config.entry(canon_out_dir_path.clone())
         {
             let codegen_config = config.get_codegen_config(Some(project));
             e.insert(codegen_config);
@@ -501,7 +501,6 @@ pub async fn run_codegen(
         (k, v, frags)
     }) {
         let codegen_config = dir_to_config.get(&out_dir_path).unwrap();
-
         // Deduplicate operations by name and source
         ops.sort_by(|a, b| {
             a.operation_type_name
@@ -516,7 +515,7 @@ pub async fn run_codegen(
         frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
         frags.dedup_by(|a, b| a.source_text == b.source_text);
 
-        let entrypoint_path = out_dir_path.join("graphql.ts");
+        let entrypoint_path = out_dir_path.join(format!("{}.ts", codegen_config.entrypoint_name()));
         let content = graphox_codegen::generate_entrypoint_content(
             &out_dir_path,
             &ops,
@@ -584,6 +583,7 @@ pub async fn run_codegen(
         let index_content = graphox_codegen::generate_index_content(
             &graphox_codegen::FragmentMasking::from_core_config(&codegen_config.fragment_masking()),
             codegen_config.emit_extensions(),
+            codegen_config.entrypoint_name(),
         );
 
         let mut should_write_index = true;
@@ -626,7 +626,7 @@ pub async fn run_codegen(
                 serde_json::json!({
                     "source": op.source_text,
                     "path": path_no_ext,
-                    "name": format!("{}Document", op.operation_type_name)
+                    "name": op.document_name
                 })
             })
             .chain(

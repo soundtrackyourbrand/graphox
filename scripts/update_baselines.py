@@ -173,6 +173,7 @@ def main():
         ("tests/fixtures/aliases", "tests/baselines/aliases"),
         ("tests/fixtures/suffixes", "tests/baselines/suffixes"),
         ("tests/fixtures/re_exports", "tests/baselines/re_exports"),
+        ("tests/fixtures/react_apollo_hooks", "tests/baselines/react_apollo_hooks"),
         ("tests/fixtures/suffix_consistency", "tests/baselines/suffix_consistency"),
         ("tests/fixtures/operation_suffixes", "tests/baselines/operation_suffixes"),
         (
@@ -244,4 +245,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

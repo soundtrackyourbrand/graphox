@@ -412,23 +412,21 @@ impl DocumentHover for DocumentState {
                             if let apollo_compiler::schema::ExtendedType::Interface(_) = ty {
                                 for (t_name, t_def) in &schema.types {
                                     match t_def {
-                                        apollo_compiler::schema::ExtendedType::Object(obj) => {
+                                        apollo_compiler::schema::ExtendedType::Object(obj)
                                             if obj
                                                 .implements_interfaces
                                                 .iter()
-                                                .any(|i| i.as_str() == ty.name().as_str())
-                                            {
-                                                implementations.push(t_name.to_string());
-                                            }
+                                                .any(|i| i.as_str() == ty.name().as_str()) =>
+                                        {
+                                            implementations.push(t_name.to_string());
                                         }
-                                        apollo_compiler::schema::ExtendedType::Interface(iface) => {
+                                        apollo_compiler::schema::ExtendedType::Interface(iface)
                                             if iface
                                                 .implements_interfaces
                                                 .iter()
-                                                .any(|i| i.as_str() == ty.name().as_str())
-                                            {
-                                                implementations.push(t_name.to_string());
-                                            }
+                                                .any(|i| i.as_str() == ty.name().as_str()) =>
+                                        {
+                                            implementations.push(t_name.to_string());
                                         }
                                         _ => {}
                                     }

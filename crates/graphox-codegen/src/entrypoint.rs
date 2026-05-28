@@ -1,3 +1,4 @@
+use apollo_compiler::ast::OperationType;
 use graphox_core::config::CodegenConfig;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -76,8 +77,12 @@ pub fn generate_entrypoint_content(
         let final_path = format!("{}{}", path_no_ext, ext);
 
         type_import_lines.push(format!(
-            "import type {{ {}, {} }} from \"{}\";",
-            op.operation_type_name, op.variables_type_name, final_path
+            "import type {{ {} }} from \"{}\";",
+            std::iter::once(op.operation_type_name.as_str())
+                .chain(std::iter::once(op.variables_type_name.as_str()))
+                .collect::<Vec<_>>()
+                .join(", "),
+            final_path
         ));
 
         runtime_import_lines.push(format!(
@@ -233,21 +238,58 @@ pub fn generate_entrypoint_content(
         for (path, ops) in &path_to_ops {
             let mut types = Vec::new();
             let mut docs = Vec::new();
+            let mut values = Vec::new();
             for op in ops {
                 types.push(op.operation_type_name.clone());
                 types.push(op.variables_type_name.clone());
+                if codegen_config.react_apollo_hooks() {
+                    match op.operation_type {
+                        OperationType::Query => {
+                            let base_name = op
+                                .operation_type_name
+                                .strip_suffix(codegen_config.query_suffix())
+                                .unwrap_or(&op.operation_type_name);
+                            types.push(format!("{}QueryHookResult", base_name));
+                            types.push(format!("{}LazyQueryHookResult", base_name));
+                            types.push(format!("{}QueryResult", base_name));
+                        }
+                        OperationType::Mutation => {
+                            let base_name = op
+                                .operation_type_name
+                                .strip_suffix(codegen_config.mutation_suffix())
+                                .unwrap_or(&op.operation_type_name);
+                            types.push(format!("{}MutationHookResult", base_name));
+                            types.push(format!("{}MutationResult", base_name));
+                        }
+                        OperationType::Subscription => {}
+                    }
+                    values.extend(op.hook_names.iter().cloned());
+                }
                 docs.push(op.document_name.clone());
             }
+            types.sort();
+            types.dedup();
+            docs.sort();
+            docs.dedup();
+            values.sort();
+            values.dedup();
             output.push_str(&format!(
                 "export type {{ {} }} from \"{}\";\n",
                 types.join(", "),
                 path
             ));
-            output.push_str(&format!(
-                "export {{ {} }} from \"{}\";\n",
-                docs.join(", "),
-                path
-            ));
+            if !docs.is_empty() || !values.is_empty() {
+                let exports = docs
+                    .iter()
+                    .chain(values.iter())
+                    .cloned()
+                    .collect::<Vec<_>>();
+                output.push_str(&format!(
+                    "export {{ {} }} from \"{}\";\n",
+                    exports.join(", "),
+                    path
+                ));
+            }
         }
 
         let mut path_to_frags: BTreeMap<String, Vec<&FragmentGenerated>> = BTreeMap::new();
@@ -296,6 +338,5 @@ pub fn generate_entrypoint_content(
             output.push_str(&format!("export * from \"{}\";\n", import_path));
         }
     }
-
     output
 }

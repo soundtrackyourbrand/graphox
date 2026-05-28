@@ -1,0 +1,22 @@
+fragment PlaylistOwner on User {
+  id
+  email
+}
+
+query PlaylistInfo($id: ID!) {
+  playlist(id: $id) {
+    id
+    name
+    archived
+    owner {
+      ...PlaylistOwner
+    }
+  }
+}
+
+query Evaluation($id: ID!) {
+  evaluation(id: $id) {
+    id
+    score
+  }
+}

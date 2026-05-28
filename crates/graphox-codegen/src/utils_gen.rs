@@ -114,6 +114,7 @@ export function isFragmentReady<TQuery, TFrag>(
 pub fn generate_index_content(
     _fragment_masking: &FragmentMasking,
     emit_extensions: EmitExtensions,
+    entrypoint_name: &str,
 ) -> String {
     let mut output = String::with_capacity(256);
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
@@ -123,7 +124,10 @@ pub fn generate_index_content(
     );
 
     let ext = emit_extensions.as_str();
-    output.push_str(&format!("export * from \"./graphql{}\";\n", ext));
+    output.push_str(&format!(
+        "export * from \"./{}{}\";\n",
+        entrypoint_name, ext
+    ));
 
     output
 }

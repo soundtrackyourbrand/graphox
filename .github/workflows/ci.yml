@@ -17,9 +17,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: rustfmt
+          cache: false
+          rustflags: ""
 
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
@@ -31,10 +32,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: clippy
-          targets: wasm32-wasip1
+          cache: false
+          rustflags: ""
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -64,9 +65,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          targets: wasm32-wasip1
+          cache: false
+          rustflags: ""
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -100,15 +102,14 @@ jobs:
             warp-macos-26-arm64-6x,
             warp-windows-2025-x64-4x,
           ]
-        rust: [stable]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: ${{ matrix.rust }}
-          targets: wasm32-wasip1
+          cache: false
+          rustflags: ""
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

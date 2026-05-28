@@ -132,32 +132,29 @@ pub fn get_fragment_name_completions(
                 }
 
                 match parent {
-                    schema::ExtendedType::Object(obj) => {
+                    schema::ExtendedType::Object(obj)
                         if obj
                             .implements_interfaces
                             .iter()
-                            .any(|i| i.as_str() == f.type_condition.as_ref())
-                        {
-                            return true;
-                        }
+                            .any(|i| i.as_str() == f.type_condition.as_ref()) =>
+                    {
+                        return true;
                     }
-                    schema::ExtendedType::Interface(iface) => {
+                    schema::ExtendedType::Interface(iface)
                         if iface
                             .implements_interfaces
                             .iter()
-                            .any(|i| i.as_str() == f.type_condition.as_ref())
-                        {
-                            return true;
-                        }
+                            .any(|i| i.as_str() == f.type_condition.as_ref()) =>
+                    {
+                        return true;
                     }
-                    schema::ExtendedType::Union(union) => {
+                    schema::ExtendedType::Union(union)
                         if union
                             .members
                             .iter()
-                            .any(|m| m.as_str() == f.type_condition.as_ref())
-                        {
-                            return true;
-                        }
+                            .any(|m| m.as_str() == f.type_condition.as_ref()) =>
+                    {
+                        return true;
                     }
                     _ => {}
                 }

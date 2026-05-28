@@ -255,15 +255,15 @@ enum ResolvedSymbol {
 fn field_exists_in_schema(schema: &Schema, field_name: &str) -> bool {
     for (_, type_def) in &schema.types {
         match type_def {
-            apollo_compiler::schema::ExtendedType::Object(obj) => {
-                if obj.fields.get(field_name).is_some() {
-                    return true;
-                }
+            apollo_compiler::schema::ExtendedType::Object(obj)
+                if obj.fields.get(field_name).is_some() =>
+            {
+                return true;
             }
-            apollo_compiler::schema::ExtendedType::Interface(iface) => {
-                if iface.fields.get(field_name).is_some() {
-                    return true;
-                }
+            apollo_compiler::schema::ExtendedType::Interface(iface)
+                if iface.fields.get(field_name).is_some() =>
+            {
+                return true;
             }
             _ => {}
         }

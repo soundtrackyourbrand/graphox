@@ -453,15 +453,25 @@ impl EmitExtensions {
 }
 
 #[derive(Debug, Clone, Default, Hash)]
+pub struct ReactApolloHooksConfig {
+    pub enabled: Option<bool>,
+    pub common_import_from: Option<String>,
+    pub hooks_import_from: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Hash)]
 pub struct CodegenConfig {
     pub enabled: Option<bool>,
+    pub entrypoint_name: Option<String>,
     pub document_suffix: Option<String>,
+    pub omit_operation_suffix_in_document_name: Option<bool>,
     pub variables_suffix: Option<String>,
     pub fragment_suffix: Option<String>,
     pub fragment_document_suffix: Option<String>,
     pub query_suffix: Option<String>,
     pub mutation_suffix: Option<String>,
     pub subscription_suffix: Option<String>,
+    pub react_apollo_hooks: Option<Box<ReactApolloHooksConfig>>,
     pub naming_convention: Option<NamingConvention>,
     pub fragment_masking: Option<FragmentMaskingConfig>,
     pub emit_extensions: Option<EmitExtensions>,
@@ -498,6 +508,16 @@ impl CodegenConfig {
         self
     }
 
+    pub fn with_omit_operation_suffix_in_document_name(mut self, enabled: bool) -> Self {
+        self.omit_operation_suffix_in_document_name = Some(enabled);
+        self
+    }
+
+    pub fn with_entrypoint_name(mut self, name: String) -> Self {
+        self.entrypoint_name = Some(name);
+        self
+    }
+
     pub fn with_variables_suffix(mut self, suffix: String) -> Self {
         self.variables_suffix = Some(suffix);
         self
@@ -525,6 +545,27 @@ impl CodegenConfig {
 
     pub fn with_subscription_suffix(mut self, suffix: String) -> Self {
         self.subscription_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_react_apollo_hooks(mut self, enabled: bool) -> Self {
+        self.react_apollo_hooks
+            .get_or_insert_with(|| Box::new(ReactApolloHooksConfig::default()))
+            .enabled = Some(enabled);
+        self
+    }
+
+    pub fn with_apollo_react_common_import_from(mut self, import_from: String) -> Self {
+        self.react_apollo_hooks
+            .get_or_insert_with(|| Box::new(ReactApolloHooksConfig::default()))
+            .common_import_from = Some(import_from);
+        self
+    }
+
+    pub fn with_apollo_react_hooks_import_from(mut self, import_from: String) -> Self {
+        self.react_apollo_hooks
+            .get_or_insert_with(|| Box::new(ReactApolloHooksConfig::default()))
+            .hooks_import_from = Some(import_from);
         self
     }
 
@@ -586,15 +627,49 @@ impl CodegenConfig {
             });
         }
 
+        let react_apollo_hooks = {
+            let enabled = node["react_apollo_hooks"].as_bool();
+            let common_import_from = node["apollo_react_common_import_from"]
+                .as_str()
+                .map(String::from)
+                .or_else(|| {
+                    node["apolloReactCommonImportFrom"]
+                        .as_str()
+                        .map(String::from)
+                });
+            let hooks_import_from = node["apollo_react_hooks_import_from"]
+                .as_str()
+                .map(String::from)
+                .or_else(|| {
+                    node["apolloReactHooksImportFrom"]
+                        .as_str()
+                        .map(String::from)
+                });
+
+            if enabled.is_some() || common_import_from.is_some() || hooks_import_from.is_some() {
+                Some(Box::new(ReactApolloHooksConfig {
+                    enabled,
+                    common_import_from,
+                    hooks_import_from,
+                }))
+            } else {
+                None
+            }
+        };
+
         Some(Self {
             enabled: node["enabled"].as_bool(),
+            entrypoint_name: node["entrypoint_name"].as_str().map(String::from),
             document_suffix: node["document_suffix"].as_str().map(String::from),
+            omit_operation_suffix_in_document_name: node["omit_operation_suffix_in_document_name"]
+                .as_bool(),
             variables_suffix: node["variables_suffix"].as_str().map(String::from),
             fragment_suffix: node["fragment_suffix"].as_str().map(String::from),
             fragment_document_suffix: node["fragment_document_suffix"].as_str().map(String::from),
             query_suffix: node["query_suffix"].as_str().map(String::from),
             mutation_suffix: node["mutation_suffix"].as_str().map(String::from),
             subscription_suffix: node["subscription_suffix"].as_str().map(String::from),
+            react_apollo_hooks,
             naming_convention: NamingConvention::from_yaml(&node["naming_convention"]),
             fragment_masking: {
                 let frag_masking_node = &node["fragment_masking"];
@@ -628,6 +703,14 @@ impl CodegenConfig {
 
     pub fn document_suffix(&self) -> &str {
         self.document_suffix.as_deref().unwrap_or("Document")
+    }
+
+    pub fn omit_operation_suffix_in_document_name(&self) -> bool {
+        self.omit_operation_suffix_in_document_name.unwrap_or(false)
+    }
+
+    pub fn entrypoint_name(&self) -> &str {
+        self.entrypoint_name.as_deref().unwrap_or("graphql")
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -675,6 +758,27 @@ impl CodegenConfig {
         self.subscription_suffix
             .as_deref()
             .unwrap_or("Subscription")
+    }
+
+    pub fn react_apollo_hooks(&self) -> bool {
+        self.react_apollo_hooks
+            .as_ref()
+            .and_then(|config| config.enabled)
+            .unwrap_or(false)
+    }
+
+    pub fn apollo_react_common_import_from(&self) -> &str {
+        self.react_apollo_hooks
+            .as_ref()
+            .and_then(|config| config.common_import_from.as_deref())
+            .unwrap_or("@apollo/client/react")
+    }
+
+    pub fn apollo_react_hooks_import_from(&self) -> &str {
+        self.react_apollo_hooks
+            .as_ref()
+            .and_then(|config| config.hooks_import_from.as_deref())
+            .unwrap_or(self.apollo_react_common_import_from())
     }
 
     pub fn naming_convention(&self) -> NamingConvention {
@@ -1319,8 +1423,18 @@ impl Config {
 
         if let Some(project) = project {
             let project_codegen = project.codegen();
+            if project_codegen.entrypoint_name.is_some() {
+                result.entrypoint_name = project_codegen.entrypoint_name.clone();
+            }
             if project_codegen.document_suffix.is_some() {
                 result.document_suffix = project_codegen.document_suffix.clone();
+            }
+            if project_codegen
+                .omit_operation_suffix_in_document_name
+                .is_some()
+            {
+                result.omit_operation_suffix_in_document_name =
+                    project_codegen.omit_operation_suffix_in_document_name;
             }
             if project_codegen.variables_suffix.is_some() {
                 result.variables_suffix = project_codegen.variables_suffix.clone();
@@ -1339,6 +1453,21 @@ impl Config {
             }
             if project_codegen.subscription_suffix.is_some() {
                 result.subscription_suffix = project_codegen.subscription_suffix.clone();
+            }
+            if let Some(project_hooks) = project_codegen.react_apollo_hooks.as_ref() {
+                let hooks = result
+                    .react_apollo_hooks
+                    .get_or_insert_with(|| Box::new(ReactApolloHooksConfig::default()));
+
+                if project_hooks.enabled.is_some() {
+                    hooks.enabled = project_hooks.enabled;
+                }
+                if project_hooks.common_import_from.is_some() {
+                    hooks.common_import_from = project_hooks.common_import_from.clone();
+                }
+                if project_hooks.hooks_import_from.is_some() {
+                    hooks.hooks_import_from = project_hooks.hooks_import_from.clone();
+                }
             }
             if project_codegen.naming_convention.is_some() {
                 result.naming_convention = project_codegen.naming_convention.clone();
@@ -1595,6 +1724,21 @@ impl Config {
         self.codegen
             .as_ref()
             .and_then(|c| c.document_suffix.as_deref())
+            .unwrap_or(DEFAULT)
+    }
+
+    pub fn omit_operation_suffix_in_document_name(&self) -> bool {
+        self.codegen
+            .as_ref()
+            .and_then(|c| c.omit_operation_suffix_in_document_name)
+            .unwrap_or(false)
+    }
+
+    pub fn entrypoint_name(&self) -> &str {
+        static DEFAULT: &str = "graphql";
+        self.codegen
+            .as_ref()
+            .and_then(|c| c.entrypoint_name.as_deref())
             .unwrap_or(DEFAULT)
     }
 

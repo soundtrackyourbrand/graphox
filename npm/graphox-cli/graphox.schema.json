@@ -186,10 +186,20 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean", "default": true },
+        "entrypoint_name": {
+          "type": "string",
+          "description": "Filename for the generated root entrypoint without extension.",
+          "default": "graphql"
+        },
         "document_suffix": {
           "type": "string",
           "description": "Suffix for the generated document constant.",
           "default": "Document"
+        },
+        "omit_operation_suffix_in_document_name": {
+          "type": "boolean",
+          "description": "Use raw operation names for generated document constants, e.g. PlaylistTracksDocument instead of PlaylistTracksQueryDocument.",
+          "default": false
         },
         "variables_suffix": {
           "type": "string",
@@ -220,6 +230,31 @@
           "type": "string",
           "description": "Suffix for the generated subscription type.",
           "default": "Subscription"
+        },
+        "react_apollo_hooks": {
+          "type": "boolean",
+          "description": "Generate Apollo React hook wrappers and hook result aliases for operations.",
+          "default": false
+        },
+        "apollo_react_common_import_from": {
+          "type": "string",
+          "description": "Module specifier used for Apollo React common types like QueryResult and MutationResult.",
+          "default": "@apollo/client/react"
+        },
+        "apolloReactCommonImportFrom": {
+          "type": "string",
+          "description": "CamelCase alias for apollo_react_common_import_from.",
+          "default": "@apollo/client/react"
+        },
+        "apollo_react_hooks_import_from": {
+          "type": "string",
+          "description": "Module specifier used for Apollo React hooks like useQuery and useMutation.",
+          "default": "@apollo/client/react"
+        },
+        "apolloReactHooksImportFrom": {
+          "type": "string",
+          "description": "CamelCase alias for apollo_react_hooks_import_from.",
+          "default": "@apollo/client/react"
         },
         "naming_convention": {
           "type": "string",
