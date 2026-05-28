@@ -183,6 +183,16 @@ fn test_cli_re_exports_baselines() {
 }
 
 #[test]
+#[ntest::timeout(10000)]
+fn test_cli_react_apollo_hooks_baselines() {
+    run_baseline_test(
+        "tests/fixtures/react_apollo_hooks",
+        "tests/baselines/react_apollo_hooks",
+        None,
+    );
+}
+
+#[test]
 #[ntest::timeout(500)]
 fn test_cli_naming_convention_pascal_case_baselines() {
     run_baseline_test(

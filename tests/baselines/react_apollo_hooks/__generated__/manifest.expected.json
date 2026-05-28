@@ -1,0 +1,17 @@
+[
+  {
+    "name": "EvaluationQueryDocument",
+    "path": "./query.codegen",
+    "source": "fragment PlaylistOwner on User {\n  id\n  email\n}\n\nquery PlaylistInfo($id: ID!) {\n  playlist(id: $id) {\n    id\n    name\n    archived\n    owner {\n      ...PlaylistOwner\n    }\n  }\n}\n\nquery Evaluation($id: ID!) {\n  evaluation(id: $id) {\n    id\n    score\n  }\n}\n"
+  },
+  {
+    "name": "PlaylistInfoQueryDocument",
+    "path": "./query.codegen",
+    "source": "fragment PlaylistOwner on User {\n  id\n  email\n}\n\nquery PlaylistInfo($id: ID!) {\n  playlist(id: $id) {\n    id\n    name\n    archived\n    owner {\n      ...PlaylistOwner\n    }\n  }\n}\n\nquery Evaluation($id: ID!) {\n  evaluation(id: $id) {\n    id\n    score\n  }\n}\n"
+  },
+  {
+    "name": "UpdatePlaylistArchivedMutationDocument",
+    "path": "./mutation.codegen",
+    "source": "mutation UpdatePlaylistArchived($id: ID!, $archived: Boolean!) {\n  updatePlaylistArchived(id: $id, archived: $archived) {\n    id\n    archived\n    name\n  }\n}\n"
+  }
+]

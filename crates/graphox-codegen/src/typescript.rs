@@ -22,6 +22,148 @@ struct DocumentAstInfo {
     is_fragment: bool,
 }
 
+fn strip_operation_suffix<'a>(name: &'a str, suffix: &str) -> &'a str {
+    if suffix.is_empty() {
+        return name;
+    }
+
+    name.strip_suffix(suffix).unwrap_or(name)
+}
+
+fn hook_names_for_operation(
+    operation_type_name: &str,
+    operation_type: OperationType,
+    ctx: &CodegenContext,
+) -> Vec<String> {
+    match operation_type {
+        OperationType::Query => {
+            let base_name = strip_operation_suffix(operation_type_name, ctx.query_suffix());
+            vec![
+                format!("use{}{}", base_name, ctx.query_suffix()),
+                format!("use{}Lazy{}", base_name, ctx.query_suffix()),
+            ]
+        }
+        OperationType::Mutation => {
+            let base_name = strip_operation_suffix(operation_type_name, ctx.mutation_suffix());
+            vec![format!("use{}{}", base_name, ctx.mutation_suffix())]
+        }
+        OperationType::Subscription => Vec::new(),
+    }
+}
+
+fn generate_react_apollo_hook_block(
+    operation_type_name: &str,
+    vars_type: &str,
+    document_name: &str,
+    operation_type: OperationType,
+    variables_optional: bool,
+    ctx: &CodegenContext,
+) -> Option<String> {
+    if !ctx.react_apollo_hooks() {
+        return None;
+    }
+
+    let mut output = String::new();
+    match operation_type {
+        OperationType::Query => {
+            let base_name = strip_operation_suffix(operation_type_name, ctx.query_suffix());
+            let query_hook_name = format!("use{}{}", base_name, ctx.query_suffix());
+            let lazy_hook_name = format!("use{}Lazy{}", base_name, ctx.query_suffix());
+
+            output.push_str("export type ");
+            output.push_str(base_name);
+            output.push_str("QueryHookResult = ReturnType<typeof ");
+            output.push_str(&query_hook_name);
+            output.push_str(">;\n");
+            output.push_str("export type ");
+            output.push_str(base_name);
+            output.push_str("LazyQueryHookResult = ReturnType<typeof ");
+            output.push_str(&lazy_hook_name);
+            output.push_str(">;\n");
+            output.push_str("export type ");
+            output.push_str(base_name);
+            output.push_str("QueryResult = ApolloReactCommon.QueryResult<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">;\n\n");
+
+            output.push_str("export function ");
+            output.push_str(&query_hook_name);
+            output.push_str("(baseOptions");
+            if variables_optional {
+                output.push('?');
+            }
+            output.push_str(": ApolloReactHooks.QueryHookOptions<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">) {\n");
+            output.push_str("  const options = { ...defaultOptions, ...baseOptions };\n");
+            output.push_str("  return ApolloReactHooks.useQuery<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">(");
+            output.push_str(document_name);
+            output.push_str(", options);\n");
+            output.push_str("}\n\n");
+
+            output.push_str("export function ");
+            output.push_str(&lazy_hook_name);
+            output.push_str("(baseOptions?: ApolloReactHooks.LazyQueryHookOptions<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">) {\n");
+            output.push_str("  const options = { ...defaultOptions, ...baseOptions };\n");
+            output.push_str("  return ApolloReactHooks.useLazyQuery<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">(");
+            output.push_str(document_name);
+            output.push_str(", options);\n");
+            output.push_str("}\n");
+        }
+        OperationType::Mutation => {
+            let base_name = strip_operation_suffix(operation_type_name, ctx.mutation_suffix());
+            let hook_name = format!("use{}{}", base_name, ctx.mutation_suffix());
+
+            output.push_str("export type ");
+            output.push_str(base_name);
+            output.push_str("MutationHookResult = ReturnType<typeof ");
+            output.push_str(&hook_name);
+            output.push_str(">;\n");
+            output.push_str("export type ");
+            output.push_str(base_name);
+            output.push_str("MutationResult = ApolloReactCommon.MutationResult<");
+            output.push_str(operation_type_name);
+            output.push_str(">;\n\n");
+
+            output.push_str("export function ");
+            output.push_str(&hook_name);
+            output.push_str("(baseOptions?: ApolloReactHooks.MutationHookOptions<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">) {\n");
+            output.push_str("  const options = { ...defaultOptions, ...baseOptions };\n");
+            output.push_str("  return ApolloReactHooks.useMutation<");
+            output.push_str(operation_type_name);
+            output.push_str(", ");
+            output.push_str(vars_type);
+            output.push_str(">(");
+            output.push_str(document_name);
+            output.push_str(", options);\n");
+            output.push_str("}\n");
+        }
+        OperationType::Subscription => return None,
+    }
+
+    Some(output)
+}
+
 pub fn generate_typescript(
     doc: &DocumentState,
     ctx: &CodegenContext,
@@ -104,7 +246,6 @@ pub fn generate_typescript_with_profile(
             let result =
                 generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
-
             if !bodies.is_empty() {
                 bodies.push('\n');
             }
@@ -147,6 +288,11 @@ pub fn generate_typescript_with_profile(
             }
             bodies.push_str("}>;\n");
             let vars_type = v_name.clone();
+            let variables_optional = op.variables.is_empty()
+                || op
+                    .variables
+                    .iter()
+                    .all(|var| !var.ty.is_non_null() || var.default_value.is_some());
 
             let ast_start = Instant::now();
             let op_deps = if ctx.config.inline_fragments() {
@@ -200,18 +346,36 @@ pub fn generate_typescript_with_profile(
             };
             profile.ast_serialization_time += ast_start.elapsed();
 
-            let doc_name = format!("{}{}{}", name, suffix, ctx.document_suffix());
+            let operation_type_name = format!("{}{}", name, suffix);
+            let doc_name = if ctx.omit_operation_suffix_in_document_name() {
+                format!("{}{}", name, ctx.document_suffix())
+            } else {
+                format!("{}{}{}", name, suffix, ctx.document_suffix())
+            };
             let mut export = String::new();
             export.push_str("export const ");
             export.push_str(&doc_name);
             export.push_str(" = ");
             export.push_str(&ast_content);
             export.push_str(" as unknown as DocumentNode<");
-            export.push_str(&name);
-            export.push_str(suffix);
+            export.push_str(&operation_type_name);
             export.push_str(", ");
             export.push_str(&vars_type);
             export.push_str(">;\n");
+
+            if let Some(hook_block) = generate_react_apollo_hook_block(
+                &operation_type_name,
+                &vars_type,
+                &doc_name,
+                op.operation_type,
+                variables_optional,
+                ctx,
+            ) {
+                export.push('\n');
+                export.push_str(&hook_block);
+            }
+
+            let hook_names = hook_names_for_operation(&operation_type_name, op.operation_type, ctx);
 
             document_asts.push(DocumentAstInfo {
                 raw_name: raw_name.to_string(),
@@ -222,9 +386,11 @@ pub fn generate_typescript_with_profile(
             });
             generated_operations.push(OperationGenerated {
                 name: raw_name.to_string(),
-                operation_type_name: format!("{}{}", name, suffix),
+                operation_type: op.operation_type,
+                operation_type_name,
                 variables_type_name: vars_type,
                 document_name: doc_name,
+                hook_names,
                 source_text: block_text.clone(),
                 codegen_path: ctx.current_file_path.to_path_buf(),
             });
@@ -413,6 +579,15 @@ pub fn generate_typescript_with_profile(
         import_section.push_str("import type { TypedDocumentNode as DocumentNode } from \"@graphql-typed-document-node/core\";\n");
     }
 
+    if has_operations && ctx.react_apollo_hooks() {
+        import_section.push_str("import * as ApolloReactCommon from \"");
+        import_section.push_str(ctx.apollo_react_common_import_from());
+        import_section.push_str("\";\n");
+        import_section.push_str("import * as ApolloReactHooks from \"");
+        import_section.push_str(ctx.apollo_react_hooks_import_from());
+        import_section.push_str("\";\n");
+    }
+
     if ctx.fragment_masking().is_enabled() {
         import_section.push_str("import type { FragmentType } from \"");
         import_section.push_str(&ctx.masking_import_path);
@@ -559,6 +734,9 @@ pub fn generate_typescript_with_profile(
     if has_operations {
         output.push('\n');
         output.push_str("export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };\n\n");
+        if ctx.react_apollo_hooks() {
+            output.push_str("const defaultOptions = {} as const;\n\n");
+        }
     }
 
     output.push_str(&bodies);

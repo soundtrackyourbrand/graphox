@@ -564,7 +564,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
 
             if let std::collections::btree_map::Entry::Vacant(e) =
-                dir_to_schema_import.entry(canon_out_dir_path)
+                dir_to_schema_import.entry(canon_out_dir_path.clone())
             {
                 let project_codegen = cfg.get_codegen_config(Some(project));
                 let schema_import = project_codegen
@@ -621,7 +621,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                         return Err(());
                     }
 
-                    let entrypoint_path = out_dir_path.join("graphql.ts");
+                    let entrypoint_path =
+                        out_dir_path.join(format!("{}.ts", codegen_config.entrypoint_name()));
 
                     let content = codegen::generate_entrypoint_content(
                         &out_dir_path,
@@ -778,6 +779,7 @@ fn execute_clean_only(cfg: &Config, verbose: bool) -> bool {
                 include: project.include(),
                 project_files: &project_files,
                 output_dir,
+                entrypoint_name: project.codegen().entrypoint_name(),
             },
             verbose,
         );
@@ -894,6 +896,7 @@ fn execute_project_codegen_sync(
                 include: params.include,
                 project_files: params.project_files,
                 output_dir: params.output_dir,
+                entrypoint_name: params.codegen_config.entrypoint_name(),
             },
             verbose,
         )
@@ -905,6 +908,7 @@ struct CleanParams<'a> {
     include: &'a graphox_core::config::GlobPattern,
     project_files: &'a [PathBuf],
     output_dir: Option<&'a Path>,
+    entrypoint_name: &'a str,
 }
 
 fn generate_project_files_sync(
@@ -1080,8 +1084,11 @@ fn generate_project_files_sync(
         }
 
         let index_path = out_dir_path.join("index.ts");
-        let index_content =
-            codegen::generate_index_content(&fragment_masking, params.emit_extensions);
+        let index_content = codegen::generate_index_content(
+            &fragment_masking,
+            params.emit_extensions,
+            params.codegen_config.entrypoint_name(),
+        );
         if let Err(e) = std::fs::write(&index_path, index_content) {
             eprintln!("{}: {}", "Failed to write index.ts".red(), e);
             success = false;
@@ -1162,7 +1169,7 @@ fn clean_project_files_sync(
                     "Warning".yellow(),
                     out_dir.display()
                 );
-                surgical_clean(&abs_out_dir, verbose)?;
+                surgical_clean(&abs_out_dir, verbose, params.entrypoint_name)?;
             }
         }
         None => {
@@ -1240,7 +1247,7 @@ fn clean_project_files_sync(
     Ok((Vec::new(), Vec::new()))
 }
 
-fn surgical_clean(dir: &Path, verbose: bool) -> Result<(), ()> {
+fn surgical_clean(dir: &Path, verbose: bool, entrypoint_name: &str) -> Result<(), ()> {
     let mut ok = true;
 
     let walker = ignore::WalkBuilder::new(dir)
@@ -1269,13 +1276,16 @@ fn surgical_clean(dir: &Path, verbose: bool) -> Result<(), ()> {
         }
     }
 
-    let known_files = [
-        "graphql.ts",
-        "manifest.json",
-        "permissions.ts",
-        "fragment-masking.ts",
-        "index.ts",
+    let mut known_files = vec![
+        format!("{}.ts", entrypoint_name),
+        "graphql.ts".to_string(),
+        "manifest.json".to_string(),
+        "permissions.ts".to_string(),
+        "fragment-masking.ts".to_string(),
+        "index.ts".to_string(),
     ];
+    known_files.sort();
+    known_files.dedup();
     for name in &known_files {
         let path = dir.join(name);
         if path.exists() {

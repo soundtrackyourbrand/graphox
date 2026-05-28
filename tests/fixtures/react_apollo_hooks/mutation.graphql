@@ -1,0 +1,7 @@
+mutation UpdatePlaylistArchived($id: ID!, $archived: Boolean!) {
+  updatePlaylistArchived(id: $id, archived: $archived) {
+    id
+    archived
+    name
+  }
+}

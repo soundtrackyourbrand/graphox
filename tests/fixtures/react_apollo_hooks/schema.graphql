@@ -1,0 +1,25 @@
+type Query {
+  playlist(id: ID!): Playlist
+  evaluation(id: ID!): Evaluation
+}
+
+type Mutation {
+  updatePlaylistArchived(id: ID!, archived: Boolean!): Playlist!
+}
+
+type Playlist {
+  id: ID!
+  name: String!
+  archived: Boolean!
+  owner: User!
+}
+
+type Evaluation {
+  id: ID!
+  score: Int!
+}
+
+type User {
+  id: ID!
+  email: String!
+}

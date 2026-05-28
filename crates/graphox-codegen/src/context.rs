@@ -1,4 +1,5 @@
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use apollo_compiler::ast::OperationType;
 use apollo_compiler::executable;
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{Node, Schema};
@@ -123,6 +124,10 @@ impl<'a> CodegenContext<'a> {
         self.config.document_suffix()
     }
 
+    pub fn omit_operation_suffix_in_document_name(&self) -> bool {
+        self.config.omit_operation_suffix_in_document_name()
+    }
+
     pub fn variables_suffix(&self) -> &str {
         self.config.variables_suffix()
     }
@@ -145,6 +150,18 @@ impl<'a> CodegenContext<'a> {
 
     pub fn subscription_suffix(&self) -> &str {
         self.config.subscription_suffix()
+    }
+
+    pub fn react_apollo_hooks(&self) -> bool {
+        self.config.react_apollo_hooks()
+    }
+
+    pub fn apollo_react_common_import_from(&self) -> &str {
+        self.config.apollo_react_common_import_from()
+    }
+
+    pub fn apollo_react_hooks_import_from(&self) -> &str {
+        self.config.apollo_react_hooks_import_from()
     }
 
     pub fn naming_convention(&self) -> NamingConvention {
@@ -553,9 +570,11 @@ impl Default for SchemaAnalysisCaches {
 #[derive(Debug, Clone)]
 pub struct OperationGenerated {
     pub name: String,
+    pub operation_type: OperationType,
     pub operation_type_name: String,
     pub variables_type_name: String,
     pub document_name: String,
+    pub hook_names: Vec<String>,
     pub source_text: String,
     pub codegen_path: PathBuf,
 }
