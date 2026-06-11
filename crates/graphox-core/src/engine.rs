@@ -12,8 +12,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub const DUPLICATE_FRAGMENT_MSG_A: &str = "is defined multiple times";
+pub const DUPLICATE_FRAGMENT_MSG_A: &str = "the fragment";
 pub const DUPLICATE_FRAGMENT_MSG_B: &str = "Duplicate fragment name";
+const DUPLICATE_MSG_C: &str = "defined multiple times";
 
 #[derive(Debug, Clone)]
 pub struct FragmentMetadata {
@@ -625,7 +626,11 @@ impl Engine {
             let mut critical_errors = Vec::new();
             for err in errors.iter() {
                 let err_str = err.to_string();
-                if err_str.contains(DUPLICATE_FRAGMENT_MSG_A)
+                // Match fragment-specific duplicate errors:
+                // - "the fragment `X` is defined multiple times" (apollo-compiler)
+                // - "Duplicate fragment name `X`" (apollo-compiler)
+                // Exclude operation duplicate errors ("the operation `X` is defined multiple times")
+                if (err_str.contains(DUPLICATE_FRAGMENT_MSG_A) && err_str.contains(DUPLICATE_MSG_C))
                     || err_str.contains(DUPLICATE_FRAGMENT_MSG_B)
                 {
                     critical_errors.push(err_str);
@@ -898,6 +903,53 @@ mod tests {
             err.contains(DUPLICATE_FRAGMENT_MSG_A) || err.contains(DUPLICATE_FRAGMENT_MSG_B),
             "Error message should contain one of the duplicate fragment constants. Got: {}",
             err
+        );
+    }
+
+    #[test]
+    fn test_duplicate_operation_not_treated_as_fragment_error() {
+        let schema_str = "type Query { user: User } type User { id: ID! name: String }";
+        let schema = Schema::parse(schema_str, "schema.graphql").unwrap();
+        let valid_schema = schema.validate().unwrap();
+
+        // Two files with the same operation name but different fragments
+        let fragments = vec![
+            FragmentMetadata {
+                name: Arc::from("UserFields"),
+                path: Arc::from("file1.graphql"),
+                project_idx: 0,
+                import_alias: None,
+                is_public: true,
+                is_type_only: false,
+                masked_source: Some(Arc::from(
+                    "fragment UserFields on User { id }\nquery GetUser { user { ...UserFields } }",
+                )),
+                direct_deps: Arc::from([]),
+                transitive_deps: Arc::from([]),
+                type_fields: Arc::from([]),
+            },
+            FragmentMetadata {
+                name: Arc::from("UserName"),
+                path: Arc::from("file2.graphql"),
+                project_idx: 0,
+                import_alias: None,
+                is_public: true,
+                is_type_only: false,
+                masked_source: Some(Arc::from(
+                    "fragment UserName on User { name }\nquery GetUser { user { ...UserName } }",
+                )),
+                direct_deps: Arc::from([]),
+                transitive_deps: Arc::from([]),
+                type_fields: Arc::from([]),
+            },
+        ];
+
+        // Duplicate operations should NOT cause resolve_fragments to fail
+        let result = Engine::resolve_fragments(&valid_schema, &fragments);
+        assert!(
+            result.is_ok(),
+            "resolve_fragments should not fail on duplicate operations. Got: {:?}",
+            result.err()
         );
     }
 }
