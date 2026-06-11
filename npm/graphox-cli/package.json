@@ -1,6 +1,6 @@
 {
   "name": "@graphox/cli",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Graphox CLI - High-performance GraphQL toolset",
   "bin": {
     "graphox": "./bin/graphox.js"
@@ -9,12 +9,12 @@
     "postinstall": "node postinstall.js"
   },
   "optionalDependencies": {
-    "@graphox/darwin-arm64": "0.6.3",
-    "@graphox/darwin-x64": "0.6.3",
-    "@graphox/linux-arm64": "0.6.3",
-    "@graphox/linux-x64": "0.6.3",
-    "@graphox/win32-arm64": "0.6.3",
-    "@graphox/win32-x64": "0.6.3"
+    "@graphox/darwin-arm64": "0.6.4",
+    "@graphox/darwin-x64": "0.6.4",
+    "@graphox/linux-arm64": "0.6.4",
+    "@graphox/linux-x64": "0.6.4",
+    "@graphox/win32-arm64": "0.6.4",
+    "@graphox/win32-x64": "0.6.4"
   },
   "publishConfig": {
     "access": "public"
