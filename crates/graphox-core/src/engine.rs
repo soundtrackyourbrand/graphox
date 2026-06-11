@@ -604,11 +604,15 @@ impl Engine {
         let mut seen_paths = HashSet::default();
 
         for frag in fragments {
-            if let Some(source) = &frag.masked_source
-                && seen_paths.insert(&frag.path)
-            {
-                combined_source.push_str(source);
-                combined_source.push('\n');
+            if let Some(source) = &frag.masked_source {
+                // Canonicalize to resolve symlinks and path variations, preventing
+                // the same file from being included twice via different paths.
+                let canonical = crate::utils::canonicalize_cached(Path::new(frag.path.as_ref()));
+                let canonical_posix = crate::utils::to_posix_path(&canonical);
+                if seen_paths.insert(canonical_posix) {
+                    combined_source.push_str(source);
+                    combined_source.push('\n');
+                }
             }
         }
 
