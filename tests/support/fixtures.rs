@@ -212,6 +212,54 @@ pub fn user_subscription_schema() -> &'static Schema {
     })
 }
 
+static COLLIDING_RESPONSE_KEY_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Schema where the response key `subscription` is reachable via two different
+/// paths that resolve to different object types — one that has an `id` field
+/// and one that does not. Exercises required/forbidden-field checks that
+/// resolve each `subscription` by its full response-key path rather than the
+/// shared leaf name.
+///
+/// Contains:
+/// - `type Query { soundZone: SoundZone account: Account }`
+/// - `type SoundZone { id: ID! subscription: ZoneSubscription }`
+/// - `type ZoneSubscription { state: String! }`  (no `id`)
+/// - `type Account { id: ID! billing: Billing }`
+/// - `type Billing { subscription: AccountSubscription }`
+/// - `type AccountSubscription { id: ID! billingCycle: String! }`
+pub fn colliding_response_key_schema() -> &'static Schema {
+    COLLIDING_RESPONSE_KEY_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    soundZone: SoundZone
+                    account: Account
+                }
+                type SoundZone {
+                    id: ID!
+                    subscription: ZoneSubscription
+                }
+                type ZoneSubscription {
+                    state: String!
+                }
+                type Account {
+                    id: ID!
+                    billing: Billing
+                }
+                type Billing {
+                    subscription: AccountSubscription
+                }
+                type AccountSubscription {
+                    id: ID!
+                    billingCycle: String!
+                }
+            "#,
+            "colliding_response_key_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
 // =============================================================================
 // Query Strings
 // =============================================================================

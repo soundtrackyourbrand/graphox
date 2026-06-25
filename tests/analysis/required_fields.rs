@@ -1204,3 +1204,62 @@ async fn test_project_level_field_override_replaces_global() {
         diagnostics
     );
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_same_response_key_different_types() {
+    // The response key `subscription` is reached via two paths that resolve to
+    // different types. `ZoneSubscription` has no `id` field, so `id` is not
+    // required there; `AccountSubscription` has `id`, so it is required and
+    // reported on the account subscription.
+    let text = r#"
+        query Combo {
+            soundZone {
+                id
+                subscription {
+                    state
+                }
+            }
+            account {
+                id
+                billing {
+                    subscription {
+                        billingCycle
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::colliding_response_key_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // Exactly one diagnostic: `id` required on the AccountSubscription, anchored
+    // at the `subscription` selection under billing, not the zone one.
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token_at_index(&doc, text, "subscription", 1),
+    );
+}

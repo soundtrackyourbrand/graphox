@@ -265,6 +265,13 @@ pub(super) fn check_required_fields(
         // 2. Check ALL selected fields (recursive check)
         for (response_key, type_def) in &ctx.response_key_types {
             let type_name = type_def.name().as_str();
+            // `response_key` is the full path from the operation root (e.g.
+            // "account.billing.subscription"); use the leaf for user-facing text.
+            let display_key = response_key
+                .as_ref()
+                .rsplit('.')
+                .next()
+                .unwrap_or(response_key.as_ref());
 
             // We need to check ALL fields defined on this type in the schema,
             // because a required field might be missing entirely from the selection.
@@ -324,7 +331,7 @@ pub(super) fn check_required_fields(
                                 message: format!(
                                     "Required field '{}' must be selected in '{}'{}",
                                     field_name_str,
-                                    response_key,
+                                    display_key,
                                     rule.reason()
                                         .map(|r| format!(": {}", r))
                                         .unwrap_or_default()
@@ -334,7 +341,7 @@ pub(super) fn check_required_fields(
                                 )),
                                 data: Some(serde_json::json!({
                                     "scope": "response_key",
-                                    "response_key": response_key.as_ref()
+                                    "response_key": display_key
                                 })),
                                 source: DIAGNOSTIC_SOURCE.map(String::from),
                                 ..Default::default()
@@ -670,6 +677,113 @@ fn find_root_field_node_by_name<'a>(
     None
 }
 
+/// Extract a field node's response key (alias if present, else the field name).
+fn field_response_key(this: &DocumentState, field: Node, offset: usize) -> String {
+    let components = this.extract_field_components(field);
+    if let Some(alias) = components.alias
+        && let Some(alias_name) = this.find_child_by_kind(alias, "name")
+    {
+        return this.get_node_text(alias_name, offset);
+    }
+    components
+        .name
+        .map(|n| this.get_node_text(n, offset))
+        .unwrap_or_default()
+}
+
+/// Walk a dotted response-key path (e.g. "account.billing.subscription") from
+/// `node` (an operation_definition or field node) and return the field node
+/// reached at the end of the path. Inline fragments are transparent: they do
+/// not contribute a path segment, matching how paths are built during
+/// validation (see `validate_field`).
+fn find_field_node_at_path<'a>(
+    this: &DocumentState,
+    node: Node<'a>,
+    offset: usize,
+    segments: &[&str],
+) -> Option<Node<'a>> {
+    if segments.is_empty() {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "selection_set"
+            && let Some(found) = find_segment_in_selection_set(this, child, offset, segments)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_segment_in_selection_set<'a>(
+    this: &DocumentState,
+    selection_set: Node<'a>,
+    offset: usize,
+    segments: &[&str],
+) -> Option<Node<'a>> {
+    let mut cursor = selection_set.walk();
+    for selection in selection_set.children(&mut cursor) {
+        let (field_node, inline_node) = match selection.kind() {
+            "selection" => (
+                this.find_child_by_kind(selection, "field"),
+                this.find_child_by_kind(selection, "inline_fragment"),
+            ),
+            "field" => (Some(selection), None),
+            "inline_fragment" => (None, Some(selection)),
+            _ => (None, None),
+        };
+
+        if let Some(field) = field_node {
+            if field_response_key(this, field, offset) == segments[0]
+                && let Some(found) = find_field_node_at_path(this, field, offset, &segments[1..])
+            {
+                return Some(found);
+            }
+        } else if let Some(inline) = inline_node
+            && let Some(inner_set) = this.find_child_by_kind(inline, "selection_set")
+            && let Some(found) = find_segment_in_selection_set(this, inner_set, offset, segments)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Find a direct field child named `field_name` within `selection_set`.
+fn find_direct_field_child<'a>(
+    this: &DocumentState,
+    selection_set: Node<'a>,
+    offset: usize,
+    field_name: &str,
+) -> Option<Node<'a>> {
+    let mut cursor = selection_set.walk();
+    for selection in selection_set.children(&mut cursor) {
+        let field_node = if selection.kind() == "selection" {
+            this.find_child_by_kind(selection, "field")
+        } else if selection.kind() == "field" {
+            Some(selection)
+        } else {
+            None
+        };
+
+        if let Some(field) = field_node {
+            let name = this
+                .extract_field_components(field)
+                .name
+                .map(|n| this.get_node_text(n, offset))
+                .unwrap_or_default();
+            if name == field_name {
+                return Some(field);
+            }
+        }
+    }
+    None
+}
+
+/// Find the field node `field_name` selected directly under the field at the
+/// given response-key path. `response_key` is the full dotted path from the
+/// operation root.
 fn find_field_node_by_name<'a>(
     this: &DocumentState,
     node: Node<'a>,
@@ -677,71 +791,14 @@ fn find_field_node_by_name<'a>(
     response_key: &str,
     field_name: &str,
 ) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "selection_set" {
-            let mut sel_cursor = child.walk();
-            for selection in child.children(&mut sel_cursor) {
-                let field_node = if selection.kind() == "selection" {
-                    this.find_child_by_kind(selection, "field")
-                } else if selection.kind() == "field" {
-                    Some(selection)
-                } else {
-                    None
-                };
-
-                if let Some(field) = field_node {
-                    let components = this.extract_field_components(field);
-                    let mut key = components
-                        .name
-                        .map(|n| this.get_node_text(n, offset))
-                        .unwrap_or_default();
-                    if let Some(alias) = components.alias
-                        && let Some(alias_name) = this.find_child_by_kind(alias, "name")
-                    {
-                        key = this.get_node_text(alias_name, offset);
-                    }
-
-                    if key == response_key {
-                        if let Some(selection_set) = components.selection_set {
-                            let mut inner_cursor = selection_set.walk();
-                            for inner_selection in selection_set.children(&mut inner_cursor) {
-                                let inner_field_node = if inner_selection.kind() == "selection" {
-                                    this.find_child_by_kind(inner_selection, "field")
-                                } else if inner_selection.kind() == "field" {
-                                    Some(inner_selection)
-                                } else {
-                                    None
-                                };
-
-                                if let Some(inner_field) = inner_field_node {
-                                    let inner_components =
-                                        this.extract_field_components(inner_field);
-                                    let name = inner_components
-                                        .name
-                                        .map(|n| this.get_node_text(n, offset))
-                                        .unwrap_or_default();
-                                    if name == field_name {
-                                        return Some(inner_field);
-                                    }
-                                }
-                            }
-                        }
-                    } else if let Some(_selection_set) = components.selection_set {
-                        // Recurse into nested selection sets
-                        if let Some(found) =
-                            find_field_node_by_name(this, field, offset, response_key, field_name)
-                        {
-                            return Some(found);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
+    let segments: Vec<&str> = response_key.split('.').collect();
+    let parent = find_field_node_at_path(this, node, offset, &segments)?;
+    let selection_set = this.find_child_by_kind(parent, "selection_set")?;
+    find_direct_field_child(this, selection_set, offset, field_name)
 }
 
+/// Find the field node `field_name` selected inside an inline fragment
+/// `... on type_name` under the field at the given response-key path.
 fn find_field_node_in_type_condition<'a>(
     this: &DocumentState,
     node: Node<'a>,
@@ -750,96 +807,29 @@ fn find_field_node_in_type_condition<'a>(
     type_name: &str,
     field_name: &str,
 ) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "selection_set" {
-            let mut sel_cursor = child.walk();
-            for selection in child.children(&mut sel_cursor) {
-                let field_node = if selection.kind() == "selection" {
-                    this.find_child_by_kind(selection, "field")
-                } else if selection.kind() == "field" {
-                    Some(selection)
-                } else {
-                    None
-                };
+    let segments: Vec<&str> = response_key.split('.').collect();
+    let parent = find_field_node_at_path(this, node, offset, &segments)?;
+    let selection_set = this.find_child_by_kind(parent, "selection_set")?;
 
-                if let Some(field) = field_node {
-                    let components = this.extract_field_components(field);
-                    let mut key = components
-                        .name
-                        .map(|n| this.get_node_text(n, offset))
-                        .unwrap_or_default();
-                    if let Some(alias) = components.alias
-                        && let Some(alias_name) = this.find_child_by_kind(alias, "name")
-                    {
-                        key = this.get_node_text(alias_name, offset);
-                    }
+    let mut cursor = selection_set.walk();
+    for selection in selection_set.children(&mut cursor) {
+        let inline = if selection.kind() == "selection" {
+            this.find_child_by_kind(selection, "inline_fragment")
+        } else if selection.kind() == "inline_fragment" {
+            Some(selection)
+        } else {
+            None
+        };
 
-                    if key == response_key {
-                        if let Some(selection_set) = components.selection_set {
-                            let mut inner_cursor = selection_set.walk();
-                            for inner_selection in selection_set.children(&mut inner_cursor) {
-                                let t = if inner_selection.kind() == "selection" {
-                                    inner_selection.child(0)
-                                } else {
-                                    Some(inner_selection)
-                                };
-
-                                if let Some(t) = t
-                                    && t.kind() == "inline_fragment"
-                                {
-                                    let type_cond = this.find_child_by_kind(t, "type_condition");
-                                    if let Some(tc) = type_cond
-                                        && let Some(name_node) =
-                                            this.find_child_by_kind(tc, "named_type")
-                                        && this.get_node_text(name_node, offset) == type_name
-                                        && let Some(frag_selection_set) =
-                                            this.find_child_by_kind(t, "selection_set")
-                                    {
-                                        let mut frag_cursor = frag_selection_set.walk();
-                                        for frag_sel in
-                                            frag_selection_set.children(&mut frag_cursor)
-                                        {
-                                            let frag_field_node = if frag_sel.kind() == "selection"
-                                            {
-                                                this.find_child_by_kind(frag_sel, "field")
-                                            } else if frag_sel.kind() == "field" {
-                                                Some(frag_sel)
-                                            } else {
-                                                None
-                                            };
-
-                                            if let Some(frag_field) = frag_field_node {
-                                                let frag_components =
-                                                    this.extract_field_components(frag_field);
-                                                let name = frag_components
-                                                    .name
-                                                    .map(|n| this.get_node_text(n, offset))
-                                                    .unwrap_or_default();
-                                                if name == field_name {
-                                                    return Some(frag_field);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if let Some(_selection_set) = components.selection_set {
-                        // Recurse into nested selection sets
-                        if let Some(found) = find_field_node_in_type_condition(
-                            this,
-                            field,
-                            offset,
-                            response_key,
-                            type_name,
-                            field_name,
-                        ) {
-                            return Some(found);
-                        }
-                    }
-                }
-            }
+        if let Some(inline) = inline
+            && let Some(tc) = this.find_child_by_kind(inline, "type_condition")
+            && let Some(name_node) = this.find_child_by_kind(tc, "named_type")
+            && this.get_node_text(name_node, offset) == type_name
+            && let Some(frag_selection_set) = this.find_child_by_kind(inline, "selection_set")
+            && let Some(found) =
+                find_direct_field_child(this, frag_selection_set, offset, field_name)
+        {
+            return Some(found);
         }
     }
     None

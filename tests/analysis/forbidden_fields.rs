@@ -285,3 +285,64 @@ fn test_forbidden_field_type_override() {
 
     assert_no_diagnostics(&diagnostics);
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_same_response_key_different_types() {
+    // The response key `subscription` is reached via two paths that resolve to
+    // different types. A type-specific forbidden rule on `ZoneSubscription`
+    // resolves against that type, independent of the `AccountSubscription`
+    // reached via the other path that shares the leaf response key.
+    let text = r#"
+        query Combo {
+            soundZone {
+                id
+                subscription {
+                    state
+                }
+            }
+            account {
+                id
+                billing {
+                    subscription {
+                        billingCycle
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let yaml = r#"
+      forbidden_fields:
+        ZoneSubscription:
+          state: true
+    "#;
+    let yaml_docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+    let rules = RulesConfig::from_yaml(&yaml_docs[0]).unwrap();
+
+    let config = Config::default().with_rules(rules);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::colliding_response_key_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // Exactly one diagnostic: `state` forbidden on ZoneSubscription, anchored at
+    // the `state` selection under the zone subscription (not the account path,
+    // which selects `billingCycle` and carries no forbidden rule).
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'state' is forbidden on type 'ZoneSubscription'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "state"));
+}

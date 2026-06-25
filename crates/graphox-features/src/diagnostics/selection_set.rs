@@ -157,8 +157,19 @@ pub(super) fn validate_field(
         } else {
             this.translate_to_file_range(name_node, offset)
         };
+        // Build the full response-key path from the operation root (e.g.
+        // "account.billing.subscription"). Response keys are only unique within
+        // a single selection set, so the leaf name alone is ambiguous: two
+        // fields at different paths can share a name yet resolve to different
+        // types. Keying the per-operation maps by the full path keeps them
+        // distinct. `parent_response_key` carries the parent's full path.
+        let current_path: String = match parent_response_key {
+            Some(parent) => format!("{}.{}", parent, response_key),
+            None => response_key.clone(),
+        };
+
         ctx.response_key_anchor_ranges
-            .entry(response_key.clone().into())
+            .entry(current_path.clone().into())
             .or_default()
             .push(anchor_range);
 
@@ -307,13 +318,14 @@ pub(super) fn validate_field(
                         .insert(actual_field_name.clone().into());
                 }
             } else if depth == 1 {
-                // Root-level field - track under its own key
+                // Root-level field - track under its own path (at the root the
+                // path equals the leaf response key).
                 ctx.response_key_selected_fields
-                    .entry(response_key.clone().into())
+                    .entry(current_path.clone().into())
                     .or_default()
                     .insert(actual_field_name.clone().into());
                 // Mark this response key as root-level (skip required field validation)
-                ctx.root_response_keys.insert(response_key.clone().into());
+                ctx.root_response_keys.insert(current_path.clone().into());
             }
         }
 
@@ -364,11 +376,11 @@ pub(super) fn validate_field(
                 if let Some(field_type_def) = ctx.schema.types.get(field_type_name.as_str()) {
                     if ctx.is_operation {
                         ctx.response_key_types
-                            .insert(response_key.clone().into(), field_type_def.clone());
+                            .insert(current_path.clone().into(), field_type_def.clone());
                     }
-                    // Use this field's response key as parent for nested fields
+                    // Use this field's full path as the parent for nested fields
                     let new_parent_rk = if ctx.is_operation {
-                        Some(response_key.as_str())
+                        Some(current_path.as_str())
                     } else {
                         parent_response_key
                     };
