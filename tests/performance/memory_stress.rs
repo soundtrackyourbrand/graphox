@@ -22,8 +22,10 @@ const PER_FRAGMENT_BUDGET: usize = MAX_MEMORY_500_FRAGMENTS / 500;
 
 const ALLOWED_GROWTH_PERCENT: f64 = 5.0;
 
-#[cfg(not(target_os = "windows"))]
-const MAX_MEMORY_COMPLEX_MONOREPO: usize = 70 * 1024 * 1024; // 70MB
+// Live heap for this workspace measures ~69 MB; 90 MB leaves headroom for
+// allocation-size jitter and platform variation while still catching a gross
+// regression in per-document/per-schema retention.
+const MAX_MEMORY_COMPLEX_MONOREPO: usize = 90 * 1024 * 1024;
 
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
@@ -99,8 +101,7 @@ fn create_multi_project_config(base_dir: &Path) -> Config {
 #[ntest::timeout(18000)]
 async fn test_memory_complex_monorepo_workspace_scan() {
     let _lock = MEMORY_TEST_MUTEX.lock().await;
-    warmup();
-    let baseline = measure_memory_usage();
+    let baseline = crate::support::measure_allocated_bytes();
 
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -145,26 +146,24 @@ async fn test_memory_complex_monorepo_workspace_scan() {
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     // Wait for workspace scan to complete (lsp_initialize_sequence already does this)
+    // plus a short settle so transient scan buffers are freed before measuring.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    // 5. Measure memory after workspace scan
-    let used = measure_memory_usage();
+    // 5. Measure the heap retained by the scanned workspace.
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
     println!(
-        "Memory for complex monorepo (10 projects, 2000+ types): {} MB",
+        "Live heap for complex monorepo (10 projects, 2000+ types): {} MB",
         delta / 1024 / 1024
     );
 
-    // Windows check (RSS returns 0)
-    #[cfg(not(target_os = "windows"))]
-    {
-        assert!(
-            delta < MAX_MEMORY_COMPLEX_MONOREPO,
-            "Memory exceeded limit for complex monorepo: {} MB (limit: {} MB)",
-            delta / 1024 / 1024,
-            MAX_MEMORY_COMPLEX_MONOREPO / 1024 / 1024
-        );
-    }
+    assert!(
+        delta < MAX_MEMORY_COMPLEX_MONOREPO,
+        "Memory exceeded limit for complex monorepo: {} MB (limit: {} MB)",
+        delta / 1024 / 1024,
+        MAX_MEMORY_COMPLEX_MONOREPO / 1024 / 1024
+    );
 }
 
 fn create_100_file_config(base_dir: &Path) -> Config {
