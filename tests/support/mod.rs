@@ -1014,6 +1014,67 @@ pub async fn lsp_request_diagnostics(
 
 /// Measure current resident set size (RSS) in bytes (platform-specific).
 /// Takes multiple samples and returns the minimum to filter out temporary spikes.
+/// Live heap bytes (allocated minus freed) seen by [`TrackingAllocator`].
+/// Reads as zero in binaries that do not install the tracking allocator.
+pub static LIVE_HEAP_BYTES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// A `System`-backed global allocator that records the number of live heap
+/// bytes in [`LIVE_HEAP_BYTES`]. A test binary opts in by declaring it as its
+/// `#[global_allocator]`. Counting live bytes directly is deterministic, unlike
+/// process RSS, which also reflects allocator pool retention, freed-but-unreturned
+/// pages, thread stacks and mapped files.
+pub struct TrackingAllocator;
+
+unsafe impl std::alloc::GlobalAlloc for TrackingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let ptr = unsafe { std::alloc::System.alloc(layout) };
+        if !ptr.is_null() {
+            LIVE_HEAP_BYTES.fetch_add(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(ptr, layout) };
+        LIVE_HEAP_BYTES.fetch_sub(layout.size(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let ptr = unsafe { std::alloc::System.alloc_zeroed(layout) };
+        if !ptr.is_null() {
+            LIVE_HEAP_BYTES.fetch_add(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        ptr
+    }
+
+    unsafe fn realloc(
+        &self,
+        ptr: *mut u8,
+        layout: std::alloc::Layout,
+        new_size: usize,
+    ) -> *mut u8 {
+        let new_ptr = unsafe { std::alloc::System.realloc(ptr, layout, new_size) };
+        if !new_ptr.is_null() {
+            if new_size >= layout.size() {
+                LIVE_HEAP_BYTES
+                    .fetch_add(new_size - layout.size(), std::sync::atomic::Ordering::Relaxed);
+            } else {
+                LIVE_HEAP_BYTES
+                    .fetch_sub(layout.size() - new_size, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        new_ptr
+    }
+}
+
+/// Current live heap bytes, as tracked by [`TrackingAllocator`]. Deterministic
+/// alternative to [`measure_memory_usage`]; only meaningful in binaries that
+/// install the tracking allocator as their global allocator.
+pub fn measure_allocated_bytes() -> usize {
+    LIVE_HEAP_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn measure_memory_usage() -> usize {
     let mut min_rss = usize::MAX;
 
