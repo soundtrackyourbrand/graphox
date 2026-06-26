@@ -355,86 +355,164 @@ pub async fn handle_did_change_watched_files(
     params: DidChangeWatchedFilesParams,
 ) {
     let config = backend.config.read().unwrap().clone();
-    let position_encoding = backend.get_position_encoding();
+
+    // A config-file change is a full reset that supersedes everything else in the
+    // notification, and clients/tests expect it to take effect synchronously (e.g. a
+    // diagnostics pull issued immediately afterwards). Handle it inline. Every other
+    // change is debounced and batched, so a burst from a pull or branch switch is
+    // processed in a single pass rather than once per file.
+    let mut debounced: Vec<FileEvent> = Vec::new();
+    let mut config_changed = false;
 
     for change in params.changes {
-        let change_uri = change.uri.clone();
-        if change.typ == FileChangeType::CREATED
-            || change.typ == FileChangeType::CHANGED
-            || change.typ == FileChangeType::DELETED
+        if change.typ != FileChangeType::CREATED
+            && change.typ != FileChangeType::CHANGED
+            && change.typ != FileChangeType::DELETED
         {
-            let change_params = file_change_handler::FileChangeParams {
-                client: &backend.client,
-                config: &config,
-                documents: &backend.documents,
-                metadata: &backend.metadata,
-                fragment_dependents: &backend.fragment_dependents,
-                fragment_definitions: &backend.fragment_definitions,
-                operation_names: &backend.operation_names,
-                gitignore: &backend.gitignore,
-                diagnostic_cache: &backend.diagnostic_cache,
-                position_encoding: position_encoding.clone(),
-            };
+            continue;
+        }
 
-            let result =
-                if change.typ == FileChangeType::CREATED || change.typ == FileChangeType::CHANGED {
-                    file_change_handler::process_file_created_or_changed(
-                        change.uri,
-                        &change_params,
-                        |uri| backend.normalize_uri(uri),
-                    )
-                    .await
-                } else if change.typ == FileChangeType::DELETED {
-                    file_change_handler::process_file_deleted(change.uri, &change_params, |uri| {
-                        backend.normalize_uri(uri)
-                    })
-                } else {
-                    None
-                };
+        let is_config = backend
+            .normalize_uri(change.uri.clone())
+            .to_file_path()
+            .is_ok_and(|path| file_change_handler::is_config_file(&path, &config));
 
-            if let Some(result) = result {
-                // Invalidate fragment metadata cache since fragments might have changed
-                backend.invalidate_fragment_cache();
-                backend.increment_workspace_version();
+        if is_config {
+            config_changed = true;
+        } else {
+            debounced.push(change);
+        }
+    }
 
-                // Config reload takes precedence - if config changed, reload everything
-                if result.should_reload_config {
-                    backend.reload_config().await;
-                    continue; // Skip other processing since we're doing a full reload
-                }
+    if config_changed {
+        // Full re-index + codegen-all subsumes any other change in this notification.
+        backend.reload_config().await;
+        return;
+    }
 
-                if result.should_reload_schema
-                    && let Some(schema_path) = result.schema_path
-                {
-                    backend.reload_schema(&schema_path).await;
-                    backend.validate_all_documents().await;
-                }
+    if !debounced.is_empty() {
+        backend.watched_files_debouncer.submit(debounced);
+    }
+}
 
-                if !result.uris_to_validate.is_empty() {
-                    backend.validate_uris(result.uris_to_validate.clone()).await;
-                    backend.refresh_pull_diagnostics_for(&change_uri, &result.uris_to_validate);
-                }
+/// Processes a coalesced batch of watched-file changes (schema and ordinary files;
+/// config files are handled inline by [`handle_did_change_watched_files`]).
+///
+/// The whole batch shares a single fragment-cache invalidation, a single workspace
+/// epoch bump, one validation sweep over the union of affected documents, and one
+/// codegen request set — instead of repeating all of that per file.
+pub async fn process_watched_file_batch(backend: &Backend, changes: Vec<FileEvent>) {
+    if changes.is_empty() {
+        return;
+    }
 
-                let throttle = backend.codegen_throttle.read().unwrap().clone();
-                // Request throttled codegen if enabled and workspace is loaded
-                if result.should_run_codegen
-                    && backend.workspace_loaded.load(Ordering::SeqCst)
-                    && let Some(throttle) = throttle
-                {
-                    let (is_enabled, project_key) = if let Ok(path) = change_uri.to_file_path() {
-                        let project = config.get_project_for_path(&path);
-                        let enabled = project
-                            .and_then(|p| p.codegen_enabled())
-                            .unwrap_or_else(|| config.lsp_automatic_codegen());
-                        (enabled, project.map(|p| p.include().as_key()))
-                    } else {
-                        (config.lsp_automatic_codegen(), None)
-                    };
+    let config = backend.config.read().unwrap().clone();
+    let position_encoding = backend.get_position_encoding();
 
-                    if is_enabled {
-                        throttle.request_codegen(project_key);
-                    }
-                }
+    let change_params = file_change_handler::FileChangeParams {
+        client: &backend.client,
+        config: &config,
+        documents: &backend.documents,
+        metadata: &backend.metadata,
+        fragment_dependents: &backend.fragment_dependents,
+        fragment_definitions: &backend.fragment_definitions,
+        operation_names: &backend.operation_names,
+        gitignore: &backend.gitignore,
+        diagnostic_cache: &backend.diagnostic_cache,
+        position_encoding,
+    };
+
+    let mut validate_seen: HashSet<Url> = HashSet::new();
+    let mut validate_union: Vec<Url> = Vec::new();
+    let mut codegen_uris: Vec<Url> = Vec::new();
+    let mut schema_paths: Vec<String> = Vec::new();
+    let mut any_change = false;
+
+    // Update in-memory indices for every change first, accumulating the work the
+    // batch needs to commit.
+    for change in &changes {
+        let result = if change.typ == FileChangeType::DELETED {
+            file_change_handler::process_file_deleted(change.uri.clone(), &change_params, |uri| {
+                backend.normalize_uri(uri)
+            })
+        } else {
+            file_change_handler::process_file_created_or_changed(
+                change.uri.clone(),
+                &change_params,
+                |uri| backend.normalize_uri(uri),
+            )
+            .await
+        };
+
+        let Some(result) = result else {
+            continue;
+        };
+
+        // Defensive: config files are filtered out before reaching the batch, but if
+        // one slips through, a full reload supersedes everything.
+        if result.should_reload_config {
+            backend.reload_config().await;
+            return;
+        }
+
+        any_change = true;
+
+        if result.should_reload_schema
+            && let Some(schema_path) = result.schema_path
+            && !schema_paths.contains(&schema_path)
+        {
+            schema_paths.push(schema_path);
+        }
+
+        for uri in result.uris_to_validate {
+            // `uris_to_validate` is the transitive closure (the changed file plus its
+            // cross-project consumers), so it doubles as the codegen project set.
+            if result.should_run_codegen {
+                codegen_uris.push(uri.clone());
+            }
+            if validate_seen.insert(uri.clone()) {
+                validate_union.push(uri);
+            }
+        }
+    }
+
+    if !any_change {
+        return;
+    }
+
+    // One invalidation + one epoch bump for the whole batch.
+    backend.invalidate_fragment_cache();
+    backend.increment_workspace_version();
+
+    // Reload any changed schemas; a single full re-validation then covers every
+    // document affected by the new schema(s).
+    let schema_reloaded = !schema_paths.is_empty();
+    for schema_path in &schema_paths {
+        backend.reload_schema(schema_path).await;
+    }
+    if schema_reloaded {
+        backend.validate_all_documents().await;
+    } else if !validate_union.is_empty() {
+        backend.validate_uris(validate_union.clone()).await;
+    }
+
+    if schema_reloaded || !validate_union.is_empty() {
+        backend.request_workspace_diagnostic_refresh();
+    }
+
+    // Codegen is suppressed entirely when the master `lsp_automatic_codegen` switch
+    // is off. A schema change regenerates all projects; otherwise regenerate every
+    // project owning an affected document — the changed file's project plus its
+    // cross-project consumers — so public-fragment consumers don't keep stale types.
+    if backend.workspace_loaded.load(Ordering::SeqCst)
+        && config.lsp_automatic_codegen()
+        && let Some(throttle) = backend.codegen_throttle.read().unwrap().clone()
+    {
+        if schema_reloaded {
+            throttle.request_codegen(None);
+        } else {
+            for key in codegen_project_keys(&config, codegen_uris.iter()) {
+                throttle.request_codegen(Some(key));
             }
         }
     }

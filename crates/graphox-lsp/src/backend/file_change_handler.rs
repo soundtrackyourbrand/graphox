@@ -105,12 +105,11 @@ pub async fn process_file_created_or_changed(
     let mut affected_spread_names = AHashSet::default();
     let mut affected_operation_names = AHashSet::default();
 
-    let old_fragments: Option<Arc<[Arc<str>]>> = params.metadata.get(&uri).map(|m| {
-        m.fragments
-            .iter()
-            .map(|f| f.name.clone())
-            .collect::<Arc<[_]>>()
-    });
+    let old_fragment_defs: Option<Arc<[graphox_core::document::FragmentDef]>> =
+        params.metadata.get(&uri).map(|m| m.fragments.clone());
+    let old_fragment_names: Option<Arc<[Arc<str>]>> = old_fragment_defs
+        .as_ref()
+        .map(|defs| defs.iter().map(|f| f.name.clone()).collect::<Arc<[_]>>());
     let old_spreads: Option<Arc<[Arc<str>]>> = params
         .metadata
         .get(&uri)
@@ -125,17 +124,24 @@ pub async fn process_file_created_or_changed(
         new_fragment_defs.iter().map(|f| f.name.clone()).collect();
     let new_spreads: Arc<[Arc<str>]> = new_doc.fragment_spreads.clone();
 
-    // Track changes to fragment definitions
-    if let Some(old) = &old_fragments {
+    // Track changes to fragment definitions: additions, removals, and body edits.
+    // Body edits are matched by source hash and are the common case for a watched
+    // change (a pull or branch switch rewriting a fragment in place); missing them
+    // would leave the fragment's consumers unvalidated and their codegen stale.
+    if let Some(old) = &old_fragment_names {
         for name in old.iter() {
             if !new_fragment_names.contains(name) {
                 affected_fragment_names.insert(name.clone());
             }
         }
     }
-    for name in new_fragment_names.iter() {
-        if old_fragments.as_ref().is_none_or(|old| !old.contains(name)) {
-            affected_fragment_names.insert(name.clone());
+    for new_frag in new_fragment_defs.iter() {
+        let unchanged = old_fragment_defs
+            .as_ref()
+            .and_then(|defs| defs.iter().find(|f| f.name == new_frag.name))
+            .is_some_and(|old_frag| old_frag.source_hash == new_frag.source_hash);
+        if !unchanged {
+            affected_fragment_names.insert(new_frag.name.clone());
         }
     }
 
@@ -166,7 +172,7 @@ pub async fn process_file_created_or_changed(
     super::fragment_manager::update_fragment_definitions(
         params.fragment_definitions,
         &uri,
-        old_fragments,
+        old_fragment_names,
         new_fragment_names,
     );
     super::fragment_manager::update_fragment_dependents(
@@ -292,6 +298,15 @@ pub fn process_file_deleted(
         &[],
     ));
 
+    // If the deleted file contributed any GraphQL (fragments, spreads, or
+    // operations), regenerate its closure: the deleted file's own project (so a
+    // bundle no longer includes the removed operations) and any project that
+    // consumed a fragment it defined (so cross-project consumers don't keep stale
+    // generated types referencing the now-missing fragment).
+    let had_graphql_content = !affected_fragment_names.is_empty()
+        || !affected_spread_names.is_empty()
+        || !affected_operation_names.is_empty();
+
     let uris_to_validate = super::validation::get_affected_uris(
         uri,
         affected_fragment_names,
@@ -307,13 +322,13 @@ pub fn process_file_deleted(
         uris_to_validate,
         should_reload_schema: false,
         schema_path: None,
-        should_run_codegen: false,
+        should_run_codegen: had_graphql_content,
         should_reload_config: false,
     })
 }
 
 /// Checks if a path is the config file
-fn is_config_file(path: &std::path::Path, config: &graphox_core::Config) -> bool {
+pub(crate) fn is_config_file(path: &std::path::Path, config: &graphox_core::Config) -> bool {
     let config_path = config.base_dir().join("graphox.yaml");
     let config_yml_path = config.base_dir().join("graphox.yml");
     graphox_core::utils::paths_match(Some(path), Some(&config_path))

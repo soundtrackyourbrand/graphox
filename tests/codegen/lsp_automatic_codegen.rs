@@ -1263,6 +1263,243 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
     );
 }
 
+/// A `workspace/didChangeWatchedFiles` change to a public fragment (e.g. from a
+/// `git pull` or branch switch) must regenerate the fragment's *cross-project*
+/// consumers, not just the project that owns the changed file — and it must still
+/// respect per-project codegen-disable. Regression test for the watcher codegen path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_watched_file_change_regenerates_cross_project_consumers() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    // Three single-file projects sharing one schema: `frag` defines a public
+    // fragment, `consumer` and `disabled` consume it. `consumer` has codegen
+    // enabled; `disabled` has it disabled. Separate include globs => separate
+    // projects, so regenerating the consumer requires running *its* project.
+    let frag_path = base_dir.join("frag.graphql");
+    fs::write(&frag_path, "fragment UserFrag on User @public { id }").unwrap();
+    fs::write(
+        base_dir.join("consumer.graphql"),
+        "query GetMeB { me { ...UserFrag } }",
+    )
+    .unwrap();
+    fs::write(
+        base_dir.join("disabled.graphql"),
+        "query GetMeC { me { ...UserFrag } }",
+    )
+    .unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("frag.graphql".to_string()))
+                .with_codegen(CodegenConfig::enabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("consumer.graphql".to_string()))
+                .with_codegen(CodegenConfig::enabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("disabled.graphql".to_string()))
+                .with_codegen(CodegenConfig::disabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+
+    let b_gen = base_dir.join("consumer.codegen.ts");
+    let c_gen = base_dir.join("disabled.codegen.ts");
+
+    // Generate the consumer initially. While UserFrag only selects `id`, the
+    // consumer output imports `UserFragFragment` and nothing else.
+    let b_uri = Url::from_file_path(base_dir.join("consumer.graphql")).unwrap();
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: b_uri,
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: "query GetMeB { me { ...UserFrag } }".to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        support::wait_for_file_async(&b_gen, Duration::from_millis(3000), Some("GetMeB")).await,
+        "Consumer project should generate output for its own operation"
+    );
+    let before = fs::read_to_string(&b_gen).unwrap();
+    assert!(
+        !before.contains("ExtraFields"),
+        "Consumer should not yet reference the not-yet-existing nested fragment: {before}"
+    );
+
+    // Simulate a pull/branch switch: the public fragment now spreads a *new* nested
+    // public fragment. This changes the set of fragment types pkg_b must import.
+    fs::write(
+        &frag_path,
+        "fragment ExtraFields on User @public { name }\n\
+         fragment UserFrag on User @public { id ...ExtraFields }",
+    )
+    .unwrap();
+
+    let changes = vec![FileEvent {
+        uri: Url::from_file_path(&frag_path).unwrap(),
+        typ: FileChangeType::CHANGED,
+    }];
+    service
+        .call(
+            Request::build("workspace/didChangeWatchedFiles")
+                .params(serde_json::to_value(DidChangeWatchedFilesParams { changes }).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // The cross-project consumer must be regenerated so it imports the newly
+    // referenced `ExtraFields` fragment type. The buggy behavior regenerated only the
+    // fragment's own project (and, before the source-hash fix, did not even detect the
+    // in-place body change), leaving the consumer's generated types stale.
+    assert!(
+        support::wait_for_file_async(&b_gen, Duration::from_millis(5000), Some("ExtraFields"))
+            .await,
+        "Cross-project consumer should be regenerated after a watched-file change to a \
+         public fragment it consumes. Consumer output:\n{}",
+        fs::read_to_string(&b_gen).unwrap_or_default()
+    );
+
+    // The disabled consumer project must never be generated.
+    assert!(
+        !c_gen.exists(),
+        "Disabled project must not be regenerated by a watched-file change"
+    );
+}
+
+/// Deleting a public fragment file (e.g. on a branch switch) must regenerate the
+/// projects that consumed it, so their generated types no longer reference the
+/// now-missing fragment. Regression test for the watched-file deletion codegen path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_watched_file_deletion_regenerates_cross_project_consumers() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    let frag_path = base_dir.join("frag.graphql");
+    fs::write(&frag_path, "fragment UserFrag on User @public { id name }").unwrap();
+    fs::write(
+        base_dir.join("consumer.graphql"),
+        "query GetMeB { me { ...UserFrag } }",
+    )
+    .unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("frag.graphql".to_string()))
+                .with_codegen(CodegenConfig::enabled()),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("consumer.graphql".to_string()))
+                .with_codegen(CodegenConfig::enabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+
+    let b_gen = base_dir.join("consumer.codegen.ts");
+    let b_uri = Url::from_file_path(base_dir.join("consumer.graphql")).unwrap();
+
+    // Generate the consumer initially; it references the `UserFrag` fragment type.
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: b_uri,
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: "query GetMeB { me { ...UserFrag } }".to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        support::wait_for_file_async(&b_gen, Duration::from_millis(3000), Some("frag.codegen"))
+            .await,
+        "Consumer should initially import the public fragment's generated module"
+    );
+
+    // Delete the fragment file, as a branch switch or pull would.
+    fs::remove_file(&frag_path).unwrap();
+    let changes = vec![FileEvent {
+        uri: Url::from_file_path(&frag_path).unwrap(),
+        typ: FileChangeType::DELETED,
+    }];
+    service
+        .call(
+            Request::build("workspace/didChangeWatchedFiles")
+                .params(serde_json::to_value(DidChangeWatchedFilesParams { changes }).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // The consumer project must be regenerated so it no longer imports the deleted
+    // fragment's module. Without the deletion-closure codegen fix it stays stale.
+    let regenerated = support::wait_for_condition_with_timeout(
+        || {
+            fs::read_to_string(&b_gen)
+                .map(|c| !c.contains("frag.codegen"))
+                .unwrap_or(false)
+        },
+        Duration::from_millis(5000),
+    )
+    .await;
+    assert!(
+        regenerated,
+        "Consumer should be regenerated after the public fragment it consumes is deleted. \
+         Consumer output:\n{}",
+        fs::read_to_string(&b_gen).unwrap_or_default()
+    );
+}
+
 async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

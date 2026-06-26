@@ -16,6 +16,7 @@ pub mod lsp;
 pub mod progress;
 pub mod schema_management;
 pub mod validation;
+pub mod watched_files_debouncer;
 pub mod workspace_scan;
 
 pub mod handlers;

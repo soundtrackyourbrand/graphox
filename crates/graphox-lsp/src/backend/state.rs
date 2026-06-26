@@ -105,6 +105,9 @@ pub struct Backend {
     /// Throttled codegen runner
     pub codegen_throttle:
         Arc<std::sync::RwLock<Option<Arc<super::codegen_throttle::CodegenThrottle>>>>,
+    /// Debounces and batches `workspace/didChangeWatchedFiles` bursts (pulls,
+    /// branch switches) so they are processed in a single pass.
+    pub watched_files_debouncer: Arc<super::watched_files_debouncer::WatchedFilesDebouncer>,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
     /// Reuse cache for the no-SLO fragment list built during validation, keyed by
@@ -221,6 +224,10 @@ impl Backend {
                 }
             }));
 
+            let watched_files_debouncer = Arc::new(
+                super::watched_files_debouncer::WatchedFilesDebouncer::new(this.clone()),
+            );
+
             Self {
                 client,
                 documents,
@@ -246,6 +253,7 @@ impl Backend {
                 workspace_version,
                 last_full_validation_version,
                 codegen_throttle,
+                watched_files_debouncer,
                 fragment_metadata_cache,
                 validation_fragment_cache,
                 configured_document_uris_cache,
@@ -427,6 +435,23 @@ impl Backend {
         }
 
         spawn_workspace_diagnostic_refresh(self.client.clone());
+    }
+
+    /// Ask a pull-diagnostics client to re-pull workspace diagnostics once.
+    ///
+    /// Unlike [`Self::refresh_pull_diagnostics_for`], this is unconditional (no
+    /// "source vs. validated" comparison): it is used after a coalesced batch of
+    /// watched-file changes, where the changed files are typically not the active
+    /// editor, so the workspace view must be refreshed even for a single file.
+    pub(crate) fn request_workspace_diagnostic_refresh(&self) {
+        let supports_pull_diagnostics = self
+            .client_capabilities
+            .read()
+            .map(|caps| caps.supports_pull_diagnostics)
+            .unwrap_or(false);
+        if supports_pull_diagnostics {
+            spawn_workspace_diagnostic_refresh(self.client.clone());
+        }
     }
 
     pub fn get_fragments_for_doc(
