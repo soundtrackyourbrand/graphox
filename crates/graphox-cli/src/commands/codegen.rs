@@ -201,22 +201,16 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         return execute_clean_only(&cfg, verbose) && success;
     }
 
-    let workspace_metadata =
-        Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
-    let global_metadata = &workspace_metadata.fragments;
-
     let shared_caches = codegen::SchemaAnalysisCaches::new();
 
-    // Pre-calculate type imports for all projects to avoid redundant work in the project loop
-    let mut workspace_type_imports: HashMap<String, HashMap<String, String>> = HashMap::new();
+    // Cheap, synchronous prep: the distinct schema sources, and per source the
+    // `schema_types` whose files that source covers (used for type-import mapping and
+    // the schema-import fallback in the project loop).
     let schema_types = cfg.schema_types();
-
-    // Collect unique schema sources to process in parallel
     let mut unique_sources = HashSet::new();
     for project in cfg.projects() {
         unique_sources.insert(project.schema().as_key());
     }
-
     let source_to_matches: HashMap<String, Vec<_>> = unique_sources
         .iter()
         .map(|key| {
@@ -233,33 +227,46 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         })
         .collect();
 
-    let pre_calculated_imports: std::collections::HashMap<String, HashMap<String, String>> =
-        unique_sources
-            .par_iter()
-            .map(|key| {
-                let mut project_type_imports = HashMap::default();
-                if let Some(matches) = source_to_matches.get(key) {
-                    for st in matches.iter().rev() {
-                        if let Some(import_path) = st.import()
-                            && let Ok(st_schema) = schema::load_schema_with_cache(
-                                cfg.base_dir(),
-                                st.schema(),
-                                cfg.enable_schema_cache(),
-                            )
-                        {
-                            for type_name in st_schema.types.keys() {
-                                project_type_imports
-                                    .insert(type_name.to_string(), import_path.to_string());
+    // The workspace scan, project-schema validation, and schema_types type-import
+    // precompute are mutually independent and each non-trivial. Run them concurrently,
+    // and — crucially — validate each DISTINCT schema once rather than per project
+    // (many projects share the same large schema).
+    let (workspace_metadata, (validated_schemas, workspace_type_imports)) = rayon::join(
+        || Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None),
+        || {
+            rayon::join(
+                || super::build_validated_schemas(&cfg),
+                || -> std::collections::HashMap<String, HashMap<String, String>> {
+                    unique_sources
+                        .par_iter()
+                        .map(|key| {
+                            let mut project_type_imports = HashMap::default();
+                            if let Some(matches) = source_to_matches.get(key) {
+                                for st in matches.iter().rev() {
+                                    if let Some(import_path) = st.import()
+                                        && let Ok(st_schema) = schema::load_schema_with_cache(
+                                            cfg.base_dir(),
+                                            st.schema(),
+                                            cfg.enable_schema_cache(),
+                                        )
+                                    {
+                                        for type_name in st_schema.types.keys() {
+                                            project_type_imports.insert(
+                                                type_name.to_string(),
+                                                import_path.to_string(),
+                                            );
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
-                }
-                (key.clone(), project_type_imports)
-            })
-            .collect();
-    for (k, v) in pre_calculated_imports {
-        workspace_type_imports.insert(k, v);
-    }
+                            (key.clone(), project_type_imports)
+                        })
+                        .collect()
+                },
+            )
+        },
+    );
+    let global_metadata = &workspace_metadata.fragments;
 
     // Process projects in parallel
     let project_results: Vec<_> = cfg
@@ -315,27 +322,25 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 schema_import = final_import_path;
             }
 
-            let valid_schema = match schema::load_schema_with_cache(
-                cfg.base_dir(),
-                project.schema(),
-                cfg.enable_schema_cache(),
-            ) {
-                Ok(v) => match v.validate() {
-                    Ok(valid) => valid,
-                    Err(e) => {
-                        // Validation failed: report and treat as project failure (do not panic)
-                        eprintln!("{}", e.to_string().red());
-                        return Some(Err(()));
-                    }
-                },
-                Err(e) => {
-                    eprintln!("{}", e.to_string().red());
+            // Reuse the schema validated once up front (shared across projects using the
+            // same schema) instead of re-loading + re-validating it per project.
+            let valid_schema = match validated_schemas.get(&project.schema().as_key()) {
+                Some(Ok(schema)) => schema.as_ref(),
+                Some(Err(e)) => {
+                    eprintln!("{}", e.as_str().red());
+                    return Some(Err(()));
+                }
+                None => {
+                    eprintln!(
+                        "{}",
+                        format!("Schema {} was not validated", project.schema().as_key()).red()
+                    );
                     return Some(Err(()));
                 }
             };
 
             let project_context = match Engine::resolve_project_context(
-                &valid_schema,
+                valid_schema,
                 global_metadata,
                 &project_files,
             ) {

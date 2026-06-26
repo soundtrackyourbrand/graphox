@@ -12,42 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
-type ValidSchema = Arc<apollo_compiler::validation::Valid<apollo_compiler::Schema>>;
-
-/// Load + validate every distinct project schema once (in parallel), keyed by schema
-/// key. Projects sharing a schema reuse the same validated schema instead of each
-/// re-loading and re-validating it. Validation errors are stored and surfaced when
-/// the owning project is checked.
-fn build_validated_schemas(config: &Config) -> HashMap<String, Result<ValidSchema, String>> {
-    let mut seen = ahash::AHashSet::default();
-    let unique: Vec<(String, &SchemaSource)> = config
-        .projects()
-        .iter()
-        .filter_map(|p| {
-            let key = p.schema().as_key();
-            seen.insert(key.clone()).then_some((key, p.schema()))
-        })
-        .collect();
-
-    let pairs: Vec<(String, Result<ValidSchema, String>)> = unique
-        .into_par_iter()
-        .map(|(key, source)| {
-            let result = schema::load_schema_with_cache(
-                config.base_dir(),
-                source,
-                config.enable_schema_cache(),
-            )
-            .map_err(|e| format!("Failed to load schema {}: {}", source.as_key(), e))
-            .and_then(|s| {
-                s.validate()
-                    .map(Arc::new)
-                    .map_err(|e| format!("Invalid schema {}: {}", source.as_key(), e))
-            });
-            (key, result)
-        })
-        .collect();
-    pairs.into_iter().collect()
-}
+use super::{ValidSchema, build_validated_schemas};
 
 pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter>) {
     let mut success = true;
