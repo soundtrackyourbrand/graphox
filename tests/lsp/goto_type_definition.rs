@@ -150,7 +150,10 @@ async fn test_goto_type_definition_nested_field() {
         let line = codegen_text.lines().nth(3).unwrap();
         assert!(line.trim_start().starts_with("address?:"));
     } else {
-        panic!("Expected type definition of nested field address, got {:?}", result);
+        panic!(
+            "Expected type definition of nested field address, got {:?}",
+            result
+        );
     }
 }
 
@@ -167,8 +170,7 @@ async fn test_goto_type_definition_inline_fragment_field() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     // Cursor on `name`, which lives inside `... on User` (a union member in codegen).
-    let (query_text, position) =
-        with_cursor("query GetNode { node { ... on User { na|me } } }");
+    let (query_text, position) = with_cursor("query GetNode { node { ... on User { na|me } } }");
     let query_uri = write_project_file(&tmpdir, "query.graphql", &query_text);
 
     // `node` is a discriminated union; `name` only exists in the User member.
@@ -198,12 +200,18 @@ async fn test_goto_type_definition_inline_fragment_field() {
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
         assert_eq!(loc.uri, codegen_uri);
         // Must land on `name?:` inside the User member, not the Device member.
-        let line = codegen_text.lines().nth(loc.range.start.line as usize).unwrap();
+        let line = codegen_text
+            .lines()
+            .nth(loc.range.start.line as usize)
+            .unwrap();
         assert!(
             line.trim_start().starts_with("name?:"),
             "expected to land on `name?:`, got line: {line:?}"
         );
     } else {
-        panic!("Expected type definition of inline-fragment field name, got {:?}", result);
+        panic!(
+            "Expected type definition of inline-fragment field name, got {:?}",
+            result
+        );
     }
 }

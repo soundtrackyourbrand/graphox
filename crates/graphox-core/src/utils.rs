@@ -1408,11 +1408,13 @@ mod tests {
         assert!(is_path_ignored(&base.join("node_modules"), &matcher));
         // Nested rule in a non-ignored tree is honoured — this is the rule that
         // pruning the walk must not drop.
-        assert!(is_path_ignored(&base.join("src/generated.graphql"), &matcher));
+        assert!(is_path_ignored(
+            &base.join("src/generated.graphql"),
+            &matcher
+        ));
         // Regular source files are not ignored.
         assert!(!is_path_ignored(&base.join("src/query.graphql"), &matcher));
     }
-
 
     #[test]
     #[ntest::timeout(3000)]

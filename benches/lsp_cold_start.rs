@@ -21,10 +21,10 @@
 //! set of real project files, mirroring the shape of a TypeScript monorepo.
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use graphox::Config;
 use graphox::DocumentState;
 use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
 use graphox::document::DocumentLanguage;
-use graphox::Config;
 use graphox_lsp::backend::fragment_manager::collect_fragment_metadata;
 use graphox_lsp::backend::state::Backend;
 use graphox_lsp::backend::validation::is_schema_document_path;
@@ -162,8 +162,7 @@ fn bench_backend_startup(c: &mut Criterion) {
     // gitignore matcher build.
     group.bench_function("Backend::new (blocks initialize)", |b| {
         b.iter(|| {
-            let (service, _) =
-                LspService::new(|client| Backend::new(client, config.clone()));
+            let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
             // Keep the constructed backend alive across the measurement.
             std::hint::black_box(service.inner().documents.len());
         })
@@ -197,10 +196,15 @@ fn seed_backend(base: &Path, files: usize, frags_per_file: usize) -> Arc<Backend
         let uri = Url::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
         let mut content = format!("query GetUser{i} {{ user {{ ...Frag{i}_0 }} }}\n");
         for f in 0..frags_per_file {
-            content.push_str(&format!("fragment Frag{i}_{f} on User {{ id name email }}\n"));
+            content.push_str(&format!(
+                "fragment Frag{i}_{f} on User {{ id name email }}\n"
+            ));
         }
-        let doc =
-            DocumentState::new_from_thread_local(uri.clone(), &content, PositionEncodingKind::UTF16);
+        let doc = DocumentState::new_from_thread_local(
+            uri.clone(),
+            &content,
+            PositionEncodingKind::UTF16,
+        );
 
         let metadata = Arc::new(graphox::types::DocumentMetadata {
             fragments: doc.fragments.clone(),
@@ -416,7 +420,8 @@ fn generate_source_tree(
 }
 
 fn parse_and_keep(uri: &Url, content: &str) -> bool {
-    let doc = DocumentState::new_from_thread_local(uri.clone(), content, PositionEncodingKind::UTF16);
+    let doc =
+        DocumentState::new_from_thread_local(uri.clone(), content, PositionEncodingKind::UTF16);
     !doc.get_graphql_trees().is_empty() || uri.path().ends_with(".graphql")
 }
 

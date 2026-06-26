@@ -1024,8 +1024,7 @@ pub static PERF_MEMORY_MUTEX: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
 /// Takes multiple samples and returns the minimum to filter out temporary spikes.
 /// Live heap bytes (allocated minus freed) seen by [`TrackingAllocator`].
 /// Reads as zero in binaries that do not install the tracking allocator.
-pub static LIVE_HEAP_BYTES: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+pub static LIVE_HEAP_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// A `System`-backed global allocator that records the number of live heap
 /// bytes in [`LIVE_HEAP_BYTES`]. A test binary opts in by declaring it as its
@@ -1056,20 +1055,19 @@ unsafe impl std::alloc::GlobalAlloc for TrackingAllocator {
         ptr
     }
 
-    unsafe fn realloc(
-        &self,
-        ptr: *mut u8,
-        layout: std::alloc::Layout,
-        new_size: usize,
-    ) -> *mut u8 {
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
         let new_ptr = unsafe { std::alloc::System.realloc(ptr, layout, new_size) };
         if !new_ptr.is_null() {
             if new_size >= layout.size() {
-                LIVE_HEAP_BYTES
-                    .fetch_add(new_size - layout.size(), std::sync::atomic::Ordering::Relaxed);
+                LIVE_HEAP_BYTES.fetch_add(
+                    new_size - layout.size(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
             } else {
-                LIVE_HEAP_BYTES
-                    .fetch_sub(layout.size() - new_size, std::sync::atomic::Ordering::Relaxed);
+                LIVE_HEAP_BYTES.fetch_sub(
+                    layout.size() - new_size,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
             }
         }
         new_ptr

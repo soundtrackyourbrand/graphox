@@ -304,7 +304,11 @@ fn enclosing_field_path(doc: &DocumentState, node: Node, offset: usize) -> Optio
 }
 
 /// The type condition of an inline fragment (`... on Type` → `Type`), if any.
-fn inline_fragment_type_condition(doc: &DocumentState, node: Node, offset: usize) -> Option<String> {
+fn inline_fragment_type_condition(
+    doc: &DocumentState,
+    node: Node,
+    offset: usize,
+) -> Option<String> {
     doc.find_child_by_kind(node, "type_condition")
         .and_then(|tc| doc.find_child_by_kind(tc, "named_type"))
         .and_then(|nt| doc.find_child_by_kind(nt, "name"))
@@ -407,9 +411,9 @@ fn find_field_property(content: &str, root_type: &str, path: &[PathStep]) -> Opt
 fn object_body_of(content: &str, scope: &Scope) -> Option<(usize, usize)> {
     match *scope {
         Scope::Object { start, end } => Some((start, end)),
-        Scope::Value { start, end } => {
-            top_level_object_blocks(content, start, end).into_iter().next()
-        }
+        Scope::Value { start, end } => top_level_object_blocks(content, start, end)
+            .into_iter()
+            .next(),
     }
 }
 
@@ -819,8 +823,6 @@ export type AlbumQueryVariables = Exact<{
         // would be None.
         assert_eq!(ident_at(SAMPLE, r), "album");
         // And the Variables type genuinely lacks it.
-        assert!(
-            find_field_property(SAMPLE, "AlbumQueryVariables", &path(&["album"])).is_none()
-        );
+        assert!(find_field_property(SAMPLE, "AlbumQueryVariables", &path(&["album"])).is_none());
     }
 }

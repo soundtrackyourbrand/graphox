@@ -673,7 +673,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let base = dir.path();
 
-        write_aged_cache_file(base, "schema-old.cache", 10, Duration::from_secs(20 * 86400));
+        write_aged_cache_file(
+            base,
+            "schema-old.cache",
+            10,
+            Duration::from_secs(20 * 86400),
+        );
         write_aged_cache_file(base, "schema-new.cache", 10, Duration::from_secs(60));
         // A non-owned file and the throttle marker must never be touched.
         fs::write(base.join("unrelated.txt"), b"keep me").unwrap();
@@ -700,7 +705,10 @@ mod tests {
 
         prune_cache_dir(base, None, Some(2 * 1024)).unwrap();
 
-        assert!(!base.join("schema-c.cache").exists(), "oldest evicted first");
+        assert!(
+            !base.join("schema-c.cache").exists(),
+            "oldest evicted first"
+        );
         assert!(base.join("schema-a.cache").exists(), "newest kept");
         assert!(base.join("schema-b.cache").exists(), "second-newest kept");
 
