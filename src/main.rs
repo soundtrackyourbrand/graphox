@@ -58,6 +58,11 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    // Best-effort, throttled cleanup of the on-disk schema cache so it can't grow
+    // without bound (runs on a background thread; no-op if pruned recently).
+    graphox_core::schema_cache::prune_cache_if_due();
+
     let config = Config::load();
 
     match cli.command {

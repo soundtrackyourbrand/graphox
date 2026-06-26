@@ -9,8 +9,10 @@ cargo-build:
 	cargo build
 
 ## cargo-test: Run Rust tests
+# Isolate the schema cache under target/ (cleaned by `cargo clean`) so tests never
+# pollute the shared ~/Library/Caches/graphox.
 cargo-test:
-	cargo test --workspace
+	GRAPHOX_CACHE_DIR=$(CURDIR)/target/graphox-test-cache cargo test --workspace
 
 ## swc-build: Build SWC plugin (WASM + TypeScript)
 swc-build:
@@ -36,7 +38,7 @@ test: cargo-test swc-test babel-test
 
 ## benchmark: Run benchmark suit
 benchmark:
-	cargo bench --features bench
+	GRAPHOX_CACHE_DIR=$(CURDIR)/target/graphox-bench-cache cargo bench --features bench
 
 ## update-baselines: Update all test baseline files from current codegen output
 update-baselines: cargo-build

@@ -314,6 +314,140 @@ fn get_cache_dir() -> PathBuf {
     }
 }
 
+/// Default age after which a cache entry is eligible for pruning.
+const DEFAULT_CACHE_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+/// Default cap on the total size of the disk cache.
+const DEFAULT_CACHE_MAX_SIZE: u64 = 256 * 1024 * 1024;
+/// Minimum time between automatic prunes.
+const PRUNE_THROTTLE: Duration = Duration::from_secs(24 * 60 * 60);
+/// Marker file recording when the cache was last pruned (throttling).
+const PRUNE_MARKER: &str = ".last-prune";
+
+/// Whether a directory entry is a cache file this module owns (so pruning never
+/// touches the marker or unrelated files). Covers both `schema-<hash>.cache` and
+/// its transient `.tmp` siblings from interrupted writes.
+fn is_prunable_cache_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with("schema-"))
+}
+
+fn env_u64(name: &str) -> Option<u64> {
+    std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
+}
+
+/// Prune the cache files in `cache_dir`: first remove entries older than `max_age`,
+/// then, if the total size still exceeds `max_total_bytes`, remove the oldest
+/// entries until it fits. `None` disables the corresponding pass. Best-effort:
+/// per-file I/O errors are ignored.
+fn prune_cache_dir(
+    cache_dir: &Path,
+    max_age: Option<Duration>,
+    max_total_bytes: Option<u64>,
+) -> io::Result<()> {
+    if !cache_dir.exists() {
+        return Ok(());
+    }
+    let now = SystemTime::now();
+
+    struct Entry {
+        path: PathBuf,
+        size: u64,
+        mtime: SystemTime,
+    }
+    let mut survivors: Vec<Entry> = Vec::new();
+
+    for dent in fs::read_dir(cache_dir)? {
+        let Ok(dent) = dent else { continue };
+        let path = dent.path();
+        if !is_prunable_cache_file(&path) {
+            continue;
+        }
+        let Ok(meta) = dent.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let mtime = meta.modified().unwrap_or(now);
+
+        // Age pass: drop anything older than the cutoff.
+        if let Some(max_age) = max_age
+            && now
+                .duration_since(mtime)
+                .map(|age| age > max_age)
+                .unwrap_or(false)
+        {
+            try_remove_file(&path);
+            continue;
+        }
+        survivors.push(Entry {
+            path,
+            size: meta.len(),
+            mtime,
+        });
+    }
+
+    // Size pass: evict oldest-first until under the cap.
+    if let Some(cap) = max_total_bytes {
+        let mut total: u64 = survivors.iter().map(|e| e.size).sum();
+        if total > cap {
+            survivors.sort_by_key(|e| e.mtime); // oldest first
+            for entry in &survivors {
+                if total <= cap {
+                    break;
+                }
+                if fs::remove_file(&entry.path).is_ok() {
+                    total = total.saturating_sub(entry.size);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort, throttled prune of the on-disk schema cache so it cannot grow
+/// without bound. Returns immediately; the sweep runs on a detached thread so it
+/// never blocks startup. It runs at most once per [`PRUNE_THROTTLE`], tracked by
+/// the mtime of a marker file in the cache directory.
+///
+/// Tunable via env vars (`0` disables that pass):
+/// - `GRAPHOX_CACHE_MAX_AGE_DAYS` (default 14)
+/// - `GRAPHOX_CACHE_MAX_SIZE_MB` (default 256)
+pub fn prune_cache_if_due() {
+    std::thread::spawn(|| {
+        let cache_dir = get_cache_dir();
+        if !cache_dir.exists() {
+            return;
+        }
+
+        // Throttle: skip if we pruned within the throttle window.
+        let marker = cache_dir.join(PRUNE_MARKER);
+        if let Ok(meta) = fs::metadata(&marker)
+            && let Ok(mtime) = meta.modified()
+            && SystemTime::now()
+                .duration_since(mtime)
+                .map(|since| since < PRUNE_THROTTLE)
+                .unwrap_or(false)
+        {
+            return;
+        }
+        // Claim this window up front so co-starting processes don't all sweep.
+        let _ = fs::write(&marker, b"");
+
+        let max_age = match env_u64("GRAPHOX_CACHE_MAX_AGE_DAYS") {
+            Some(0) => None,
+            Some(days) => Some(Duration::from_secs(days.saturating_mul(24 * 60 * 60))),
+            None => Some(DEFAULT_CACHE_MAX_AGE),
+        };
+        let max_size = match env_u64("GRAPHOX_CACHE_MAX_SIZE_MB") {
+            Some(0) => None,
+            Some(mb) => Some(mb.saturating_mul(1024 * 1024)),
+            None => Some(DEFAULT_CACHE_MAX_SIZE),
+        };
+
+        let _ = prune_cache_dir(&cache_dir, max_age, max_size);
+    });
+}
+
 fn get_cache_path(base_dir: &Path, source: &SchemaSource) -> PathBuf {
     let cache_dir = get_cache_dir();
     let key = make_cache_key(base_dir, source);
@@ -522,6 +656,70 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;
+
+    /// Write a fake cache file of `size` bytes, aged `age` in the past.
+    fn write_aged_cache_file(dir: &Path, name: &str, size: usize, age: Duration) {
+        let path = dir.join(name);
+        fs::write(&path, vec![b'x'; size]).unwrap();
+        let when = SystemTime::now() - age;
+        let f = OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_times(std::fs::FileTimes::new().set_modified(when))
+            .unwrap();
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn prune_cache_dir_removes_entries_older_than_max_age() {
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+
+        write_aged_cache_file(base, "schema-old.cache", 10, Duration::from_secs(20 * 86400));
+        write_aged_cache_file(base, "schema-new.cache", 10, Duration::from_secs(60));
+        // A non-owned file and the throttle marker must never be touched.
+        fs::write(base.join("unrelated.txt"), b"keep me").unwrap();
+        fs::write(base.join(PRUNE_MARKER), b"").unwrap();
+
+        prune_cache_dir(base, Some(Duration::from_secs(14 * 86400)), None).unwrap();
+
+        assert!(!base.join("schema-old.cache").exists(), "old entry pruned");
+        assert!(base.join("schema-new.cache").exists(), "fresh entry kept");
+        assert!(base.join("unrelated.txt").exists(), "non-cache file kept");
+        assert!(base.join(PRUNE_MARKER).exists(), "marker kept");
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn prune_cache_dir_enforces_size_cap_oldest_first() {
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+
+        // Three 1 KiB entries, ascending age (c oldest). Cap at 2 KiB → c evicted.
+        write_aged_cache_file(base, "schema-a.cache", 1024, Duration::from_secs(60));
+        write_aged_cache_file(base, "schema-b.cache", 1024, Duration::from_secs(120));
+        write_aged_cache_file(base, "schema-c.cache", 1024, Duration::from_secs(600));
+
+        prune_cache_dir(base, None, Some(2 * 1024)).unwrap();
+
+        assert!(!base.join("schema-c.cache").exists(), "oldest evicted first");
+        assert!(base.join("schema-a.cache").exists(), "newest kept");
+        assert!(base.join("schema-b.cache").exists(), "second-newest kept");
+
+        let total: u64 = fs::read_dir(base)
+            .unwrap()
+            .flatten()
+            .filter(|e| is_prunable_cache_file(&e.path()))
+            .map(|e| e.metadata().unwrap().len())
+            .sum();
+        assert!(total <= 2 * 1024, "total within cap: {total}");
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn prune_cache_dir_missing_dir_is_ok() {
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        prune_cache_dir(&missing, Some(Duration::from_secs(1)), Some(1)).unwrap();
+    }
 
     #[test]
     #[ntest::timeout(300)]
