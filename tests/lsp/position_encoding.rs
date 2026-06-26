@@ -118,6 +118,7 @@ async fn test_position_encoding_negotiation_utf32() {
                     CodeActionKind::QUICKFIX,
                     CodeActionKind::REFACTOR_EXTRACT,
                     CodeActionKind::SOURCE_FIX_ALL,
+                    CodeActionKind::new("source.fixAll.graphox"),
                 ]),
                 "Server should advertise supported code action kinds"
             );

@@ -145,6 +145,7 @@ pub fn build_server_capabilities(client_caps: &ClientCapabilities) -> ServerCapa
                 CodeActionKind::QUICKFIX,
                 CodeActionKind::REFACTOR_EXTRACT,
                 CodeActionKind::SOURCE_FIX_ALL,
+                graphox_features::code_actions::SOURCE_FIX_ALL_GRAPHOX,
             ]),
             work_done_progress_options: Default::default(),
             resolve_provider: Some(false),

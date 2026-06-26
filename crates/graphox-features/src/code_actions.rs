@@ -1,6 +1,13 @@
 use graphox_core::document::DocumentState;
 use lsp_types::*;
 
+/// Code action kind for Graphox's on-save GraphQL formatting. Namespaced under
+/// `source.fixAll` so `editor.codeActionsOnSave` applies it whether the user
+/// configures `source`, `source.fixAll`, or the specific `source.fixAll.graphox`
+/// (VS Code matches an action when the requested kind is the action's kind or a
+/// parent of it).
+pub const SOURCE_FIX_ALL_GRAPHOX: CodeActionKind = CodeActionKind::new("source.fixAll.graphox");
+
 enum PreservedComment {
     Standalone {
         anchor: Option<String>,
@@ -291,7 +298,7 @@ impl DocumentCodeActions for DocumentState {
 
                 return Some(CodeAction {
                     title: "Format GraphQL".to_string(),
-                    kind: Some(CodeActionKind::SOURCE_FIX_ALL),
+                    kind: Some(SOURCE_FIX_ALL_GRAPHOX),
                     edit: Some(WorkspaceEdit {
                         changes: Some(changes),
                         ..Default::default()

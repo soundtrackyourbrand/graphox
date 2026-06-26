@@ -158,22 +158,72 @@ async fn test_source_only() {
     for action in &actions {
         if let CodeActionOrCommand::CodeAction(ca) = action {
             assert!(
-                ca.kind.is_some()
-                    && (ca.kind == Some(CodeActionKind::SOURCE_FIX_ALL)
-                        || ca.kind == Some(CodeActionKind::SOURCE)),
+                ca.kind
+                    .as_ref()
+                    .is_some_and(|k| k.as_str().starts_with("source")),
                 "Expected only SOURCE actions, but got: {:?}",
                 ca.kind
             );
         }
     }
 
+    // Requesting the parent `source.fixAll` still returns our action, which is
+    // namespaced as `source.fixAll.graphox` (a sub-kind VS Code accepts on save).
     let ca = find_code_action_by_title(&actions, "Format GraphQL")
         .expect("Should find 'Format GraphQL' action");
     assert_eq!(
         ca.kind,
-        Some(CodeActionKind::SOURCE_FIX_ALL),
-        "Format GraphQL should be a SOURCE_FIX_ALL action"
+        Some(CodeActionKind::new("source.fixAll.graphox")),
+        "Format GraphQL should be a source.fixAll.graphox action"
     );
+}
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_specific_source_fix_all_graphox_kind_returns_format_action() {
+    // Regression: configuring the specific `source.fixAll.graphox` in
+    // editor.codeActionsOnSave must still return the Format GraphQL action (it used
+    // to early-bail because matching only recognised the parent `source.fixAll`).
+    let schema = "type Query { user: User } type User { id: ID! }";
+    let (dir, config) = make_temp_project_with_schema(schema, "**/*.tsx");
+    let (mut service, _) = create_initialized_lsp_service(config).await;
+
+    let tsx_text = "const q = gql`query{user{id}}`";
+    let tsx_uri = write_project_file(&dir, "Component.tsx", tsx_text);
+    lsp_did_open(
+        &mut service,
+        tsx_uri.clone(),
+        "typescriptreact",
+        1,
+        tsx_text,
+    )
+    .await;
+
+    let range = Range {
+        start: Position::new(0, 14),
+        end: Position::new(0, 14),
+    };
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier {
+            uri: tsx_uri.clone(),
+        },
+        range,
+        context: CodeActionContext {
+            diagnostics: vec![],
+            only: Some(vec![CodeActionKind::new("source.fixAll.graphox")]),
+            trigger_kind: None,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+
+    let actions = lsp_request_code_actions(&mut service, params, 1)
+        .await
+        .expect("Expected actions");
+
+    let ca = find_code_action_by_title(&actions, "Format GraphQL")
+        .expect("source.fixAll.graphox must return the Format GraphQL action");
+    assert_eq!(ca.kind, Some(CodeActionKind::new("source.fixAll.graphox")));
 }
 
 #[tokio::test]

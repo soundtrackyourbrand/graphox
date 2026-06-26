@@ -1,6 +1,6 @@
 use crate::backend::state::Backend;
 use ahash::AHashSet;
-use graphox_features::code_actions::DocumentCodeActions;
+use graphox_features::code_actions::{DocumentCodeActions, SOURCE_FIX_ALL_GRAPHOX};
 
 use tower_lsp::jsonrpc::{Error, Result};
 use tower_lsp::lsp_types::*;
@@ -24,30 +24,26 @@ pub async fn handle_code_action(
         .with_tracing("code_action", async move {
             let uri = &params.text_document.uri;
             let requested_kinds = params.context.only.clone().unwrap_or_default();
-            if !requested_kinds.is_empty()
-                && !requested_kinds.iter().any(|kind| {
-                    action_kind_matches(CodeActionKind::QUICKFIX, std::slice::from_ref(kind))
-                        || action_kind_matches(
-                            CodeActionKind::REFACTOR_EXTRACT,
-                            std::slice::from_ref(kind),
-                        )
-                        || action_kind_matches(
-                            CodeActionKind::SOURCE_FIX_ALL,
-                            std::slice::from_ref(kind),
-                        )
-                })
-            {
+            let no_filter = requested_kinds.is_empty();
+
+            let include_quickfix =
+                no_filter || action_kind_matches(CodeActionKind::QUICKFIX, &requested_kinds);
+            let include_refactor = no_filter
+                || action_kind_matches(CodeActionKind::REFACTOR_EXTRACT, &requested_kinds);
+            // Match against the concrete kind we actually emit (`source.fixAll.graphox`).
+            // Because `action_kind_matches` treats a request for a parent kind as
+            // matching its sub-kinds, this is requested by `source`, `source.fixAll`,
+            // AND the specific `source.fixAll.graphox` — the last of which the previous
+            // `SOURCE_FIX_ALL`-only check missed, so on-save formatting was skipped.
+            let include_source =
+                no_filter || action_kind_matches(SOURCE_FIX_ALL_GRAPHOX, &requested_kinds);
+
+            if !include_quickfix && !include_refactor && !include_source {
                 return Ok(None);
             }
 
             let mut actions = Vec::new();
             let mut seen_diagnostics = AHashSet::default();
-            let include_quickfix = requested_kinds.is_empty()
-                || action_kind_matches(CodeActionKind::QUICKFIX, &requested_kinds);
-            let include_refactor = requested_kinds.is_empty()
-                || action_kind_matches(CodeActionKind::REFACTOR_EXTRACT, &requested_kinds);
-            let include_source = requested_kinds.is_empty()
-                || action_kind_matches(CodeActionKind::SOURCE_FIX_ALL, &requested_kinds);
             let doc = backend.documents.get(uri).map(|r| r.value().clone());
 
             // 1. Diagnostics-based fixes
