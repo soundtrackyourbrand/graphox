@@ -171,6 +171,21 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                 }
 
                 let uri = Url::from_file_path(&path).ok()?;
+
+                // Cheap pre-filter: a host-language file (.ts/.tsx) that contains no
+                // `gql`/`graphql` marker cannot hold embedded GraphQL, so skip the full
+                // tree-sitter parse. Without this we tree-sitter-parse every source file
+                // in the repo (thousands of them) only to discard the ~90% with no
+                // GraphQL — this mirrors what `Engine::scan_workspace` already does.
+                if graphox_core::document::DocumentLanguage::from_uri(&uri).is_host_language() {
+                    let bytes = content.as_bytes();
+                    let has_gql = bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+                        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"));
+                    if !has_gql {
+                        return None;
+                    }
+                }
+
                 let doc =
                     DocumentState::new_from_thread_local(uri, &content, position_encoding.clone());
 
@@ -212,13 +227,23 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         .report("Re-loading project schemas...".to_string(), Some(20))
         .await;
 
-    // Pre-load project schemas BEFORE indexing documents to ensure they are available for validation
+    // Pre-load project schemas BEFORE indexing documents to ensure they are available
+    // for validation.
+    //
+    // `Backend::new` (startup) and `reload_config` (config change) both load and
+    // validate every project schema into `validated_schemas` before this scan is
+    // spawned. Re-parsing and re-validating those (often large) schemas here is pure
+    // duplicate work, so skip any schema already present. `bypass_cache` callers
+    // explicitly want a fresh read, so they still reload.
     for project in params.config.projects() {
         if cancelled.load(Ordering::Relaxed) {
             return;
         }
 
         let key = project.schema().as_key();
+        if !params.bypass_cache && params.validated_schemas.contains_key(&key) {
+            continue;
+        }
         let use_cache = if params.bypass_cache {
             false
         } else {

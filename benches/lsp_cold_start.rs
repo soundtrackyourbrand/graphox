@@ -23,6 +23,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use graphox::DocumentState;
 use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+use graphox::document::DocumentLanguage;
 use graphox::Config;
 use graphox_lsp::backend::fragment_manager::collect_fragment_metadata;
 use graphox_lsp::backend::state::Backend;
@@ -359,12 +360,123 @@ fn bench_document_classification(c: &mut Criterion) {
     group.finish();
 }
 
+/// A parsed candidate file the workspace scan considers: its URI, its content, and
+/// whether it is a host language (.ts/.tsx) file.
+type Candidate = (Url, String, bool);
+
+/// Build a source tree shaped like a real frontend repo: mostly host-language files
+/// with no GraphQL, a minority with embedded `gql` tags, and some `.graphql` files.
+fn generate_source_tree(
+    base: &Path,
+    host_without_gql: usize,
+    host_with_gql: usize,
+    graphql_files: usize,
+) -> Vec<Candidate> {
+    let dir = base.join("src");
+    fs::create_dir_all(&dir).unwrap();
+    let mut candidates = Vec::new();
+
+    let mut push = |path: PathBuf, content: String| {
+        let uri = Url::from_file_path(&path).unwrap();
+        let is_host = DocumentLanguage::from_uri(&uri).is_host_language();
+        candidates.push((uri, content, is_host));
+    };
+
+    // Typical app/component code with no GraphQL at all.
+    for i in 0..host_without_gql {
+        let p = dir.join(format!("mod_{i}.ts"));
+        let content = format!(
+            "export function helper{i}(x: number): number {{\n  return x * {i} + 1;\n}}\n\
+             export const NAME_{i} = \"component_{i}\";\n"
+        );
+        fs::write(&p, &content).unwrap();
+        push(p, content);
+    }
+
+    // Host files that actually embed GraphQL.
+    for i in 0..host_with_gql {
+        let p = dir.join(format!("query_{i}.ts"));
+        let content = format!(
+            "import {{ gql }} from '@apollo/client';\n\
+             export const Q{i} = gql`query Q{i} {{ user {{ id name }} }}`;\n"
+        );
+        fs::write(&p, &content).unwrap();
+        push(p, content);
+    }
+
+    // Standalone .graphql files.
+    for i in 0..graphql_files {
+        let p = dir.join(format!("frag_{i}.graphql"));
+        let content = format!("fragment F{i} on User {{ id name }}\n");
+        fs::write(&p, &content).unwrap();
+        push(p, content);
+    }
+
+    candidates
+}
+
+fn parse_and_keep(uri: &Url, content: &str) -> bool {
+    let doc = DocumentState::new_from_thread_local(uri.clone(), content, PositionEncodingKind::UTF16);
+    !doc.get_graphql_trees().is_empty() || uri.path().ends_with(".graphql")
+}
+
+/// The workspace scan tree-sitter-parses every candidate file. The vast majority of
+/// a real repo's source files contain no GraphQL, so a cheap `gql` substring check
+/// before the full parse avoids thousands of wasted parses. This benchmark compares
+/// parsing every file vs the substring-prefiltered approach over a realistic mix, so
+/// the optimization can't silently regress.
+fn bench_workspace_parse(c: &mut Criterion) {
+    let dir = tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    // ~90% of host files have no GraphQL, mirroring a real frontend repo.
+    let candidates = generate_source_tree(&base, 1500, 120, 60);
+
+    let mut group = c.benchmark_group("Workspace Parse");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(300));
+    group.measurement_time(Duration::from_millis(2000));
+
+    group.bench_function("parse_all (no prefilter)", |b| {
+        b.iter(|| {
+            let mut kept = 0usize;
+            for (uri, content, _is_host) in &candidates {
+                if parse_and_keep(uri, content) {
+                    kept += 1;
+                }
+            }
+            black_box(kept)
+        })
+    });
+
+    group.bench_function("prefiltered (gql substring)", |b| {
+        b.iter(|| {
+            let mut kept = 0usize;
+            for (uri, content, is_host) in &candidates {
+                if *is_host {
+                    let bytes = content.as_bytes();
+                    let has_gql = bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+                        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"));
+                    if !has_gql {
+                        continue;
+                    }
+                }
+                if parse_and_keep(uri, content) {
+                    kept += 1;
+                }
+            }
+            black_box(kept)
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default()
         .warm_up_time(Duration::from_millis(500))
         .measurement_time(Duration::from_millis(2000));
     targets = bench_gitignore_matcher, bench_backend_startup, bench_fragment_metadata,
-        bench_document_classification
+        bench_document_classification, bench_workspace_parse
 );
 criterion_main!(benches);
