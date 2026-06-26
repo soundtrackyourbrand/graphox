@@ -108,6 +108,10 @@ pub struct Backend {
     /// Debounces and batches `workspace/didChangeWatchedFiles` bursts (pulls,
     /// branch switches) so they are processed in a single pass.
     pub watched_files_debouncer: Arc<super::watched_files_debouncer::WatchedFilesDebouncer>,
+    /// Caches codegen's workspace metadata (filesystem walk + fragment metadata),
+    /// keyed by workspace version, so back-to-back codegen runs for operation-body
+    /// edits don't redo a full-workspace scan. See [`super::codegen_runner::CodegenMetadataCache`].
+    pub codegen_metadata_cache: super::codegen_runner::CodegenMetadataCache,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
     /// Reuse cache for the no-SLO fragment list built during validation, keyed by
@@ -228,6 +232,8 @@ impl Backend {
                 super::watched_files_debouncer::WatchedFilesDebouncer::new(this.clone()),
             );
 
+            let codegen_metadata_cache = Arc::new(std::sync::RwLock::new(None));
+
             Self {
                 client,
                 documents,
@@ -254,6 +260,7 @@ impl Backend {
                 last_full_validation_version,
                 codegen_throttle,
                 watched_files_debouncer,
+                codegen_metadata_cache,
                 fragment_metadata_cache,
                 validation_fragment_cache,
                 configured_document_uris_cache,
@@ -665,6 +672,10 @@ impl Backend {
 
         // Clear fragment metadata cache
         self.invalidate_fragment_cache();
+        // Clear codegen metadata cache (project set / fragment metadata may change)
+        if let Ok(mut cache) = self.codegen_metadata_cache.write() {
+            *cache = None;
+        }
 
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();
@@ -848,6 +859,10 @@ impl Backend {
             supports_progress,
             None,
             self.get_position_encoding(),
+            Some((
+                self.workspace_version.load(Ordering::SeqCst),
+                self.codegen_metadata_cache.clone(),
+            )),
         )
         .await;
     }
@@ -862,6 +877,10 @@ impl Backend {
 
         // Clear fragment metadata cache
         self.invalidate_fragment_cache();
+        // Clear codegen metadata cache (project set / fragment metadata may change)
+        if let Ok(mut cache) = self.codegen_metadata_cache.write() {
+            *cache = None;
+        }
 
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();

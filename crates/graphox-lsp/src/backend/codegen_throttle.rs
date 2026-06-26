@@ -44,6 +44,8 @@ impl CodegenThrottle {
                     documents,
                     supports_progress,
                     position_encoding,
+                    workspace_version,
+                    codegen_metadata_cache,
                 ) = {
                     if let Some(backend) = backend_weak.upgrade() {
                         let cfg = backend.config.read().unwrap();
@@ -59,6 +61,8 @@ impl CodegenThrottle {
                                 .unwrap()
                                 .supports_progress,
                             backend.get_position_encoding(),
+                            backend.workspace_version.clone(),
+                            backend.codegen_metadata_cache.clone(),
                         )
                     } else {
                         break;
@@ -112,7 +116,10 @@ impl CodegenThrottle {
                     Some(projects_to_run)
                 };
 
-                // Run codegen
+                // Run codegen. Read the workspace version as late as possible (after
+                // draining queued requests) so the metadata cache is keyed on the
+                // state codegen actually runs against.
+                let version = workspace_version.load(std::sync::atomic::Ordering::SeqCst);
                 super::codegen_runner::run_codegen(
                     client,
                     config,
@@ -121,6 +128,7 @@ impl CodegenThrottle {
                     supports_progress,
                     final_projects,
                     position_encoding,
+                    Some((version, codegen_metadata_cache)),
                 )
                 .await;
 

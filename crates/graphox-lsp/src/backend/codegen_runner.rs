@@ -14,6 +14,43 @@ use tower_lsp::lsp_types::{MessageType, Url};
 
 type RunDocumentCache = HashMap<Url, Arc<graphox_core::DocumentState>>;
 
+/// The workspace-wide codegen inputs that depend only on the set of files and their
+/// fragment definitions: the global fragment metadata (for cross-project fragment
+/// resolution) and the per-project file lists (from the filesystem walk). Both are
+/// expensive to recompute (a filesystem walk per project + fragment extraction +
+/// transitive-dependency computation across the whole workspace), so they are cached
+/// and reused while the workspace is unchanged.
+pub struct CodegenMetadata {
+    pub global_metadata: Vec<graphox_core::engine::FragmentMetadata>,
+    pub project_files_by_index: Vec<Vec<PathBuf>>,
+}
+
+/// Caches [`CodegenMetadata`] keyed by the workspace version. The key is sound
+/// because the workspace version bumps on every change that can affect the file set
+/// or any fragment definition (adds/removes, fragment edits) — while a pure
+/// operation-body edit, the common case, leaves it untouched, so back-to-back
+/// codegen runs for query edits reuse the cached walk + metadata instead of redoing
+/// a full-workspace scan each time.
+pub type CodegenMetadataCache = Arc<std::sync::RwLock<Option<(usize, Arc<CodegenMetadata>)>>>;
+
+/// Parses every project file that is not already an in-memory document, so the
+/// generation pass has a `DocumentState` for each. Used on a metadata cache hit,
+/// where the (cached) metadata was built without producing a fresh document cache.
+/// Only files absent from `documents` (e.g. opened-then-closed) are read from disk.
+fn build_run_cache(
+    project_files_by_index: &[Vec<PathBuf>],
+    documents: &DocumentsMap,
+    position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
+) -> RunDocumentCache {
+    let mut run_cache = RunDocumentCache::new();
+    for project_files in project_files_by_index {
+        for path in project_files {
+            let _ = load_or_parse_document(path, documents, &mut run_cache, position_encoding);
+        }
+    }
+    run_cache
+}
+
 fn load_or_parse_document(
     path: &Path,
     documents: &DocumentsMap,
@@ -57,7 +94,7 @@ fn get_document_for_codegen(
         .or_else(|| run_cache.get(&uri).cloned())
 }
 
-fn collect_codegen_metadata(
+pub fn collect_codegen_metadata(
     config: &Config,
     documents: &DocumentsMap,
     position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
@@ -123,6 +160,7 @@ pub async fn run_codegen(
     supports_progress: bool,
     projects_to_run: Option<HashSet<String>>,
     position_encoding: tower_lsp::lsp_types::PositionEncodingKind,
+    metadata_cache: Option<(usize, CodegenMetadataCache)>,
 ) {
     // Create progress reporter
     let progress = super::progress::ProgressReporter::new(
@@ -136,8 +174,43 @@ pub async fn run_codegen(
         .report("Preparing codegen metadata...", Some(5))
         .await;
 
-    let (global_metadata, project_files_by_index, run_cache) =
-        collect_codegen_metadata(&config, &documents, &position_encoding);
+    // Reuse the cached workspace metadata (filesystem walk + fragment metadata) when
+    // the workspace version is unchanged; otherwise rebuild and re-cache it. The
+    // per-run document cache for closed files is always (re)built since it isn't kept
+    // in the version cache.
+    let cached_hit = metadata_cache.as_ref().and_then(|(version, cache)| {
+        cache.read().ok().and_then(|guard| {
+            guard
+                .as_ref()
+                .filter(|(v, _)| v == version)
+                .map(|(_, m)| m.clone())
+        })
+    });
+
+    let (metadata, run_cache) = if let Some(metadata) = cached_hit {
+        let run_cache = build_run_cache(
+            &metadata.project_files_by_index,
+            &documents,
+            &position_encoding,
+        );
+        (metadata, run_cache)
+    } else {
+        let (global_metadata, project_files_by_index, run_cache) =
+            collect_codegen_metadata(&config, &documents, &position_encoding);
+        let metadata = Arc::new(CodegenMetadata {
+            global_metadata,
+            project_files_by_index,
+        });
+        if let Some((version, cache)) = &metadata_cache
+            && let Ok(mut guard) = cache.write()
+        {
+            *guard = Some((*version, metadata.clone()));
+        }
+        (metadata, run_cache)
+    };
+
+    let global_metadata = &metadata.global_metadata;
+    let project_files_by_index = &metadata.project_files_by_index;
 
     // Identify which projects to run
     let projects_configs: Vec<_> = config
@@ -249,7 +322,7 @@ pub async fn run_codegen(
 
         let project_context = match graphox_core::engine::Engine::resolve_project_context(
             &valid_schema,
-            &global_metadata,
+            global_metadata,
             project_files,
         ) {
             Ok(ctx) => ctx,

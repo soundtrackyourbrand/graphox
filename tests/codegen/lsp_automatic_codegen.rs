@@ -1500,6 +1500,106 @@ async fn test_watched_file_deletion_regenerates_cross_project_consumers() {
     );
 }
 
+/// The codegen metadata cache is keyed on the workspace version, which an
+/// operation-body edit does NOT bump (no fragment/spread/operation-name change).
+/// Such an edit therefore hits the cache — so codegen must still pick up the edited
+/// operation body from the live document map, not serve stale output.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_codegen_metadata_cache_serves_fresh_operation_body() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+    let query_path = base_dir.join("query.graphql");
+    fs::write(&query_path, "query GetMe { me { id } }").unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("query.graphql".to_string())),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let gen_path = base_dir.join("query.codegen.ts");
+
+    // First run populates the metadata cache.
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: query_uri.clone(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: "query GetMe { me { id } }".to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        support::wait_for_file_async(&gen_path, Duration::from_millis(3000), Some("GetMe")).await
+    );
+    assert!(
+        !fs::read_to_string(&gen_path)
+            .unwrap()
+            .contains("name: string | null")
+    );
+
+    // Add a field to the SAME operation (no rename, no fragments): this does not bump
+    // the workspace version, so the next codegen run reuses the cached metadata.
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: query_uri.clone(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: "query GetMe { me { id name } }".to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    // The cache hit must still produce the edited body from the live document.
+    assert!(
+        support::wait_for_file_async(
+            &gen_path,
+            Duration::from_millis(3000),
+            Some("name: string | null"),
+        )
+        .await,
+        "A cache-hit codegen run must reflect the edited operation body. Output:\n{}",
+        fs::read_to_string(&gen_path).unwrap_or_default()
+    );
+}
+
 async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

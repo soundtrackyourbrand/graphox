@@ -47,8 +47,11 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
     // Seed some documents
     let num_docs = 50;
     for i in 0..num_docs {
-        let uri = Url::from_file_path(base_dir.join(format!("doc_{}.graphql", i))).unwrap();
+        let doc_path = base_dir.join(format!("doc_{}.graphql", i));
+        let uri = Url::from_file_path(&doc_path).unwrap();
         let content = format!("query GetUser{} {{ user {{ id name }} }}", i);
+        // Write to disk too so codegen's filesystem walk has realistic work.
+        std::fs::write(&doc_path, &content).unwrap();
         let doc = graphox_core::DocumentState::new_from_thread_local(
             uri.clone(),
             &content,
@@ -113,6 +116,20 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
 
     group.bench_function("Run Codegen", |b| {
         b.to_async(&rt).iter(|| backend.run_codegen());
+    });
+
+    // The per-run workspace metadata collection (filesystem walk + fragment metadata
+    // + transitive-dependency computation) that the version-keyed cache lets codegen
+    // skip on operation-body edits. Measured cold (uncached) to track its full cost.
+    group.bench_function("Codegen Collect Metadata (cold)", |b| {
+        b.iter(|| {
+            let result = graphox_lsp::backend::codegen_runner::collect_codegen_metadata(
+                &config,
+                &backend.documents,
+                &PositionEncodingKind::UTF16,
+            );
+            std::hint::black_box(result);
+        });
     });
 
     group.bench_function("Check Workspace (Full Diagnostics)", |b| {
