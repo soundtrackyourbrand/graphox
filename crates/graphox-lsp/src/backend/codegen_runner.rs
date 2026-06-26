@@ -72,6 +72,19 @@ fn load_or_parse_document(
         return None;
     }
 
+    // Cheap pre-filter: a host-language file (.ts/.tsx/...) with no `gql`/`graphql`
+    // marker cannot hold embedded GraphQL, so skip the expensive tree-sitter parse.
+    // Without this, every cold codegen run tree-sitter-parses thousands of non-GraphQL
+    // source files only to find no fragments (mirrors the workspace scan's pre-filter).
+    if graphox_core::document::DocumentLanguage::from_uri(&uri).is_host_language() {
+        let bytes = content.as_bytes();
+        let has_gql = bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+            || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"));
+        if !has_gql {
+            return None;
+        }
+    }
+
     let doc = Arc::new(graphox_core::DocumentState::new_from_thread_local(
         uri.clone(),
         &content,
