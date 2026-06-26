@@ -1,8 +1,6 @@
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState, FragmentId, TransitiveDeps};
-use crate::utils::{
-    WorkspaceScanInstrumentation, get_project_scan_files, has_generated_header, is_relevant_file,
-};
+use crate::utils::{WorkspaceScanInstrumentation, get_project_scan_files, has_generated_header};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
 use lsp_types::Url;
@@ -299,9 +297,10 @@ impl Engine {
                 format!("candidate_files={}", all_unique_paths.len()),
             );
         }
+        // `get_project_scan_files` already restricts to relevant files, so the paths
+        // here are all relevant — no need to re-check `is_relevant_file`.
         let docs_vec: Vec<(PathBuf, DocumentState)> = all_unique_paths
             .par_iter()
-            .filter(|p| is_relevant_file(p))
             .filter_map(|p| {
                 if cancelled.load(Ordering::Relaxed) {
                     return None;
