@@ -754,11 +754,23 @@ pub fn get_project_scan_files(
 pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
     let mut builder = ignore::gitignore::GitignoreBuilder::new(base_dir);
 
-    // Recursively find and add all .gitignore files in the project
-    // This allows the matcher to handle nested gitignores correctly
+    // Recursively find and add all .gitignore files in the project so the matcher
+    // handles nested gitignores correctly.
+    //
+    // `git_ignore(true)` makes the walk itself honour .gitignore, so it prunes
+    // ignored subtrees (e.g. `node_modules`, build output) instead of descending
+    // into them. On a large JS monorepo that is the difference between walking
+    // ~500k files and ~6k: this matcher is built synchronously in `Backend::new`
+    // and otherwise blocks the LSP `initialize` response for seconds.
+    //
+    // We intentionally do not collect `.gitignore` files that live *inside* an
+    // ignored directory: those subtrees are already excluded by the ignore rule
+    // that ignores the directory, so their inner rules can never change a match.
+    // `hidden(false)` is required so the `.gitignore` files themselves (a hidden
+    // filename) are still visited.
     for entry in ignore::WalkBuilder::new(base_dir)
         .hidden(false)
-        .git_ignore(false)
+        .git_ignore(true)
         .build()
     {
         if let Ok(entry) = entry
@@ -1368,6 +1380,39 @@ pub fn normalize_windows_path(s: &str) -> String {
 mod tests {
     use super::*;
     use globset::{Glob, GlobSetBuilder};
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn test_get_gitignore_matcher_prunes_ignored_trees_but_honours_nested_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        // `git_ignore(true)` only takes effect inside a recognised git repo.
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+        std::fs::write(base.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        // Root ignore prunes node_modules; a nested ignore in a real source dir
+        // adds a rule that must still be picked up.
+        std::fs::write(base.join(".gitignore"), "node_modules\n").unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        std::fs::write(base.join("src/.gitignore"), "generated.graphql\n").unwrap();
+
+        // A .gitignore *inside* an ignored tree must not change verdicts for real
+        // files (the parent rule already ignores everything under it).
+        std::fs::create_dir_all(base.join("node_modules/dep")).unwrap();
+        std::fs::write(base.join("node_modules/dep/.gitignore"), "src\n").unwrap();
+
+        let matcher = get_gitignore_matcher(base);
+
+        // Root rule still applies (the matcher matches the ignored directory itself).
+        assert!(is_path_ignored(&base.join("node_modules"), &matcher));
+        // Nested rule in a non-ignored tree is honoured — this is the rule that
+        // pruning the walk must not drop.
+        assert!(is_path_ignored(&base.join("src/generated.graphql"), &matcher));
+        // Regular source files are not ignored.
+        assert!(!is_path_ignored(&base.join("src/query.graphql"), &matcher));
+    }
+
 
     #[test]
     #[ntest::timeout(3000)]

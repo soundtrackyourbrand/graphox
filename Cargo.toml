@@ -123,6 +123,10 @@ name = "workspace_scan"
 harness = false
 
 [[bench]]
+name = "lsp_cold_start"
+harness = false
+
+[[bench]]
 name = "cross_project_resolution"
 harness = false
 
