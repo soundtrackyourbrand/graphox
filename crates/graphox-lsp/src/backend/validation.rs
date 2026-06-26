@@ -229,21 +229,16 @@ pub async fn validate_all_documents(
 }
 
 pub fn is_schema_document_path(path: &Path, config: &Config) -> bool {
+    // The set of schema files is fixed for the workspace, so canonicalize them once
+    // (memoized on `Config`) rather than per call. This function runs once per
+    // workspace document inside both `get_used_fragments` and
+    // `collect_fragment_metadata`, so re-canonicalizing every schema file here cost
+    // tens of thousands of `canonicalize` syscalls per validation pass.
     let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-
-    config.projects().iter().any(|project| {
-        project.schema().files().iter().any(|schema_file| {
-            let abs_schema = config.base_dir().join(schema_file);
-            let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
-            graphox_core::utils::paths_match(Some(&abs_path), Some(&abs_schema))
-        })
-    }) || config.schema_types().iter().any(|schema_types| {
-        schema_types.schema().files().iter().any(|schema_file| {
-            let abs_schema = config.base_dir().join(schema_file);
-            let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
-            graphox_core::utils::paths_match(Some(&abs_path), Some(&abs_schema))
-        })
-    })
+    config
+        .canonical_schema_paths()
+        .iter()
+        .any(|schema| graphox_core::utils::paths_match(Some(&abs_path), Some(schema)))
 }
 
 pub fn get_configured_document_path(uri: &Url, config: &Config) -> Option<PathBuf> {

@@ -26,8 +26,10 @@ use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
 use graphox::Config;
 use graphox_lsp::backend::fragment_manager::collect_fragment_metadata;
 use graphox_lsp::backend::state::Backend;
+use graphox_lsp::backend::validation::is_schema_document_path;
 use std::fs;
-use std::path::Path;
+use std::hint::black_box;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -259,11 +261,110 @@ fn bench_fragment_metadata(c: &mut Criterion) {
     group.finish();
 }
 
+/// Build a workspace with `projects` projects (each referencing a couple of the
+/// `schema_files` shared schemas) and `files_per_project` documents each. Returns
+/// the config and the document paths.
+fn generate_schema_workspace(
+    base: &Path,
+    projects: usize,
+    files_per_project: usize,
+    schema_files: usize,
+) -> (Config, Vec<PathBuf>) {
+    fs::create_dir_all(base.join("schemas")).unwrap();
+    let schema_rel: Vec<String> = (0..schema_files)
+        .map(|s| {
+            let rel = format!("schemas/schema_{s}.graphqls");
+            fs::write(base.join(&rel), "type Query { x: String }\n").unwrap();
+            rel
+        })
+        .collect();
+
+    let mut project_configs = Vec::new();
+    let mut doc_paths = Vec::new();
+    for p in 0..projects {
+        let src = base.join(format!("proj_{p}")).join("src");
+        fs::create_dir_all(&src).unwrap();
+        // Each project references the shared schema plus one of its own — mirrors a
+        // monorepo where many projects share a public schema.
+        let schema = SchemaSource::Multiple(vec![
+            schema_rel[0].clone(),
+            schema_rel[p % schema_files].clone(),
+        ]);
+        project_configs.push(
+            ProjectConfig::default()
+                .with_schema(schema)
+                .with_include(GlobPattern::Single(format!("proj_{p}/**/*.graphql"))),
+        );
+        for f in 0..files_per_project {
+            let fp = src.join(format!("doc_{f}.graphql"));
+            fs::write(&fp, "query Q { x }\n").unwrap();
+            doc_paths.push(fp);
+        }
+    }
+
+    let config = Config::new_empty()
+        .with_projects(project_configs)
+        .with_base_dir(base.to_path_buf());
+    (config, doc_paths)
+}
+
+/// Replica of the *old* `is_schema_document_path`: canonicalize every schema file
+/// of every project on every call. Kept as a benchmark baseline to quantify the
+/// memoization win and guard against regressing back to per-call canonicalization.
+fn is_schema_document_path_per_call(path: &Path, config: &Config) -> bool {
+    let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    config.projects().iter().any(|project| {
+        project.schema().files().iter().any(|schema_file| {
+            let abs_schema = config.base_dir().join(schema_file);
+            let abs_schema = std::fs::canonicalize(&abs_schema).unwrap_or(abs_schema);
+            graphox::utils::paths_match(Some(&abs_path), Some(&abs_schema))
+        })
+    })
+}
+
+/// `is_schema_document_path` runs once per workspace document inside both
+/// `get_used_fragments` and `collect_fragment_metadata`, i.e. O(documents) times
+/// per validation pass. The old implementation re-`canonicalize`d every schema file
+/// on each call, turning a single edit into tens of thousands of `canonicalize`
+/// syscalls. This benchmark classifies a whole workspace's documents both ways so
+/// the gap (and the memoization that closes it) cannot silently regress.
+fn bench_document_classification(c: &mut Criterion) {
+    let dir = tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    // 12 projects x 50 docs = 600 documents; 6 shared schemas (≈12 schema-file
+    // entries across projects), echoing a real monorepo's fan-out.
+    let (config, doc_paths) = generate_schema_workspace(&base, 12, 50, 6);
+
+    let mut group = c.benchmark_group("Document Classification");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(300));
+    group.measurement_time(Duration::from_millis(2000));
+
+    group.bench_function("is_schema_document_path memoized (whole workspace)", |b| {
+        b.iter(|| {
+            for path in &doc_paths {
+                black_box(is_schema_document_path(path, &config));
+            }
+        })
+    });
+
+    group.bench_function("is_schema_document_path per_call (whole workspace)", |b| {
+        b.iter(|| {
+            for path in &doc_paths {
+                black_box(is_schema_document_path_per_call(path, &config));
+            }
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default()
         .warm_up_time(Duration::from_millis(500))
         .measurement_time(Duration::from_millis(2000));
-    targets = bench_gitignore_matcher, bench_backend_startup, bench_fragment_metadata
+    targets = bench_gitignore_matcher, bench_backend_startup, bench_fragment_metadata,
+        bench_document_classification
 );
 criterion_main!(benches);

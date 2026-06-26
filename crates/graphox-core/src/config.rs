@@ -1255,6 +1255,10 @@ pub struct Config {
     project_cache: Arc<DashMap<PathBuf, Option<usize>>>,
     output_file_cache: Arc<Mutex<crate::utils::BoundedPathCache<bool>>>,
     resolved_output_paths: Arc<OnceLock<ResolvedOutputPaths>>,
+    /// Canonicalized absolute paths of every schema file (projects + schema_types),
+    /// computed once. Avoids re-`canonicalize`ing schema files for every workspace
+    /// document during validation.
+    canonical_schema_paths: Arc<OnceLock<Vec<PathBuf>>>,
 }
 
 impl Default for Config {
@@ -1285,6 +1289,7 @@ impl Clone for Config {
             project_cache: self.project_cache.clone(),
             output_file_cache: self.output_file_cache.clone(),
             resolved_output_paths: self.resolved_output_paths.clone(),
+            canonical_schema_paths: self.canonical_schema_paths.clone(),
         }
     }
 }
@@ -1296,6 +1301,7 @@ impl Config {
             OUTPUT_FILE_CACHE_CAPACITY,
         )));
         self.resolved_output_paths = Arc::new(OnceLock::new());
+        self.canonical_schema_paths = Arc::new(OnceLock::new());
     }
 
     pub fn with_base_dir(mut self, base_dir: PathBuf) -> Self {
@@ -1416,6 +1422,37 @@ impl Config {
     fn resolved_output_paths(&self) -> &ResolvedOutputPaths {
         self.resolved_output_paths
             .get_or_init(|| ResolvedOutputPaths::build(self))
+    }
+
+    /// Canonicalized absolute paths of every configured schema file (across all
+    /// projects and `schema_types`), computed once and cached for the lifetime of
+    /// this `Config` (and its clones). Used to detect whether a document path is in
+    /// fact a schema file without re-`canonicalize`ing the schema set per document.
+    pub fn canonical_schema_paths(&self) -> &[PathBuf] {
+        self.canonical_schema_paths.get_or_init(|| {
+            let mut paths: Vec<PathBuf> = Vec::new();
+            let add = |paths: &mut Vec<PathBuf>, file: &str| {
+                let abs = self.base_dir.join(file);
+                let abs = std::fs::canonicalize(&abs).unwrap_or(abs);
+                if !paths.contains(&abs) {
+                    paths.push(abs);
+                }
+            };
+
+            for project in &self.projects {
+                for schema_file in project.schema().files() {
+                    add(&mut paths, &schema_file);
+                }
+            }
+            if let Some(schema_types) = &self.schema_types {
+                for st in schema_types {
+                    for schema_file in st.schema().files() {
+                        add(&mut paths, &schema_file);
+                    }
+                }
+            }
+            paths
+        })
     }
 
     pub fn get_codegen_config(&self, project: Option<&ProjectConfig>) -> CodegenConfig {
@@ -1818,6 +1855,7 @@ impl Config {
                 OUTPUT_FILE_CACHE_CAPACITY,
             ))),
             resolved_output_paths: Arc::new(OnceLock::new()),
+            canonical_schema_paths: Arc::new(OnceLock::new()),
         }
     }
 
@@ -2172,5 +2210,49 @@ mod tests {
             &updated.output_file_cache
         ));
         assert_eq!(updated.output_file_cache.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn canonical_schema_paths_resolves_and_dedupes() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let base = temp_dir.path().canonicalize().expect("canonicalize base");
+        write_test_project(&base);
+
+        // Two projects share the same schema file — it must appear only once.
+        let config = Config::new_test(
+            base.clone(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("a/**/*.graphql".to_string())),
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("b/**/*.graphql".to_string())),
+            ],
+        );
+
+        let schema_paths = config.canonical_schema_paths();
+        assert_eq!(schema_paths.len(), 1, "shared schema must be deduped");
+        assert_eq!(
+            schema_paths[0],
+            base.join("schema.graphql").canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn with_projects_resets_canonical_schema_paths() {
+        let temp_dir = tempdir().expect("create temp dir");
+        let base = temp_dir.path().canonicalize().expect("canonicalize base");
+        let config = make_test_config(&base);
+
+        // Populate the lazy cache.
+        assert_eq!(config.canonical_schema_paths().len(), 1);
+
+        let updated = config.clone().with_projects(vec![]);
+        assert!(!Arc::ptr_eq(
+            &config.canonical_schema_paths,
+            &updated.canonical_schema_paths
+        ));
+        assert!(updated.canonical_schema_paths().is_empty());
     }
 }
