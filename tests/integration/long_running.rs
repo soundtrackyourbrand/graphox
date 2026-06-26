@@ -681,7 +681,11 @@ fn extract_documents(content: &str) -> HashMap<String, String> {
     docs
 }
 
-const MAX_MEMORY_1000_DOCS: usize = 60 * 1024 * 1024; // 60MB
+// Live heap for 1000 cached documents measures ~24 MB. This test is `#[ignore]`d and
+// run in isolation (`cargo test --ignored <name>`), where the measurement is clean.
+// It is not serialized against the rest of the integration suite, so the limit keeps
+// some headroom to absorb concurrent allocations under `--include-ignored`.
+const MAX_MEMORY_1000_DOCS: usize = 40 * 1024 * 1024;
 
 fn create_1000_file_config(base_dir: &Path) -> graphox::Config {
     use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
@@ -705,7 +709,7 @@ fn create_1000_file_config(base_dir: &Path) -> graphox::Config {
 async fn test_memory_cached_documents_1000() {
     use std::fs;
 
-    let baseline = crate::support::measure_memory_usage();
+    let baseline = crate::support::measure_allocated_bytes();
 
     let temp_dir = tempfile::TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -734,10 +738,10 @@ async fn test_memory_cached_documents_1000() {
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    let used = crate::support::measure_memory_usage();
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
-    println!("Memory for 1000 cached documents: {} KB", delta / 1024);
+    println!("Live heap for 1000 cached documents: {} KB", delta / 1024);
     assert!(
         delta < MAX_MEMORY_1000_DOCS,
         "Memory exceeded limit for 1000 documents: {} KB (limit: {} KB)",

@@ -60,6 +60,11 @@ fn create_10_project_config(base_dir: &std::path::Path) -> Config {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_workspace_scan_100_files() {
+    // Serialize with the heap-measuring perf tests: this test retains a large
+    // workspace, which would otherwise pollute a concurrent test's live-heap delta.
+    // The timing assertion below uses an `Instant` taken after this lock, so the
+    // wait does not count toward it.
+    let _lock = crate::support::PERF_MEMORY_MUTEX.lock().await;
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
 
@@ -84,6 +89,11 @@ async fn test_workspace_scan_100_files() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_workspace_scan_500_files() {
+    // Serialize with the heap-measuring perf tests: this test retains a large
+    // workspace, which would otherwise pollute a concurrent test's live-heap delta.
+    // The timing assertion below uses an `Instant` taken after this lock, so the
+    // wait does not count toward it.
+    let _lock = crate::support::PERF_MEMORY_MUTEX.lock().await;
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
 
@@ -108,6 +118,11 @@ async fn test_workspace_scan_500_files() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_workspace_scan_1000_files() {
+    // Serialize with the heap-measuring perf tests: this test retains a large
+    // workspace, which would otherwise pollute a concurrent test's live-heap delta.
+    // The timing assertion below uses an `Instant` taken after this lock, so the
+    // wait does not count toward it.
+    let _lock = crate::support::PERF_MEMORY_MUTEX.lock().await;
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
 
@@ -131,8 +146,13 @@ async fn test_workspace_scan_1000_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(2000)]
+#[ntest::timeout(30000)] // generous backstop; lock-wait counts here, real check is the inner duration assert
 async fn test_fragment_resolution_chain() {
+    // Serialize with the heap-measuring perf tests: this test retains a large
+    // workspace, which would otherwise pollute a concurrent test's live-heap delta.
+    // The timing assertion below uses an `Instant` taken after this lock, so the
+    // wait does not count toward it.
+    let _lock = crate::support::PERF_MEMORY_MUTEX.lock().await;
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
 
@@ -163,8 +183,13 @@ async fn test_fragment_resolution_chain() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(2000)]
+#[ntest::timeout(30000)] // generous backstop; lock-wait counts here, real check is the inner duration assert
 async fn test_many_projects() {
+    // Serialize with the heap-measuring perf tests: this test retains a large
+    // workspace, which would otherwise pollute a concurrent test's live-heap delta.
+    // The timing assertion below uses an `Instant` taken after this lock, so the
+    // wait does not count toward it.
+    let _lock = crate::support::PERF_MEMORY_MUTEX.lock().await;
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
 
@@ -196,8 +221,13 @@ async fn test_many_projects() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ntest::timeout(2000)]
+#[ntest::timeout(30000)] // generous backstop; lock-wait counts here, real check is the inner duration assert
 async fn test_many_fragments_index() {
+    // Serialize with the heap-measuring perf tests: this test retains a large
+    // workspace, which would otherwise pollute a concurrent test's live-heap delta.
+    // The timing assertion below uses an `Instant` taken after this lock, so the
+    // wait does not count toward it.
+    let _lock = crate::support::PERF_MEMORY_MUTEX.lock().await;
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
 

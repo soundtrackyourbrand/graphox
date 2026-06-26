@@ -1,48 +1,28 @@
 //! Memory stress tests.
 //! These tests verify memory usage under various stress conditions.
 
-use crate::support::{create_large_schema, measure_memory_usage};
+use crate::support::create_large_schema;
 use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-const MAX_MEMORY_100_DOCS: usize = 60 * 1024 * 1024; // 60MB
-const MAX_MEMORY_10_SCHEMAS: usize = 10 * 1024 * 1024; // 10MB
-const MAX_MEMORY_500_FRAGMENTS: usize = 40 * 1024 * 1024; // 40MB
+// Upper bounds on the live heap each scenario is allowed to retain. The live heap
+// (allocated minus freed) is measured deterministically by the tracking allocator
+// installed in `performance_suite.rs`, unlike process RSS which is polluted by
+// allocator pool retention and run-order effects. Because every heap-measuring /
+// heap-retaining perf test serializes on `PERF_MEMORY_MUTEX`, these deltas are
+// stable run-to-run, so each limit is set just above the measured value (noted
+// inline) — tight enough to catch a real retention/leak regression.
+const MAX_HEAP_OPEN_CLOSE_CYCLES: usize = 4 * 1024 * 1024; // measures ~0 MB
+const MAX_HEAP_CACHED_100_DOCS: usize = 6 * 1024 * 1024; // measures ~2.6 MB
+const MAX_HEAP_10_SCHEMAS: usize = 4 * 1024 * 1024; // measures ~0.1 MB
+const MAX_HEAP_500_FRAGMENTS: usize = 4 * 1024 * 1024; // measures ~1.5 MB
+const MAX_HEAP_LARGE_SCHEMA: usize = 6 * 1024 * 1024; // measures ~3 MB
+const MAX_MEMORY_COMPLEX_MONOREPO: usize = 80 * 1024 * 1024; // measures ~68 MB
 
-const BASELINE_MEMORY_100_DOCS: usize = 50 * 1024 * 1024;
-const BASELINE_MEMORY_10_SCHEMAS: usize = 10 * 1024 * 1024;
-const BASELINE_MEMORY_500_FRAGMENTS: usize = 35 * 1024 * 1024;
-
-const PER_DOC_BUDGET: usize = MAX_MEMORY_100_DOCS / 100;
-const PER_SCHEMA_BUDGET: usize = MAX_MEMORY_10_SCHEMAS / 10;
-const PER_FRAGMENT_BUDGET: usize = MAX_MEMORY_500_FRAGMENTS / 500;
-
-const ALLOWED_GROWTH_PERCENT: f64 = 5.0;
-
-// Live heap for this workspace measures ~69 MB; 90 MB leaves headroom for
-// allocation-size jitter and platform variation while still catching a gross
-// regression in per-document/per-schema retention.
-const MAX_MEMORY_COMPLEX_MONOREPO: usize = 90 * 1024 * 1024;
-
-use once_cell::sync::Lazy;
-use tokio::sync::Mutex;
-
-static MEMORY_TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-
-/// Warm up the allocator by doing some allocations and frees.
-/// This helps stabilize the RSS baseline.
-fn warmup() {
-    for _ in 0..5 {
-        let mut v = Vec::with_capacity(5000000);
-        for i in 0..5000000 {
-            v.push(i);
-        }
-        drop(v);
-    }
-}
+use crate::support::PERF_MEMORY_MUTEX;
 
 fn create_multi_project_config(base_dir: &Path) -> Config {
     let mut projects = Vec::new();
@@ -100,7 +80,7 @@ fn create_multi_project_config(base_dir: &Path) -> Config {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ntest::timeout(18000)]
 async fn test_memory_complex_monorepo_workspace_scan() {
-    let _lock = MEMORY_TEST_MUTEX.lock().await;
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
     let baseline = crate::support::measure_allocated_bytes();
 
     let temp_dir = TempDir::new().unwrap();
@@ -196,9 +176,8 @@ fn create_10_schema_config(base_dir: &Path) -> Config {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_open_close_cycles() {
-    let _lock = MEMORY_TEST_MUTEX.lock().await;
-    warmup();
-    let baseline = measure_memory_usage();
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
+    let baseline = crate::support::measure_allocated_bytes();
 
     for _cycle in 0..10 {
         let temp_dir = TempDir::new().unwrap();
@@ -229,26 +208,26 @@ async fn test_memory_open_close_cycles() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
-    let used = measure_memory_usage();
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
     println!(
-        "Memory after 10 open/close cycles (100 files each): {} KB",
+        "Live heap after 10 open/close cycles (100 files each): {} KB",
         delta / 1024
     );
     assert!(
-        delta < 40 * 1024 * 1024,
-        "Memory exceeded limit for 10 open/close cycles (100 files each): {} KB",
-        delta / 1024
+        delta < MAX_HEAP_OPEN_CLOSE_CYCLES,
+        "Live heap exceeded limit for 10 open/close cycles: {} KB (limit: {} KB)",
+        delta / 1024,
+        MAX_HEAP_OPEN_CLOSE_CYCLES / 1024
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(10000)]
 async fn test_memory_cached_documents_100() {
-    let _lock = MEMORY_TEST_MUTEX.lock().await;
-    warmup();
-    let baseline = measure_memory_usage();
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
+    let baseline = crate::support::measure_allocated_bytes();
 
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -277,34 +256,22 @@ async fn test_memory_cached_documents_100() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let used = measure_memory_usage();
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
-    println!("Memory for 100 cached documents: {} KB", delta / 1024);
+    println!("Live heap for 100 cached documents: {} KB", delta / 1024);
     assert!(
-        delta <= PER_DOC_BUDGET * 100,
-        "Memory exceeded per-doc budget: {} KB (budget: {} KB)",
+        delta < MAX_HEAP_CACHED_100_DOCS,
+        "Live heap exceeded limit for 100 cached documents: {} KB (limit: {} KB)",
         delta / 1024,
-        (PER_DOC_BUDGET * 100) / 1024
+        MAX_HEAP_CACHED_100_DOCS / 1024
     );
-
-    let growth =
-        (delta as f64 - BASELINE_MEMORY_100_DOCS as f64) / BASELINE_MEMORY_100_DOCS as f64 * 100.0;
-    if delta > BASELINE_MEMORY_100_DOCS {
-        assert!(
-            growth <= ALLOWED_GROWTH_PERCENT,
-            "Memory growth exceeded limit: {:.2}% (limit: {:.2}%)",
-            growth,
-            ALLOWED_GROWTH_PERCENT
-        );
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_schema_caching() {
-    let _lock = MEMORY_TEST_MUTEX.lock().await;
-    warmup();
-    let baseline = measure_memory_usage();
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
+    let baseline = crate::support::measure_allocated_bytes();
 
     let mut temp_dirs = Vec::new();
     let mut temp_dir_holders = Vec::new();
@@ -346,38 +313,25 @@ async fn test_memory_schema_caching() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let used = measure_memory_usage();
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
     println!(
-        "Memory for 10 cached schemas (100 docs each): {} KB",
+        "Live heap for 10 cached schemas (100 docs each): {} KB",
         delta / 1024
     );
     assert!(
-        delta <= PER_SCHEMA_BUDGET * 10,
-        "Memory exceeded per-schema budget: {} KB (budget: {} KB)",
+        delta < MAX_HEAP_10_SCHEMAS,
+        "Live heap exceeded limit for 10 cached schemas: {} KB (limit: {} KB)",
         delta / 1024,
-        (PER_SCHEMA_BUDGET * 10) / 1024
+        MAX_HEAP_10_SCHEMAS / 1024
     );
-
-    let growth = (delta as f64 - BASELINE_MEMORY_10_SCHEMAS as f64)
-        / BASELINE_MEMORY_10_SCHEMAS as f64
-        * 100.0;
-    if delta > BASELINE_MEMORY_10_SCHEMAS {
-        assert!(
-            growth <= ALLOWED_GROWTH_PERCENT,
-            "Memory growth exceeded limit for 10 schemas: {:.2}% (limit: {:.2}%)",
-            growth,
-            ALLOWED_GROWTH_PERCENT
-        );
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_fragment_index() {
-    let _lock = MEMORY_TEST_MUTEX.lock().await;
-    warmup();
-    let baseline = measure_memory_usage();
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
+    let baseline = crate::support::measure_allocated_bytes();
 
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -407,35 +361,22 @@ async fn test_memory_fragment_index() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let used = measure_memory_usage();
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
-    println!("Memory for 500 fragment index: {} KB", delta / 1024);
+    println!("Live heap for 500 fragment index: {} KB", delta / 1024);
     assert!(
-        delta <= PER_FRAGMENT_BUDGET * 500,
-        "Memory exceeded per-fragment budget: {} KB (budget: {} KB)",
+        delta < MAX_HEAP_500_FRAGMENTS,
+        "Live heap exceeded limit for 500 fragment index: {} KB (limit: {} KB)",
         delta / 1024,
-        (PER_FRAGMENT_BUDGET * 500) / 1024
+        MAX_HEAP_500_FRAGMENTS / 1024
     );
-
-    let growth = (delta as f64 - BASELINE_MEMORY_500_FRAGMENTS as f64)
-        / BASELINE_MEMORY_500_FRAGMENTS as f64
-        * 100.0;
-    if delta > BASELINE_MEMORY_500_FRAGMENTS {
-        assert!(
-            growth <= ALLOWED_GROWTH_PERCENT,
-            "Memory growth exceeded limit for 500 fragments: {:.2}% (limit: {:.2}%)",
-            growth,
-            ALLOWED_GROWTH_PERCENT
-        );
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_memory_large_schema() {
-    let _lock = MEMORY_TEST_MUTEX.lock().await;
-    warmup();
-    let baseline = measure_memory_usage();
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
+    let baseline = crate::support::measure_allocated_bytes();
 
     let temp_dir = TempDir::new().unwrap();
     let base_dir = temp_dir.path().to_path_buf();
@@ -464,13 +405,14 @@ async fn test_memory_large_schema() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let used = measure_memory_usage();
+    let used = crate::support::measure_allocated_bytes();
     let delta = used.saturating_sub(baseline);
 
-    println!("Memory for 1000-type schema: {} KB", delta / 1024);
+    println!("Live heap for 1000-type schema: {} KB", delta / 1024);
     assert!(
-        delta < 40 * 1024 * 1024,
-        "Memory exceeded limit for large schema: {} KB",
-        delta / 1024
+        delta < MAX_HEAP_LARGE_SCHEMA,
+        "Live heap exceeded limit for large schema: {} KB (limit: {} KB)",
+        delta / 1024,
+        MAX_HEAP_LARGE_SCHEMA / 1024
     );
 }

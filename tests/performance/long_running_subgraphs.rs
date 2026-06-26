@@ -8,12 +8,21 @@ use tempfile::TempDir;
 use tower_lsp::lsp_types::Url;
 
 use crate::support::{
-    create_large_schema, lsp_did_close, lsp_did_open, lsp_initialize_sequence, measure_memory_usage,
+    PERF_MEMORY_MUTEX, create_large_schema, lsp_did_close, lsp_did_open, lsp_initialize_sequence,
+    measure_allocated_bytes,
 };
+
+/// Upper bound on retained live heap for the long-running subgraph session.
+/// Measures ~2 MB steady-state (deterministic, serialized on `PERF_MEMORY_MUTEX`);
+/// set just above that to catch a retention regression after cycling files.
+const LONG_RUNNING_SUBGRAPHS_HEAP_LIMIT: usize = 6 * 1024 * 1024;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ntest::timeout(10000)]
 async fn test_memory_long_running_subgraphs() {
+    // Serialize with other heap-measuring / heap-retaining perf tests so the
+    // process-wide live-heap delta isn't polluted by a concurrent test.
+    let _lock = PERF_MEMORY_MUTEX.lock().await;
     graphox::utils::clear_canonical_path_cache();
 
     let temp_dir = TempDir::new().unwrap();
@@ -58,7 +67,7 @@ async fn test_memory_long_running_subgraphs() {
         fs::write(base_dir.join(format!("query_{}.graphql", i)), query).unwrap();
     }
 
-    let baseline = measure_memory_usage();
+    let baseline = measure_allocated_bytes();
 
     // Initialize LSP with subgraph-aware configuration
     let config = Config::new_test(
@@ -96,7 +105,7 @@ async fn test_memory_long_running_subgraphs() {
         // Wait a bit for processing
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let used = measure_memory_usage();
+        let used = measure_allocated_bytes();
         println!(
             "Cycle {} memory: {} MB",
             cycle,
@@ -104,23 +113,21 @@ async fn test_memory_long_running_subgraphs() {
         );
     }
 
-    let final_used = measure_memory_usage();
+    let final_used = measure_allocated_bytes();
     let delta = final_used.saturating_sub(baseline);
 
     println!(
-        "Final memory for long running subgraphs: {} MB",
+        "Final live heap for long running subgraphs: {} MB",
         delta / 1024 / 1024
     );
 
-    // Assert some reasonable limit
-    #[cfg(not(target_os = "windows"))]
-    {
-        // This suite runs alongside other memory-heavy performance tests in the same process,
-        // so keep a little headroom above the single-test steady-state footprint.
-        assert!(
-            delta < 115 * 1024 * 1024,
-            "Memory exceeded limit for long running subgraphs: {} MB",
-            delta / 1024 / 1024
-        );
-    }
+    // Live heap is deterministic (unlike process RSS), so this guards against a
+    // gross retention regression after cycling files through the subgraph-aware
+    // workspace. Threshold tuned to the measured steady-state with headroom.
+    assert!(
+        delta < LONG_RUNNING_SUBGRAPHS_HEAP_LIMIT,
+        "Live heap exceeded limit for long running subgraphs: {} MB (limit: {} MB)",
+        delta / 1024 / 1024,
+        LONG_RUNNING_SUBGRAPHS_HEAP_LIMIT / 1024 / 1024
+    );
 }

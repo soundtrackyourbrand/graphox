@@ -1012,6 +1012,14 @@ pub async fn lsp_request_diagnostics(
 // Performance Test Helpers
 // =============================================================================
 
+/// Serializes performance tests that measure live heap *or* retain a large
+/// workspace for the duration of the test. [`measure_allocated_bytes`] reads a
+/// process-wide counter, so a heavy test allocating concurrently would pollute
+/// another test's before/after delta. Every such test takes this lock so their
+/// measurement windows never overlap, making the deltas deterministic.
+pub static PERF_MEMORY_MUTEX: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
 /// Measure current resident set size (RSS) in bytes (platform-specific).
 /// Takes multiple samples and returns the minimum to filter out temporary spikes.
 /// Live heap bytes (allocated minus freed) seen by [`TrackingAllocator`].
