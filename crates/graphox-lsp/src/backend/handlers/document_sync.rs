@@ -8,6 +8,40 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tower_lsp::lsp_types::*;
 
+/// The distinct codegen-enabled project keys that own any of `uris`.
+///
+/// Codegen regenerates whole projects, so to keep a public fragment's
+/// cross-project consumers up to date we trigger codegen for every project that
+/// owns an affected document — its own project plus those of its transitive
+/// consumers — rather than only the edited file's project. The set is
+/// de-duplicated and projects with codegen disabled are skipped.
+///
+/// Callers must already have checked the master `lsp_automatic_codegen()` switch:
+/// the LSP performs no automatic codegen when it is off.
+fn codegen_project_keys<'a>(
+    config: &graphox_core::Config,
+    uris: impl Iterator<Item = &'a Url>,
+) -> Vec<String> {
+    let mut seen = ahash::AHashSet::default();
+    let mut keys = Vec::new();
+    for uri in uris {
+        let Ok(path) = uri.to_file_path() else {
+            continue;
+        };
+        let Some(project) = config.get_project_for_path(&path) else {
+            continue;
+        };
+        let key = project.include().as_key();
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if config.get_project_codegen_enabled(project) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
 pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParams) {
     if graphox_core::utils::has_generated_header(&params.text_document.text) {
         return;
@@ -128,24 +162,15 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     });
     let has_graphql = !doc_arc.get_graphql_trees().is_empty();
 
+    // The LSP performs no automatic codegen when `lsp_automatic_codegen` is off.
     let throttle = backend.codegen_throttle.read().unwrap().clone();
     if (had_graphql || has_graphql)
         && backend.workspace_loaded.load(Ordering::SeqCst)
+        && config.lsp_automatic_codegen()
         && let Some(throttle) = throttle
     {
-        let config = backend.config.read().unwrap().clone();
-        let (is_enabled, project_key) = if let Ok(path) = uri.to_file_path() {
-            let project = config.get_project_for_path(&path);
-            let enabled = project
-                .and_then(|p| p.codegen_enabled())
-                .unwrap_or_else(|| config.lsp_automatic_codegen());
-            (enabled, project.map(|p| p.include().as_key()))
-        } else {
-            (config.lsp_automatic_codegen(), None)
-        };
-
-        if is_enabled {
-            throttle.request_codegen(project_key);
+        for key in codegen_project_keys(&config, std::iter::once(&uri)) {
+            throttle.request_codegen(Some(key));
         }
     }
 }
@@ -176,33 +201,32 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
         backend.increment_workspace_version();
 
         if !result.uris_to_validate.is_empty() {
-            let uris_to_validate = result.uris_to_validate;
-            backend.validate_uris(uris_to_validate.clone()).await;
-            backend.refresh_pull_diagnostics_for(&uri, &uris_to_validate);
+            backend.validate_uris(result.uris_to_validate.clone()).await;
+            backend.refresh_pull_diagnostics_for(&uri, &result.uris_to_validate);
         }
 
+        // The LSP performs no automatic codegen when `lsp_automatic_codegen` is off.
         let throttle = backend.codegen_throttle.read().unwrap().clone();
         if backend.workspace_loaded.load(Ordering::SeqCst)
+            && config.lsp_automatic_codegen()
             && let Some(throttle) = throttle
         {
-            let (is_enabled, project_key) = if let Ok(path) = uri.to_file_path() {
-                let project = config.get_project_for_path(&path);
-                let enabled = project
-                    .and_then(|p| p.codegen_enabled())
-                    .unwrap_or_else(|| config.lsp_automatic_codegen());
-                (enabled, project.map(|p| p.include().as_key()))
-            } else {
-                (config.lsp_automatic_codegen(), None)
-            };
+            let has_graphql = backend
+                .documents
+                .get(&uri)
+                .is_some_and(|d| !d.get_graphql_trees().is_empty());
 
-            if is_enabled {
-                let has_graphql = backend
-                    .documents
-                    .get(&uri)
-                    .is_some_and(|d| !d.get_graphql_trees().is_empty());
-
-                if has_graphql {
-                    throttle.request_codegen(project_key);
+            if has_graphql {
+                // Regenerate every project that owns a document affected by this edit
+                // (the validation closure) — not just the edited file's project — so a
+                // public fragment's cross-project consumers don't keep stale generated
+                // types.
+                let keys = codegen_project_keys(
+                    &config,
+                    std::iter::once(&uri).chain(result.uris_to_validate.iter()),
+                );
+                for key in keys {
+                    throttle.request_codegen(Some(key));
                 }
             }
         }
@@ -216,8 +240,10 @@ pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParam
     // Re-validate on save just to be sure
     backend.validate_uris(vec![uri.clone()]).await;
 
-    // Trigger codegen on save (mandatory even if lsp_automatic_codegen is false)
-    // ONLY if the document contains GraphQL
+    // Trigger codegen on save ONLY if the document contains GraphQL. Like every
+    // LSP-driven codegen path, this is suppressed entirely when the master
+    // `lsp_automatic_codegen` switch is off.
+    let config = backend.config.read().unwrap().clone();
     let doc_for_codegen = if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone())
     {
         Some(doc)
@@ -237,17 +263,24 @@ pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParam
     if let Some(doc) = doc_for_codegen
         && !doc.get_graphql_trees().is_empty()
         && backend.workspace_loaded.load(Ordering::SeqCst)
+        && config.lsp_automatic_codegen()
         && let Some(throttle) = throttle
     {
-        let config = backend.config.read().unwrap().clone();
-        let project_key = if let Ok(path) = uri.to_file_path() {
-            config
-                .get_project_for_path(&path)
-                .map(|p| p.include().as_key())
-        } else {
-            None
-        };
-        throttle.request_codegen(project_key);
+        // Regenerate the saved file's project plus any project that consumes a
+        // fragment it defines (e.g. a public fragment used cross-project), so their
+        // generated types are not left stale.
+        let fragment_names: ahash::AHashSet<Arc<str>> =
+            doc.fragments.iter().map(|f| f.name.clone()).collect();
+        let affected = backend.get_affected_uris(
+            uri.clone(),
+            fragment_names,
+            ahash::AHashSet::default(),
+            ahash::AHashSet::default(),
+        );
+        let keys = codegen_project_keys(&config, std::iter::once(&uri).chain(affected.iter()));
+        for key in keys {
+            throttle.request_codegen(Some(key));
+        }
     }
 }
 
@@ -388,5 +421,52 @@ pub async fn handle_did_change_watched_files(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphox_core::Config;
+    use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
+
+    fn project(include: &str) -> ProjectConfig {
+        ProjectConfig::default()
+            .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+            .with_include(GlobPattern::Single(include.to_string()))
+    }
+
+    #[test]
+    fn codegen_keys_cover_cross_project_consumers_and_dedupe() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::write(base.join("schema.graphql"), "type Query { x: Int }").unwrap();
+        for p in ["a", "b"] {
+            std::fs::create_dir_all(base.join(p)).unwrap();
+            std::fs::write(
+                base.join(p).join("one.graphql"),
+                "fragment F on Query { x }",
+            )
+            .unwrap();
+            std::fs::write(base.join(p).join("two.graphql"), "query Q { x }").unwrap();
+        }
+
+        let config = Config::new_test(
+            base.clone(),
+            vec![project("a/**/*.graphql"), project("b/**/*.graphql")],
+        );
+
+        let a1 = Url::from_file_path(base.join("a/one.graphql")).unwrap();
+        let a2 = Url::from_file_path(base.join("a/two.graphql")).unwrap();
+        let b1 = Url::from_file_path(base.join("b/one.graphql")).unwrap();
+
+        // A closure spanning both projects (public fragment in `a` consumed by `b`)
+        // yields both project keys.
+        let cross = codegen_project_keys(&config, [&a1, &a2, &b1].into_iter());
+        assert_eq!(cross.len(), 2, "both projects covered, deduped: {cross:?}");
+
+        // Multiple docs in the same project collapse to a single key.
+        let same = codegen_project_keys(&config, [&a1, &a2].into_iter());
+        assert_eq!(same.len(), 1, "same-project URIs dedupe: {same:?}");
     }
 }
