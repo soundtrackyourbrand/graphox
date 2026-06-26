@@ -12,6 +12,43 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
+type ValidSchema = Arc<apollo_compiler::validation::Valid<apollo_compiler::Schema>>;
+
+/// Load + validate every distinct project schema once (in parallel), keyed by schema
+/// key. Projects sharing a schema reuse the same validated schema instead of each
+/// re-loading and re-validating it. Validation errors are stored and surfaced when
+/// the owning project is checked.
+fn build_validated_schemas(config: &Config) -> HashMap<String, Result<ValidSchema, String>> {
+    let mut seen = ahash::AHashSet::default();
+    let unique: Vec<(String, &SchemaSource)> = config
+        .projects()
+        .iter()
+        .filter_map(|p| {
+            let key = p.schema().as_key();
+            seen.insert(key.clone()).then_some((key, p.schema()))
+        })
+        .collect();
+
+    let pairs: Vec<(String, Result<ValidSchema, String>)> = unique
+        .into_par_iter()
+        .map(|(key, source)| {
+            let result = schema::load_schema_with_cache(
+                config.base_dir(),
+                source,
+                config.enable_schema_cache(),
+            )
+            .map_err(|e| format!("Failed to load schema {}: {}", source.as_key(), e))
+            .and_then(|s| {
+                s.validate()
+                    .map(Arc::new)
+                    .map_err(|e| format!("Invalid schema {}: {}", source.as_key(), e))
+            });
+            (key, result)
+        })
+        .collect();
+    pairs.into_iter().collect()
+}
+
 pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter>) {
     let mut success = true;
     let cfg = config.clone();
@@ -19,8 +56,14 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
     if verbose {
         println!("{}", "Scanning workspace...".bright_black());
     }
-    let workspace_metadata =
-        Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None);
+    // Scan the workspace and validate the (deduplicated) project schemas concurrently:
+    // neither depends on the other, and many projects share a schema, so validating
+    // each unique schema once — in parallel, overlapped with the scan — replaces what
+    // was a per-project load+validate of the same large schemas.
+    let (workspace_metadata, validated_schemas) = rayon::join(
+        || Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None),
+        || build_validated_schemas(&cfg),
+    );
 
     let mut global_used_fragments = ahash::AHashSet::default();
     for doc in workspace_metadata.documents.values() {
@@ -68,6 +111,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
         if !execute_project_check(
             cfg.base_dir(),
             project_config.schema(),
+            &validated_schemas,
             project_files,
             &workspace_metadata.documents,
             &global_used_fragments,
@@ -113,6 +157,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
 async fn execute_project_check(
     base_dir: &Path,
     source: &SchemaSource,
+    validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
     project_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
     global_used_fragments: &ahash::AHashSet<Arc<str>>,
@@ -122,14 +167,28 @@ async fn execute_project_check(
     verbose: bool,
     reporter: &dyn Reporter,
 ) -> bool {
-    let valid_schema =
-        match schema::load_schema_with_cache(base_dir, source, config.enable_schema_cache()) {
-            Ok(s) => Arc::new(s.validate().expect("Schema should be valid")),
-            Err(e) => {
-                reporter.report_error(&format!("Failed to load schema {}: {}", source.as_key(), e));
-                return false;
+    let valid_schema = match validated_schemas.get(&source.as_key()) {
+        Some(Ok(schema)) => schema.clone(),
+        Some(Err(e)) => {
+            reporter.report_error(e);
+            return false;
+        }
+        None => {
+            // Defensive fallback: schema not pre-validated (should not happen, since the
+            // cache is built from these same projects).
+            match schema::load_schema_with_cache(base_dir, source, config.enable_schema_cache()) {
+                Ok(s) => Arc::new(s.validate().expect("Schema should be valid")),
+                Err(e) => {
+                    reporter.report_error(&format!(
+                        "Failed to load schema {}: {}",
+                        source.as_key(),
+                        e
+                    ));
+                    return false;
+                }
             }
-        };
+        }
+    };
 
     let found_any = std::sync::atomic::AtomicBool::new(false);
 
@@ -158,20 +217,33 @@ async fn execute_project_check(
         }
     }
 
+    // Per-project (not per-document): merge project-specific rules with the global
+    // rules once, and build the deduplicated fragment set once. Only the per-document
+    // same-package ordering differs, so just that is done in the parallel loop below.
+    let effective_config = if let Some(project_rules) = project_config.rules() {
+        config
+            .clone()
+            .with_rules(config.rules().merge(project_rules))
+    } else {
+        config.clone()
+    };
+
+    let mut available_base = project_fragments;
+    let mut seen: ahash::AHashSet<(Arc<str>, tower_lsp::lsp_types::Url)> = available_base
+        .iter()
+        .map(|f| (f.name.clone(), f.uri.clone()))
+        .collect();
+    for pub_frag in global_public_fragments {
+        if seen.insert((pub_frag.name.clone(), pub_frag.uri.clone())) {
+            available_base.push(pub_frag.clone());
+        }
+    }
+
     project_files.par_iter().for_each(|path| {
         let Some(doc) = all_documents.get(path) else {
             return;
         };
-        let mut available_fragments = project_fragments.clone();
-
-        for pub_frag in global_public_fragments {
-            if !available_fragments
-                .iter()
-                .any(|f| f.name.as_ref() == pub_frag.name.as_ref() && f.uri == pub_frag.uri)
-            {
-                available_fragments.push(pub_frag.clone());
-            }
-        }
+        let mut available_fragments = available_base.clone();
 
         available_fragments.sort_by(|a, b| {
             let a_same_pkg = graphox_core::utils::paths_match(
@@ -184,15 +256,6 @@ async fn execute_project_check(
             );
             b_same_pkg.cmp(&a_same_pkg)
         });
-
-        // Use project-specific rules if defined, otherwise fall back to global rules
-        let project_rules = project_config.rules();
-        let effective_config = if let Some(project_rules) = project_rules {
-            let merged_rules = config.rules().merge(project_rules);
-            config.clone().with_rules(merged_rules)
-        } else {
-            config.clone()
-        };
 
         let diagnostics = doc.get_semantic_diagnostics(
             &valid_schema,
