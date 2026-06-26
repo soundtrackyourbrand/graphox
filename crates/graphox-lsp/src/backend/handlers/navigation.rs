@@ -116,6 +116,7 @@ pub async fn handle_references(
                             &parent_type_name,
                             &schema,
                             include_declaration,
+                            &uri,
                         ));
                     }
                     ResolvedSymbol::Directive { name } => {
@@ -123,6 +124,7 @@ pub async fn handle_references(
                             backend,
                             &name,
                             include_declaration,
+                            &uri,
                         ));
                     }
                     ResolvedSymbol::Variable { name } => {
@@ -160,6 +162,7 @@ pub async fn handle_references(
                             backend,
                             &name,
                             include_declaration,
+                            &uri,
                         ));
                     }
                     ResolvedSymbol::Fragment { name } => {
@@ -179,6 +182,7 @@ pub async fn handle_references(
                             &enum_name,
                             &value_name,
                             include_declaration,
+                            &uri,
                         ));
                     }
                     ResolvedSymbol::Argument {
@@ -192,6 +196,7 @@ pub async fn handle_references(
                             field_name.as_deref(),
                             &arg_name,
                             include_declaration,
+                            &uri,
                         ));
                     }
                     ResolvedSymbol::InputField {
@@ -203,6 +208,7 @@ pub async fn handle_references(
                             &parent_type_name,
                             &field_name,
                             include_declaration,
+                            &uri,
                         ));
                     }
                     ResolvedSymbol::Other => {
@@ -470,78 +476,121 @@ fn find_containing_type_and_field_for_arg(
     None
 }
 
+/// Schema files whose declarations count as references for a symbol resolved from
+/// `source_uri`. A type/field/enum declared in a *different* schema (used by other
+/// projects) is a distinct symbol even when it shares a name, so its declaration must
+/// not appear in references. `None` means the relevant set can't be determined, in
+/// which case callers skip schema-scoping rather than drop results.
+fn relevant_schema_paths(
+    config: &graphox_core::config::Config,
+    source_uri: &Url,
+) -> Option<ahash::AHashSet<std::path::PathBuf>> {
+    let path = source_uri.to_file_path().ok()?;
+    let canon = |p: std::path::PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
+
+    if let Some(project) = config.get_project_for_path(&path) {
+        return Some(
+            project
+                .schema()
+                .files()
+                .iter()
+                .map(|f| canon(config.base_dir().join(f)))
+                .collect(),
+        );
+    }
+    // Cursor sits inside a schema file itself: only that file's declarations apply.
+    if super::super::validation::is_schema_document_path(&path, config) {
+        return Some(std::iter::once(canon(path)).collect());
+    }
+    None
+}
+
+/// A schema document that does NOT belong to `relevant` — a foreign schema whose
+/// same-named declarations must be excluded from the reference results.
+fn is_foreign_schema_doc(
+    config: &graphox_core::config::Config,
+    doc_uri: &Url,
+    relevant: &ahash::AHashSet<std::path::PathBuf>,
+) -> bool {
+    let Ok(doc_path) = doc_uri.to_file_path() else {
+        return false;
+    };
+    if !super::super::validation::is_schema_document_path(&doc_path, config) {
+        return false;
+    }
+    let canon = std::fs::canonicalize(&doc_path).unwrap_or(doc_path);
+    !relevant.contains(&canon)
+}
+
+/// Collect references for a schema-defined symbol across the workspace, excluding
+/// declarations that live in a schema other than the source document's (a foreign
+/// schema may declare a same-named type/field but it is a different symbol).
+/// `per_doc` produces the raw matches for one document.
+fn collect_schema_symbol_references<F>(
+    backend: &Backend,
+    source_uri: &Url,
+    per_doc: F,
+) -> Option<Vec<Location>>
+where
+    F: Fn(&Url, &graphox_core::document::DocumentState) -> Vec<Location> + Sync + Send,
+{
+    let config = backend.config.read().unwrap().clone();
+    let relevant = relevant_schema_paths(&config, source_uri);
+
+    let all_references: Vec<Location> = backend
+        .documents
+        .iter()
+        .par_bridge()
+        .flat_map(|entry| {
+            if let Some(relevant) = &relevant
+                && is_foreign_schema_doc(&config, entry.key(), relevant)
+            {
+                return Vec::new();
+            }
+            per_doc(entry.key(), entry.value())
+        })
+        .collect();
+
+    if all_references.is_empty() {
+        None
+    } else {
+        Some(all_references)
+    }
+}
+
 fn find_field_references_across_workspace(
     backend: &Backend,
     field_name: &str,
     parent_type_name: &str,
     schema: &Schema,
     include_declaration: bool,
+    source_uri: &Url,
 ) -> Option<Vec<Location>> {
-    let all_references: Vec<Location> = backend
-        .documents
-        .iter()
-        .par_bridge()
-        .flat_map(|entry| {
-            entry.value().find_field_references(
-                field_name,
-                parent_type_name,
-                schema,
-                include_declaration,
-            )
-        })
-        .collect();
-
-    if all_references.is_empty() {
-        None
-    } else {
-        Some(all_references)
-    }
+    collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
+        doc.find_field_references(field_name, parent_type_name, schema, include_declaration)
+    })
 }
 
 fn find_directive_references_across_workspace(
     backend: &Backend,
     directive_name: &str,
     include_declaration: bool,
+    source_uri: &Url,
 ) -> Option<Vec<Location>> {
-    let all_references: Vec<Location> = backend
-        .documents
-        .iter()
-        .par_bridge()
-        .flat_map(|entry| {
-            entry
-                .value()
-                .find_directive_references(directive_name, include_declaration)
-        })
-        .collect();
-
-    if all_references.is_empty() {
-        None
-    } else {
-        Some(all_references)
-    }
+    collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
+        doc.find_directive_references(directive_name, include_declaration)
+    })
 }
 
 fn find_type_references_across_workspace(
     backend: &Backend,
     type_name: &str,
     include_declaration: bool,
+    source_uri: &Url,
 ) -> Option<Vec<Location>> {
-    let all_references: Vec<Location> = backend
-        .documents
-        .iter()
-        .par_bridge()
-        .flat_map(|entry| {
-            entry
-                .value()
-                .find_references_in_tree(type_name, include_declaration)
-        })
-        .collect();
-
-    if all_references.is_empty() {
-        None
-    } else {
-        Some(all_references)
-    }
+    collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
+        doc.find_references_in_tree(type_name, include_declaration)
+    })
 }
 
 fn find_fragment_references_across_workspace(
@@ -594,23 +643,12 @@ fn find_enum_value_references_across_workspace(
     enum_name: &str,
     value_name: &str,
     include_declaration: bool,
+    source_uri: &Url,
 ) -> Option<Vec<Location>> {
-    let all_references: Vec<Location> = backend
-        .documents
-        .iter()
-        .par_bridge()
-        .flat_map(|entry| {
-            let doc = entry.value();
-            let schema = backend.get_schema_for_doc(entry.key());
-            doc.find_enum_value_references(enum_name, value_name, &schema, include_declaration)
-        })
-        .collect();
-
-    if all_references.is_empty() {
-        None
-    } else {
-        Some(all_references)
-    }
+    collect_schema_symbol_references(backend, source_uri, |uri, doc| {
+        let schema = backend.get_schema_for_doc(uri);
+        doc.find_enum_value_references(enum_name, value_name, &schema, include_declaration)
+    })
 }
 
 fn find_argument_references_across_workspace(
@@ -619,23 +657,11 @@ fn find_argument_references_across_workspace(
     _field_name: Option<&str>,
     arg_name: &str,
     include_declaration: bool,
+    source_uri: &Url,
 ) -> Option<Vec<Location>> {
-    let all_references: Vec<Location> = backend
-        .documents
-        .iter()
-        .par_bridge()
-        .flat_map(|entry| {
-            entry
-                .value()
-                .find_references_in_tree(arg_name, include_declaration)
-        })
-        .collect();
-
-    if all_references.is_empty() {
-        None
-    } else {
-        Some(all_references)
-    }
+    collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
+        doc.find_references_in_tree(arg_name, include_declaration)
+    })
 }
 
 fn find_input_field_references_across_workspace(
@@ -643,23 +669,11 @@ fn find_input_field_references_across_workspace(
     _parent_type_name: &str,
     field_name: &str,
     include_declaration: bool,
+    source_uri: &Url,
 ) -> Option<Vec<Location>> {
-    let all_references: Vec<Location> = backend
-        .documents
-        .iter()
-        .par_bridge()
-        .flat_map(|entry| {
-            entry
-                .value()
-                .find_references_in_tree(field_name, include_declaration)
-        })
-        .collect();
-
-    if all_references.is_empty() {
-        None
-    } else {
-        Some(all_references)
-    }
+    collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
+        doc.find_references_in_tree(field_name, include_declaration)
+    })
 }
 
 pub async fn handle_document_highlight(

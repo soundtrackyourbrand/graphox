@@ -295,3 +295,104 @@ async fn test_references_performance() {
         elapsed.as_millis()
     );
 }
+
+/// References on a field must only surface the declaration in the *source project's*
+/// schema, not same-named declarations in a different schema used by other projects.
+#[tokio::test]
+#[ntest::timeout(5000)]
+async fn test_references_field_scoped_to_project_schema() {
+    use graphox::Config;
+    use graphox::config::{GlobPattern, ProjectConfig, SchemaSource};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(tmp.path()).unwrap();
+    for dir in ["public", "internal", "app_a"] {
+        fs::create_dir_all(base.join(dir)).unwrap();
+    }
+    // Both schemas declare `User.id`, but they are used by different projects.
+    fs::write(
+        base.join("public/schema.graphql"),
+        "type Query { user: User }\ntype User { id: ID! name: String }",
+    )
+    .unwrap();
+    fs::write(
+        base.join("internal/schema.graphql"),
+        "type Query { user: User }\ntype User { id: ID! secret: String }",
+    )
+    .unwrap();
+
+    let config = Config::new_test(
+        base.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("public/schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("app_a/**/*.graphql".to_string())),
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("internal/schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("app_b/**/*.graphql".to_string())),
+        ],
+    );
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let public_uri = Url::from_file_path(base.join("public/schema.graphql")).unwrap();
+    let internal_uri = Url::from_file_path(base.join("internal/schema.graphql")).unwrap();
+    lsp_did_open(
+        &mut service,
+        public_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(base.join("public/schema.graphql")).unwrap(),
+    )
+    .await;
+    lsp_did_open(
+        &mut service,
+        internal_uri.clone(),
+        "graphql",
+        1,
+        &fs::read_to_string(base.join("internal/schema.graphql")).unwrap(),
+    )
+    .await;
+
+    // Query in project A (public schema) using `User.id`.
+    let query_text = "query { user { id } }";
+    let query_path = base.join("app_a/query.graphql");
+    fs::write(&query_path, query_text).unwrap();
+    let query_uri = Url::from_file_path(&query_path).unwrap();
+    lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
+
+    let params = ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier {
+                uri: query_uri.clone(),
+            },
+            position: Position::new(0, 15), // on `id`
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+        context: ReferenceContext {
+            include_declaration: true,
+        },
+    };
+    let result: Option<Vec<Location>> =
+        lsp_request_typed(&mut service, "textDocument/references", &params).await;
+    let locations = result.expect("expected references");
+
+    let in_file = |loc: &Location, needle: &str| loc.uri.to_string().contains(needle);
+    assert!(
+        locations
+            .iter()
+            .any(|l| in_file(l, "public/schema.graphql")),
+        "should include the public schema declaration: {locations:?}"
+    );
+    assert!(
+        locations.iter().any(|l| in_file(l, "app_a/query.graphql")),
+        "should include the usage in project A: {locations:?}"
+    );
+    assert!(
+        !locations
+            .iter()
+            .any(|l| in_file(l, "internal/schema.graphql")),
+        "must NOT include the foreign (internal) schema's same-named declaration: {locations:?}"
+    );
+}
