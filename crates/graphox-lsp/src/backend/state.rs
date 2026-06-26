@@ -107,6 +107,9 @@ pub struct Backend {
         Arc<std::sync::RwLock<Option<Arc<super::codegen_throttle::CodegenThrottle>>>>,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
+    /// Reuse cache for the no-SLO fragment list built during validation, keyed by
+    /// workspace version. See [`super::validation::ValidationFragmentCache`].
+    pub validation_fragment_cache: super::validation::ValidationFragmentCache,
     /// Configured document URIs for the current workspace version
     pub configured_document_uris_cache: ConfiguredDocumentUrisCache,
     /// Weak reference to self for use in background tasks
@@ -202,6 +205,7 @@ impl Backend {
         let workspace_version = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let last_full_validation_version = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let fragment_metadata_cache = Arc::new(std::sync::RwLock::new(None));
+        let validation_fragment_cache = Arc::new(std::sync::RwLock::new(None));
         let configured_document_uris_cache = Arc::new(std::sync::RwLock::new(None));
 
         Arc::new_cyclic(|this| {
@@ -243,6 +247,7 @@ impl Backend {
                 last_full_validation_version,
                 codegen_throttle,
                 fragment_metadata_cache,
+                validation_fragment_cache,
                 configured_document_uris_cache,
                 self_weak: this.clone(),
             }
@@ -1132,6 +1137,7 @@ impl Backend {
             supports_progress,
             position_encoding,
             result_id_epoch: self.workspace_version.load(Ordering::SeqCst),
+            validation_fragment_cache: Some(&self.validation_fragment_cache),
         };
         super::validation::validate_uris(params, uris, use_push, Some(&self.diagnostic_cache))
             .await;
@@ -1174,6 +1180,7 @@ impl Backend {
             supports_progress,
             position_encoding,
             result_id_epoch: current_version,
+            validation_fragment_cache: Some(&self.validation_fragment_cache),
         };
 
         let uris: Vec<Url> = self

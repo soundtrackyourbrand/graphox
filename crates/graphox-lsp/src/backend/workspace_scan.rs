@@ -369,6 +369,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                     supports_progress: false,
                     position_encoding: params.position_encoding.clone(),
                     result_id_epoch: validated_version,
+                    validation_fragment_cache: None,
                 };
                 super::validation::validate_uris(
                     validation_params,

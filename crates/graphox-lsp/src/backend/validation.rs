@@ -26,6 +26,14 @@ use tower_lsp::lsp_types::*;
 /// Type alias for diagnostic cache
 pub type DiagnosticCache = DiagnosticCacheMap;
 
+/// Cache of the workspace-wide no-SLO fragment list used during validation, keyed
+/// by the workspace version it was built at. Validation never reads `worst_slo`, so
+/// this list only changes when the workspace version bumps (which happens whenever a
+/// fragment changes); reusing it avoids rebuilding O(all fragments) on every
+/// `validate_uris` call at the same version.
+pub type ValidationFragmentCache =
+    Arc<std::sync::RwLock<Option<(usize, Arc<Vec<FragmentCompletionInfo>>)>>>;
+
 /// Parameters for validation operations
 pub struct ValidationParams<'a> {
     pub client: &'a Client,
@@ -45,6 +53,9 @@ pub struct ValidationParams<'a> {
     pub supports_progress: bool,
     pub position_encoding: PositionEncodingKind,
     pub result_id_epoch: usize,
+    /// Optional reuse cache for the no-SLO fragment list (keyed by workspace
+    /// version). `None` (e.g. the one-off post-scan validation) always rebuilds.
+    pub validation_fragment_cache: Option<&'a ValidationFragmentCache>,
 }
 
 /// Validates a list of document URIs and publishes diagnostics
@@ -86,14 +97,39 @@ pub async fn validate_uris(
     let operation_names = params.operation_names.clone();
     let subgraphs = params.subgraphs.clone();
     let schemas = params.schemas.clone();
+    let fragment_cache = params.validation_fragment_cache.cloned();
+    let fragment_cache_key = params.result_id_epoch;
 
     let results = match tokio::task::spawn_blocking(move || {
         let used_fragments = get_used_fragments(&metadata, &config);
 
         // Diagnostics never read `worst_slo`, so skip the SLO pass on this hot path.
-        let all_fragments = super::fragment_manager::collect_fragment_metadata(
-            &metadata, &config, &subgraphs, &documents, &schemas, false,
-        );
+        // The no-SLO list only changes when the workspace version bumps (which a
+        // fragment change always does), so reuse it across calls at the same version.
+        let all_fragments: Arc<Vec<FragmentCompletionInfo>> = {
+            let cached = fragment_cache.as_ref().and_then(|cache| {
+                cache.read().ok().and_then(|guard| {
+                    guard
+                        .as_ref()
+                        .filter(|(version, _)| *version == fragment_cache_key)
+                        .map(|(_, list)| list.clone())
+                })
+            });
+            match cached {
+                Some(list) => list,
+                None => {
+                    let list = Arc::new(super::fragment_manager::collect_fragment_metadata(
+                        &metadata, &config, &subgraphs, &documents, &schemas, false,
+                    ));
+                    if let Some(cache) = &fragment_cache
+                        && let Ok(mut guard) = cache.write()
+                    {
+                        *guard = Some((fragment_cache_key, list.clone()));
+                    }
+                    list
+                }
+            }
+        };
 
         let mut docs_to_validate = Vec::new();
         let mut unique_package_roots = AHashSet::new();
@@ -111,7 +147,8 @@ pub async fn validate_uris(
 
         let mut fragments_by_pkg = AHashMap::with_capacity(unique_package_roots.len());
         for pkg_root in unique_package_roots {
-            let filtered = get_fragments_for_doc_with_metadata(pkg_root.as_deref(), &all_fragments);
+            let filtered =
+                get_fragments_for_doc_with_metadata(pkg_root.as_deref(), all_fragments.as_slice());
             fragments_by_pkg.insert(pkg_root, Arc::new(filtered));
         }
 

@@ -18,6 +18,15 @@ use crate::backend::helpers::{named_operation_names, update_operation_name_index
 pub struct ChangeResult {
     pub uris_to_validate: Vec<Url>,
     pub should_run_codegen: bool,
+    /// Whether any fragment definition changed (added, removed, or its source
+    /// changed). Only then does the workspace-wide fragment metadata cache (used by
+    /// completion/hover) need invalidating.
+    pub fragments_changed: bool,
+    /// Whether anything that can affect OTHER documents changed: a fragment
+    /// definition, a fragment spread, or an operation name. Only then does the
+    /// workspace epoch need bumping (it signals re-cached consumers to clients); a
+    /// pure operation-body/comment edit leaves other documents untouched.
+    pub cross_document_changed: bool,
 }
 
 /// Parameters for processing document changes
@@ -145,6 +154,11 @@ pub fn process_document_change(
         &new_operations,
     ));
 
+    let fragments_changed = !affected_fragment_names.is_empty();
+    let cross_document_changed = fragments_changed
+        || !affected_spread_names.is_empty()
+        || !affected_operation_names.is_empty();
+
     // Compute affected URIs
     let uris_to_validate = super::validation::get_affected_uris(
         uri.clone(),
@@ -160,5 +174,7 @@ pub fn process_document_change(
     Some(ChangeResult {
         uris_to_validate,
         should_run_codegen: false,
+        fragments_changed,
+        cross_document_changed,
     })
 }

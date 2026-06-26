@@ -144,6 +144,7 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
                 supports_progress: false,
                 position_encoding: PositionEncodingKind::UTF16,
                 result_id_epoch: backend.last_full_validation_version.load(Ordering::SeqCst),
+                validation_fragment_cache: Some(&backend.validation_fragment_cache),
             };
 
             graphox_lsp::backend::validation::validate_uris(params, all_uris, false, None).await;

@@ -719,7 +719,7 @@ export const EditorialHomeDoc = graphql(/* GraphQL */ `
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_pull_diagnostics_refreshes_when_workspace_epoch_changes() {
+async fn test_pull_diagnostics_unchanged_on_bare_epoch_bump() {
     let query_text = "query GetUser { user { id name } }";
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file(
@@ -791,6 +791,11 @@ async fn test_pull_diagnostics_refreshes_when_workspace_epoch_changes() {
         _ => panic!("Expected full diagnostic report on first request"),
     };
 
+    // Bump the workspace epoch directly, without re-caching the document. Diagnostic
+    // validity is keyed on the document's own content (version), not the global
+    // epoch, so an unchanged document that wasn't re-validated must report Unchanged
+    // — a bare epoch bump no longer forces a recompute. (Real changes refresh the
+    // document by re-caching it via the affected-document closure.)
     let backend = service.inner();
     backend.workspace_version.store(99, Ordering::SeqCst);
 
@@ -808,18 +813,13 @@ async fn test_pull_diagnostics_refreshes_when_workspace_epoch_changes() {
     .await;
 
     match second_result {
-        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
-            let refreshed_result_id = report
-                .full_document_diagnostic_report
-                .result_id
-                .expect("Expected refreshed result_id");
-            assert_ne!(refreshed_result_id, previous_result_id);
-            assert!(
-                refreshed_result_id.ends_with(":99"),
-                "Expected workspace epoch in result_id, got {refreshed_result_id}"
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Unchanged(report)) => {
+            assert_eq!(
+                report.unchanged_document_diagnostic_report.result_id, previous_result_id,
+                "A bare epoch bump must leave an unrevalidated document unchanged"
             );
         }
-        _ => panic!("Expected full diagnostic report after workspace epoch change"),
+        other => panic!("Expected an Unchanged report after a bare epoch bump, got {other:?}"),
     }
 }
 
@@ -1225,7 +1225,7 @@ async fn test_workspace_diagnostics_omit_unconfigured_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_workspace_diagnostics_refresh_when_workspace_epoch_changes() {
+async fn test_workspace_diagnostics_no_mass_refresh_on_bare_epoch_bump() {
     let query1_text = "query GetUser { user { id } }";
     let query2_text = "query GetPost { post { title } }";
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -1310,6 +1310,11 @@ async fn test_workspace_diagnostics_refresh_when_workspace_epoch_changes() {
         }
     };
 
+    // Bump the workspace epoch directly, without re-caching any document. Diagnostic
+    // validity is keyed on each document's own content (version), not the global
+    // epoch, so a bare bump must NOT force a full-workspace revalidation: the poll
+    // returns no changed reports. (Real cross-document changes refresh by re-caching
+    // the affected documents — see the fragment-deletion tests.)
     let backend = service.inner();
     backend.workspace_version.store(42, Ordering::SeqCst);
 
@@ -1328,26 +1333,10 @@ async fn test_workspace_diagnostics_refresh_when_workspace_epoch_changes() {
     match refreshed_result {
         WorkspaceDiagnosticReportResult::Report(report) => {
             assert!(
-                !report.items.is_empty(),
-                "Expected workspace diagnostics to refresh after the workspace epoch changed"
+                report.items.is_empty(),
+                "Expected no workspace diagnostics to refresh on a bare epoch bump, got {} items",
+                report.items.len()
             );
-            for item in report.items {
-                match item {
-                    WorkspaceDocumentDiagnosticReport::Full(full_report) => {
-                        let result_id = full_report
-                            .full_document_diagnostic_report
-                            .result_id
-                            .expect("Expected refreshed workspace result_id");
-                        assert!(
-                            result_id.ends_with(":42"),
-                            "Expected workspace epoch in result_id, got {result_id}"
-                        );
-                    }
-                    WorkspaceDocumentDiagnosticReport::Unchanged(_) => {
-                        panic!("Expected stale workspace diagnostics to be recomputed")
-                    }
-                }
-            }
         }
         WorkspaceDiagnosticReportResult::Partial(_) => {
             panic!("Expected complete workspace diagnostics report")

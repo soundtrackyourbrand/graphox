@@ -137,9 +137,18 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
 
     backend.documents.insert(uri.clone(), doc_arc.clone());
 
-    // Invalidate fragment metadata cache
-    backend.invalidate_fragment_cache();
-    backend.increment_workspace_version();
+    // Same gating as did_change: only churn the global caches when this open
+    // actually changed a fragment definition / cross-document state.
+    let fragments_changed = !affected_fragment_names.is_empty();
+    let cross_document_changed = fragments_changed
+        || !affected_spread_names.is_empty()
+        || !affected_operation_names.is_empty();
+    if fragments_changed {
+        backend.invalidate_fragment_cache();
+    }
+    if cross_document_changed {
+        backend.increment_workspace_version();
+    }
 
     let uris_to_validate = crate::backend::validation::get_affected_uris(
         uri.clone(),
@@ -196,9 +205,16 @@ pub async fn handle_did_change(backend: &Backend, params: DidChangeTextDocumentP
     if let Some(result) =
         document_changes::process_document_change(&uri, changes, version, &change_params)
     {
-        // Invalidate fragment metadata cache since fragments might have changed
-        backend.invalidate_fragment_cache();
-        backend.increment_workspace_version();
+        // Only invalidate the workspace-wide fragment metadata cache when a fragment
+        // definition actually changed, and only bump the workspace epoch when the
+        // edit can affect other documents. A pure operation-body/comment edit leaves
+        // both untouched, so completion stays warm and the epoch doesn't churn.
+        if result.fragments_changed {
+            backend.invalidate_fragment_cache();
+        }
+        if result.cross_document_changed {
+            backend.increment_workspace_version();
+        }
 
         if !result.uris_to_validate.is_empty() {
             backend.validate_uris(result.uris_to_validate.clone()).await;

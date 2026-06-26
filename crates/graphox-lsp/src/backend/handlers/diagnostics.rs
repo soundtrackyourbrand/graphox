@@ -81,8 +81,16 @@ pub async fn handle_diagnostic(
             let (cached_version, cached_workspace_epoch, cached_diagnostics) = cached.value();
             let cached_result_id =
                 compose_diagnostic_result_id(*cached_version, *cached_workspace_epoch);
-            let cache_is_current = *cached_version == doc_version
-                && *cached_workspace_epoch == current_workspace_epoch;
+            // A cache entry is current as long as the document's own content
+            // (version) matches. Cross-document changes (a fragment this document
+            // spreads, the schema, …) do NOT bump the document's version, but they
+            // proactively re-cache every affected document via the change's
+            // validation closure — so a version-current entry is always fresh.
+            // The workspace epoch is intentionally NOT part of this check: it would
+            // make every document look stale after any edit and force a
+            // full-workspace revalidation. It still lives in the result id so a
+            // re-cached document signals a change to the client.
+            let cache_is_current = *cached_version == doc_version;
 
             // If the cached version matches the previous result ID, return unchanged
             if let Some(prev_result_id) = &params.previous_result_id
@@ -242,18 +250,22 @@ pub async fn handle_workspace_diagnostic(
                 WorkspaceDiagnosticReport { items: vec![] },
             ));
         }
-        let current_workspace_epoch = backend.workspace_version.load(Ordering::SeqCst);
         let all_uris = backend.get_configured_document_uris();
 
+        // Only revalidate documents whose own content changed (or were never
+        // cached). Documents affected by a cross-document change (e.g. a fragment
+        // they spread) were already re-cached by that edit's validation closure, so
+        // they need no recompute here — we only diff their result ids below. This
+        // intentionally ignores the workspace epoch; keying revalidation on it would
+        // re-validate the entire workspace after any single edit.
         let uncached_uris: Vec<Url> = all_uris
             .iter()
             .filter(|uri| {
                 let current_doc_version = backend.documents.get(*uri).map(|doc| doc.version);
                 match (backend.diagnostic_cache.get(*uri), current_doc_version) {
                     (Some(cached), Some(doc_version)) => {
-                        let (cached_version, cached_workspace_epoch, _) = cached.value();
+                        let (cached_version, _cached_workspace_epoch, _) = cached.value();
                         *cached_version != doc_version
-                            || *cached_workspace_epoch != current_workspace_epoch
                     }
                     _ => true,
                 }
