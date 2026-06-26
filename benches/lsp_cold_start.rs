@@ -232,20 +232,28 @@ fn bench_fragment_metadata(c: &mut Criterion) {
         let backend = seed_backend(&base, files, frags);
         let config = backend.config.read().unwrap().clone();
 
-        group.bench_function(
-            format!("collect_fragment_metadata ({files} files x {frags} frags)"),
-            |b| {
-                b.iter(|| {
-                    collect_fragment_metadata(
-                        &backend.metadata,
-                        &config,
-                        &backend.subgraphs,
-                        &backend.documents,
-                        &backend.schemas,
-                    )
-                })
-            },
-        );
+        // `compute_slo = false` is the validation / per-edit hot path: it must skip
+        // the per-document tree-sitter `extract_fragment_nodes` pass and the
+        // workspace fragment index. `compute_slo = true` is the completion/hover
+        // path. Benching both guards the gap so it cannot silently regress.
+        for compute_slo in [false, true] {
+            let mode = if compute_slo { "with_slo" } else { "no_slo" };
+            group.bench_function(
+                format!("collect_fragment_metadata {mode} ({files} files x {frags} frags)"),
+                |b| {
+                    b.iter(|| {
+                        collect_fragment_metadata(
+                            &backend.metadata,
+                            &config,
+                            &backend.subgraphs,
+                            &backend.documents,
+                            &backend.schemas,
+                            compute_slo,
+                        )
+                    })
+                },
+            );
+        }
     }
 
     group.finish();

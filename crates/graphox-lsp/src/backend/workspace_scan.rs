@@ -412,7 +412,8 @@ async fn validate_all_documents_cancellable(
         return (true, valid_empty_schema);
     }
 
-    // Pre-calculate all fragments info
+    // Pre-calculate all fragments info. This feeds workspace validation, which
+    // never reads `worst_slo`, so skip the SLO pass here.
     let all_fragments_info: Vec<(FragmentCompletionInfo, Option<Arc<str>>)> =
         super::fragment_manager::collect_fragment_metadata_with_schema(
             &params.metadata,
@@ -420,6 +421,7 @@ async fn validate_all_documents_cancellable(
             &params.subgraphs,
             &params.documents,
             &params.schemas,
+            false,
         );
 
     // PRE-INDEX FRAGMENTS BY PACKAGE AND SCHEMA (CRITICAL OPTIMIZATION)

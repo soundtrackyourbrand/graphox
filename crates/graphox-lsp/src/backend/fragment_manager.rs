@@ -95,12 +95,22 @@ fn compute_worst_slo_for_fragment(
     worst_slo
 }
 
+/// Collect fragment metadata for the whole workspace.
+///
+/// `compute_slo` controls whether each fragment's worst-case SLO is computed.
+/// SLO computation requires a tree-sitter pass over every document
+/// (`extract_fragment_nodes`) plus a workspace-wide fragment index, which is
+/// pure overhead on the validation hot path (diagnostics never read `worst_slo`).
+/// Only the completion/hover path (`get_all_fragments_info`) needs it, so callers
+/// on the per-edit validation path pass `false` to skip that work — mirroring what
+/// `graphox check` does.
 pub fn collect_fragment_metadata(
     metadata: &MetadataMap,
     config: &Config,
     subgraphs: &Arc<DashMap<String, Vec<SubgraphInfo>, ahash::RandomState>>,
     documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
+    compute_slo: bool,
 ) -> Vec<FragmentCompletionInfo> {
     // Clone Arc references to avoid holding locks during iteration
     let metadata_arc = metadata.clone();
@@ -108,15 +118,17 @@ pub fn collect_fragment_metadata(
     let documents_arc = documents.clone();
     let schemas_arc = schemas.clone();
 
-    // Build fragment index for hover ONCE
+    // Build fragment index ONCE — only needed for SLO computation.
     let mut fragment_index = ahash::AHashMap::default();
-    for entry in documents_arc.iter() {
-        let d = entry.value();
-        for f in d.fragments() {
-            fragment_index
-                .entry(f.name.clone())
-                .or_insert_with(Vec::new)
-                .push((d.clone(), f.clone()));
+    if compute_slo {
+        for entry in documents_arc.iter() {
+            let d = entry.value();
+            for f in d.fragments() {
+                fragment_index
+                    .entry(f.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push((d.clone(), f.clone()));
+            }
         }
     }
 
@@ -134,18 +146,31 @@ pub fn collect_fragment_metadata(
             };
             let schema_key = project.schema().as_key();
             let import_path = project.import().map(|s| s.to_string());
-            let project_subgraphs = subgraphs_arc
-                .get(schema_key.as_str())
-                .map(|r| r.value().clone());
-            let schema = schemas_arc
-                .get(schema_key.as_str())
-                .map(|r| r.value().clone());
+            let project_subgraphs = if compute_slo {
+                subgraphs_arc
+                    .get(schema_key.as_str())
+                    .map(|r| r.value().clone())
+            } else {
+                None
+            };
+            let schema = if compute_slo {
+                schemas_arc
+                    .get(schema_key.as_str())
+                    .map(|r| r.value().clone())
+            } else {
+                None
+            };
 
             let doc = documents_arc.get(uri).map(|r| r.value().clone());
-            let fragment_nodes = doc
-                .as_deref()
-                .map(extract_fragment_nodes)
-                .unwrap_or_default();
+            // `extract_fragment_nodes` runs a tree-sitter query per document; only
+            // worth it when we're going to compute SLO.
+            let fragment_nodes = if compute_slo {
+                doc.as_deref()
+                    .map(extract_fragment_nodes)
+                    .unwrap_or_default()
+            } else {
+                AHashMap::default()
+            };
 
             let documents_clone = documents_arc.clone();
             let uri_clone = uri.clone();
@@ -197,12 +222,16 @@ pub fn collect_fragment_metadata(
         .collect()
 }
 
+/// Like [`collect_fragment_metadata`], but also returns each fragment's schema key.
+///
+/// See [`collect_fragment_metadata`] for the meaning of `compute_slo`.
 pub fn collect_fragment_metadata_with_schema(
     metadata: &MetadataMap,
     config: &Config,
     subgraphs: &Arc<DashMap<String, Vec<SubgraphInfo>, ahash::RandomState>>,
     documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
+    compute_slo: bool,
 ) -> Vec<(FragmentCompletionInfo, Option<Arc<str>>)> {
     // Clone Arc references to avoid holding locks during iteration
     let metadata_arc = metadata.clone();
@@ -210,15 +239,17 @@ pub fn collect_fragment_metadata_with_schema(
     let documents_arc = documents.clone();
     let schemas_arc = schemas.clone();
 
-    // Build fragment index for hover ONCE
+    // Build fragment index ONCE — only needed for SLO computation.
     let mut fragment_index = ahash::AHashMap::default();
-    for entry in documents_arc.iter() {
-        let d = entry.value();
-        for f in d.fragments() {
-            fragment_index
-                .entry(f.name.clone())
-                .or_insert_with(Vec::new)
-                .push((d.clone(), f.clone()));
+    if compute_slo {
+        for entry in documents_arc.iter() {
+            let d = entry.value();
+            for f in d.fragments() {
+                fragment_index
+                    .entry(f.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push((d.clone(), f.clone()));
+            }
         }
     }
 
@@ -236,20 +267,33 @@ pub fn collect_fragment_metadata_with_schema(
             };
             let schema_key = Some(Arc::from(project.schema().as_key()));
             let import_path = project.import().map(Arc::from);
-            let project_subgraphs = schema_key
-                .as_ref()
-                .and_then(|k: &Arc<str>| subgraphs_arc.get::<str>(k.as_ref()))
-                .map(|r| r.value().clone());
-            let schema = schema_key
-                .as_ref()
-                .and_then(|k: &Arc<str>| schemas_arc.get::<str>(k.as_ref()))
-                .map(|r| r.value().clone());
+            let project_subgraphs = if compute_slo {
+                schema_key
+                    .as_ref()
+                    .and_then(|k: &Arc<str>| subgraphs_arc.get::<str>(k.as_ref()))
+                    .map(|r| r.value().clone())
+            } else {
+                None
+            };
+            let schema = if compute_slo {
+                schema_key
+                    .as_ref()
+                    .and_then(|k: &Arc<str>| schemas_arc.get::<str>(k.as_ref()))
+                    .map(|r| r.value().clone())
+            } else {
+                None
+            };
 
             let doc = documents_arc.get(uri).map(|r| r.value().clone());
-            let fragment_nodes = doc
-                .as_deref()
-                .map(extract_fragment_nodes)
-                .unwrap_or_default();
+            // `extract_fragment_nodes` runs a tree-sitter query per document; only
+            // worth it when we're going to compute SLO.
+            let fragment_nodes = if compute_slo {
+                doc.as_deref()
+                    .map(extract_fragment_nodes)
+                    .unwrap_or_default()
+            } else {
+                AHashMap::default()
+            };
 
             let documents_clone = documents_arc.clone();
             let uri_clone = uri.clone();
@@ -352,5 +396,100 @@ pub fn update_fragment_definitions(
             .entry(name.clone())
             .or_default()
             .insert(uri.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::state::Backend;
+    use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
+    use tower_lsp::LspService;
+    use tower_lsp::lsp_types::PositionEncodingKind;
+
+    /// `compute_slo = false` (the validation hot path) must return exactly the same
+    /// fragments as `compute_slo = true`; it may only differ by leaving `worst_slo`
+    /// unset. This guards the optimisation against accidentally dropping fragments.
+    #[tokio::test]
+    #[ntest::timeout(5000)]
+    async fn compute_slo_flag_only_affects_worst_slo() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::write(
+            base.join("schema.graphql"),
+            "type Query { user: User } type User { id: ID! name: String }",
+        )
+        .unwrap();
+
+        let config = Config::new_test(
+            base.clone(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+            ],
+        );
+
+        let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+        let backend = service.inner();
+
+        for i in 0..5 {
+            let uri = Url::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
+            let content = format!(
+                "query Q{i} {{ user {{ ...Frag{i} }} }}\nfragment Frag{i} on User {{ id name }}\n"
+            );
+            let doc = DocumentState::new_from_thread_local(
+                uri.clone(),
+                &content,
+                PositionEncodingKind::UTF16,
+            );
+            let metadata = Arc::new(graphox_core::types::DocumentMetadata {
+                fragments: doc.fragments.clone(),
+                fragment_spreads: doc.fragment_spreads.clone(),
+                package_root: doc.package_root.clone(),
+                operations: doc.operations.clone(),
+                version: 0,
+            });
+            backend.documents.insert(uri.clone(), Arc::new(doc));
+            backend.metadata.insert(uri, metadata);
+        }
+
+        let mut names_no_slo: Vec<String> = collect_fragment_metadata(
+            &backend.metadata,
+            &config,
+            &backend.subgraphs,
+            &backend.documents,
+            &backend.schemas,
+            false,
+        )
+        .into_iter()
+        .map(|f| {
+            assert!(
+                f.worst_slo.is_none(),
+                "no-SLO mode must not populate worst_slo"
+            );
+            f.name.to_string()
+        })
+        .collect();
+
+        let mut names_with_slo: Vec<String> = collect_fragment_metadata(
+            &backend.metadata,
+            &config,
+            &backend.subgraphs,
+            &backend.documents,
+            &backend.schemas,
+            true,
+        )
+        .into_iter()
+        .map(|f| f.name.to_string())
+        .collect();
+
+        names_no_slo.sort();
+        names_with_slo.sort();
+        assert_eq!(
+            names_no_slo, names_with_slo,
+            "both modes must surface the same fragments"
+        );
+        assert_eq!(names_no_slo.len(), 5);
     }
 }

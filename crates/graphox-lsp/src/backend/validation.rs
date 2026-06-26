@@ -90,8 +90,9 @@ pub async fn validate_uris(
     let results = match tokio::task::spawn_blocking(move || {
         let used_fragments = get_used_fragments(&metadata, &config);
 
+        // Diagnostics never read `worst_slo`, so skip the SLO pass on this hot path.
         let all_fragments = super::fragment_manager::collect_fragment_metadata(
-            &metadata, &config, &subgraphs, &documents, &schemas,
+            &metadata, &config, &subgraphs, &documents, &schemas, false,
         );
 
         let mut docs_to_validate = Vec::new();
@@ -358,7 +359,7 @@ pub fn get_fragments_for_doc(
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
 ) -> Vec<FragmentCompletionInfo> {
     let all_fragments = super::fragment_manager::collect_fragment_metadata(
-        metadata, config, subgraphs, documents, schemas,
+        metadata, config, subgraphs, documents, schemas, true,
     );
 
     get_fragments_for_doc_with_metadata(doc.package_root.as_deref(), &all_fragments)

@@ -318,12 +318,15 @@ impl Backend {
 
         // Cache miss: collect metadata and update cache
         let config = self.config.read().unwrap();
+        // Completion surfaces each fragment's worst-case SLO, so compute it here.
+        // The result is cached, so the SLO pass runs at most once per workspace epoch.
         let metadata = Arc::new(super::fragment_manager::collect_fragment_metadata(
             &self.metadata,
             &config,
             &self.subgraphs,
             &self.documents,
             &self.schemas,
+            true,
         ));
 
         if let Ok(mut cache) = self.fragment_metadata_cache.write() {
