@@ -55,12 +55,29 @@ pub struct ProjectMetadata {
 }
 
 #[derive(Debug, Clone)]
+/// The outcome of looking at one candidate file during a workspace scan. Files with no
+/// GraphQL are simply dropped; an unreadable one is carried through so callers can tell
+/// "we could not look" from "we looked and there was nothing".
+// Boxing the parsed variant would trade the size difference for an allocation per
+// document in the scan's hot path; the vector this feeds was already DocumentState-sized
+// per entry before the unreadable variant existed.
+#[allow(clippy::large_enum_variant)]
+enum ScannedFile {
+    Parsed(PathBuf, DocumentState),
+    Unreadable(PathBuf),
+}
+
 pub struct WorkspaceMetadata {
     pub fragments: Vec<FragmentMetadata>,
     pub operations: Vec<OperationMetadata>,
     pub projects: Vec<ProjectMetadata>,
     pub timings: WorkspaceScanTimings,
     pub documents: HashMap<PathBuf, DocumentState>,
+    /// Files the scan could not read even though they still exist on disk (permissions,
+    /// IO errors, a file caught mid-write). They are absent from `documents`, which is
+    /// otherwise indistinguishable from "contains no GraphQL" — a distinction codegen
+    /// pruning depends on, since it must not treat an unreadable source as a deletion.
+    pub unreadable_files: HashSet<PathBuf>,
     /// Maps operation name -> project index -> list of file paths
     /// Used to detect duplicate operation names within a project
     pub operation_names_by_project: HashMap<Arc<str>, HashMap<usize, Vec<PathBuf>>>,
@@ -299,7 +316,7 @@ impl Engine {
         }
         // `get_project_scan_files` already restricts to relevant files, so the paths
         // here are all relevant — no need to re-check `is_relevant_file`.
-        let docs_vec: Vec<(PathBuf, DocumentState)> = all_unique_paths
+        let scanned: Vec<ScannedFile> = all_unique_paths
             .par_iter()
             .filter_map(|p| {
                 if cancelled.load(Ordering::Relaxed) {
@@ -316,11 +333,22 @@ impl Engine {
                         .ok()
                         .and_then(|m| m.modified().ok());
                     if current_mtime == prev_doc.mtime && current_mtime.is_some() {
-                        return Some((p.clone(), prev_doc.clone()));
+                        return Some(ScannedFile::Parsed(p.clone(), prev_doc.clone()));
                     }
                 }
 
-                let content = std::fs::read_to_string(&full_path).ok()?;
+                let content = match std::fs::read_to_string(&full_path) {
+                    Ok(content) => content,
+                    Err(_) => {
+                        // A file that vanished between the walk and the read is a
+                        // deletion, which callers may act on; one that is still there
+                        // is a read failure they must treat as unknown, not as "no
+                        // GraphQL". Only the rare failure path pays for the check.
+                        return full_path
+                            .exists()
+                            .then(|| ScannedFile::Unreadable(p.clone()));
+                    }
+                };
 
                 if has_generated_header(&content) {
                     return None;
@@ -347,9 +375,20 @@ impl Engine {
                 let doc =
                     DocumentState::new_from_thread_local(uri, &content, position_encoding.clone());
 
-                Some((p.clone(), doc))
+                Some(ScannedFile::Parsed(p.clone(), doc))
             })
             .collect();
+
+        let mut unreadable_files = HashSet::default();
+        let mut docs_vec: Vec<(PathBuf, DocumentState)> = Vec::with_capacity(scanned.len());
+        for entry in scanned {
+            match entry {
+                ScannedFile::Parsed(path, doc) => docs_vec.push((path, doc)),
+                ScannedFile::Unreadable(path) => {
+                    unreadable_files.insert(path);
+                }
+            }
+        }
 
         let mut path_to_doc = HashMap::default();
         let total_docs = docs_vec.len();
@@ -572,6 +611,7 @@ impl Engine {
                 .collect(),
             timings,
             documents: path_to_doc,
+            unreadable_files,
             operation_names_by_project,
         };
         if let Some(instrumentation) = instrumentation.as_ref() {

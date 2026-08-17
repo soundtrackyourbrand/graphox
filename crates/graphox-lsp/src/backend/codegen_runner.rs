@@ -41,20 +41,33 @@ fn build_run_cache(
     project_files_by_index: &[Vec<PathBuf>],
     documents: &DocumentsMap,
     position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
-) -> RunDocumentCache {
+) -> (RunDocumentCache, UnreadableFiles) {
     let mut run_cache = RunDocumentCache::new();
+    let mut unreadable = UnreadableFiles::default();
     for project_files in project_files_by_index {
         for path in project_files {
-            let _ = load_or_parse_document(path, documents, &mut run_cache, position_encoding);
+            let _ = load_or_parse_document(
+                path,
+                documents,
+                &mut run_cache,
+                &mut unreadable,
+                position_encoding,
+            );
         }
     }
-    run_cache
+    (run_cache, unreadable)
 }
+
+/// Files that exist but could not be read this run. They look exactly like "has no
+/// GraphQL" to the generation pass, so they are tracked separately: pruning must not
+/// mistake a source it failed to read for one that was deleted.
+type UnreadableFiles = ahash::AHashSet<PathBuf>;
 
 fn load_or_parse_document(
     path: &Path,
     documents: &DocumentsMap,
     run_cache: &mut RunDocumentCache,
+    unreadable: &mut UnreadableFiles,
     position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
 ) -> Option<Arc<graphox_core::DocumentState>> {
     let uri = Url::from_file_path(path).ok()?;
@@ -67,7 +80,16 @@ fn load_or_parse_document(
         return Some(doc.clone());
     }
 
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => {
+            // Still on disk, so this is a read failure rather than a deletion.
+            if path.exists() {
+                unreadable.insert(path.to_path_buf());
+            }
+            return None;
+        }
+    };
     if graphox_core::utils::has_generated_header(&content) {
         return None;
     }
@@ -115,10 +137,12 @@ pub fn collect_codegen_metadata(
     Vec<graphox_core::engine::FragmentMetadata>,
     Vec<Vec<PathBuf>>,
     RunDocumentCache,
+    UnreadableFiles,
 ) {
     let mut global_metadata = Vec::new();
     let mut project_files_by_index = Vec::with_capacity(config.projects().len());
     let mut run_cache = RunDocumentCache::new();
+    let mut unreadable = UnreadableFiles::default();
 
     for (project_idx, project) in config.projects().iter().enumerate() {
         if !config.get_project_codegen_enabled(project) {
@@ -131,9 +155,13 @@ pub fn collect_codegen_metadata(
         let import_alias = project.import().map(Arc::<str>::from);
 
         for path in &project_files {
-            let Some(doc) =
-                load_or_parse_document(path, documents, &mut run_cache, position_encoding)
-            else {
+            let Some(doc) = load_or_parse_document(
+                path,
+                documents,
+                &mut run_cache,
+                &mut unreadable,
+                position_encoding,
+            ) else {
                 continue;
             };
 
@@ -158,7 +186,12 @@ pub fn collect_codegen_metadata(
 
     graphox_core::engine::Engine::compute_fragment_dependencies(&mut global_metadata);
 
-    (global_metadata, project_files_by_index, run_cache)
+    (
+        global_metadata,
+        project_files_by_index,
+        run_cache,
+        unreadable,
+    )
 }
 
 /// Runs the codegen process for specified projects or all projects
@@ -200,15 +233,15 @@ pub async fn run_codegen(
         })
     });
 
-    let (metadata, run_cache) = if let Some(metadata) = cached_hit {
-        let run_cache = build_run_cache(
+    let (metadata, run_cache, unreadable_files) = if let Some(metadata) = cached_hit {
+        let (run_cache, unreadable) = build_run_cache(
             &metadata.project_files_by_index,
             &documents,
             &position_encoding,
         );
-        (metadata, run_cache)
+        (metadata, run_cache, unreadable)
     } else {
-        let (global_metadata, project_files_by_index, run_cache) =
+        let (global_metadata, project_files_by_index, run_cache, unreadable) =
             collect_codegen_metadata(&config, &documents, &position_encoding);
         let metadata = Arc::new(CodegenMetadata {
             global_metadata,
@@ -219,7 +252,7 @@ pub async fn run_codegen(
         {
             *guard = Some((*version, metadata.clone()));
         }
-        (metadata, run_cache)
+        (metadata, run_cache, unreadable)
     };
 
     let global_metadata = &metadata.global_metadata;
@@ -566,7 +599,16 @@ pub async fn run_codegen(
 
         let (project_ops, project_frags, project_output_paths) = generated;
 
-        project_outputs_by_index.insert(*project_idx, project_output_paths);
+        // A file that exists but couldn't be read is missing from the document set,
+        // which is indistinguishable from "holds no GraphQL" — so this project's
+        // keep-set is incomplete and it must not be pruned against.
+        let keep_set_complete = unreadable_files.is_empty()
+            || !project_files
+                .iter()
+                .any(|file| unreadable_files.contains(file));
+        if keep_set_complete {
+            project_outputs_by_index.insert(*project_idx, project_output_paths);
+        }
         successful_projects.push((project, project_ops, project_frags));
     }
 

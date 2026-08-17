@@ -401,6 +401,27 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         }
     }
 
+    // A source the scan couldn't read is missing from `workspace_documents`, which is
+    // otherwise how "this file has no GraphQL" looks. Its project therefore has an
+    // incomplete keep-set and must not be pruned against — the file is still there, so
+    // its generated output is not an orphan.
+    if !workspace_metadata.unreadable_files.is_empty() {
+        project_outputs.retain(|idx, _| {
+            let has_unreadable = workspace_metadata.projects[*idx]
+                .files
+                .iter()
+                .any(|file| workspace_metadata.unreadable_files.contains(file));
+            if has_unreadable {
+                eprintln!(
+                    "{}: project {} has unreadable files; skipping orphan cleanup for it",
+                    "Warning".yellow(),
+                    cfg.projects()[*idx].include().as_key().blue()
+                );
+            }
+            !has_unreadable
+        });
+    }
+
     if !schema_types.is_empty() && (clean || cfg.codegen().is_enabled()) {
         let schema_results: Vec<_> = schema_types
             .par_iter()
@@ -764,7 +785,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     // manifest are rewritten wholesale and so self-heal, but the orphan keeps importing
     // symbols from the outputs that *were* regenerated and breaks `tsc` as soon as one
     // of them is renamed. Sweep it now rather than making `--clean` the only remedy.
-    if !clean {
+    if !clean && success {
         prune_orphaned_outputs(&cfg, &project_outputs, verbose);
     }
 
