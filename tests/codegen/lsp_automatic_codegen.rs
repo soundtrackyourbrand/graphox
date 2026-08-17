@@ -1500,6 +1500,100 @@ async fn test_watched_file_deletion_regenerates_cross_project_consumers() {
     );
 }
 
+/// Generation only ever writes, so a deleted source used to leave its `.codegen.ts`
+/// behind for the editor session too — the same orphan `graphox codegen` now prunes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_watched_file_deletion_prunes_orphaned_output() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+
+    fs::create_dir_all(base_dir.join("src")).unwrap();
+    let kept_path = base_dir.join("src/kept.graphql");
+    let doomed_path = base_dir.join("src/doomed.graphql");
+    fs::write(&kept_path, "query Kept { me { id } }").unwrap();
+    fs::write(&doomed_path, "query Doomed { me { name } }").unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("gen".to_string())
+                .with_codegen(CodegenConfig::enabled()),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50)
+    .with_enable_schema_cache(true);
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+
+    let kept_gen = base_dir.join("gen/kept.codegen.ts");
+    let doomed_gen = base_dir.join("gen/doomed.codegen.ts");
+
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: Url::from_file_path(&kept_path).unwrap(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: "query Kept { me { id } }".to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        support::wait_for_file_async(&doomed_gen, Duration::from_millis(3000), Some("Doomed"))
+            .await,
+        "Both documents should generate before the deletion"
+    );
+    assert!(kept_gen.exists());
+
+    fs::remove_file(&doomed_path).unwrap();
+    let changes = vec![FileEvent {
+        uri: Url::from_file_path(&doomed_path).unwrap(),
+        typ: FileChangeType::DELETED,
+    }];
+    service
+        .call(
+            Request::build("workspace/didChangeWatchedFiles")
+                .params(serde_json::to_value(DidChangeWatchedFilesParams { changes }).unwrap())
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    let pruned = support::wait_for_condition_with_timeout(
+        || !doomed_gen.exists(),
+        Duration::from_millis(5000),
+    )
+    .await;
+    assert!(
+        pruned,
+        "The deleted document's generated output should have been pruned"
+    );
+    assert!(
+        kept_gen.exists(),
+        "The surviving document's output must not be swept up with the orphan"
+    );
+}
+
 /// The codegen metadata cache is keyed on the workspace version, which an
 /// operation-body edit does NOT bump (no fragment/spread/operation-name change).
 /// Such an edit therefore hits the cache — so codegen must still pick up the edited

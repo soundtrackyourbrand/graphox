@@ -378,7 +378,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             );
 
             match res {
-                Ok((ops, frags)) => Some(Ok((project_index, ops, frags))),
+                Ok((ops, frags, outputs)) => Some(Ok((project_index, ops, frags, outputs))),
                 Err(_) => Some(Err(())),
             }
         })
@@ -386,15 +386,40 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
     let mut project_operations: HashMap<usize, Vec<codegen::OperationGenerated>> = HashMap::new();
     let mut project_fragments: HashMap<usize, Vec<codegen::FragmentGenerated>> = HashMap::new();
+    // Only projects present here ran to completion; a project that was skipped
+    // (codegen disabled, no files) or errored is absent, which is what gates pruning.
+    let mut project_outputs: HashMap<usize, Vec<PathBuf>> = HashMap::new();
 
     for res in project_results {
         match res {
-            Ok((idx, ops, frags)) => {
+            Ok((idx, ops, frags, outputs)) => {
                 project_operations.insert(idx, ops);
                 project_fragments.insert(idx, frags);
+                project_outputs.insert(idx, outputs);
             }
             Err(_) => success = false,
         }
+    }
+
+    // A source the scan couldn't read is missing from `workspace_documents`, which is
+    // otherwise how "this file has no GraphQL" looks. Its project therefore has an
+    // incomplete keep-set and must not be pruned against — the file is still there, so
+    // its generated output is not an orphan.
+    if !workspace_metadata.unreadable_files.is_empty() {
+        project_outputs.retain(|idx, _| {
+            let has_unreadable = workspace_metadata.projects[*idx]
+                .files
+                .iter()
+                .any(|file| workspace_metadata.unreadable_files.contains(file));
+            if has_unreadable {
+                eprintln!(
+                    "{}: project {} has unreadable files; skipping orphan cleanup for it",
+                    "Warning".yellow(),
+                    cfg.projects()[*idx].include().as_key().blue()
+                );
+            }
+            !has_unreadable
+        });
     }
 
     if !schema_types.is_empty() && (clean || cfg.codegen().is_enabled()) {
@@ -755,7 +780,47 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         }
     }
 
+    // Generation is purely source-driven, so a source that was deleted — or that no
+    // longer contains any GraphQL — leaves its `.codegen.ts` behind. The entrypoint and
+    // manifest are rewritten wholesale and so self-heal, but the orphan keeps importing
+    // symbols from the outputs that *were* regenerated and breaks `tsc` as soon as one
+    // of them is renamed. Sweep it now rather than making `--clean` the only remedy.
+    if !clean && success {
+        prune_orphaned_outputs(&cfg, &project_outputs, verbose);
+    }
+
     success
+}
+
+/// Deletes `.codegen.ts` files that no longer correspond to a source document and
+/// reports what went. The gating lives in [`utils::prune_orphaned_outputs`] so the CLI
+/// and the LSP's codegen runner sweep on exactly the same terms.
+fn prune_orphaned_outputs(
+    cfg: &Config,
+    project_outputs: &HashMap<usize, Vec<PathBuf>>,
+    verbose: bool,
+) {
+    let removed = utils::prune_orphaned_outputs(cfg, project_outputs);
+
+    if !removed.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "Removed {} orphaned generated file(s) with no source document",
+                removed.len()
+            )
+            .bright_black()
+        );
+        if verbose {
+            for path in &removed {
+                println!(
+                    "{}: {}",
+                    "Removed".bright_black(),
+                    path.display().to_string().bright_black()
+                );
+            }
+        }
+    }
 }
 
 fn execute_clean_only(cfg: &Config, verbose: bool) -> bool {
@@ -881,17 +946,21 @@ fn execute_schema_codegen_sync(
     true
 }
 
+/// What a project's codegen pass produced: the generated operations and fragments,
+/// plus every output path the project is responsible for. The paths are the pruning
+/// keep-set — they include files that failed to generate, which must not be mistaken
+/// for orphans.
+type ProjectCodegenOutput = (
+    Vec<codegen::OperationGenerated>,
+    Vec<codegen::FragmentGenerated>,
+    Vec<PathBuf>,
+);
+
 fn execute_project_codegen_sync(
     params: CodegenParams<'_>,
     verbose: bool,
     clean: bool,
-) -> Result<
-    (
-        Vec<codegen::OperationGenerated>,
-        Vec<codegen::FragmentGenerated>,
-    ),
-    (),
-> {
+) -> Result<ProjectCodegenOutput, ()> {
     if !clean {
         generate_project_files_sync(params, verbose)
     } else {
@@ -919,13 +988,7 @@ struct CleanParams<'a> {
 fn generate_project_files_sync(
     params: CodegenParams<'_>,
     verbose: bool,
-) -> Result<
-    (
-        Vec<codegen::OperationGenerated>,
-        Vec<codegen::FragmentGenerated>,
-    ),
-    (),
-> {
+) -> Result<ProjectCodegenOutput, ()> {
     let valid_schema =
         match schema::load_schema_with_cache(params.base_dir, params.source, params.use_cache) {
             Ok(v) => v.validate().expect("Schema should be valid"),
@@ -1004,7 +1067,7 @@ fn generate_project_files_sync(
                 abs_out_path.clone(),
             );
 
-            execute_single_file_codegen(
+            let res = execute_single_file_codegen(
                 doc,
                 &ctx,
                 params.output_dir,
@@ -1012,12 +1075,14 @@ fn generate_project_files_sync(
                 &include_prefix_path,
                 verbose,
             )
-            .map_err(|e| (path.to_path_buf(), e))
+            .map_err(|e| (path.to_path_buf(), e));
+
+            (abs_out_path, res)
         })
         .collect::<Vec<_>>()
         .into_iter()
-        .map(|res| match res {
-            Ok((ops, frags)) => Ok((ops, frags)),
+        .map(|(out_path, res)| match res {
+            Ok((ops, frags)) => Ok((ops, frags, Some(out_path))),
             Err((path, e)) => {
                 if !e.contains("No executable operations") {
                     eprintln!(
@@ -1054,7 +1119,9 @@ fn generate_project_files_sync(
                     }
                     Err(())
                 } else {
-                    Ok((Vec::new(), Vec::new()))
+                    // The document holds GraphQL but nothing generatable, so no file
+                    // was written and any leftover output for it is an orphan.
+                    Ok((Vec::new(), Vec::new(), None))
                 }
             }
         })
@@ -1062,12 +1129,14 @@ fn generate_project_files_sync(
 
     let mut all_ops = Vec::new();
     let mut all_frags = Vec::new();
+    let mut all_outputs = Vec::new();
     let mut success = true;
     for res in results {
         match res {
-            Ok((ops, frags)) => {
+            Ok((ops, frags, out_path)) => {
                 all_ops.extend(ops);
                 all_frags.extend(frags);
+                all_outputs.extend(out_path);
             }
             Err(_) => success = false,
         }
@@ -1123,7 +1192,7 @@ fn generate_project_files_sync(
     }
 
     if success {
-        Ok((all_ops, all_frags))
+        Ok((all_ops, all_frags, all_outputs))
     } else {
         Err(())
     }
@@ -1132,13 +1201,7 @@ fn generate_project_files_sync(
 fn clean_project_files_sync(
     params: CleanParams<'_>,
     verbose: bool,
-) -> Result<
-    (
-        Vec<codegen::OperationGenerated>,
-        Vec<codegen::FragmentGenerated>,
-    ),
-    (),
-> {
+) -> Result<ProjectCodegenOutput, ()> {
     let patterns = params.include.patterns();
 
     match params.output_dir {
@@ -1249,7 +1312,7 @@ fn clean_project_files_sync(
         }
     }
 
-    Ok((Vec::new(), Vec::new()))
+    Ok((Vec::new(), Vec::new(), Vec::new()))
 }
 
 fn surgical_clean(dir: &Path, verbose: bool, entrypoint_name: &str) -> Result<(), ()> {

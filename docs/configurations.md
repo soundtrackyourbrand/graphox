@@ -62,7 +62,10 @@ codegen:
   
   # Re-export types from graphql.ts
   re_exports: false
-  
+
+  # Delete generated files whose source document no longer exists
+  prune_orphans: true
+
   # File extensions
   emit_extensions: "ts"  # or: "js", "tsx"
 
