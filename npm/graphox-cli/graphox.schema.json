@@ -294,6 +294,11 @@
           "description": "Re-export all operation and fragment types/documents from the root graphql.ts file.",
           "default": false
         },
+        "prune_orphans": {
+          "type": "boolean",
+          "description": "Delete generated files whose source document no longer exists or no longer contains GraphQL, instead of leaving them behind until the next `codegen --clean`.",
+          "default": true
+        },
         "emit_permission_data": {
           "type": "boolean",
           "description": "Generate permission metadata for operations.",

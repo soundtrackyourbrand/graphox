@@ -701,6 +701,220 @@ pub fn output_dir_requires_surgical_handling(
     })
 }
 
+/// True for a path graphox emits per source document (`<name>.codegen.ts`).
+pub fn is_codegen_output_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.ends_with(".codegen.ts"))
+}
+
+/// Removes `*.codegen.ts` files under `dir` that the current run did not account for,
+/// i.e. outputs whose source document was deleted or no longer contains any GraphQL.
+/// Without this a plain (non-`--clean`) run leaves them on disk, where they keep
+/// importing symbols from the outputs that *were* regenerated and break `tsc`.
+///
+/// `keep` holds every output path the run is responsible for — including files it
+/// attempted but failed to generate, which must survive a transiently broken document.
+/// Both sides are compared canonically and a candidate that cannot be canonicalized is
+/// left alone: pruning must never delete a file it can't positively identify as an
+/// orphan. Callers are responsible for the coarser safety gate — only pass a `dir`
+/// whose every contributing project ran to completion.
+///
+/// With `recursive` the whole tree under `dir` is swept (a project `output_dir`, which
+/// mirrors the source tree); without it only `dir` itself (co-located outputs, where
+/// the surrounding tree is not graphox-owned). `remove_empty_dirs` additionally drops
+/// directories left empty by the sweep.
+fn prune_orphaned_codegen_in_dir(
+    dir: &Path,
+    recursive: bool,
+    remove_empty_dirs: bool,
+    keep: &ahash::AHashSet<PathBuf>,
+) -> Vec<PathBuf> {
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+
+    let keep_canon: ahash::AHashSet<PathBuf> = keep
+        .iter()
+        .filter_map(|p| std::fs::canonicalize(p).ok())
+        .collect();
+
+    let mut builder = ignore::WalkBuilder::new(dir);
+    builder
+        .hidden(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .parents(false);
+    if !recursive {
+        builder.max_depth(Some(1));
+    }
+
+    let mut removed = Vec::new();
+    for entry in builder.build().flatten() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let path = entry.path();
+        if !is_codegen_output_file(path) {
+            continue;
+        }
+        let Ok(canonical) = std::fs::canonicalize(path) else {
+            continue;
+        };
+        if keep_canon.contains(&canonical) {
+            continue;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            removed.push(path.to_path_buf());
+        }
+    }
+
+    if remove_empty_dirs {
+        let mut parents: Vec<PathBuf> = removed
+            .iter()
+            .filter_map(|p| p.parent().map(Path::to_path_buf))
+            .collect();
+        parents.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+        parents.dedup();
+        for parent in parents {
+            // `remove_dir` only succeeds on an empty directory, so this stops at the
+            // first ancestor that still holds anything.
+            let mut current = parent;
+            while current != dir
+                && path_starts_with(&current, dir)
+                && std::fs::remove_dir(&current).is_ok()
+            {
+                match current.parent() {
+                    Some(p) => current = p.to_path_buf(),
+                    None => break,
+                }
+            }
+        }
+    }
+
+    removed
+}
+
+/// Deletes generated files that no longer correspond to a source document, and returns
+/// what was removed.
+///
+/// Codegen is purely source-driven: it maps each existing document to an output path
+/// and writes it, so a source that was deleted — or that no longer contains any GraphQL
+/// — leaves its `.codegen.ts` behind. The entrypoint and manifest are rewritten
+/// wholesale and self-heal, but the orphan keeps importing symbols from the outputs
+/// that *were* regenerated, and breaks `tsc` as soon as one of them is renamed.
+///
+/// `project_outputs` maps project index to every output path that project claimed this
+/// run, and doubles as the safety gate: a project missing from it did not run to
+/// completion (codegen disabled, no files, or an error), so its output directory is
+/// left alone rather than swept against an incomplete keep-set. Shared and nested
+/// output directories are gated the same way — one blocked project blocks the whole
+/// sweep of any directory it writes into.
+pub fn prune_orphaned_outputs(
+    config: &Config,
+    project_outputs: &AHashMap<usize, Vec<PathBuf>>,
+) -> Vec<PathBuf> {
+    let mut dir_keep: AHashMap<PathBuf, ahash::AHashSet<PathBuf>> = AHashMap::default();
+    let mut dir_patterns: AHashMap<PathBuf, Vec<String>> = AHashMap::default();
+    let mut blocked_dirs: ahash::AHashSet<PathBuf> = ahash::AHashSet::default();
+    let mut colocated_keep: ahash::AHashSet<PathBuf> = ahash::AHashSet::default();
+    let mut colocated_blocked = false;
+
+    for (idx, project) in config.projects().iter().enumerate() {
+        let outputs = project_outputs
+            .get(&idx)
+            .filter(|_| config.get_codegen_config(Some(project)).prune_orphans());
+
+        match project.output_dir() {
+            Some(out_dir) => {
+                let abs_out_dir = config.base_dir().join(out_dir);
+                let canon_out_dir = abs_out_dir.canonicalize().unwrap_or(abs_out_dir);
+                match outputs {
+                    Some(paths) => {
+                        dir_keep
+                            .entry(canon_out_dir.clone())
+                            .or_default()
+                            .extend(paths.iter().cloned());
+                        dir_patterns
+                            .entry(canon_out_dir)
+                            .or_default()
+                            .extend(project.include().patterns());
+                    }
+                    None => {
+                        blocked_dirs.insert(canon_out_dir);
+                    }
+                }
+            }
+            None => match outputs {
+                Some(paths) => colocated_keep.extend(paths.iter().cloned()),
+                None => colocated_blocked = true,
+            },
+        }
+    }
+
+    // One output_dir can nest inside another, in which case the outer sweep also sees
+    // the inner project's files: fold the inner keep-set into the outer one, and let a
+    // blocked inner directory block the outer sweep too.
+    let dirs: Vec<PathBuf> = dir_keep.keys().cloned().collect();
+    for outer in &dirs {
+        let nested: Vec<PathBuf> = dirs
+            .iter()
+            .filter(|inner| *inner != outer && path_starts_with(inner, outer))
+            .cloned()
+            .collect();
+        for inner in nested {
+            let inner_keep = dir_keep.get(&inner).cloned().unwrap_or_default();
+            dir_keep
+                .entry(outer.clone())
+                .or_default()
+                .extend(inner_keep);
+        }
+        if blocked_dirs
+            .iter()
+            .any(|blocked| blocked != outer && path_starts_with(blocked, outer))
+        {
+            blocked_dirs.insert(outer.clone());
+        }
+    }
+
+    let mut removed: Vec<PathBuf> = Vec::new();
+
+    for (dir, keep) in &dir_keep {
+        if blocked_dirs.contains(dir) {
+            continue;
+        }
+        let patterns = dir_patterns.get(dir).cloned().unwrap_or_default();
+        // In the surgical case the output dir doubles as an include root, so the
+        // directory structure is the user's — sweep the files but leave it standing.
+        let is_surgical = output_dir_requires_surgical_handling(config.base_dir(), &patterns, dir);
+        removed.extend(prune_orphaned_codegen_in_dir(dir, true, !is_surgical, keep));
+    }
+
+    if !colocated_blocked && !colocated_keep.is_empty() {
+        // Without an output_dir the generated files sit beside hand-written ones, so
+        // there is no graphox-owned tree to sweep: limit the pass to the directories
+        // this run actually wrote into.
+        let mut dirs: Vec<PathBuf> = colocated_keep
+            .iter()
+            .filter_map(|path| path.parent().map(Path::to_path_buf))
+            .collect();
+        dirs.sort();
+        dirs.dedup();
+        for dir in dirs {
+            removed.extend(prune_orphaned_codegen_in_dir(
+                &dir,
+                false,
+                false,
+                &colocated_keep,
+            ));
+        }
+    }
+
+    removed.sort();
+    removed
+}
+
 pub fn get_project_scan_files(
     config: &Config,
     project: &ProjectConfig,

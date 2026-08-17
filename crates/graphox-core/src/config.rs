@@ -488,6 +488,7 @@ pub struct CodegenConfig {
     pub nullable_fields_as_optional: Option<bool>,
     pub graphql_tag_fallback: Option<bool>,
     pub merge_union_types: Option<bool>,
+    pub prune_orphans: Option<bool>,
 }
 
 impl CodegenConfig {
@@ -586,6 +587,11 @@ impl CodegenConfig {
 
     pub fn with_generate_ast_for_fragments(mut self, enabled: bool) -> Self {
         self.generate_ast_for_fragments = Some(enabled);
+        self
+    }
+
+    pub fn with_prune_orphans(mut self, enabled: bool) -> Self {
+        self.prune_orphans = Some(enabled);
         self
     }
 
@@ -690,6 +696,7 @@ impl CodegenConfig {
             nullable_fields_as_optional: node["nullable_fields_as_optional"].as_bool(),
             graphql_tag_fallback: node["graphql_tag_fallback"].as_bool(),
             merge_union_types: node["merge_union_types"].as_bool(),
+            prune_orphans: node["prune_orphans"].as_bool(),
         })
     }
 
@@ -806,6 +813,13 @@ impl CodegenConfig {
 
     pub fn re_exports(&self) -> bool {
         self.re_exports.unwrap_or(false)
+    }
+
+    /// Whether a normal run deletes generated files whose source document is gone.
+    /// On by default: leaving them behind breaks `tsc` as soon as a symbol they
+    /// import is renamed, and only `--clean` used to remove them.
+    pub fn prune_orphans(&self) -> bool {
+        self.prune_orphans.unwrap_or(true)
     }
 
     pub fn emit_permission_data(&self) -> bool {
@@ -1520,6 +1534,9 @@ impl Config {
             }
             if project_codegen.re_exports.is_some() {
                 result.re_exports = project_codegen.re_exports;
+            }
+            if project_codegen.prune_orphans.is_some() {
+                result.prune_orphans = project_codegen.prune_orphans;
             }
             if project_codegen.emit_permission_data.is_some() {
                 result.emit_permission_data = project_codegen.emit_permission_data;
