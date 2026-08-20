@@ -3,6 +3,7 @@ name = "graphox"
 version = "0.8.1"
 edition = "2024"
 license.workspace = true
+publish.workspace = true
 
 [workspace]
 members = [
@@ -17,6 +18,10 @@ members = [
 
 [workspace.package]
 license = "MIT"
+# The crates are not published to crates.io; the npm packages are the
+# distribution. Set so `cargo publish` refuses rather than relying on nobody
+# trying it.
+publish = false
 
 [workspace.dependencies]
 apollo-compiler = "1.31"
