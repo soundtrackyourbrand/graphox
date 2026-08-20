@@ -1,5 +1,6 @@
 {
   "name": "@graphox/swc-plugin",
+  "description": "SWC plugin for Graphox: rewrites graphql() calls to direct generated-document imports so unused documents are tree-shaken",
   "version": "0.8.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -48,5 +49,10 @@
     "url": "https://github.com/soundtrackyourbrand/graphox",
     "directory": "plugins/swc/node"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": "Soundtrack Technologies",
+  "homepage": "https://github.com/soundtrackyourbrand/graphox#readme",
+  "bugs": {
+    "url": "https://github.com/soundtrackyourbrand/graphox/issues"
+  }
 }

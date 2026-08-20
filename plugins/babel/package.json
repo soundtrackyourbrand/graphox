@@ -5,6 +5,18 @@
   "main": "index.js",
   "types": "index.d.ts",
   "license": "MIT",
+  "author": "Soundtrack Technologies",
+  "homepage": "https://github.com/soundtrackyourbrand/graphox#readme",
+  "bugs": {
+    "url": "https://github.com/soundtrackyourbrand/graphox/issues"
+  },
+  "keywords": [
+    "graphql",
+    "babel",
+    "plugin",
+    "codegen",
+    "codesplitting"
+  ],
   "publishConfig": {
     "access": "public"
   },

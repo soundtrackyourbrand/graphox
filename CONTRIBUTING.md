@@ -193,4 +193,3 @@ under the [MIT License](./LICENSE) that covers the project.
 
 - [Architecture Documentation](./docs/architecture.md)
 - [Plugin Development Guide](./docs/plugin-development.md)
-- [API Documentation](https://docs.rs/graphox)

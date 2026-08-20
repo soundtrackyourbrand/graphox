@@ -32,8 +32,12 @@
     "typescript",
     "rust"
   ],
-  "author": "soundtrackyourbrand",
+  "author": "Soundtrack Technologies",
   "license": "MIT",
+  "homepage": "https://github.com/soundtrackyourbrand/graphox#readme",
+  "bugs": {
+    "url": "https://github.com/soundtrackyourbrand/graphox/issues"
+  },
   "files": [
     "bin/graphox.js",
     "postinstall.js",

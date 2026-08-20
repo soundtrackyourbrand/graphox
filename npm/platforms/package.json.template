@@ -19,5 +19,10 @@
     "url": "https://github.com/soundtrackyourbrand/graphox",
     "directory": "npm/platforms"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": "Soundtrack Technologies",
+  "homepage": "https://github.com/soundtrackyourbrand/graphox#readme",
+  "bugs": {
+    "url": "https://github.com/soundtrackyourbrand/graphox/issues"
+  }
 }
