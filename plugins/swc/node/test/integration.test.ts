@@ -723,3 +723,31 @@ describe('output directory ambiguity', () => {
     }
   });
 });
+
+describe('alias scan caching', () => {
+  it('picks up an alias added after a first resolve', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphox-cache-'));
+    fs.mkdirSync(path.join(root, 'gen'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'gen/manifest.json'), JSON.stringify([]));
+    const pkgJson = path.join(root, 'package.json');
+    fs.writeFileSync(pkgJson, JSON.stringify({ name: 'x' }));
+
+    try {
+      const before = resolvePluginOutputs({ outputs: [{ outputDir: 'gen' }] }, { cwd: root });
+      expect(before[0].graphqlImportPaths).not.toContain('#gen/graphql');
+
+      fs.writeFileSync(
+        pkgJson,
+        JSON.stringify({ name: 'x', imports: { '#gen/*': './gen/*.ts' } })
+      );
+      // mtime resolution can be coarse; make the change unambiguous.
+      const future = new Date(Date.now() + 2000);
+      fs.utimesSync(pkgJson, future, future);
+
+      const after = resolvePluginOutputs({ outputs: [{ outputDir: 'gen' }] }, { cwd: root });
+      expect(after[0].graphqlImportPaths).toContain('#gen/graphql');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+});

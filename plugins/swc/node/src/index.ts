@@ -493,7 +493,19 @@ function resolveOutput(
   const projectTsconfig = findNearestFile(resolvedOutputDir, 'tsconfig.json') || fallbackTsconfig;
   const projectPkgJson = findNearestFile(resolvedOutputDir, 'package.json') || fallbackPkgJson;
 
-  const cacheKey = `${rootDir}:${resolvedOutputDir}`;
+  // Keyed by the files the scan actually read and when they last changed: a
+  // long-lived process — a watch build — otherwise keeps serving an alias scan
+  // from before the package.json that defines the alias was edited.
+  const scanned = [projectTsconfig, projectPkgJson]
+    .filter((file): file is string => Boolean(file))
+    .map((file) => {
+      try {
+        return `${file}@${fs.statSync(file).mtimeMs}`;
+      } catch {
+        return `${file}@missing`;
+      }
+    });
+  const cacheKey = `${rootDir}:${resolvedOutputDir}:${scanned.join(',')}`;
   let autoDetected = importPathsCache.get(cacheKey);
   if (!autoDetected) {
     autoDetected = emptyScan();
