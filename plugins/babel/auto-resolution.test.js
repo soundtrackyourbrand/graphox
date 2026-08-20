@@ -68,6 +68,47 @@ describe('@graphox/babel-plugin auto-resolution', () => {
     expect(output).toContain('import { MyQueryDocument } from "../gen/query.codegen";');
   });
 
+  it('reads a package.json imports wildcard that has a suffix after the star', () => {
+    // "#gql/*" -> "./gen/*.ts": call sites write
+    // `import { graphql } from '#gql/playback/graphql'`, so that exact specifier
+    // is what has to be recognised. Resolving the target verbatim left an `*` in
+    // the path, which matches nothing — the call site was then left alone while
+    // the entrypoint it calls was emptied on its path match.
+    const outputDir = path.join(tmpDir, 'gen', 'playback');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'test-pkg', imports: { '#gql/*': './gen/*.ts' } })
+    );
+    fs.writeFileSync(path.join(outputDir, 'manifest.json'), JSON.stringify(manifestData));
+
+    const code =
+      "import { graphql } from '#gql/playback/graphql'; const q = graphql(`query { me { id } }`);";
+    const output = transform(code, { outputDir }, path.join(tmpDir, 'src', 'test.ts'));
+
+    expect(output).toContain('../gen/playback/query.codegen');
+    expect(output).not.toContain('graphql(');
+  });
+
+  it('reads a tsconfig paths wildcard that has a suffix after the star', () => {
+    const outputDir = path.join(tmpDir, 'gen', 'playback');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(tmpDir, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@gen/*': ['gen/*.ts'] } } })
+    );
+    fs.writeFileSync(path.join(outputDir, 'manifest.json'), JSON.stringify(manifestData));
+
+    const code =
+      "import { graphql } from '@gen/playback/graphql'; const q = graphql(`query { me { id } }`);";
+    const output = transform(code, { outputDir }, path.join(tmpDir, 'src', 'test.ts'));
+
+    expect(output).toContain('../gen/playback/query.codegen');
+    expect(output).not.toContain('graphql(');
+  });
+
   it('reads imports from package.json with object-form conditional exports', () => {
     const outputDir = path.join(tmpDir, 'gen');
     fs.mkdirSync(outputDir, { recursive: true });

@@ -20,49 +20,95 @@ function findNearestFile(startDir, filename) {
   return null;
 }
 
+/**
+ * The import specifiers one alias mapping gives this output's entrypoint.
+ *
+ * The mapping may be a wildcard with text on both sides of the `*` —
+ * `"#gql/*": "./gen/*.ts"` is the ordinary shape for a TypeScript subpath map.
+ * Resolving that target verbatim leaves an `*` inside the path, which can never
+ * equal a concrete file, so solve for what `*` has to stand for to land on the
+ * entrypoint and substitute that back into the alias.
+ *
+ * `reachesOutput` reports that the mapping leads into the output directory, so
+ * the caller can tell "not this output's alias" apart from "this output's alias,
+ * in a shape we could not read".
+ */
+function aliasSpecifiers(alias, target, baseDir, absoluteOutputDir) {
+  const absOutNoExt = stripExt(absoluteOutputDir);
+  const absEntryNoExt = stripExt(path.join(absoluteOutputDir, 'graphql'));
+  const absIndexNoExt = stripExt(path.join(absoluteOutputDir, 'index'));
+
+  if (!alias.includes('*') || !target.includes('*')) {
+    const absTargetNoExt = stripExt(path.resolve(baseDir, target));
+
+    // Names the directory itself, so the entrypoint is one segment further in.
+    if (absTargetNoExt === absOutNoExt) {
+      const prefix = alias.endsWith('/') ? alias : `${alias}/`;
+      return { specifiers: [`${prefix}graphql`, `${prefix}index`], reachesOutput: true };
+    }
+
+    if (
+      absTargetNoExt === absEntryNoExt ||
+      absTargetNoExt === absIndexNoExt ||
+      stripExt(path.join(absTargetNoExt, 'index')) === absIndexNoExt
+    ) {
+      return { specifiers: [alias], reachesOutput: true };
+    }
+
+    return { specifiers: [], reachesOutput: false };
+  }
+
+  const absPattern = path.resolve(baseDir, stripExt(target));
+  const star = absPattern.indexOf('*');
+  if (star === -1) return { specifiers: [], reachesOutput: false };
+
+  const prefix = absPattern.slice(0, star);
+  const suffix = absPattern.slice(star + 1);
+  const reachesOutput = `${absOutNoExt}${path.sep}`.startsWith(prefix);
+
+  const specifiers = [];
+  for (const candidate of [absEntryNoExt, absIndexNoExt]) {
+    if (candidate.length <= prefix.length + suffix.length) continue;
+    if (!candidate.startsWith(prefix) || !candidate.endsWith(suffix)) continue;
+    const substitution = candidate
+      .slice(prefix.length, candidate.length - suffix.length)
+      .split(path.sep)
+      .join('/');
+    specifiers.push(alias.replace('*', substitution));
+  }
+
+  return { specifiers, reachesOutput };
+}
+
 function resolveTsConfigPaths(tsconfigPath, absoluteOutputDir) {
   try {
     const content = fs.readFileSync(tsconfigPath, 'utf8');
     const tsconfig = jsonc.parse(content);
     const paths = tsconfig?.compilerOptions?.paths;
-    if (!paths) return [];
+    if (!paths) return { paths: [], unusable: [] };
 
-    const baseUrl = tsconfig.compilerOptions.baseUrl 
-      ? path.resolve(path.dirname(tsconfigPath), tsconfig.compilerOptions.baseUrl) 
+    const baseUrl = tsconfig.compilerOptions.baseUrl
+      ? path.resolve(path.dirname(tsconfigPath), tsconfig.compilerOptions.baseUrl)
       : path.dirname(tsconfigPath);
-    
-    const matchedPaths = [];
-    const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
-    const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
 
-    const absOutNoExt = stripExt(absoluteOutputDir);
-    const absEntryNoExt = stripExt(absoluteEntrypointPath);
-    const absIndexNoExt = stripExt(absoluteIndexPath);
-
+    const scan = { paths: [], unusable: [] };
     for (const [alias, targets] of Object.entries(paths)) {
       for (const target of targets) {
-        const cleanTarget = target.replace(/\*$/, '');
-        const absTarget = path.resolve(baseUrl, cleanTarget);
-        const absTargetNoExt = stripExt(absTarget);
-
-        if (absTargetNoExt === absOutNoExt) {
-           let a = alias.replace(/\*$/, '');
-           if (!a.endsWith('/')) a += '/';
-           matchedPaths.push(a);
-           continue;
-        }
-
-        if (absTargetNoExt === absEntryNoExt || 
-            absTargetNoExt === absIndexNoExt ||
-            stripExt(path.join(absTargetNoExt, 'index')) === absIndexNoExt) {
-           matchedPaths.push(alias.replace(/\*$/, ''));
-        }
+        if (typeof target !== 'string') continue;
+        const { specifiers, reachesOutput } = aliasSpecifiers(
+          alias,
+          target,
+          baseUrl,
+          absoluteOutputDir
+        );
+        scan.paths.push(...specifiers);
+        if (reachesOutput && specifiers.length === 0) scan.unusable.push(alias);
       }
     }
-    return matchedPaths;
+    return scan;
   } catch (e) {
-    console.debug(`[resolveTsConfigPaths] Error processing ${tsconfigPath}: ${e.message}`, e.stack);
-    return [];
+    console.debug(`[resolveTsConfigPaths] Error processing ${tsconfigPath}: ${e.message}`);
+    return { paths: [], unusable: [] };
   }
 }
 
@@ -71,68 +117,48 @@ function resolvePackageJsonImports(pkgJsonPath, absoluteOutputDir) {
     const content = fs.readFileSync(pkgJsonPath, 'utf8');
     const pkg = JSON.parse(content);
     const imports = pkg.imports;
-    if (!imports) return [];
+    if (!imports) return { paths: [], unusable: [] };
 
-    const matchedImports = [];
     const pkgDir = path.dirname(pkgJsonPath);
-    const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
-    const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
+    const scan = { paths: [], unusable: [] };
 
-    const absOutNoExt = stripExt(absoluteOutputDir);
-    const absEntryNoExt = stripExt(absoluteEntrypointPath);
-    const absIndexNoExt = stripExt(absoluteIndexPath);
-    
-    function checkTarget(target, alias) {
-       if (typeof target !== 'string') return;
-       const absTarget = path.resolve(pkgDir, target);
-       const absTargetNoExt = stripExt(absTarget);
-
-       if (absTargetNoExt === absOutNoExt) {
-         let a = alias.replace(/\*$/, '');
-         if (!a.endsWith('/')) a += '/';
-         matchedImports.push(a);
-         return;
-       }
-
-       if (absTargetNoExt === absEntryNoExt || 
-           absTargetNoExt === absIndexNoExt ||
-           stripExt(path.join(absTargetNoExt, 'index')) === absIndexNoExt) {
-         matchedImports.push(alias.replace(/\*$/, ''));
-       }
-    }
-
+    // Every target the alias can resolve to, through any condition or fallback
+    // array. Unlike picking an alias to emit, recognising an entrypoint wants to
+    // be permissive: an extra specifier that never occurs costs nothing, while a
+    // missed one leaves that project's call sites unrewritten.
+    const targetsOf = (target) => {
+      if (typeof target === 'string') return [target];
+      if (Array.isArray(target)) return target.flatMap(targetsOf);
+      if (target && typeof target === 'object') return Object.values(target).flatMap(targetsOf);
+      return [];
+    };
 
     for (const [alias, target] of Object.entries(imports)) {
-      if (typeof target === 'string') {
-        checkTarget(target, alias);
-      } else if (typeof target === 'object' && target !== null) {
-        for (const key of ['import', 'types', 'default', 'require']) {
-          if (target[key]) {
-             checkTarget(target[key], alias);
-          }
-        }
+      let matched = false;
+      let reaches = false;
+
+      for (const raw of targetsOf(target)) {
+        const { specifiers, reachesOutput } = aliasSpecifiers(
+          alias,
+          raw,
+          pkgDir,
+          absoluteOutputDir
+        );
+        scan.paths.push(...specifiers);
+        matched = matched || specifiers.length > 0;
+        reaches = reaches || reachesOutput;
       }
+
+      if (reaches && !matched) scan.unusable.push(alias);
     }
-    
-    return matchedImports;
+
+    return scan;
   } catch (e) {
-    console.debug(`[resolvePackageJsonImports] Error processing ${pkgJsonPath}: ${e.message}`, e.stack);
-    return [];
+    console.debug(`[resolvePackageJsonImports] Error processing ${pkgJsonPath}: ${e.message}`);
+    return { paths: [], unusable: [] };
   }
 }
 
-/**
- * The bare specifier prefix other packages use to reach `absoluteOutputDir`,
- * derived from the owning package's `name` and `exports`.
- *
- * `canServeDeep` reports whether the exports map can also serve files inside
- * that subpath, which cross-project document imports need.
- *
- * Conservative by design: only reports an alias when exactly one subpath
- * matches, and skips array and null targets rather than guessing. A wrong guess
- * yields a specifier that fails to resolve at bundle time, which is worse than
- * asking for explicit config.
- */
 function resolvePackageExportAlias(pkgJsonPath, absoluteOutputDir) {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));

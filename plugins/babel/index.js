@@ -12,8 +12,56 @@ const {
 // it — this also stops the exports warning repeating once per module.
 const resolvedOutputsCache = new WeakMap();
 
+/**
+ * Collapse a document's source into a key that ignores formatting.
+ *
+ * Whitespace between GraphQL tokens carries no meaning, and dropping it is what
+ * lets a call site's indentation differ from the manifest's. Inside a string or
+ * block string it does carry meaning: dropping it there made two documents that
+ * differ only in a literal's contents share one key, so the first entry answered
+ * for both and a call site silently got the other document. Anonymous operations
+ * make that reachable — there is no duplicate name to reject them.
+ *
+ * This is a key builder, not a GraphQL parser. It only has to be wrong in the
+ * same way on both sides of a comparison.
+ */
 function normalize(s) {
-  return s.replace(/\s+/g, '');
+  let out = '';
+  let i = 0;
+
+  while (i < s.length) {
+    if (s[i] !== '"') {
+      if (!/\s/.test(s[i])) out += s[i];
+      i += 1;
+      continue;
+    }
+
+    const block = s.startsWith('\"\"\"', i);
+    const quote = block ? 3 : 1;
+
+    out += '"'.repeat(quote);
+    i += quote;
+
+    while (i < s.length) {
+      if (s[i] === '\\') {
+        // An escape cannot close the string, so take both characters.
+        out += s[i] + (s[i + 1] ?? '');
+        i += 2;
+        continue;
+      }
+
+      if (s[i] === '"' && (!block || s.startsWith('\"\"\"', i))) {
+        out += '"'.repeat(quote);
+        i += quote;
+        break;
+      }
+
+      out += s[i];
+      i += 1;
+    }
+  }
+
+  return out;
 }
 
 function toPosixPath(str) {
@@ -109,14 +157,50 @@ module.exports = function (babel) {
               const importPathsSet = new Set(
                 (output.graphqlImportPaths || []).map(toPosixPath)
               );
-              if (projectTsconfig) {
-                for (const p of resolveTsConfigPaths(projectTsconfig, absoluteOutputDir)) {
+              const unusableAliases = [];
+              for (const scan of [
+                projectTsconfig
+                  ? resolveTsConfigPaths(projectTsconfig, absoluteOutputDir)
+                  : { paths: [], unusable: [] },
+                projectPkgJson
+                  ? resolvePackageJsonImports(projectPkgJson, absoluteOutputDir)
+                  : { paths: [], unusable: [] },
+              ]) {
+                for (const p of scan.paths) {
                   importPathsSet.add(toPosixPath(p));
                 }
+                for (const alias of scan.unusable) {
+                  if (!unusableAliases.includes(alias)) unusableAliases.push(alias);
+                }
               }
-              if (projectPkgJson) {
-                for (const p of resolvePackageJsonImports(projectPkgJson, absoluteOutputDir)) {
-                  importPathsSet.add(toPosixPath(p));
+
+              // An alias that leads here but yielded no specifier is the
+              // dangerous case: the entrypoint is emptied because its path
+              // matches, while call sites reaching it through that alias are
+              // never rewritten and go on calling the emptied stub.
+              for (const alias of unusableAliases) {
+                console.warn(
+                  `@graphox/babel-plugin: "${alias}" leads to ${absoluteOutputDir}, but graphox ` +
+                    `could not work out which import specifier its call sites use. Their graphql() ` +
+                    `calls will not be rewritten, and ${path.join(absoluteOutputDir, 'graphql')} is ` +
+                    `emptied either way, so they fail at runtime. Add the specifier they import to ` +
+                    `graphqlImportPaths for this output.`
+                );
+              }
+
+              // A sibling file named like the output directory makes the bare
+              // specifier ambiguous: `./gen` resolves to gen.ts, not gen/,
+              // because a file beats a directory.
+              for (const ext of ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']) {
+                if (fs.existsSync(`${absoluteOutputDir}${ext}`)) {
+                  console.warn(
+                    `@graphox/babel-plugin: "${absoluteOutputDir}${ext}" sits next to the output ` +
+                      `directory ${absoluteOutputDir}, so an import of ` +
+                      `"${path.basename(absoluteOutputDir)}" resolves to that file while graphox ` +
+                      `reads it as the generated barrel. Rename one of them, or import the barrel ` +
+                      `explicitly as "${path.basename(absoluteOutputDir)}/graphql".`
+                  );
+                  break;
                 }
               }
 
@@ -220,7 +304,33 @@ module.exports = function (babel) {
                   t.variableDeclaration('const', [
                     t.variableDeclarator(
                       t.identifier('graphql'),
-                      t.arrowFunctionExpression([], t.nullLiteral())
+                      // Nothing should reach this: a rewritten call site imports
+                      // the generated document directly, and a call site still
+                      // holding a live reference to `graphql` is a build error
+                      // already. It is reachable only when the plugin failed to
+                      // recognise the specifier some module used to import this
+                      // entrypoint — that module is then untouched while the
+                      // entrypoint it calls is emptied regardless, because
+                      // clearing keys on the file path. Returning a non-document
+                      // there fails much later, inside whichever client receives
+                      // it, with nothing pointing back here.
+                      t.arrowFunctionExpression(
+                        [],
+                        t.blockStatement([
+                          t.throwStatement(
+                            t.newExpression(t.identifier('Error'), [
+                              t.stringLiteral(
+                                `@graphox/babel-plugin: ${currentFile} was emptied at build time — ` +
+                                  `its documents are inlined into the generated files — but graphql() ` +
+                                  `was called through it at runtime. The plugin did not recognise the ` +
+                                  `specifier the calling module used to import this entrypoint, so that ` +
+                                  `module was never rewritten. Add the specifier it imports to ` +
+                                  `graphqlImportPaths for this output.`
+                              ),
+                            ])
+                          ),
+                        ])
+                      )
                     ),
                   ])
                 ),
@@ -409,12 +519,16 @@ module.exports = function (babel) {
           const graphqlIds = new Map();
           // newImports stores: localName -> { sourcePath, importedName }
           const newImports = new Map();
-          // Map from original document name to unique local name in this file
+          // (owning output, document name) -> local name in this file. Keyed by
+          // the output too: two projects may legitimately export the same
+          // document name, and each needs its own binding.
           const documentNameToLocalName = new Map();
+          const localNameKey = (outputIdx, documentName) => `${outputIdx}\u0000${documentName}`;
 
-          const getLocalName = (documentName, scope) => {
-            if (documentNameToLocalName.has(documentName)) {
-              return documentNameToLocalName.get(documentName);
+          const getLocalName = (outputIdx, documentName, scope) => {
+            const key = localNameKey(outputIdx, documentName);
+            if (documentNameToLocalName.has(key)) {
+              return documentNameToLocalName.get(key);
             }
 
             let uniqueName = documentName;
@@ -438,11 +552,13 @@ module.exports = function (babel) {
               isColliding = true;
             }
 
-            if (isColliding) {
+            // A name another output's document has already claimed is taken too,
+            // or the two collide in newImports and one import disappears.
+            if (isColliding || newImports.has(uniqueName)) {
               uniqueName = scope.generateUid(documentName);
             }
 
-            documentNameToLocalName.set(documentName, uniqueName);
+            documentNameToLocalName.set(key, uniqueName);
             return uniqueName;
           };
 
@@ -488,11 +604,11 @@ module.exports = function (babel) {
                       let targetLocalName = localName;
                       if (localName === importedName) {
                         // It was NOT aliased, check for collisions
-                        targetLocalName = getLocalName(importedName, programPath.scope);
+                        targetLocalName = getLocalName(outputIdx, importedName, programPath.scope);
                       } else {
                         // It WAS aliased. We should keep the alias but ensure it's recorded
                         // so that subsequent graphql(`...`) calls use the same alias.
-                        documentNameToLocalName.set(importedName, localName);
+                        documentNameToLocalName.set(localNameKey(outputIdx, importedName), localName);
                       }
 
                       newImports.set(targetLocalName, { sourcePath: relPath, importedName });
@@ -550,7 +666,7 @@ module.exports = function (babel) {
 
                   const relPath = getImportPath(outputIdx, entry.path);
 
-                  const uniqueLocalName = getLocalName(entry.name, callPath.scope);
+                  const uniqueLocalName = getLocalName(outputIdx, entry.name, callPath.scope);
                   newImports.set(uniqueLocalName, { sourcePath: relPath, importedName: entry.name });
                   callPath.replaceWith(t.identifier(uniqueLocalName));
                 }
@@ -670,7 +786,98 @@ module.exports = function (babel) {
             },
           });
 
-          // Fourth pass: remove ALL imports from graphql.ts/index.ts
+          // Fourth pass: redirect re-exports of documents at the generated files.
+          // A re-export binds nothing locally, so only the source moves — but
+          // left pointing at the entrypoint it resolves to nothing, because that
+          // module is emptied in its own compilation.
+          const starReexportError = (source) =>
+            `@graphox/babel-plugin could not rewrite a star re-export of "${source}". ` +
+            `That entrypoint is emptied at build time, so nothing would be left to re-export. ` +
+            `Name the documents instead: export { SomeDocument } from "${source}".`;
+
+          programPath.traverse({
+            ExportAllDeclaration(exportPath) {
+              if (isOurGraphqlPath(exportPath.node.source.value)) {
+                throw exportPath.buildCodeFrameError(
+                  starReexportError(exportPath.node.source.value)
+                );
+              }
+            },
+            ExportNamedDeclaration(exportPath) {
+              const source = exportPath.node.source;
+              if (!source || !isOurGraphqlPath(source.value)) {
+                return;
+              }
+
+              const outputIdx = resolveGraphqlPath(source.value);
+              const order = [];
+              const byPath = new Map();
+
+              for (const specifier of exportPath.node.specifiers) {
+                // `export * as ns from` and `export v from` would both need the
+                // emptied entrypoint to still hold the documents.
+                if (!t.isExportSpecifier(specifier)) {
+                  throw exportPath.buildCodeFrameError(starReexportError(source.value));
+                }
+
+                // Types are erased before this output runs, and the entrypoint
+                // they came from is emptied, so a type-only re-export has nothing
+                // left to carry. Dropped, as a type-only import from the
+                // entrypoint is.
+                if (exportPath.node.exportKind === 'type' || specifier.exportKind === 'type') {
+                  continue;
+                }
+
+                const localName = t.isIdentifier(specifier.local)
+                  ? specifier.local.name
+                  : specifier.local.value;
+
+                if (localName === 'graphql' || localName === 'gql') {
+                  throw exportPath.buildCodeFrameError(
+                    `@graphox/babel-plugin could not re-export "${localName}" from "${source.value}". ` +
+                    'It is replaced at build time and does not exist at runtime.',
+                  );
+                }
+
+                const entry = outputs[outputIdx].documentNameToEntry.get(localName);
+                if (!entry) {
+                  throw exportPath.buildCodeFrameError(
+                    unresolvedDocumentError(localName, source.value) + ' ' +
+                    'Run Graphox codegen and ensure the manifest includes this document.',
+                  );
+                }
+
+                const target = getImportPath(outputIdx, entry.path);
+                if (!byPath.has(target)) {
+                  byPath.set(target, []);
+                  order.push(target);
+                }
+                byPath.get(target).push(specifier);
+              }
+
+              // Documents named in one declaration can live in different
+              // generated files, so a declaration may become several.
+              const replacements = order.map((target) =>
+                t.exportNamedDeclaration(null, byPath.get(target), t.stringLiteral(target))
+              );
+
+              if (replacements.length > 0) {
+                exportPath.replaceWithMultiple(replacements);
+              } else {
+                exportPath.remove();
+              }
+            },
+          });
+
+          // Where the imports we are about to remove stood. Putting the new ones
+          // at the top instead would move them ahead of a side-effect import that
+          // was written to run first.
+          let insertIndex = programPath.node.body.findIndex(
+            (node) => t.isImportDeclaration(node) && isOurGraphqlPath(node.source.value)
+          );
+          if (insertIndex < 0) insertIndex = 0;
+
+          // Fifth pass: remove ALL imports from graphql.ts/index.ts
           programPath.traverse({
             ImportDeclaration(importPath) {
               const src = importPath.node.source.value;
@@ -680,17 +887,19 @@ module.exports = function (babel) {
             },
           });
 
-          // Add new imports at the top (sorted alphabetically by local name)
+          // Add the new imports where the ones they replace stood (sorted
+          // alphabetically by local name)
           const sortedNewImports = Array.from(newImports.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-          for (const [localName, { sourcePath, importedName }] of sortedNewImports) {
-            const specifier = t.importSpecifier(
-              t.identifier(localName),
-              t.identifier(importedName)
-            );
-            programPath.node.body.unshift(
-              t.importDeclaration([specifier], t.stringLiteral(sourcePath))
-            );
-          }
+          programPath.node.body.splice(
+            insertIndex,
+            0,
+            ...sortedNewImports.map(([localName, { sourcePath, importedName }]) =>
+              t.importDeclaration(
+                [t.importSpecifier(t.identifier(localName), t.identifier(importedName))],
+                t.stringLiteral(sourcePath)
+              )
+            )
+          );
         },
       },
     },

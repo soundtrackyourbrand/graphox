@@ -204,7 +204,10 @@ describe('@graphox/babel-plugin', () => {
     const code = "export const graphql = () => { /* big map */ }; export const gql = graphql;";
     const output = transform(code, { outputDir }, filename);
 
-    expect(output).toContain('export const graphql = () => null;');
+    // The documents are gone, and what is left names the problem if anything
+    // still calls it — a non-document would surface far from here.
+    expect(output).toContain('throw new Error(');
+    expect(output).toContain('graphql.ts');
     expect(output).toContain('export const gql = graphql;');
     expect(output).not.toContain('big map');
   });
@@ -676,9 +679,27 @@ describe('@graphox/babel-plugin', () => {
           { outputs },
           path.join(dir, 'graphql.ts')
         );
-        expect(output).not.toContain('documents');
-        expect(output).toContain('export const graphql = () => null;');
+        expect(output).not.toContain('export const documents');
+        expect(output).not.toContain('a: 1');
+        expect(output).toContain('throw new Error(');
       }
+    });
+
+    it('keeps two bindings for one document name owned by two outputs', () => {
+      // Two projects export the same document name. The local-name cache was
+      // keyed by the name alone, so the second import overwrote the first and
+      // every reference silently resolved to whichever output came last.
+      const code =
+        "import { ArchiveItemMutationDocument as B1 } from '@example/web/graphql';\n" +
+        "import { ArchiveItemMutationDocument } from '@example/checkout/graphql';\n" +
+        'export const a = B1;\nexport const b = ArchiveItemMutationDocument;';
+
+      const output = transform(code, { outputs }, '/repo/apps/other/thing.ts');
+
+      expect(output).toContain('@example/web/graphql/web.codegen');
+      expect(output).toContain('@example/checkout/graphql/checkout.codegen');
+      expect(output).toContain('export const a = B1;');
+      expect(output).toContain('export const b = ArchiveItemMutationDocument;');
     });
 
     it('names the configured outputs when a document is in no manifest', () => {
@@ -706,4 +727,104 @@ describe('@graphox/babel-plugin', () => {
       expect(output).toContain('./gen/query.codegen');
     });
   });
+
+  describe('re-exports of documents', () => {
+    const reexportOptions = {
+      outputDir: './gen',
+      manifestData: [
+        { source: 'query { me { id } }', path: './query.codegen', name: 'MyQueryDocument' },
+        { source: 'fragment F on User { id }', path: './other.codegen', name: 'FFragmentDoc' },
+      ],
+    };
+
+    it('points a document re-export at the generated file', () => {
+      // The entrypoint is emptied in its own compilation, so a re-export left
+      // pointing at it resolves to nothing — a barrel that silently exports
+      // undefined, which no type check or bundler treats as an error.
+      const output = transform(
+        "export { MyQueryDocument } from './gen/graphql';",
+        reexportOptions
+      );
+
+      expect(output).toContain('export { MyQueryDocument } from "./gen/query.codegen"');
+      expect(output).not.toContain('./gen/graphql');
+    });
+
+    it('splits a re-export by generated file', () => {
+      const output = transform(
+        "export { MyQueryDocument as Q, FFragmentDoc } from './gen/graphql';",
+        reexportOptions
+      );
+
+      expect(output).toContain('export { MyQueryDocument as Q } from "./gen/query.codegen"');
+      expect(output).toContain('export { FFragmentDoc } from "./gen/other.codegen"');
+    });
+
+    it('drops a type-only re-export', () => {
+      const output = transform(
+        "export type { MyQueryDocument } from './gen/graphql';\nexport const x = 1;",
+        reexportOptions
+      );
+
+      expect(output).not.toContain('./gen/graphql');
+      expect(output).toContain('export const x = 1');
+    });
+
+    it('rejects a star re-export of an entrypoint', () => {
+      expect(() => transform("export * from './gen/graphql';", reexportOptions)).toThrow(
+        /star re-export/
+      );
+    });
+
+    it('rejects a namespace re-export of an entrypoint', () => {
+      expect(() =>
+        transform("export * as all from './gen/graphql';", reexportOptions)
+      ).toThrow(/star re-export/);
+    });
+
+    it('rejects re-exporting the tag', () => {
+      expect(() => transform("export { graphql } from './gen/graphql';", reexportOptions)).toThrow(
+        /does not exist at runtime/
+      );
+    });
+  });
+
+  it('keeps new imports where the ones they replace stood', () => {
+    // Hoisting them to the top puts the generated file's module-init work ahead
+    // of a side-effect import that was written to run first.
+    const output = transform(
+      "import './polyfill';\nimport { graphql } from './gen/graphql';\nconst q = graphql(`query { me { id } }`);",
+      defaultOptions
+    );
+
+    expect(output.indexOf('./polyfill')).toBeLessThan(output.indexOf('./gen/query.codegen'));
+  });
+
+  it('keeps documents that differ only inside a string literal distinct', () => {
+    // Two anonymous queries, identical but for a string argument. Neither has a
+    // name, so nothing rejects the pair, and stripping whitespace everywhere used
+    // to collapse them onto one manifest key.
+    const output = transform(
+      'import { graphql } from \'./gen/graphql\'; const q = graphql(`query { search(term: "ab") { id } }`);',
+      {
+        outputDir: './gen',
+        manifestData: [
+          {
+            source: 'query { search(term: "a b") { id } }',
+            path: './spaced.codegen',
+            name: 'SpacedDocument',
+          },
+          {
+            source: 'query { search(term: "ab") { id } }',
+            path: './tight.codegen',
+            name: 'TightDocument',
+          },
+        ],
+      }
+    );
+
+    expect(output).toContain('./gen/tight.codegen');
+    expect(output).not.toContain('spaced.codegen');
+  });
+
 });
