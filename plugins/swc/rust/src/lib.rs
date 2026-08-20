@@ -525,6 +525,91 @@ impl TransformVisitor {
         ))
     }
 
+    fn star_reexport_error(&self, source: &str) -> String {
+        format!(
+            "could not rewrite a star re-export of \"{}\". That entrypoint is emptied at build time, so nothing would be left to re-export. Name the documents instead: export {{ SomeDocument }} from \"{}\".",
+            source, source
+        )
+    }
+
+    /// Point `export {{ A, B }} from "<entrypoint>"` at the generated files.
+    ///
+    /// A re-export binds nothing locally, so there is no renaming to do — only
+    /// the source moves. Documents named in one declaration can live in
+    /// different generated files, so one declaration may become several; they are
+    /// emitted in the order the paths were first named, to keep the output
+    /// stable.
+    fn rewrite_document_reexport(&self, export: NamedExport) -> Vec<ModuleItem> {
+        let src = export.src.as_ref().expect("checked by the caller");
+        let source = src.value.as_str().unwrap_or("");
+        let output_idx = self
+            .resolve_graphql_path(source)
+            .expect("checked by the caller");
+
+        let mut order: Vec<String> = Vec::new();
+        let mut by_path: HashMap<String, Vec<ExportSpecifier>> = HashMap::new();
+
+        for specifier in export.specifiers {
+            let named = match specifier {
+                ExportSpecifier::Named(named) => named,
+                // `export * as ns from` and `export v from` would both need the
+                // emptied entrypoint to still hold the documents.
+                _ => self.fail(self.star_reexport_error(source)),
+            };
+
+            let orig_name = match &named.orig {
+                ModuleExportName::Ident(ident) => ident.sym.as_str(),
+                ModuleExportName::Str(s) => s.value.as_str().unwrap_or(""),
+                #[cfg(swc_ast_unknown)]
+                _ => "",
+            };
+
+            // Types are erased before this output runs, and the entrypoint they
+            // came from is emptied, so a type-only re-export has nothing left to
+            // carry. Dropped, as a type-only import from the entrypoint is.
+            if export.type_only || named.is_type_only {
+                continue;
+            }
+
+            if orig_name == "graphql" || orig_name == "gql" {
+                self.fail(format!(
+                    "could not re-export \"{}\" from \"{}\". It is replaced at build time and does not exist at runtime.",
+                    orig_name, source
+                ));
+            }
+
+            let Some(entry) = self.outputs[output_idx].name_to_entry.get(orig_name) else {
+                self.fail(self.unresolved_document_error(orig_name, source));
+            };
+
+            let path = self.get_import_path(output_idx, &entry.path);
+            if !by_path.contains_key(&path) {
+                order.push(path.clone());
+            }
+            by_path
+                .entry(path)
+                .or_default()
+                .push(ExportSpecifier::Named(named));
+        }
+
+        order
+            .into_iter()
+            .map(|path| {
+                ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(NamedExport {
+                    span: export.span,
+                    specifiers: by_path.remove(&path).unwrap_or_default(),
+                    src: Some(Box::new(Str {
+                        span: DUMMY_SP,
+                        value: path.into(),
+                        raw: None,
+                    })),
+                    type_only: false,
+                    with: None,
+                }))
+            })
+            .collect()
+    }
+
     fn dynamic_import_error(&self, source: &str) -> String {
         format!(
             "could not fully rewrite this dynamic import from \"{}\". Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.",
@@ -817,18 +902,43 @@ impl VisitMut for TransformVisitor {
             self.fail(error);
         }
 
-        // Remove rewritten imports from graphql.ts/index.ts in consumer modules.
-        n.body.retain_mut(|item| {
-            if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
-                let src = import.src.value.as_str().unwrap_or("");
-                if self.is_our_graphql_path(src) {
-                    return false;
-                }
-            }
-            true
-        });
+        // Drop the imports we rewrote and redirect any re-export of a document at
+        // the generated file, keeping the position of what we replace: the
+        // entrypoint is emptied in its own compilation, so anything still
+        // pointing at it resolves to nothing.
+        let mut rebuilt: Vec<ModuleItem> = Vec::with_capacity(n.body.len());
+        let mut insert_at = None;
 
-        // Add new imports at the top (sorted alphabetically by local name)
+        for item in std::mem::take(&mut n.body) {
+            match item {
+                ModuleItem::ModuleDecl(ModuleDecl::Import(import))
+                    if self.is_our_graphql_path(import.src.value.as_str().unwrap_or("")) =>
+                {
+                    // Our imports are replaced by the ones collected below, which
+                    // go in where the first of them stood rather than at the top —
+                    // ahead of a side-effect import is a different module.
+                    insert_at.get_or_insert(rebuilt.len());
+                }
+                ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export))
+                    if export.src.as_ref().is_some_and(|src| {
+                        self.is_our_graphql_path(src.value.as_str().unwrap_or(""))
+                    }) =>
+                {
+                    rebuilt.extend(self.rewrite_document_reexport(export));
+                }
+                ModuleItem::ModuleDecl(ModuleDecl::ExportAll(export))
+                    if self.is_our_graphql_path(export.src.value.as_str().unwrap_or("")) =>
+                {
+                    self.fail(self.star_reexport_error(export.src.value.as_str().unwrap_or("")));
+                }
+                other => rebuilt.push(other),
+            }
+        }
+        n.body = rebuilt;
+
+        // Add the new imports where the ones they replace stood (sorted
+        // alphabetically by local name)
+        let insert_at = insert_at.unwrap_or(0);
         let mut imports: Vec<_> = self.new_imports.iter().collect();
         imports.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -844,7 +954,7 @@ impl VisitMut for TransformVisitor {
             };
 
             n.body.insert(
-                i,
+                insert_at + i,
                 ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
                     span: DUMMY_SP,
                     specifiers: vec![ImportSpecifier::Named(ImportNamedSpecifier {
@@ -877,6 +987,57 @@ impl VisitMut for TransformVisitor {
             // onto the same context keeps binding and references one identifier.
             n.ctxt = SyntaxContext::empty();
         }
+    }
+
+    fn visit_mut_named_export(&mut self, n: &mut NamedExport) {
+        // A re-export names an export of another module, not a local binding. Its
+        // source is redirected as a whole later; renaming the name here would ask
+        // the generated file for something it does not export.
+        if n.src.is_some() {
+            return;
+        }
+
+        for specifier in &mut n.specifiers {
+            if let ExportSpecifier::Named(named) = specifier
+                && let ModuleExportName::Ident(ident) = &mut named.orig
+                && let Some(new_name) = self.id_renames.get(&ident.to_id()).cloned()
+            {
+                // `export { X }` means `export { X as X }`. The binding moves to
+                // the name we import it under; the name the module exports must
+                // not move with it.
+                if named.exported.is_none() && new_name.as_str() != &*ident.sym {
+                    named.exported = Some(ModuleExportName::Ident(Ident::new(
+                        ident.sym.clone(),
+                        DUMMY_SP,
+                        SyntaxContext::empty(),
+                    )));
+                }
+
+                ident.sym = new_name.into();
+                ident.ctxt = SyntaxContext::empty();
+            }
+        }
+    }
+
+    fn visit_mut_prop(&mut self, n: &mut Prop) {
+        // `{ X }` means `{ X: X }`. Renaming it in place would move the property
+        // name along with the value it reads.
+        if let Prop::Shorthand(ident) = n
+            && let Some(new_name) = self.id_renames.get(&ident.to_id()).cloned()
+            && new_name.as_str() != &*ident.sym
+        {
+            *n = Prop::KeyValue(KeyValueProp {
+                key: PropName::Ident(IdentName::new(ident.sym.clone(), ident.span)),
+                value: Box::new(Expr::Ident(Ident::new(
+                    new_name.into(),
+                    ident.span,
+                    SyntaxContext::empty(),
+                ))),
+            });
+            return;
+        }
+
+        n.visit_mut_children_with(self);
     }
 
     fn visit_mut_var_declarator(&mut self, n: &mut VarDeclarator) {
@@ -964,6 +1125,28 @@ struct GraphqlUsageValidator<'a> {
 }
 
 impl Visit for GraphqlUsageValidator<'_> {
+    /// `export { graphql }` re-exports a binding whose import is about to be
+    /// removed. It is not an expression, so the check below never sees it, and
+    /// the emitted module exports a name nothing declares.
+    fn visit_named_export(&mut self, n: &NamedExport) {
+        if self.error.is_some() || n.src.is_some() {
+            return;
+        }
+
+        for specifier in &n.specifiers {
+            if let ExportSpecifier::Named(named) = specifier
+                && let ModuleExportName::Ident(ident) = &named.orig
+                && self.visitor.graphql_ids.contains_key(&ident.to_id())
+            {
+                self.error = Some(format!(
+                    "left a runtime reference to \"{}\" after rewriting. All Graphox graphql/gql imports must be fully inlined before the import is removed.",
+                    ident.sym
+                ));
+                return;
+            }
+        }
+    }
+
     fn visit_expr(&mut self, n: &Expr) {
         if self.error.is_some() {
             return;
@@ -2661,6 +2844,182 @@ mod tests {
         assert!(
             !output.contains("export const b = ArchiveItemMutationDocument;"),
             "the graphql() call must not be bound to checkout's document, got:\n{output}"
+        );
+    }
+
+    // --- re-exports of documents ----------------------------------------------
+
+    /// Two documents in different generated files, so a single declaration naming
+    /// both has to split.
+    fn reexport_config() -> Config {
+        Config {
+            manifest_data: Some(vec![
+                ManifestEntry {
+                    source: "query { me { id } }".to_string(),
+                    path: "./query.codegen".to_string(),
+                    name: "MyQueryDocument".to_string(),
+                },
+                ManifestEntry {
+                    source: "fragment F on User { id }".to_string(),
+                    path: "./other.codegen".to_string(),
+                    name: "FFragmentDoc".to_string(),
+                },
+            ]),
+            output_dir: ".".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_document_reexport_points_at_the_generated_file() {
+        // The entrypoint is emptied in its own compilation, so a re-export left
+        // pointing at it resolves to nothing — a barrel that silently exports
+        // undefined, which no type check or bundler treats as an error.
+        let output = transform(
+            "export { MyQueryDocument } from './graphql';",
+            reexport_config(),
+            "test.ts",
+        );
+
+        assert!(
+            output.contains("export { MyQueryDocument } from \"./query.codegen\""),
+            "got:\n{output}"
+        );
+        assert!(!output.contains("./graphql"), "got:\n{output}");
+    }
+
+    #[test]
+    fn test_document_reexport_splits_by_generated_file() {
+        let output = transform(
+            "export { MyQueryDocument as Q, FFragmentDoc } from './graphql';",
+            reexport_config(),
+            "test.ts",
+        );
+
+        assert!(
+            output.contains("export { MyQueryDocument as Q } from \"./query.codegen\""),
+            "the exported name must survive the move, got:\n{output}"
+        );
+        assert!(
+            output.contains("export { FFragmentDoc } from \"./other.codegen\""),
+            "got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_type_only_reexport_is_dropped() {
+        // Erased before this output runs, and the entrypoint it named is emptied,
+        // so there is nothing left to carry — as with a type-only import.
+        let output = transform(
+            "export type { MyQueryDocument } from './graphql';\nexport const x = 1;",
+            reexport_config(),
+            "test.ts",
+        );
+
+        assert!(!output.contains("./graphql"), "got:\n{output}");
+        assert!(output.contains("export const x = 1"), "got:\n{output}");
+    }
+
+    #[test]
+    #[should_panic(expected = "star re-export")]
+    fn test_star_reexport_of_an_entrypoint_is_an_error() {
+        transform("export * from './graphql';", reexport_config(), "test.ts");
+    }
+
+    #[test]
+    #[should_panic(expected = "star re-export")]
+    fn test_namespace_reexport_of_an_entrypoint_is_an_error() {
+        transform(
+            "export * as all from './graphql';",
+            reexport_config(),
+            "test.ts",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "does not exist at runtime")]
+    fn test_reexporting_the_tag_from_an_entrypoint_is_an_error() {
+        transform(
+            "export { graphql } from './graphql';",
+            reexport_config(),
+            "test.ts",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "fully inlined")]
+    fn test_locally_reexporting_the_tag_is_an_error() {
+        // Not an expression, so the usage validator never saw it, and the module
+        // came out exporting a name nothing declared.
+        transform(
+            "import { graphql } from './graphql'; const q = graphql(`query { me { id } }`); export { graphql };",
+            reexport_config(),
+            "test.ts",
+        );
+    }
+
+    #[test]
+    fn test_new_imports_keep_the_position_of_the_ones_they_replace() {
+        // Hoisting them to the top puts the generated file's module-init work
+        // ahead of a side-effect import that was written to run first.
+        let output = transform(
+            "import './polyfill';\nimport { graphql } from './graphql';\nconst q = graphql(`query { me { id } }`);",
+            reexport_config(),
+            "test.ts",
+        );
+
+        let polyfill = output.find("./polyfill").expect("polyfill import kept");
+        let codegen = output
+            .find("./query.codegen")
+            .expect("codegen import added");
+        assert!(polyfill < codegen, "got:\n{output}");
+    }
+
+    // --- renames land on bindings, not on names -------------------------------
+
+    #[test]
+    fn test_rename_keeps_the_exported_name_and_property_key() {
+        // An earlier aliased import of the same document makes the second one
+        // resolve to that alias. `export { X }` and `{ X }` both mean `X as X`, so
+        // renaming in place would move the module's public export name and an
+        // object key along with the binding.
+        let (module, cm) = transform_in_pipeline(
+            "import { MyQueryDocument as Doc } from './graphql';\nimport { MyQueryDocument } from './graphql';\nexport { MyQueryDocument };\nexport const o = { MyQueryDocument };\nexport const use1 = Doc;",
+            reexport_config(),
+            "test.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+        let output = emit(&module, &cm);
+
+        assert!(
+            output.contains("export { Doc as MyQueryDocument }"),
+            "the exported name must not move, got:\n{output}"
+        );
+        assert!(
+            output.contains("MyQueryDocument: Doc"),
+            "the property key must not move, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_identity_rename_leaves_shorthand_alone() {
+        let (module, cm) = transform_in_pipeline(
+            "import { MyQueryDocument } from './graphql';\nexport { MyQueryDocument };\nexport const o = { MyQueryDocument };",
+            reexport_config(),
+            "test.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+        let output = emit(&module, &cm);
+
+        assert!(
+            output.contains("export { MyQueryDocument };"),
+            "got:\n{output}"
+        );
+        assert!(
+            !output.contains("MyQueryDocument: MyQueryDocument"),
+            "no reason to expand it, got:\n{output}"
         );
     }
 }
