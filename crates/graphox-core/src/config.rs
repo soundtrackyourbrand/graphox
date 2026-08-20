@@ -1078,6 +1078,19 @@ impl Default for GlobPattern {
     }
 }
 
+/// Strip a leading `./` from a config glob pattern.
+///
+/// `./src/**/*.ts` is idiomatic in a config file, but the prefix is a literal
+/// path component to every consumer of the pattern, and it matches nothing.
+/// Patterns are used two ways, and it breaks both: matched against
+/// project-root-relative paths (`src/foo.ts`), and joined onto the base dir to
+/// build an absolute glob, where `join` embeds it mid-path as
+/// `/base/./src/**/*.ts`. The result is a project that collects zero files
+/// while `graphox check` still exits 0.
+fn normalize_pattern(pattern: &str) -> String {
+    pattern.strip_prefix("./").unwrap_or(pattern).to_string()
+}
+
 impl GlobPattern {
     pub fn as_key(&self) -> String {
         match self {
@@ -1088,8 +1101,8 @@ impl GlobPattern {
 
     pub fn patterns(&self) -> Vec<String> {
         match self {
-            GlobPattern::Single(s) => vec![s.clone()],
-            GlobPattern::Multiple(v) => v.clone(),
+            GlobPattern::Single(s) => vec![normalize_pattern(s)],
+            GlobPattern::Multiple(v) => v.iter().map(|s| normalize_pattern(s)).collect(),
         }
     }
 
