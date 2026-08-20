@@ -1,0 +1,21 @@
+# swc's AST enums are only `non_exhaustive` when this cfg is set, and the
+# attribute is applied where swc_ecma_ast itself is compiled — so the flag has
+# to reach the whole dependency graph, not just our crate. A build script in
+# plugins/swc/rust cannot do it: it would enable our own cfg-gated wildcard
+# arms while swc's enums stayed exhaustive, making those arms unreachable
+# patterns (a hard error under `make clippy`).
+#
+# Setting it here keeps the swc plugin compiling against future swc AST
+# additions instead of discovering them at the next dependency bump. This is
+# not only a compile-time concern: swc_ecma_ast is built with `encoding-impl`
+# via `ecma_plugin_transform`, so the cfg also gives the enums a real `Unknown`
+# variant, which a host running a newer swc can hand us over cbor. The wildcard
+# arms in lib.rs are the runtime behaviour for that case.
+#
+# This applies in CI as well, but only because every setup-rust-toolchain step
+# passes `rustflags: ""`, which makes that action skip exporting RUSTFLAGS. A
+# RUSTFLAGS value in the environment replaces this list wholesale rather than
+# appending to it, so giving those steps any non-empty rustflags would silently
+# drop the cfg and with it the forward-compatibility check.
+[build]
+rustflags = ["--cfg", "swc_ast_unknown"]
