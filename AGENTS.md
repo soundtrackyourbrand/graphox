@@ -1,173 +1,92 @@
 # Agent Instructions for Graphox
 
-You are an agentic coding assistant working on `Graphox`, a comprehensive Rust toolset for GraphQL development. It provides a Language Server (LSP), TypeScript type generation (codegen), and validation utilities.
+Graphox is a Rust toolset for GraphQL: a language server, TypeScript codegen, and
+validation. It handles GraphQL both in standalone `.graphql` files and embedded in
+TS/TSX template literals (`gql` / `graphql` tags). Tree-sitter does the incremental
+parsing; apollo-compiler does schema validation and semantic analysis.
 
-All modifying git actions MUST be handled by the user. Never commit and never even suggest committing.
+Commit, push and open pull requests only when asked.
 
-## Build, Lint, and Test Commands
+## Commands
 
-- **Build:** `cargo build`
-- **Lint:** `cargo clippy --workspace`
-- **Format:** `cargo fmt`
-- **Run all tests:** `cargo test --workspace`
-- **Run a specific test file:** `cargo test --test <filename>` (e.g., `cargo test --test validation_suite`)
-- **Run a single test:** `cargo test <test_name_substring>` (e.g., `cargo test test_validation_valid_query`)
-- **Benchmarks:** `make benchmark`
-- **Update test baselines:** `make update-baselines` (runs `./scripts/update_baselines.py`)
-- **Clean:** `make clean`
-- **Full check:** `make check` (runs fmt, clippy, tests, and bench compilation) IMPORTANT: run this when done with a feature or bug fix
+- `cargo build`, `cargo test --workspace`
+- `cargo test <name>` for one test, `cargo test --test <suite>` for one file
+- `cargo clippy --workspace` — `--workspace` matters. Without it the trailing
+  `-D warnings` only reaches the root package, and lints in `plugins/swc/rust` are
+  printed but never fail the build.
+- `make check` — fmt, clippy, all tests including the JS plugins, and bench
+  compilation. Run it before treating a change as done.
+- `make benchmark`, `make update-baselines`
+- Search with `rg`, not `grep`.
 
-## Project Overview
+## Layout
 
-`Graphox` handles GraphQL in two main forms:
-1.  **Standalone:** `.graphql` files containing schemas or operations.
-2.  **Embedded:** GraphQL operations inside TypeScript/TSX template literals (e.g., `gql` or `graphql` tags).
+Crates under `crates/`:
 
-The core logic relies on **Tree-sitter** for incremental parsing and **apollo-compiler** for GraphQL schema validation and semantic analysis. The workspace also includes plugins (e.g., `plugins/swc`) for integration with other tools.
+- **`graphox-core`** — the foundation. `document.rs` holds `DocumentState` (a rope, its
+  Tree-sitter tree, and any embedded GraphQL blocks with their offsets, so positions map
+  between host language and GraphQL). `engine.rs` does workspace scanning and fragment
+  resolution. Plus `schema.rs` / `schema_cache.rs`, `config.rs`, `queries.rs`.
+- **`graphox-features`** — GraphQL intelligence. LSP capabilities are extension traits on
+  `DocumentState`; `diagnostics/` holds the validation rules.
+- **`graphox-codegen`** — TypeScript generation.
+- **`graphox-lsp`** — the server. `backend/lsp.rs` has `Backend` and the protocol
+  implementation, `backend/file_change_handler.rs` processes file system changes.
+- **`graphox-cli`** — the `check`, `codegen` (with watch mode) and `benchmark` commands.
 
-## Code Style & Conventions
+`src/main.rs` is the CLI entry point; `src/lib.rs` re-exports the crates as the public
+API. Build-tool plugins live in `plugins/{swc,babel}` — see their READMEs.
 
-### Comments
-Comments should be used to explain why something is done, not what is being done (the code should be clear enough to convey the "what"). Avoid comments that simply restate the code or add no new information.
+## Patterns
 
-### Language & Tooling
-- **Rust Edition:** 2024.
-- **Async Runtime:** `tokio` (multi-threaded).
-- **LSP Framework:** `tower-lsp`.
-- **Concurrency:** Uses `DashMap` for shared state and `Arc` for immutable data. Use `rayon` for parallel processing of files during codegen/scan.
-- **Performance Tracing:** Built-in tracing for LSP requests that exceed a threshold (configurable via `tracing` in `graphox.yaml`).
+**Extension traits.** LSP features are decoupled from `DocumentState`, so using one means
+importing its trait:
 
-### Formatting & Naming
-- Follow standard Rust naming conventions: `PascalCase` for types/traits, `snake_case` for functions, variables, and modules.
-- Use `cargo fmt` for formatting.
-- Prefer explicit imports. Group imports: `std` first, then external crates, then `crate::...`.
-
-### Error Handling
-- Use `Result` and `Option` extensively.
-- Avoid `unwrap()` or `expect()` in library code (`src/`) unless it's a proven invariant.
-- In tests, `expect()` is acceptable for setup logic.
-
-## Code Structure
-
-This project is organized as a Rust workspace to separate concerns and improve maintainability.
-IMPORTANT: use ripgrep (rg) when searching in the workspace root, do not use grep
-
-### Core Workspace Packages
-
-- **`graphox-core`** (`crates/graphox-core`): The foundation of the toolset.
-    - `document.rs`: `DocumentState` manages a file's content (via `ropey`), its Tree-sitter tree, and embedded GraphQL blocks.
-    - `engine.rs`: High-level operations like workspace scanning, fragment resolution, and validation orchestration.
-    - `schema.rs` & `schema_cache.rs`: Schema loading and two-tier caching.
-    - `config.rs`: Configuration file (`graphox.yaml`) parsing.
-    - `queries.rs`: Tree-sitter query management.
-- **`graphox-features`** (`crates/graphox-features`): Implementation of GraphQL-specific intelligence.
-    - LSP capabilities (Hover, Completion, etc.) are implemented as extension traits on `DocumentState`.
-    - `diagnostics/`: Granular diagnostic rules (fragments, operations, selection sets, values).
-- **`graphox-codegen`** (`crates/graphox-codegen`): Standalone crate for TypeScript type generation.
-- **`graphox-lsp`** (`crates/graphox-lsp`): The Language Server implementation. Lean crate without CLI/watch dependencies for faster incremental builds.
-    - `backend/lsp.rs`: Main `Backend` struct and LSP protocol implementation using `tower-lsp`.
-    - `backend/file_change_handler.rs`: Processes file system changes and updates state.
-- **`graphox-cli`** (`crates/graphox-cli`): CLI commands and watch mode. Contains `check`, `codegen`, and `benchmark` commands with file watching via `notify`.
-
-### CLI and Re-exports
-
-- `src/main.rs`: Root CLI entry point. Supports `lsp`, `check`, `codegen`, and `benchmark` subcommands.
-- `src/lib.rs`: Consolidates the public API by re-exporting modules from the workspace crates for backward compatibility.
-- `crates/graphox-cli/src/`: CLI command implementations (check, codegen with watch mode, benchmark).
-- `crates/graphox-lsp/src/backend/lsp.rs`: Exports `run_lsp()` function for starting the LSP server.
-
-## Key Patterns
-
-### LSP Feature Extension Traits
-LSP features are decoupled from `DocumentState` using extension traits defined in `graphox-features`. To use a feature, you must import the corresponding trait:
 ```rust
 use graphox_features::hover::DocumentHover;
 let hover = document.get_hover_info(params, schema, engine);
 ```
 
-### Workspace Scanning & Performance
-The tool is designed for very large projects. Workspace scanning is parallelized using `rayon`.
-- `Engine::scan_workspace`: Discovers all GraphQL fragments and operations across the workspace in parallel.
-- **Indexing:** `Backend` maintains several indices for fast lookup:
-    - `fragment_defs`: Maps URL to fragment definitions in that file.
-    - `fragment_dependents`: Maps fragment name to files that use it.
-    - `fragment_definitions`: Maps fragment name to files where it is defined.
-- **Cancellation:** Long-running operations like workspace scans are cancellable via `AtomicBool`.
+**Concurrency.** `Backend` is `Arc`-shared across requests, with `DashMap` for documents
+and schemas. Never hold a `DashMap` write lock across an `await`. Workspace scans run on
+`rayon` and are cancellable through an `AtomicBool`.
 
-### Document Management
-`DocumentState` is the source of truth for a file. For TS/TSX files, it extracts GraphQL blocks by searching for template literals. These blocks are tracked with their offsets to allow mapping positions between the host language and GraphQL.
-- `get_semantic_diagnostics`: Main entry point for validation. Uses granular rules from `features/diagnostics/`.
-- `apply_change`: Handles incremental updates from the LSP, ensuring the Tree-sitter tree stays in sync.
+**Incremental work.** `apply_change` keeps the Tree-sitter tree in sync with LSP edits.
+Re-validate only what a change affects: `fragment_dependents` maps a fragment name to the
+files using it.
 
-### Concurrency in LSP
-The `Backend` struct is wrapped in `Arc` and shared across LSP requests. Use `DashMap` for thread-safe access to documents and schemas. Avoid holding `DashMap` write locks across `await` points.
+**Tree-sitter queries.** S-expression constants in `crates/graphox-core/src/queries.rs`,
+lazily built into `OnceLock`s and reached via `get_or_init`. Verify a new one against TS,
+TSX and GraphQL.
 
-### Tree-Sitter Queries
-Queries are defined as constants in `src/queries.rs` and lazily initialized in `OnceLock`. If adding a new query:
-1. Define the S-expression string.
-2. Add a `OnceLock<Query>` for it.
-3. Use it in `document.rs` or features via `TS_QUERY_CACHE.get_or_init(...)`.
+**Schema cache.** Two tiers: validated `Schema`s in memory, invalidated by mtime, and
+merged schema text on disk in the OS cache directory. Go through
+`load_schema_with_cache()`. `enable_schema_cache: false` turns both off.
 
-### Schema Caching
-The schema cache (`src/schema_cache.rs`) provides two-tier caching for performance:
-- **Memory cache (L1):** Holds fully parsed and validated `Schema` objects. Fastest, no I/O. Lifetime is process duration. Invalidation checks file mtimes.
-- **Disk cache (L2):** Holds merged schema text in OS-specific cache directory. Skips file I/O and merging but still requires parsing. Persistent across runs.
-- Cache keys are based on schema source paths and file modification times.
-- Use `load_schema_with_cache()` to leverage caching (95-99% faster for L1, 10-80% faster for L2).
-- Disable caching in `graphox.yaml` with `enable_schema_cache: false` if needed.
+**Configuration.** `Config` parses `graphox.yaml`; the options and their semantics are
+documented in `docs/configurations.md`. Its fields are private, so build test configs with
+`Config::new_test(base_dir, projects)` and the `with_*` builders.
 
-### Codegen & Baselines
-The codegen command generates TypeScript types. Tests for codegen MUST use the fixtures and baselines structure. Place input GraphQL/TS files in `tests/fixtures/` and compare generated output against files in `tests/baselines/` using the function `run_baseline_test`.
-- **Entrypoint:** A `graphql.ts` file is generated in the root of the `output_dir` providing a type-safe `graphql` function.
-- **Incremental Codegen:** The LSP can automatically run codegen on file changes if `lsp_automatic_codegen` is enabled.
-- **Throttling:** Automatic LSP codegen is throttled (default: 300ms) to prevent storms when many files change. The `codegen --watch` command uses debouncing (default: 200ms) for similar protection.
+**Performance.** It is a first-class concern here: these tools run over very large
+workspaces. Prefer `AHashMap` / `ahash` for hot maps, and avoid `Rope` → `String`
+conversions — use `byte_slice` or `chunks`.
 
-### Configuration Handling
-The `Config` struct (in `src/config.rs`) supports complex workspace setups.
-- `projects`: List of project configurations with their own schemas and include/exclude patterns.
-- `schema_types`: Configuration for generating global schema types.
-- `scalars`: Mapping of GraphQL scalars to TypeScript types.
-- `tracing`: Configuration for performance tracing.
-- `ignore_deprecations`: List of deprecated fields/types to ignore in validation.
-- `lsp_codegen_throttle_ms`: Throttle delay for automatic LSP codegen (default: 300ms).
-- `codegen_watch_debounce_ms`: Debounce delay for watch mode file changes (default: 200ms).
+## Testing
 
-**Creating Test Configs:** Use the `Default` trait with struct update syntax to make tests resilient to config changes:
-```rust
-let config = Config {
-    base_dir: test_dir.to_path_buf(),
-    projects: vec![...],
-    lsp_automatic_codegen: Some(false), // Only set fields you need
-    ..Default::default() // All other fields default to None
-};
-```
-This pattern prevents tests from breaking when new optional config fields are added.
+Every feature and bug fix needs tests.
 
-## Testing Strategy
+Codegen is baseline-tested: inputs in `tests/fixtures/`, expected output in
+`tests/baselines/`, compared by `run_baseline_test`. For a new pair, register it in
+`scripts/update_baselines.py`, run `make update-baselines`, then
+`python3 scripts/verify_baselines.py` to typecheck the generated TypeScript.
 
-- **Test Coverage:** High test coverage is mandatory. Every new feature or bug fix must include corresponding tests.
-- **Integration Tests:** Use `tests/fixtures/` for realistic scenarios. Integration tests should cover LSP interactions, CLI commands, and complex fragment resolution.
-- **Codegen Baselines:** Always verify codegen output against baselines. If changes are expected, run `make update-baselines`.
-- **Fixture-Based Tests:** When adding new fixture-based tests, use `tests/integration/fixtures.rs` with the `run_baseline_test()` helper. Add the fixture/baseline pair to `scripts/update_baselines.py`, then run `make update-baselines` followed by `python3 scripts/verify_baselines.py` to validate generated TypeScript.
-- **Performance Benchmarks:** Performance is a first-class citizen. Use `make benchmark` and `criterion` benchmarks to ensure no regressions, especially for large schemas and many-file workspaces.
-- **LSP Reliability:** Use `tower-lsp`'s testing utilities. Avoid `sleep` in tests; use proper synchronization or wait for specific states.
+No `sleep` in LSP tests — synchronise on the state being waited for.
 
-## Adding New Features
+## Adding a feature
 
-1.  **LSP Feature:**
-    - Implement logic in `crates/graphox-features/src/`.
-    - Add the method to `Backend` in `crates/graphox-lsp/src/backend/lsp.rs`.
-    - Add integration tests in `tests/`.
-2.  **CLI Command:**
-    - Add to `Commands` enum in `src/main.rs` and implement in `crates/graphox-cli/src/commands/`.
-    - If the command needs watch mode, use `notify` and `notify-debouncer-mini` dependencies (available in graphox-cli, not graphox-lsp).
-3.  **Grammar/Query Changes:**
-    - Update `src/queries.rs` if needed. Verify against multiple host languages (TS, TSX, GraphQL).
+- **LSP:** logic in `graphox-features`, then wire it into `Backend` in
+  `crates/graphox-lsp/src/backend/lsp.rs`.
+- **CLI:** extend the `Commands` enum in `src/main.rs`, implement under
+  `crates/graphox-cli/src/commands/`.
 
-## Performance Tips
-
-- **Parallelism:** Use `rayon` for data-heavy tasks (scanning, codegen, workspace-wide validation).
-- **Caching:** Cache parsed schemas (`Arc<Valid<Schema>>`) and Tree-sitter queries.
-- **Granular Validation:** Only re-validate files affected by a change. Use the `fragment_dependents` index to find affected files when a fragment changes.
-- **Minimize Allocations:** Avoid frequent `Rope` to `String` conversions. Use `byte_slice` or `chunks` where possible.
-- **Fast Hashing:** Use `AHashMap` or `ahash` for performance-critical maps.
+Comments should explain why, not what.
