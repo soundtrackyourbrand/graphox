@@ -1,3 +1,12 @@
 packages:
   - 'packages/*'
   - 'plugins/*'
+
+# pnpm 10 stopped running dependency build scripts without explicit approval,
+# and errors out rather than skipping them. Allowing these keeps the fixture
+# installing as it did under pnpm 9; tsx and the swc wrapper both need their
+# platform binaries to be set up.
+allowBuilds:
+  '@swc/core': true
+  core-js: true
+  esbuild: true

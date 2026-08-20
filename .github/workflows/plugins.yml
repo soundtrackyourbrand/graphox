@@ -21,7 +21,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
       - run: cd plugins/babel && pnpm install --frozen-lockfile
       - run: cd plugins/babel && pnpm test
 
@@ -48,7 +48,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - name: Install Node.js dependencies
         working-directory: plugins/swc/node
