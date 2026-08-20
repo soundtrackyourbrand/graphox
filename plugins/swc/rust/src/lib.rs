@@ -356,6 +356,8 @@ impl TransformVisitor {
                     _ => self.fail(self.dynamic_import_error(source)),
                 },
                 ObjectPatProp::Rest(_) => self.fail(self.dynamic_import_error(source)),
+                #[cfg(swc_ast_unknown)]
+                _ => self.fail(self.dynamic_import_error(source)),
             };
 
             if imported_name == "graphql" || imported_name == "gql" {
@@ -534,6 +536,8 @@ impl VisitMut for TransformVisitor {
                                     .map(|i| match i {
                                         ModuleExportName::Ident(id) => id.sym.as_str(),
                                         ModuleExportName::Str(s) => s.value.as_str().unwrap_or(""),
+                                        #[cfg(swc_ast_unknown)]
+                                        _ => "",
                                     })
                                     .unwrap_or(local_name);
 
@@ -692,7 +696,7 @@ impl VisitMut for TransformVisitor {
 
                 let requests = self.collect_dynamic_import_requests(&source, pattern);
                 if !requests.is_empty() {
-                    *init = Box::new(self.rewrite_dynamic_import_expr(awaited, &requests));
+                    **init = self.rewrite_dynamic_import_expr(awaited, &requests);
                 }
             }
 

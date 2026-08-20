@@ -22,9 +22,9 @@ swc-build:
 swc-test:
 	cd plugins/swc/node && pnpm install && pnpm test
 
-## babel-build: Build Babel plugin
+## babel-build: Install Babel plugin deps (plain JS, nothing to compile)
 babel-build:
-	cd plugins/babel && pnpm install && pnpm run build
+	cd plugins/babel && pnpm install
 
 ## babel-test: Run Babel plugin tests
 babel-test:
@@ -69,8 +69,11 @@ fmt:
 	cargo fmt
 
 ## clippy: Run clippy with all targets and features
+# --workspace is required for the trailing -D to reach the workspace members:
+# without it only the root package is a primary target, so lints in the plugins
+# were reported as warnings and never failed the build.
 clippy:
-	cargo clippy --all-targets --all-features -- --D warnings
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 ## bench-compile: Compile benchmarks (without running)
 bench-compile:
