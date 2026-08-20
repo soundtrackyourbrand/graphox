@@ -12,6 +12,7 @@ import {
   createSWCPlugin,
   isWasmAvailable,
   loadManifest,
+  resolvePluginOutputs,
   PluginConfig
 } from '../src/index.js';
 import * as fs from 'fs';
@@ -358,5 +359,163 @@ describe('SWC Plugin WASM Wrapper', () => {
         fs.rmSync(tempDir, { recursive: true });
       }
     });
+  });
+});
+
+describe('multi-project outputs', () => {
+  /**
+   * Two packages in one workspace. `base` owns a fragment and exposes its
+   * generated directory; `web` consumes it. Written to disk because the alias
+   * and package root are inferred from real package.json files.
+   */
+  function fixture(baseExports: Record<string, unknown>) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphox-multi-'));
+
+    const base = path.join(root, 'packages/playback/base');
+    fs.mkdirSync(path.join(base, 'graphql'), { recursive: true });
+    fs.writeFileSync(
+      path.join(base, 'package.json'),
+      JSON.stringify({ name: '@soundtrack/playback', exports: baseExports })
+    );
+    fs.writeFileSync(
+      path.join(base, 'graphql/manifest.json'),
+      JSON.stringify([
+        {
+          source: 'fragment PlaybackDisplay on Display { id }',
+          path: './base.codegen',
+          name: 'PlaybackDisplayFragmentDoc',
+        },
+      ])
+    );
+
+    const web = path.join(root, 'packages/playback/web');
+    fs.mkdirSync(path.join(web, 'graphql'), { recursive: true });
+    fs.writeFileSync(
+      path.join(web, 'package.json'),
+      JSON.stringify({ name: '@soundtrack/playback-web', exports: { './graphql': './graphql/index.ts' } })
+    );
+    fs.writeFileSync(path.join(web, 'graphql/manifest.json'), JSON.stringify([]));
+
+    return { root, base, web };
+  }
+
+  it('infers importAlias and packageRoot from the owning package', () => {
+    const { root, base } = fixture({
+      './graphql': './graphql/index.ts',
+      './graphql/*': './graphql/*',
+    });
+    const warnings: string[] = [];
+
+    const outputs = resolvePluginOutputs(
+      { outputs: [{ outputDir: path.join(base, 'graphql') }] },
+      { cwd: root, onWarn: (m) => warnings.push(m) }
+    );
+
+    const output = outputs[0];
+    expect(output.importAlias).toBe('@soundtrack/playback/graphql');
+    expect(output.packageRoot).toBe(base);
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns when the exports map cannot serve files inside the subpath', () => {
+    const { root, base } = fixture({ './graphql': './graphql/index.ts' });
+    const warnings: string[] = [];
+
+    resolvePluginOutputs(
+      { outputs: [{ outputDir: path.join(base, 'graphql') }] },
+      { cwd: root, onWarn: (m) => warnings.push(m) }
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"./graphql/*": "./graphql/*"');
+    expect(warnings[0]).toContain('@soundtrack/playback/graphql/<file>');
+  });
+
+  it('treats the alias as a recognised entrypoint', () => {
+    const { root, base } = fixture({ './graphql': './graphql/index.ts', './graphql/*': './graphql/*' });
+    const outputs = resolvePluginOutputs(
+      { outputs: [{ outputDir: path.join(base, 'graphql') }] },
+      { cwd: root, onWarn: () => {} }
+    );
+
+    expect(outputs[0].graphqlImportPaths).toContain('@soundtrack/playback/graphql');
+  });
+
+  it('inlines a manifest per output', () => {
+    const { root, base, web } = fixture({ './graphql': './graphql/index.ts', './graphql/*': './graphql/*' });
+    const outputs = resolvePluginOutputs(
+      {
+        outputs: [
+          { outputDir: path.join(base, 'graphql') },
+          { outputDir: path.join(web, 'graphql') },
+        ],
+      },
+      { cwd: root, onWarn: () => {} }
+    );
+
+    expect(outputs).toHaveLength(2);
+    expect(outputs[0].manifestData).toHaveLength(1);
+    expect(outputs[1].manifestData).toHaveLength(0);
+  });
+
+  it('rejects a duplicate outputDir', () => {
+    const { root, base } = fixture({ './graphql': './graphql/index.ts' });
+    const dir = path.join(base, 'graphql');
+    expect(() =>
+      resolvePluginOutputs({ outputs: [{ outputDir: dir }, { outputDir: dir }] }, { cwd: root, onWarn: () => {} })
+    ).toThrow(/duplicate outputDir/);
+  });
+
+  it('rejects nested outputDirs', () => {
+    const { root, base } = fixture({ './graphql': './graphql/index.ts' });
+    expect(() =>
+      resolvePluginOutputs(
+        {
+          outputs: [
+            { outputDir: path.join(base, 'graphql') },
+            { outputDir: path.join(base, 'graphql/nested') },
+          ],
+        },
+        { cwd: root, onWarn: () => {} }
+      )
+    ).toThrow(/overlap/);
+  });
+
+  it('allows the same document name and source in two outputs', () => {
+    // Two projects sharing a document name is normal, and the plugin resolves
+    // per entrypoint rather than across a merged map, so it is not ambiguous.
+    const { root, base, web } = fixture({ './graphql': './graphql/index.ts' });
+    const shared = [
+      {
+        source: 'fragment PlaybackDisplay on Display { id }',
+        path: './web.codegen',
+        name: 'PlaybackDisplayFragmentDoc',
+      },
+    ];
+
+    const outputs = resolvePluginOutputs(
+      {
+        outputs: [
+          { outputDir: path.join(base, 'graphql') },
+          { outputDir: path.join(web, 'graphql'), manifestData: shared },
+        ],
+      },
+      { cwd: root, onWarn: () => {} }
+    );
+
+    expect(outputs[0].manifestData![0].path).toBe('./base.codegen');
+    expect(outputs[1].manifestData![0].path).toBe('./web.codegen');
+  });
+
+  it('still accepts the single-output form', () => {
+    const { root, base } = fixture({ './graphql': './graphql/index.ts' });
+    const outputs = resolvePluginOutputs(
+      { outputDir: path.join(base, 'graphql') },
+      { cwd: root, onWarn: () => {} }
+    );
+
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0].manifestData).toHaveLength(1);
+    expect(outputs[0].outputDir).toBe(path.join(base, 'graphql'));
   });
 });

@@ -121,8 +121,79 @@ function resolvePackageJsonImports(pkgJsonPath, absoluteOutputDir) {
   }
 }
 
+/**
+ * The bare specifier prefix other packages use to reach `absoluteOutputDir`,
+ * derived from the owning package's `name` and `exports`.
+ *
+ * `canServeDeep` reports whether the exports map can also serve files inside
+ * that subpath, which cross-project document imports need.
+ *
+ * Conservative by design: only reports an alias when exactly one subpath
+ * matches, and skips array and null targets rather than guessing. A wrong guess
+ * yields a specifier that fails to resolve at bundle time, which is worse than
+ * asking for explicit config.
+ */
+function resolvePackageExportAlias(pkgJsonPath, absoluteOutputDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+    if (!pkg.name || !pkg.exports || typeof pkg.exports !== 'object') return null;
+
+    const pkgDir = path.dirname(pkgJsonPath);
+    const outNoExt = stripExt(absoluteOutputDir);
+    const entryNoExt = stripExt(path.join(absoluteOutputDir, 'graphql'));
+    const indexNoExt = stripExt(path.join(absoluteOutputDir, 'index'));
+
+    const targetsOf = (target) => {
+      if (typeof target === 'string') return [target];
+      if (target && typeof target === 'object' && !Array.isArray(target)) {
+        return ['import', 'types', 'default', 'require']
+          .map((key) => target[key])
+          .filter((value) => typeof value === 'string');
+      }
+      return [];
+    };
+
+    const matches = [];
+    let canServeDeep = false;
+
+    for (const [subpath, target] of Object.entries(pkg.exports)) {
+      if (!subpath.startsWith('.')) continue;
+
+      for (const raw of targetsOf(target)) {
+        if (subpath.includes('*')) {
+          const prefix = stripExt(path.resolve(pkgDir, raw.split('*')[0]));
+          if (prefix === outNoExt || prefix === path.join(outNoExt, path.sep)) {
+            canServeDeep = true;
+          }
+          continue;
+        }
+
+        const absNoExt = stripExt(path.resolve(pkgDir, raw));
+        if (
+          absNoExt === entryNoExt ||
+          absNoExt === indexNoExt ||
+          absNoExt === outNoExt ||
+          stripExt(path.join(absNoExt, 'index')) === indexNoExt
+        ) {
+          matches.push(subpath);
+        }
+      }
+    }
+
+    const unique = Array.from(new Set(matches));
+    if (unique.length !== 1) return null;
+
+    const subpath = unique[0];
+    const alias = subpath === '.' ? pkg.name : `${pkg.name}/${subpath.replace(/^\.\//, '')}`;
+    return { alias, subpath, canServeDeep };
+  } catch (e) {
+    return null;
+  }
+}
+
 module.exports = {
   findNearestFile,
+  resolvePackageExportAlias,
   resolveTsConfigPaths,
   resolvePackageJsonImports
 };

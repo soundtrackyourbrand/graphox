@@ -26,17 +26,58 @@ impl EmitExtensions {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+/// One codegen output directory, i.e. one graphox project.
+///
+/// A workspace resolves GraphQL against several of these, and a module belongs
+/// to exactly one. Registering them all in a single plugin instance lets one
+/// pass rewrite imports that cross project boundaries, and avoids paying an AST
+/// round-trip per project per module.
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct OutputConfig {
+    /// Absolute path to the output directory where codegen files are located
+    #[serde(rename = "outputDir")]
+    pub output_dir: String,
+    /// Bare specifier other projects use to import this output, e.g.
+    /// `@soundtrack/playback/graphql`. Required for a document in this output to
+    /// be importable from another project: the rewritten import becomes
+    /// `<importAlias>/<codegen file>`, which needs a matching subpath export.
+    /// Configured explicitly rather than inferred from `exports`.
+    #[serde(rename = "importAlias")]
+    pub import_alias: Option<String>,
+    #[serde(rename = "manifestPath")]
+    pub manifest_path: Option<String>,
+    #[serde(rename = "manifestData")]
+    pub manifest_data: Option<Vec<ManifestEntry>>,
+    #[serde(rename = "graphqlImportPaths")]
+    pub graphql_import_paths: Option<Vec<String>>,
+    /// Root of the package owning this output. A module inside it imports these
+    /// documents by relative path; anything outside has to go through
+    /// `importAlias`, because a relative path would reach past the package's
+    /// subpath exports. Absent means "always relative", which is the behaviour
+    /// of the single-output form.
+    #[serde(rename = "packageRoot")]
+    pub package_root: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Config {
     #[serde(rename = "manifestPath")]
     pub manifest_path: Option<String>,
     #[serde(rename = "manifestData")]
     pub manifest_data: Option<Vec<ManifestEntry>>,
-    /// Absolute path to the output directory where codegen files are located
-    #[serde(rename = "outputDir")]
+    /// Absolute path to the output directory where codegen files are located.
+    /// Deprecated single-output form, equivalent to a one-element `outputs`.
+    #[serde(rename = "outputDir", default)]
     pub output_dir: String,
     #[serde(rename = "graphqlImportPaths")]
     pub graphql_import_paths: Option<Vec<String>>,
+    /// See [`OutputConfig::import_alias`]. Deprecated single-output form.
+    #[serde(rename = "importAlias")]
+    pub import_alias: Option<String>,
+    /// Every output this instance resolves against. Takes precedence over the
+    /// single-output fields above.
+    #[serde(rename = "outputs")]
+    pub outputs: Option<Vec<OutputConfig>>,
     /// File extension to append to generated import paths
     /// Options: "none" (default), "ts", "dts", "js"
     #[serde(rename = "emitExtensions", default)]
@@ -50,14 +91,25 @@ pub struct ManifestEntry {
     pub name: String,
 }
 
-pub struct TransformVisitor {
-    manifest: HashMap<String, ManifestEntry>,
-    name_to_entry: HashMap<String, ManifestEntry>,
+/// One `OutputConfig` with its manifest indexed for lookup.
+struct ResolvedOutput {
     output_dir: PathBuf,
+    import_alias: Option<String>,
+    package_root: Option<PathBuf>,
+    import_paths: Vec<String>,
+    /// Normalized document source -> entry
+    manifest: HashMap<String, ManifestEntry>,
+    /// Document name -> entry
+    name_to_entry: HashMap<String, ManifestEntry>,
+}
+
+pub struct TransformVisitor {
+    outputs: Vec<ResolvedOutput>,
     current_file: Option<PathBuf>,
     new_imports: HashMap<String, (String, String)>, // local_name -> (imported_name, source_path)
-    graphql_ids: std::collections::HashSet<Id>,
-    graphql_import_paths: Vec<String>,
+    /// Local ids bound to `graphql`/`gql`, mapped to the output whose entrypoint
+    /// they came from, so a call resolves against that project's manifest.
+    graphql_ids: HashMap<Id, usize>,
     emit_extensions: EmitExtensions,
     existing_names: std::collections::HashSet<String>,
     document_name_to_local_name: HashMap<String, String>,
@@ -146,33 +198,58 @@ fn parse_expression(source: &str) -> Expr {
 
 impl TransformVisitor {
     pub fn new(config: &Config, current_file: Option<String>) -> Self {
-        let entries = if let Some(data) = &config.manifest_data {
-            data.clone()
-        } else if let Some(path) = &config.manifest_path {
-            let manifest_content =
-                std::fs::read_to_string(path).unwrap_or_else(|_| "[]".to_string());
-            serde_json::from_str(&manifest_content).unwrap_or_default()
-        } else {
-            vec![]
+        // `outputs` wins; otherwise fold the deprecated single-output fields into
+        // a one-element list so everything below has one shape to work with.
+        let output_configs: Vec<OutputConfig> = match &config.outputs {
+            Some(outputs) if !outputs.is_empty() => outputs.clone(),
+            _ => vec![OutputConfig {
+                output_dir: config.output_dir.clone(),
+                import_alias: config.import_alias.clone(),
+                manifest_path: config.manifest_path.clone(),
+                manifest_data: config.manifest_data.clone(),
+                graphql_import_paths: config.graphql_import_paths.clone(),
+                package_root: None,
+            }],
         };
 
-        let mut manifest = HashMap::new();
-        let mut name_to_entry = HashMap::new();
-        for entry in entries {
-            manifest
-                .entry(normalize(&entry.source))
-                .or_insert_with(|| entry.clone());
-            name_to_entry.insert(entry.name.clone(), entry);
-        }
+        let outputs: Vec<ResolvedOutput> = output_configs
+            .iter()
+            .map(|output| {
+                let entries = if let Some(data) = &output.manifest_data {
+                    data.clone()
+                } else if let Some(path) = &output.manifest_path {
+                    let manifest_content =
+                        std::fs::read_to_string(path).unwrap_or_else(|_| "[]".to_string());
+                    serde_json::from_str(&manifest_content).unwrap_or_default()
+                } else {
+                    vec![]
+                };
+
+                let mut manifest = HashMap::new();
+                let mut name_to_entry = HashMap::new();
+                for entry in entries {
+                    manifest
+                        .entry(normalize(&entry.source))
+                        .or_insert_with(|| entry.clone());
+                    name_to_entry.insert(entry.name.clone(), entry);
+                }
+
+                ResolvedOutput {
+                    output_dir: PathBuf::from(&output.output_dir),
+                    import_alias: output.import_alias.clone(),
+                    package_root: output.package_root.as_ref().map(PathBuf::from),
+                    import_paths: output.graphql_import_paths.clone().unwrap_or_default(),
+                    manifest,
+                    name_to_entry,
+                }
+            })
+            .collect();
 
         Self {
-            manifest,
-            name_to_entry,
-            output_dir: PathBuf::from(&config.output_dir),
+            outputs,
             current_file: current_file.map(PathBuf::from),
             new_imports: HashMap::new(),
-            graphql_ids: std::collections::HashSet::new(),
-            graphql_import_paths: config.graphql_import_paths.clone().unwrap_or_default(),
+            graphql_ids: HashMap::new(),
             emit_extensions: config.emit_extensions.clone(),
             existing_names: std::collections::HashSet::new(),
             document_name_to_local_name: HashMap::new(),
@@ -202,9 +279,43 @@ impl TransformVisitor {
         unique_name
     }
 
-    fn get_relative_import_path(&self, codegen_rel_path: &str) -> String {
+    /// Where to import a document from, given the output that owns it.
+    ///
+    /// Within the current file's own output that is a relative path, as before.
+    /// Across outputs a relative path would reach into another package past its
+    /// subpath exports, so the import goes through that output's configured
+    /// alias instead — which is why the alias is required for cross-project use.
+    fn get_import_path(&self, output_idx: usize, codegen_rel_path: &str) -> String {
+        let output = &self.outputs[output_idx];
+        let in_same_package = match (&output.package_root, &self.current_file) {
+            (Some(root), Some(file)) => file.starts_with(root),
+            // No package root configured: keep the single-output behaviour of
+            // always emitting a relative path.
+            _ => true,
+        };
+
+        if !in_same_package {
+            let Some(alias) = &output.import_alias else {
+                self.fail(format!(
+                    "\"{}\" belongs to the output at \"{}\", which has no importAlias. Set one so documents in it can be imported from other projects.",
+                    codegen_rel_path,
+                    output.output_dir.display()
+                ));
+            };
+
+            let file = strip_script_extension(codegen_rel_path)
+                .trim_start_matches("./")
+                .to_string();
+            let alias = alias.trim_end_matches('/');
+            return format!("{}/{}{}", alias, file, self.emit_extensions.as_str());
+        }
+
+        self.get_relative_import_path(output_idx, codegen_rel_path)
+    }
+
+    fn get_relative_import_path(&self, output_idx: usize, codegen_rel_path: &str) -> String {
         let mut result = if let Some(current_file) = &self.current_file {
-            let codegen_abs_path = self.output_dir.join(codegen_rel_path);
+            let codegen_abs_path = self.outputs[output_idx].output_dir.join(codegen_rel_path);
             if let Some(parent) = current_file.parent()
                 && let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent)
             {
@@ -248,7 +359,10 @@ impl TransformVisitor {
         panic!("@graphox/swc-plugin: {}", message.as_ref());
     }
 
-    fn is_our_graphql_path(&self, src: &str) -> bool {
+    /// Which output's graphql entrypoint (or index barrel) `src` refers to, if
+    /// any. Returns the output index so the caller knows whose manifest to
+    /// resolve against and how to write the replacement import.
+    fn resolve_graphql_path(&self, src: &str) -> Option<usize> {
         // Normalize incoming src path for comparison on Windows
         let src = if cfg!(windows) {
             src.replace('\\', "/")
@@ -258,44 +372,58 @@ impl TransformVisitor {
         let src = src.as_str();
         let src_no_ext = strip_script_extension(src);
 
-        for path in &self.graphql_import_paths {
-            if src == path || src_no_ext == strip_script_extension(path) {
-                return true;
+        // Bare specifiers first: an alias or a configured import path is how a
+        // module in another project names someone else's entrypoint.
+        for (idx, output) in self.outputs.iter().enumerate() {
+            if let Some(alias) = &output.import_alias
+                && (src == alias.as_str() || src_no_ext == strip_script_extension(alias))
+            {
+                return Some(idx);
+            }
+
+            for path in &output.import_paths {
+                if src == path || src_no_ext == strip_script_extension(path) {
+                    return Some(idx);
+                }
             }
         }
 
-        if let Some(current_file) = &self.current_file {
-            let entrypoint_abs_path = self.output_dir.join("graphql");
-            let index_abs_path = self.output_dir.join("index");
+        let current_file = self.current_file.as_ref()?;
+        let parent = current_file.parent()?;
+
+        for (idx, output) in self.outputs.iter().enumerate() {
+            if output.output_dir.as_os_str().is_empty() {
+                continue;
+            }
+
+            let entrypoint_abs_path = output.output_dir.join("graphql");
+            let index_abs_path = output.output_dir.join("index");
             let entrypoint_abs_no_ext = strip_script_extension_path(&entrypoint_abs_path);
             let index_abs_no_ext = strip_script_extension_path(&index_abs_path);
 
-            if let Some(parent) = current_file.parent() {
-                let src_path = Path::new(src);
-                let is_absolute_looking = src_path.is_absolute()
-                    || (cfg!(windows) && (src.starts_with('/') || src.starts_with('\\')));
+            let src_path = Path::new(src);
+            let is_absolute_looking = src_path.is_absolute()
+                || (cfg!(windows) && (src.starts_with('/') || src.starts_with('\\')));
 
-                let resolved_abs = if src.starts_with('.') {
-                    Some(parent.join(src_path))
-                } else if is_absolute_looking {
-                    Some(src_path.to_path_buf())
-                } else {
-                    None
-                };
+            let resolved_abs = if src.starts_with('.') {
+                Some(parent.join(src_path))
+            } else if is_absolute_looking {
+                Some(src_path.to_path_buf())
+            } else {
+                None
+            };
 
-                if let Some(resolved_abs) = resolved_abs {
-                    let resolved_no_ext = strip_script_extension_path(&resolved_abs);
-                    if resolved_no_ext == entrypoint_abs_no_ext
-                        || resolved_no_ext == index_abs_no_ext
-                        || resolved_no_ext.join("index") == index_abs_no_ext
-                    {
-                        return true;
-                    }
+            if let Some(resolved_abs) = resolved_abs {
+                let resolved_no_ext = strip_script_extension_path(&resolved_abs);
+                if resolved_no_ext == entrypoint_abs_no_ext
+                    || resolved_no_ext == index_abs_no_ext
+                    || resolved_no_ext.join("index") == index_abs_no_ext
+                {
+                    return Some(idx);
                 }
             }
 
-            if let Some(parent) = current_file.parent()
-                && let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent)
+            if let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent)
                 && let Some(rel_index_path) = pathdiff::diff_paths(&index_abs_path, parent)
             {
                 let mut s = rel_path.to_string_lossy().to_string();
@@ -320,17 +448,41 @@ impl TransformVisitor {
                 let our_index_normalized = strip_script_extension(&s_index);
 
                 if src_normalized == our_normalized || src_normalized == our_index_normalized {
-                    return true;
+                    return Some(idx);
                 }
 
                 // Handle directory import resolving to index
                 if format!("{}/index", src_normalized) == our_index_normalized {
-                    return true;
+                    return Some(idx);
                 }
             }
         }
 
-        false
+        None
+    }
+
+    fn is_our_graphql_path(&self, src: &str) -> bool {
+        self.resolve_graphql_path(src).is_some()
+    }
+
+    /// Raised when a document is imported from a recognised graphql entrypoint
+    /// but appears in no configured manifest. The usual cause is that the
+    /// project owning the document was never registered with the plugin, so its
+    /// entrypoint got cleared with nothing to redirect the import to.
+    fn unresolved_document_error(&self, imported_name: &str, source: &str) -> String {
+        let configured = self
+            .outputs
+            .iter()
+            .map(|output| output.output_dir.display().to_string())
+            .filter(|dir| !dir.is_empty())
+            .collect::<Vec<_>>();
+
+        format!(
+            "could not rewrite \"{}\" from \"{}\". It is in none of the configured manifests [{}]. Register the outputDir of the project that defines it, or run Graphox codegen.",
+            imported_name,
+            source,
+            configured.join(", ")
+        )
     }
 
     fn dynamic_import_error(&self, source: &str) -> String {
@@ -364,16 +516,15 @@ impl TransformVisitor {
                 self.fail(self.dynamic_import_error(source));
             }
 
-            let Some(entry) = self.name_to_entry.get(&imported_name) else {
-                self.fail(format!(
-                    "could not rewrite \"{}\" from \"{}\". Run Graphox codegen and ensure the manifest includes this document.",
-                    imported_name, source
-                ));
+            let output_idx = self.resolve_graphql_path(source).unwrap_or(0);
+            let Some(entry) = self.outputs[output_idx].name_to_entry.get(&imported_name) else {
+                self.fail(self.unresolved_document_error(&imported_name, source));
             };
+            let path = entry.path.clone();
 
             requests.push(DynamicImportRequest {
                 imported_name,
-                source_path: self.get_relative_import_path(&entry.path),
+                source_path: self.get_import_path(output_idx, &path),
             });
         }
 
@@ -445,9 +596,12 @@ impl VisitMut for TransformVisitor {
     fn visit_mut_module(&mut self, n: &mut Module) {
         // If we are processing the entrypoint itself, clear it
         if let Some(current_file) = &self.current_file {
-            let entrypoint_abs_path = self.output_dir.join("graphql");
             let current_file_normalized = current_file.with_extension("");
-            if current_file_normalized == entrypoint_abs_path {
+            let is_entrypoint = self.outputs.iter().any(|output| {
+                !output.output_dir.as_os_str().is_empty()
+                    && current_file_normalized == output.output_dir.join("graphql")
+            });
+            if is_entrypoint {
                 n.body.clear();
                 // Add empty exports to satisfy build tools
                 n.body
@@ -524,7 +678,7 @@ impl VisitMut for TransformVisitor {
         for item in &n.body {
             if let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = item {
                 let src = import.src.value.as_str().unwrap_or("");
-                if self.is_our_graphql_path(src) {
+                if let Some(output_idx) = self.resolve_graphql_path(src) {
                     let import_is_type_only = import.type_only;
                     for specifier in &import.specifiers {
                         match specifier {
@@ -547,13 +701,20 @@ impl VisitMut for TransformVisitor {
                                 our_import_ids.insert(named.local.to_id());
 
                                 if imported_name == "graphql" || imported_name == "gql" {
-                                    self.graphql_ids.insert(named.local.to_id());
-                                } else if self.name_to_entry.contains_key(imported_name)
+                                    self.graphql_ids.insert(named.local.to_id(), output_idx);
+                                } else if self.outputs[output_idx]
+                                    .name_to_entry
+                                    .contains_key(imported_name)
                                     && !specifier_is_type_only
                                 {
                                     // Only track non-type-only imports of document names
-                                    let entry = self.name_to_entry.get(imported_name).unwrap();
-                                    let rel_path = self.get_relative_import_path(&entry.path);
+                                    let entry_path = self.outputs[output_idx]
+                                        .name_to_entry
+                                        .get(imported_name)
+                                        .unwrap()
+                                        .path
+                                        .clone();
+                                    let rel_path = self.get_import_path(output_idx, &entry_path);
 
                                     let target_local_name = if local_name != imported_name {
                                         // Aliased, keep it and register it
@@ -576,10 +737,7 @@ impl VisitMut for TransformVisitor {
                                             .insert(named.local.to_id(), target_local_name);
                                     }
                                 } else if !specifier_is_type_only {
-                                    self.fail(format!(
-                                        "could not rewrite \"{}\" from \"{}\". Run Graphox codegen and ensure the manifest includes this document.",
-                                        imported_name, src
-                                    ));
+                                    self.fail(self.unresolved_document_error(imported_name, src));
                                 }
                             }
                             ImportSpecifier::Default(_) if !import_is_type_only => {
@@ -710,7 +868,7 @@ impl VisitMut for TransformVisitor {
         if let Expr::Call(call) = n
             && let Callee::Expr(callee_expr) = &call.callee
             && let Expr::Ident(ident) = &**callee_expr
-            && self.graphql_ids.contains(&ident.to_id())
+            && let Some(&output_idx) = self.graphql_ids.get(&ident.to_id())
             && let Some(ExprOrSpread { expr, .. }) = call.args.first()
         {
             let source = match &**expr {
@@ -739,16 +897,17 @@ impl VisitMut for TransformVisitor {
                 ));
             };
 
-            let Some(entry) = self.manifest.get(&source) else {
+            let Some(entry) = self.outputs[output_idx].manifest.get(&source) else {
                 self.fail(format!(
-                    "could not find this {}() document in the manifest. Run Graphox codegen and ensure the build is using the correct manifest.",
-                    ident.sym
+                    "could not find this {}() document in the manifest for \"{}\". Run Graphox codegen and ensure the build is using the correct manifest.",
+                    ident.sym,
+                    self.outputs[output_idx].output_dir.display()
                 ));
             };
 
             let entry_name = entry.name.clone();
             let entry_path = entry.path.clone();
-            let rel_path = self.get_relative_import_path(&entry_path);
+            let rel_path = self.get_import_path(output_idx, &entry_path);
             let target_local_name = self.get_local_name(&entry_name);
             self.new_imports
                 .insert(target_local_name.clone(), (entry_name, rel_path));
@@ -773,7 +932,7 @@ impl Visit for GraphqlUsageValidator<'_> {
         }
 
         if let Expr::Ident(ident) = n
-            && self.visitor.graphql_ids.contains(&ident.to_id())
+            && self.visitor.graphql_ids.contains_key(&ident.to_id())
         {
             self.error = Some(format!(
                 "left a runtime reference to \"{}\" after rewriting. All Graphox graphql/gql imports must be fully inlined before the import is removed.",
@@ -800,13 +959,7 @@ pub fn process_transform(
 ) -> Program {
     let config_str = _metadata.get_transform_plugin_config();
     let config: Config = serde_json::from_str(&config_str.unwrap_or_else(|| "{}".to_string()))
-        .unwrap_or_else(|_| Config {
-            manifest_path: None,
-            manifest_data: None,
-            output_dir: "".to_string(),
-            graphql_import_paths: None,
-            emit_extensions: EmitExtensions::None,
-        });
+        .unwrap_or_else(|_| Config::default());
 
     let current_file = _metadata
         .get_context(&swc_core::plugin::metadata::TransformPluginMetadataContextKind::Filename);
@@ -866,6 +1019,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -893,6 +1048,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::Ts,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -918,6 +1075,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::Js,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -943,6 +1102,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::Dts,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -975,6 +1136,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let source = r#"
@@ -1007,6 +1170,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         transform(
@@ -1031,6 +1196,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         transform(
@@ -1055,6 +1222,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let source = r#"
@@ -1081,6 +1250,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let source = r#"
@@ -1107,6 +1278,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1134,6 +1307,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::Js,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1161,6 +1336,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1188,6 +1365,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         // Source has different whitespace
@@ -1224,6 +1403,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1252,6 +1433,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: Some(vec!["#graphql/graphql".to_string()]),
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1279,6 +1462,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1306,6 +1491,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1333,6 +1520,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: Some(vec!["@app/gql-entrypoint".to_string()]),
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1354,6 +1543,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1381,6 +1572,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1421,6 +1614,8 @@ mod tests {
             output_dir: "./gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1458,6 +1653,8 @@ mod tests {
             output_dir: "./gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         transform(
@@ -1486,6 +1683,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1520,6 +1719,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1548,6 +1749,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         transform(
@@ -1572,6 +1775,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1599,6 +1804,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1626,6 +1833,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1655,6 +1864,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1682,6 +1893,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1709,6 +1922,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1744,6 +1959,8 @@ mod tests {
             output_dir: "/root/gen".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::Ts,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1821,6 +2038,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1871,6 +2090,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1903,6 +2124,8 @@ mod tests {
             output_dir: ".".to_string(),
             graphql_import_paths: None,
             emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
         };
 
         let output = transform(
@@ -1915,5 +2138,259 @@ mod tests {
         assert!(!output.contains("const q = q;"));
         assert!(output.contains("const q = q1;"));
         assert!(output.contains("import { q as q1 } from \"./q.codegen\";"));
+    }
+    // --- multi-project outputs -------------------------------------------------
+
+    /// Project A (`base`) owns the fragment; project B (`web`) imports it through
+    /// A's public alias. Both are registered in one instance.
+    fn two_project_config() -> Config {
+        Config {
+            outputs: Some(vec![
+                OutputConfig {
+                    output_dir: "/repo/packages/playback/base/graphql".to_string(),
+                    import_alias: Some("@soundtrack/playback/graphql".to_string()),
+                    package_root: Some("/repo/packages/playback/base".to_string()),
+                    manifest_data: Some(vec![ManifestEntry {
+                        source: "fragment PlaybackDisplay on Display { id }".to_string(),
+                        path: "./base.codegen".to_string(),
+                        name: "PlaybackDisplayFragmentDoc".to_string(),
+                    }]),
+                    ..Default::default()
+                },
+                OutputConfig {
+                    output_dir: "/repo/packages/playback/web/graphql".to_string(),
+                    import_alias: Some("@soundtrack/playback/web/graphql".to_string()),
+                    package_root: Some("/repo/packages/playback/web".to_string()),
+                    manifest_data: Some(vec![ManifestEntry {
+                        source: "query Web { web { id } }".to_string(),
+                        path: "./web.codegen".to_string(),
+                        name: "WebQueryDocument".to_string(),
+                    }]),
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_cross_project_document_import_uses_alias() {
+        // This is the reported failure: B's generated file imports a document
+        // from A's barrel. It must be redirected at A's codegen file, through
+        // A's alias rather than a relative path that would reach past A's
+        // subpath exports.
+        let output = transform(
+            "import { PlaybackDisplayFragmentDoc } from \"@soundtrack/playback/graphql\";\nconst d = PlaybackDisplayFragmentDoc;",
+            two_project_config(),
+            "/repo/packages/playback/web/graphql/web.codegen.ts",
+        );
+
+        assert!(
+            output.contains(
+                "import { PlaybackDisplayFragmentDoc } from \"@soundtrack/playback/graphql/base.codegen\""
+            ),
+            "got:\n{output}"
+        );
+        assert!(
+            !output.contains("\"@soundtrack/playback/graphql\";"),
+            "the barrel import must be gone, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_same_package_import_stays_relative() {
+        // A module inside A's own package keeps the relative path; only crossing
+        // a package boundary needs the alias.
+        let output = transform(
+            "import { graphql } from \"./graphql\";\nconst d = graphql(`fragment PlaybackDisplay on Display { id }`);",
+            two_project_config(),
+            "/repo/packages/playback/base/graphql/consumer.ts",
+        );
+
+        assert!(output.contains("from \"./base.codegen\""), "got:\n{output}");
+        assert!(!output.contains("@soundtrack"), "got:\n{output}");
+    }
+
+    #[test]
+    fn test_graphql_call_resolves_against_its_own_entrypoint() {
+        // The call resolves through the output its `graphql` symbol was imported
+        // from, so two outputs are never ambiguous for the same source text.
+        let output = transform(
+            "import { graphql } from \"@soundtrack/playback/web/graphql\";\nconst q = graphql(`query Web { web { id } }`);",
+            two_project_config(),
+            "/repo/apps/business/app/thing.ts",
+        );
+
+        assert!(
+            output.contains("@soundtrack/playback/web/graphql/web.codegen"),
+            "got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_entrypoint_cleared_for_every_configured_output() {
+        for entrypoint in [
+            "/repo/packages/playback/base/graphql/graphql.ts",
+            "/repo/packages/playback/web/graphql/graphql.ts",
+        ] {
+            let output = transform(
+                "export const documents = { a: 1 }; export const graphql = () => documents;",
+                two_project_config(),
+                entrypoint,
+            );
+            assert!(
+                !output.contains("documents"),
+                "{entrypoint} should be cleared, got:\n{output}"
+            );
+            assert!(
+                output.contains("export const graphql = ()=>null"),
+                "got:\n{output}"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "in none of the configured manifests")]
+    fn test_unresolved_document_names_the_configured_outputs() {
+        transform(
+            "import { SomeOtherDoc } from \"@soundtrack/playback/graphql\";\nconst d = SomeOtherDoc;",
+            two_project_config(),
+            "/repo/packages/playback/web/graphql/web.codegen.ts",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "has no importAlias")]
+    fn test_cross_package_without_alias_is_an_error() {
+        let mut config = two_project_config();
+        config.outputs.as_mut().unwrap()[0].import_alias = None;
+        // Still recognised via graphqlImportPaths, but not rewritable.
+        config.outputs.as_mut().unwrap()[0].graphql_import_paths =
+            Some(vec!["@soundtrack/playback/graphql".to_string()]);
+
+        transform(
+            "import { PlaybackDisplayFragmentDoc } from \"@soundtrack/playback/graphql\";\nconst d = PlaybackDisplayFragmentDoc;",
+            config,
+            "/repo/packages/playback/web/graphql/web.codegen.ts",
+        );
+    }
+    // --- duplicate document names across projects ------------------------------
+
+    /// Two projects that legitimately share document names. `AssignSource` has
+    /// byte-identical source in both; `BlockTrack` differs. Neither is ambiguous:
+    /// resolution is scoped to the entrypoint the import came from.
+    fn duplicate_name_config() -> Config {
+        Config {
+            outputs: Some(vec![
+                OutputConfig {
+                    output_dir: "/repo/apps/business/app/graphql".to_string(),
+                    import_alias: Some("@business/graphql".to_string()),
+                    package_root: Some("/repo/apps/business".to_string()),
+                    manifest_data: Some(vec![
+                        ManifestEntry {
+                            source: "mutation AssignSource { assignSource { id } }".to_string(),
+                            path: "./business.codegen".to_string(),
+                            name: "AssignSourceMutationDocument".to_string(),
+                        },
+                        ManifestEntry {
+                            source: "mutation BlockTrack { blockTrack { id } }".to_string(),
+                            path: "./business.codegen".to_string(),
+                            name: "BlockTrackMutationDocument".to_string(),
+                        },
+                    ]),
+                    ..Default::default()
+                },
+                OutputConfig {
+                    output_dir: "/repo/packages/playback/remote/graphql".to_string(),
+                    import_alias: Some("@soundtrack/playback-remote/graphql".to_string()),
+                    package_root: Some("/repo/packages/playback/remote".to_string()),
+                    manifest_data: Some(vec![
+                        ManifestEntry {
+                            source: "mutation AssignSource { assignSource { id } }".to_string(),
+                            path: "./remote.codegen".to_string(),
+                            name: "AssignSourceMutationDocument".to_string(),
+                        },
+                        ManifestEntry {
+                            source: "mutation BlockTrack { blockTrack(remote: true) { id } }"
+                                .to_string(),
+                            path: "./remote.codegen".to_string(),
+                            name: "BlockTrackMutationDocument".to_string(),
+                        },
+                    ]),
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_identical_source_in_two_projects_resolves_per_entrypoint() {
+        // Byte-identical source in both manifests. The call resolves through the
+        // entrypoint its `graphql` symbol came from, so each side gets its own.
+        let business = transform(
+            "import { graphql } from \"./graphql\";\nconst m = graphql(`mutation AssignSource { assignSource { id } }`);",
+            duplicate_name_config(),
+            "/repo/apps/business/app/graphql/consumer.ts",
+        );
+        assert!(business.contains("./business.codegen"), "got:\n{business}");
+        assert!(!business.contains("remote.codegen"), "got:\n{business}");
+
+        let remote = transform(
+            "import { graphql } from \"./graphql\";\nconst m = graphql(`mutation AssignSource { assignSource { id } }`);",
+            duplicate_name_config(),
+            "/repo/packages/playback/remote/graphql/consumer.ts",
+        );
+        assert!(remote.contains("./remote.codegen"), "got:\n{remote}");
+        assert!(!remote.contains("business.codegen"), "got:\n{remote}");
+    }
+
+    #[test]
+    fn test_duplicate_document_name_resolves_per_entrypoint() {
+        // Same name, different source. A named import resolves in the manifest of
+        // whichever output the specifier matched. This module is inside the
+        // business package, so its own documents come in by relative path.
+        let business = transform(
+            "import { BlockTrackMutationDocument } from \"@business/graphql\";\nconst d = BlockTrackMutationDocument;",
+            duplicate_name_config(),
+            "/repo/apps/business/app/thing.ts",
+        );
+        assert!(
+            business.contains("./graphql/business.codegen"),
+            "got:\n{business}"
+        );
+        assert!(!business.contains("remote.codegen"), "got:\n{business}");
+
+        let remote = transform(
+            "import { BlockTrackMutationDocument } from \"@soundtrack/playback-remote/graphql\";\nconst d = BlockTrackMutationDocument;",
+            duplicate_name_config(),
+            "/repo/apps/business/app/thing.ts",
+        );
+        assert!(
+            remote.contains("@soundtrack/playback-remote/graphql/remote.codegen"),
+            "got:\n{remote}"
+        );
+        assert!(!remote.contains("business.codegen"), "got:\n{remote}");
+    }
+
+    #[test]
+    fn test_both_duplicated_documents_in_one_module() {
+        // The sharpest case: one module pulls the same name from both projects.
+        let output = transform(
+            "import { BlockTrackMutationDocument as B1 } from \"@business/graphql\";\nimport { BlockTrackMutationDocument as B2 } from \"@soundtrack/playback-remote/graphql\";\nconst a = B1; const b = B2;",
+            duplicate_name_config(),
+            "/repo/apps/business/app/thing.ts",
+        );
+
+        // Local project by relative path, the other through its alias — the same
+        // name resolving two different ways in one module.
+        assert!(
+            output.contains("./graphql/business.codegen"),
+            "got:\n{output}"
+        );
+        assert!(
+            output.contains("@soundtrack/playback-remote/graphql/remote.codegen"),
+            "got:\n{output}"
+        );
     }
 }
