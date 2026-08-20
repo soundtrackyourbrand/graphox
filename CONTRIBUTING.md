@@ -12,8 +12,8 @@ This project is organized as a Rust workspace with specialized crates:
 
 ### Prerequisites
 
-- Rust 1.70+ with `cargo`
-- Node.js 18+ and pnpm (for editor extensions and plugins)
+- Rust — the toolchain is pinned in `rust-toolchain.toml`, so `rustup` installs the right version and targets on first build
+- Node.js 22.13+ and pnpm 11 (for editor extensions and plugins)
 - Git
 
 ### Getting Started
@@ -127,7 +127,7 @@ make release-major
 ```
 
 The release script will:
-- Update version in `Cargo.toml`, `plugins/swc/Cargo.toml`, `editors/vscode/package.json`, and `npm/graphox-cli/package.json`
+- Update the version in the root `Cargo.toml`, every workspace crate, `plugins/swc/rust/Cargo.toml`, `plugins/swc/node/package.json`, `plugins/babel/package.json`, `editors/vscode/package.json`, and `npm/graphox-cli/package.json` (including its `optionalDependencies`)
 - Update `Cargo.lock`
 - Create a commit with message: `chore: bump version to X.Y.Z`
 - Create a git tag: `vX.Y.Z`

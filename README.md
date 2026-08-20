@@ -131,7 +131,7 @@ Set up `Graphox` as a language server in your editor:
 
 ### Quick Editor Configuration
 
-**VSCode:** Install the [Graphox extension](https://marketplace.visualstudio.com/items?itemName=graphox.graphox) or use the npm package.
+**VSCode:** Install the [Graphox extension](https://marketplace.visualstudio.com/items?itemName=soundtrack.graphox) or use the npm package.
 
 **Neovim:** Configure LSP with `nvim-lspconfig`:
 

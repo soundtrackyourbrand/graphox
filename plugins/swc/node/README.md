@@ -8,10 +8,10 @@ Pre-built SWC plugin for Graphox codesplitting. This package bundles the WASM bi
 
 Building the WASM plugin from source requires:
 
-- **Rust toolchain** (1.70+): `rustup install stable`
-- **WASM target**: `rustup target add wasm32-wasip1`
-- **Node.js** 18+
-- **pnpm**: `corepack enable && corepack install -g pnpm@latest`
+- **Rust toolchain**: pinned in `rust-toolchain.toml` — `rustup` installs it,
+  and the `wasm32-wasip1` target, automatically
+- **Node.js** 22.13+ (required by pnpm 11)
+- **pnpm** 11: `corepack enable && corepack install -g pnpm@latest`
 
 For users of the pre-built package, only Node.js 18+ is required.
 
@@ -238,9 +238,9 @@ pnpm test
 
 ## See Also
 
-- [Babel Plugin](../babel/README.md)
-- [graphox CLI](../../README.md)
-- [Configuration Guide](../../docs/configurations.md)
+- [Babel Plugin](../../babel/README.md)
+- [graphox CLI](../../../README.md)
+- [Configuration Guide](../../../docs/configurations.md)
 - [Plugin Development Guide](../../../docs/plugin-development.md)
 
 ## License

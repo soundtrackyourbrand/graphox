@@ -156,9 +156,7 @@ SWC loads the plugin as a raw `wasm32-wasip1` module, so build it with cargo
 directly — this is what `pnpm run build:wasm` runs:
 
 ```bash
-# Add the target once
-rustup target add wasm32-wasip1
-
+# rust-toolchain.toml already pins the toolchain and the wasm32-wasip1 target
 cargo build -p graphox-swc-plugin --target wasm32-wasip1 --release
 
 # Output: target/wasm32-wasip1/release/graphox_swc_plugin.wasm
@@ -208,11 +206,11 @@ mod tests {
 
 ### Integration Tests
 
-The SWC plugin has integration tests in `plugins/swc/rust/tests/swc_cli.rs`:
+The SWC plugin has an end-to-end test in `tests/integration/swc_cli.rs`:
 
 ```bash
-# Run the integration test
-cargo test --test swc_cli --include-ignored
+# Run the integration test (it is #[ignore]d, being slow)
+cargo test --test integration_suite swc_cli -- --ignored
 
 # This test:
 # 1. Runs codegen on test fixtures
@@ -224,8 +222,8 @@ cargo test --test swc_cli --include-ignored
 ### Creating New Integration Tests
 
 1. Create test fixtures in `tests/fixtures/swc_cli/`
-2. Add test to `plugins/swc/rust/tests/swc_cli.rs`
-3. Run with `--include-ignored`
+2. Add test to `tests/integration/swc_cli.rs`
+3. Run with `-- --ignored`
 4. Verify CI passes
 
 ### Publishing
@@ -304,7 +302,7 @@ Three workflows handle the project:
    - Add test case
    - Update README
 
-2. **SWC**: Modify `plugins/swc/src/lib.rs`
+2. **SWC**: Modify `plugins/swc/rust/src/lib.rs`
    - Implement `VisitMut` trait
    - Add unit test
    - Add integration test if needed

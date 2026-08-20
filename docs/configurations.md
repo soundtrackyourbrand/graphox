@@ -27,12 +27,6 @@ This document provides ready-to-use configuration examples for common use cases,
 ## Full Configuration Reference
 
 ```yaml
-# Fragment masking (similar to graphql-codegen client-preset)
-# Disabled by default for backwards compatibility
-fragment_masking: enabled  # or: disabled
-# fragment_masking:
-#   unmask_function_name: "getFragmentData"  # Custom function name
-
 # Custom scalar type mappings
 scalars:
   DateTime: "Date"
@@ -77,6 +71,12 @@ codegen:
   # Type generation options
   # Generate nullable fields as optional properties (with '?')
   nullable_fields_as_optional: false
+
+  # Fragment masking (similar to graphql-codegen client-preset)
+  # Disabled by default for backwards compatibility
+  fragment_masking: enabled  # or: disabled
+  # fragment_masking:
+  #   unmask_function_name: "getFragmentData"  # Custom function name
 
 # Project configurations (required)
 projects:
