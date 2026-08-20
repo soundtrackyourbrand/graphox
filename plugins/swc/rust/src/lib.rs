@@ -112,7 +112,10 @@ pub struct TransformVisitor {
     graphql_ids: HashMap<Id, usize>,
     emit_extensions: EmitExtensions,
     existing_names: std::collections::HashSet<String>,
-    document_name_to_local_name: HashMap<String, String>,
+    /// (owning output, document name) -> local name in this module. Keyed by the
+    /// output too: two projects may legitimately export the same document name,
+    /// and each needs its own binding.
+    document_name_to_local_name: HashMap<(usize, String), String>,
     id_renames: HashMap<Id, String>,
 }
 
@@ -257,26 +260,31 @@ impl TransformVisitor {
         }
     }
 
-    fn get_local_name(&mut self, document_name: &str) -> String {
-        if let Some(local_name) = self.document_name_to_local_name.get(document_name) {
+    fn get_local_name(&mut self, output_idx: usize, document_name: &str) -> String {
+        let key = (output_idx, document_name.to_string());
+        if let Some(local_name) = self.document_name_to_local_name.get(&key) {
             return local_name.clone();
         }
 
         let mut unique_name = document_name.to_string();
-        if self.existing_names.contains(&unique_name) {
+        if self.is_local_name_taken(&unique_name) {
             let mut i = 1;
-            while self
-                .existing_names
-                .contains(&format!("{}{}", document_name, i))
-            {
+            while self.is_local_name_taken(&format!("{}{}", document_name, i)) {
                 i += 1;
             }
             unique_name = format!("{}{}", document_name, i);
         }
 
         self.document_name_to_local_name
-            .insert(document_name.to_string(), unique_name.clone());
+            .insert(key, unique_name.clone());
         unique_name
+    }
+
+    /// A local name is unavailable if the module already uses it for something of
+    /// its own, or if an import we are emitting has claimed it — which is how the
+    /// same document name owned by two different outputs stays two bindings.
+    fn is_local_name_taken(&self, name: &str) -> bool {
+        self.existing_names.contains(name) || self.new_imports.contains_key(name)
     }
 
     /// Where to import a document from, given the output that owns it.
@@ -719,12 +727,12 @@ impl VisitMut for TransformVisitor {
                                     let target_local_name = if local_name != imported_name {
                                         // Aliased, keep it and register it
                                         self.document_name_to_local_name.insert(
-                                            imported_name.to_string(),
+                                            (output_idx, imported_name.to_string()),
                                             local_name.to_string(),
                                         );
                                         local_name.to_string()
                                     } else {
-                                        self.get_local_name(imported_name)
+                                        self.get_local_name(output_idx, imported_name)
                                     };
 
                                     self.new_imports.insert(
@@ -732,10 +740,12 @@ impl VisitMut for TransformVisitor {
                                         (imported_name.to_string(), rel_path),
                                     );
 
-                                    if target_local_name != local_name {
-                                        self.id_renames
-                                            .insert(named.local.to_id(), target_local_name);
-                                    }
+                                    // Always record the binding, even when the name
+                                    // is unchanged: the import we emit is a fresh
+                                    // identifier, so every reference has to be
+                                    // moved onto it. See `visit_mut_ident`.
+                                    self.id_renames
+                                        .insert(named.local.to_id(), target_local_name);
                                 } else if !specifier_is_type_only {
                                     self.fail(self.unresolved_document_error(imported_name, src));
                                 }
@@ -838,6 +848,13 @@ impl VisitMut for TransformVisitor {
     fn visit_mut_ident(&mut self, n: &mut Ident) {
         if let Some(new_name) = self.id_renames.get(&n.to_id()) {
             n.sym = new_name.clone().into();
+            // The import these identifiers resolved to is about to be removed and
+            // replaced by one we synthesize with an empty `SyntaxContext`. Left as
+            // they are, the references keep pointing at the old binding, and a
+            // later hygiene pass — seeing the same symbol in two contexts — renames
+            // our import to `Name1` and leaves the references unbound. Moving them
+            // onto the same context keeps binding and references one identifier.
+            n.ctxt = SyntaxContext::empty();
         }
     }
 
@@ -908,7 +925,7 @@ impl VisitMut for TransformVisitor {
             let entry_name = entry.name.clone();
             let entry_path = entry.path.clone();
             let rel_path = self.get_import_path(output_idx, &entry_path);
-            let target_local_name = self.get_local_name(&entry_name);
+            let target_local_name = self.get_local_name(output_idx, &entry_name);
             self.new_imports
                 .insert(target_local_name.clone(), (entry_name, rel_path));
             *n = Expr::Ident(Ident::new(
@@ -2388,6 +2405,233 @@ mod tests {
         assert!(
             output.contains("@example/checkout/graphql/checkout.codegen"),
             "got:\n{output}"
+        );
+    }
+
+    /// The transform as a real build runs it: SWC resolves the module before the
+    /// plugin sees it and runs hygiene afterwards. Rewriting imports without
+    /// keeping references and binding in one `SyntaxContext` only shows up here —
+    /// hygiene is what turns the mismatch into an unbound identifier.
+    fn transform_in_pipeline(
+        source: &str,
+        config: Config,
+        filename: &str,
+    ) -> (Module, Arc<SourceMap>) {
+        use swc_core::common::{GLOBALS, Globals, Mark};
+        use swc_core::ecma::transforms::base::{hygiene::hygiene, resolver};
+
+        let cm = Arc::<SourceMap>::default();
+        let fm = cm.new_source_file(FileName::Custom(filename.into()).into(), source.to_string());
+
+        let mut parser = Parser::new(
+            Syntax::Typescript(TsSyntax::default()),
+            StringInput::from(&*fm),
+            None,
+        );
+        let mut module = parser.parse_module().expect("Failed to parse module");
+
+        GLOBALS.set(&Globals::default(), || {
+            let unresolved_mark = Mark::new();
+            let top_level_mark = Mark::new();
+            module.visit_mut_with(&mut resolver(unresolved_mark, top_level_mark, true));
+            module.visit_mut_with(&mut TransformVisitor::new(
+                &config,
+                Some(filename.to_string()),
+            ));
+            module.visit_mut_with(&mut hygiene());
+        });
+
+        (module, cm)
+    }
+
+    fn emit(module: &Module, cm: &Arc<SourceMap>) -> String {
+        let mut buf = vec![];
+        {
+            let mut emitter = Emitter {
+                cfg: Default::default(),
+                cm: cm.clone(),
+                comments: None,
+                wr: Box::new(JsWriter::new(cm.clone(), "\n", &mut buf, None)),
+            };
+            emitter.emit_module(module).unwrap();
+        }
+        String::from_utf8(buf).unwrap()
+    }
+
+    /// Every identifier the module references in value position must be bound by
+    /// something the module declares or imports. A rewritten import that lost its
+    /// references leaves them behind as free variables — legal JavaScript that
+    /// throws `ReferenceError` the moment it evaluates, which no type check,
+    /// bundler, or bundle diff can see.
+    fn assert_no_free_identifiers(module: &Module) {
+        let declared: std::collections::HashSet<String> =
+            swc_core::ecma::utils::collect_decls::<Id, _>(module)
+                .into_iter()
+                .map(|id| id.0.to_string())
+                .collect();
+
+        struct RefCollector(Vec<String>);
+        impl Visit for RefCollector {
+            fn visit_expr(&mut self, n: &Expr) {
+                if let Expr::Ident(ident) = n {
+                    self.0.push(ident.sym.to_string());
+                }
+                n.visit_children_with(self);
+            }
+        }
+
+        let mut refs = RefCollector(vec![]);
+        module.visit_with(&mut refs);
+
+        let free: Vec<&String> = refs
+            .0
+            .iter()
+            .filter(|name| !declared.contains(*name) && !GLOBAL_ALLOWLIST.contains(&name.as_str()))
+            .collect();
+
+        assert!(
+            free.is_empty(),
+            "unbound identifiers in the output: {:?}\ndeclared: {:?}",
+            free,
+            declared
+        );
+    }
+
+    const GLOBAL_ALLOWLIST: &[&str] = &["Promise", "undefined"];
+
+    #[test]
+    fn test_cross_project_import_leaves_no_unbound_references() {
+        // The reported failure: a generated file pulls documents from another
+        // project's barrel and dereferences them at module scope. The import gets
+        // redirected at the concrete codegen file, and every reference has to
+        // follow it there.
+        let (module, cm) = transform_in_pipeline(
+            "import { ProductCardFragmentDoc, PriceFragmentDoc } from \"@example/catalog/graphql\";\nexport const D = { kind: \"Document\", definitions: [ProductCardFragmentDoc.definitions[0], PriceFragmentDoc.definitions[0]] };",
+            two_document_cross_project_config(),
+            "/repo/packages/storefront/graphql/components/thing.codegen.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+
+        let output = emit(&module, &cm);
+        assert!(
+            output.contains("import { ProductCardFragmentDoc }")
+                && output.contains("import { PriceFragmentDoc }"),
+            "both documents should keep their own name, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_same_project_document_leaves_no_unbound_references() {
+        let (module, _cm) = transform_in_pipeline(
+            "import { graphql } from \"./graphql\";\nexport const D = graphql(`fragment ProductCard on Product { id }`);",
+            two_document_cross_project_config(),
+            "/repo/packages/catalog/graphql/thing.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+    }
+
+    #[test]
+    fn test_aliased_cross_project_import_leaves_no_unbound_references() {
+        // The same path with an alias already in the source: references are on the
+        // alias, and the emitted import has to bind that name.
+        let (module, cm) = transform_in_pipeline(
+            "import { ProductCardFragmentDoc as Card } from \"@example/catalog/graphql\";\nexport const D = Card.definitions[0];",
+            two_document_cross_project_config(),
+            "/repo/packages/storefront/graphql/thing.codegen.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+        let output = emit(&module, &cm);
+        assert!(
+            output.contains("import { ProductCardFragmentDoc as Card }"),
+            "got:\n{output}"
+        );
+    }
+
+    /// Project A owns two documents in one codegen file; B imports both.
+    fn two_document_cross_project_config() -> Config {
+        let mut config = two_project_config();
+        config.outputs.as_mut().unwrap()[0].manifest_data = Some(vec![
+            ManifestEntry {
+                source: "fragment ProductCard on Product { id }".to_string(),
+                path: "./catalog.codegen".to_string(),
+                name: "ProductCardFragmentDoc".to_string(),
+            },
+            ManifestEntry {
+                source: "fragment Price on Product { price }".to_string(),
+                path: "./catalog.codegen".to_string(),
+                name: "PriceFragmentDoc".to_string(),
+            },
+        ]);
+        config
+    }
+
+    #[test]
+    fn test_same_document_name_from_two_outputs_keeps_two_bindings() {
+        // Two projects export a document under the same name. One side is aliased
+        // in the source, the other is not — they are still two documents and must
+        // stay two imports, each pointing at its own project's codegen file.
+        let (module, cm) = transform_in_pipeline(
+            "import { ArchiveItemMutationDocument as B1 } from \"@example/web/graphql\";\nimport { ArchiveItemMutationDocument } from \"@example/checkout/graphql\";\nexport const a = B1.definitions[0];\nexport const b = ArchiveItemMutationDocument.definitions[0];",
+            duplicate_name_config(),
+            "/repo/apps/other/thing.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+        let output = emit(&module, &cm);
+
+        assert!(
+            output.contains(
+                "import { ArchiveItemMutationDocument as B1 } from \"@example/web/graphql/web.codegen\""
+            ),
+            "the aliased side must keep pointing at web, got:\n{output}"
+        );
+        assert!(
+            output.contains(
+                "import { ArchiveItemMutationDocument } from \"@example/checkout/graphql/checkout.codegen\""
+            ),
+            "the unaliased side must keep its own binding, got:\n{output}"
+        );
+        assert!(
+            output.contains("export const a = B1.definitions[0]")
+                && output.contains("export const b = ArchiveItemMutationDocument.definitions[0]"),
+            "neither reference may be redirected at the other document, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_same_document_name_from_import_and_graphql_call_keeps_two_bindings() {
+        // The same collision without an alias to separate them: one project's
+        // document arrives as a named import, the other's through a graphql() call
+        // in the same module. The second one has to be given a free name.
+        let (module, cm) = transform_in_pipeline(
+            "import { graphql } from \"@example/web/graphql\";\nimport { ArchiveItemMutationDocument } from \"@example/checkout/graphql\";\nexport const a = ArchiveItemMutationDocument.definitions[0];\nexport const b = graphql(`mutation ArchiveItem { archiveItem { id } }`);",
+            duplicate_name_config(),
+            "/repo/apps/other/thing.ts",
+        );
+
+        assert_no_free_identifiers(&module);
+        let output = emit(&module, &cm);
+
+        assert!(
+            output.contains(
+                "import { ArchiveItemMutationDocument } from \"@example/checkout/graphql/checkout.codegen\""
+            ),
+            "the named import keeps the name it was written with, got:\n{output}"
+        );
+        assert!(
+            output.contains("@example/web/graphql/web.codegen"),
+            "web's document must still be imported, got:\n{output}"
+        );
+        assert!(
+            output.contains("export const a = ArchiveItemMutationDocument.definitions[0]"),
+            "the named import's reference must not move, got:\n{output}"
+        );
+        assert!(
+            !output.contains("export const b = ArchiveItemMutationDocument;"),
+            "the graphql() call must not be bound to checkout's document, got:\n{output}"
         );
     }
 }
