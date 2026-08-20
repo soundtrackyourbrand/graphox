@@ -9,6 +9,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# These workflows only build, lint and test. Declared explicitly so a fork
+# pull request cannot inherit a broader default token scope.
+permissions:
+  contents: read
+
 jobs:
   fmt:
     name: Format Check

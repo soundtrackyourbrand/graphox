@@ -9,6 +9,11 @@ on:
     paths:
       - 'plugins/**'
 
+# These workflows only build, lint and test. Declared explicitly so a fork
+# pull request cannot inherit a broader default token scope.
+permissions:
+  contents: read
+
 jobs:
   babel:
     runs-on: ubicloud-standard-2-ubuntu-2404

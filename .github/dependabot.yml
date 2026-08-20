@@ -1,0 +1,65 @@
+# Dependabot only scans the directories listed here, which keeps it away from
+# the many package.json files under tests/fixtures/ — those pin versions
+# deliberately, and bumping them would change codegen output and break the
+# baselines.
+#
+# npm/graphox-cli is also deliberately absent: its only dependencies are
+# optionalDependencies on its own @graphox/* platform packages, pinned to the
+# current release and rewritten by scripts/release.sh. Dependabot would fight
+# the release script there.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine bumps; majors stay separate so they get read.
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /plugins/swc/node
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      swc-plugin-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /plugins/babel
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      babel-plugin-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /editors/vscode
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      vscode-minor-patch:
+        update-types:
+          - minor
+          - patch
