@@ -48,5 +48,5 @@
     "url": "https://github.com/soundtrackyourbrand/graphox",
     "directory": "plugins/swc/node"
   },
-  "license": "UNLICENSED"
+  "license": "MIT"
 }

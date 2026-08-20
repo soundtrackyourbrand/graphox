@@ -2,6 +2,7 @@
 name = "graphox"
 version = "0.8.0"
 edition = "2024"
+license.workspace = true
 
 [workspace]
 members = [
@@ -13,6 +14,9 @@ members = [
   "crates/graphox-lsp",
   "crates/graphox-cli",
 ]
+
+[workspace.package]
+license = "MIT"
 
 [workspace.dependencies]
 apollo-compiler = "1.31"

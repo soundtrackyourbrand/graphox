@@ -127,3 +127,7 @@ If automatic installation fails, you can manually download binaries from the [re
 ## Repository
 
 https://github.com/soundtrackyourbrand/graphox
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

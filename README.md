@@ -327,3 +327,7 @@ See [docs/configurations.md](./docs/configurations.md) for:
 ## Repository
 
 https://github.com/soundtrackyourbrand/graphox
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

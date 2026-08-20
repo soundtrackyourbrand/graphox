@@ -182,3 +182,7 @@ When `generate_ast_for_fragments: true` is enabled in your config, fragment docu
 - [SWC Plugin](../swc/README.md)
 - [graphox CLI](../../README.md)
 - [Configuration Guide](../../docs/configurations.md)
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

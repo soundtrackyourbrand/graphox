@@ -43,3 +43,7 @@ If you need to debug excessive file watcher traffic, enable `graphox.verboseWatc
 ## Resources
 
 - Repository: https://github.com/soundtrackyourbrand/graphox
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

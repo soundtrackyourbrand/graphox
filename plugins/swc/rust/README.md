@@ -52,3 +52,7 @@ This crate version must match the Node.js package version (`@graphox/swc-plugin`
 - [@graphox/swc-plugin (npm)](../node/README.md)
 - [Babel Plugin](../../babel/README.md)
 - [graphox CLI](../../../README.md)
+
+## License
+
+MIT — see [LICENSE](../../../LICENSE).

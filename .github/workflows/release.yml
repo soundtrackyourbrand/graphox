@@ -376,7 +376,7 @@ jobs:
         run: |
           VERSION=${{ needs.create-release.outputs.version }}
           sed "s/\${platform}/${{ matrix.platform }}/g; s/\${version}/${VERSION}/g; s/\${os}/${{ matrix.os }}/g; s/\${cpu}/${{ matrix.cpu }}/g; s/\${ext}/${{ matrix.ext || '' }}/g" npm/platforms/package.json.template > package/package.json
-          cp README.md package/
+          cp README.md LICENSE package/
 
       - name: Publish
         working-directory: package

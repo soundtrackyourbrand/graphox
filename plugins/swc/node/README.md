@@ -243,3 +243,7 @@ pnpm test
 - [graphox CLI](../../README.md)
 - [Configuration Guide](../../docs/configurations.md)
 - [Plugin Development Guide](../../../docs/plugin-development.md)
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

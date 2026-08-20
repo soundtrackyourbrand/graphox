@@ -33,7 +33,7 @@
     "rust"
   ],
   "author": "soundtrackyourbrand",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "files": [
     "bin/graphox.js",
     "postinstall.js",

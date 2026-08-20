@@ -4,7 +4,7 @@
   "description": "Rust-powered GraphQL language server, validation, and codegen for VS Code",
   "version": "0.8.0",
   "publisher": "soundtrack",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/soundtrackyourbrand/graphox.git"

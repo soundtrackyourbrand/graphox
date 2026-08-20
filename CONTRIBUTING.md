@@ -184,6 +184,11 @@ graphox/
 
 ---
 
+## License
+
+By contributing to Graphox, you agree that your contributions will be licensed
+under the [MIT License](./LICENSE) that covers the project.
+
 ## See Also
 
 - [Architecture Documentation](./docs/architecture.md)

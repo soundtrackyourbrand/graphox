@@ -4,7 +4,7 @@
   "description": "Babel plugin for Graphox codesplitting",
   "main": "index.js",
   "types": "index.d.ts",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "publishConfig": {
     "access": "public"
   },
