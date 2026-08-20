@@ -68,6 +68,34 @@ describe('@graphox/babel-plugin auto-resolution', () => {
     expect(output).toContain('import { MyQueryDocument } from "../gen/query.codegen";');
   });
 
+  it('picks up a manifest rewritten between transforms', () => {
+    // Resolution is cached on the options object, which babel reuses for every
+    // module. Without checking the files it read, a rebuild after codegen keeps
+    // resolving against the manifest from before codegen ran.
+    const outputDir = path.join(tmpDir, 'gen');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const manifestFile = path.join(outputDir, 'manifest.json');
+    const options = { outputDir };
+
+    fs.writeFileSync(manifestFile, JSON.stringify(manifestData));
+    const code = "import { graphql } from './gen/graphql'; const q = graphql(`query { me { id } }`);";
+    const before = transform(code, options, path.join(tmpDir, 'test.ts'));
+    expect(before).toContain('./gen/query.codegen');
+
+    // Codegen runs again and puts the document in a different file.
+    fs.writeFileSync(
+      manifestFile,
+      JSON.stringify([
+        { source: 'query { me { id } }', path: './renamed.codegen', name: 'MyQueryDocument' },
+      ])
+    );
+    const future = new Date(Date.now() + 2000);
+    fs.utimesSync(manifestFile, future, future);
+
+    const after = transform(code, options, path.join(tmpDir, 'test.ts'));
+    expect(after).toContain('./gen/renamed.codegen');
+  });
+
   it('reads a package.json imports wildcard that has a suffix after the star', () => {
     // "#gql/*" -> "./gen/*.ts": call sites write
     // `import { graphql } from '#gql/playback/graphql'`, so that exact specifier

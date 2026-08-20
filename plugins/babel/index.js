@@ -7,10 +7,26 @@ const {
   resolvePackageExportAlias
 } = require('./utils');
 
-// Resolution depends only on the plugin options, but Program.enter runs per
-// file. Babel hands back the same options object each time, so key the cache on
-// it — this also stops the exports warning repeating once per module.
+// Resolution depends on the plugin options and on the files it reads, but
+// Program.enter runs per module. Babel hands back the same options object each
+// time, so key the cache on it — this also stops the warnings repeating once per
+// module — and stamp the files so a rebuild after codegen is not served the
+// manifest and aliases from before it ran. Four stats per module costs a few
+// microseconds against the milliseconds babel spends on the file itself.
 const resolvedOutputsCache = new WeakMap();
+
+function filesStamp(files) {
+  return files
+    .map((file) => {
+      try {
+        const stat = fs.statSync(file);
+        return `${file}@${stat.mtimeMs}:${stat.size}`;
+      } catch {
+        return `${file}@missing`;
+      }
+    })
+    .join(',');
+}
 
 /**
  * Collapse a document's source into a key that ignores formatting.
@@ -107,8 +123,16 @@ module.exports = function (babel) {
 
           const extension = getExtension(opts.emitExtensions);
 
-          let outputs = resolvedOutputsCache.get(opts);
+          let cached = resolvedOutputsCache.get(opts);
+          if (cached && filesStamp(cached.files) !== cached.stamp) {
+            cached = undefined;
+          }
+
+          let outputs = cached?.outputs;
           if (!outputs) {
+            // Every file the resolution below reads, so a later module can tell
+            // whether any of them has changed since.
+            const filesRead = [];
             const declared =
               opts.outputs && opts.outputs.length > 0
                 ? opts.outputs
@@ -131,6 +155,8 @@ module.exports = function (babel) {
 
             const tsconfigPath = findNearestFile(currentDir, 'tsconfig.json');
             const pkgJsonPath = findNearestFile(currentDir, 'package.json');
+            if (tsconfigPath) filesRead.push(tsconfigPath);
+            if (pkgJsonPath) filesRead.push(pkgJsonPath);
             const rootDir =
               pkgJsonPath || tsconfigPath
                 ? path.dirname(pkgJsonPath || tsconfigPath)
@@ -153,6 +179,11 @@ module.exports = function (babel) {
                 findNearestFile(absoluteOutputDir, 'tsconfig.json') || tsconfigPath;
               const projectPkgJson =
                 findNearestFile(absoluteOutputDir, 'package.json') || pkgJsonPath;
+
+              if (projectTsconfig) filesRead.push(projectTsconfig);
+              if (projectPkgJson) filesRead.push(projectPkgJson);
+              // Inline manifest data is the caller's to keep current.
+              if (manifestFile && !output.manifestData) filesRead.push(manifestFile);
 
               const importPathsSet = new Set(
                 (output.graphqlImportPaths || []).map(toPosixPath)
@@ -286,7 +317,11 @@ module.exports = function (babel) {
               }
             }
 
-            resolvedOutputsCache.set(opts, outputs);
+            resolvedOutputsCache.set(opts, {
+              outputs,
+              files: filesRead,
+              stamp: filesStamp(filesRead),
+            });
           }
 
           const unresolvedDocumentError = (importedName, source) =>
