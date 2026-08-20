@@ -175,6 +175,18 @@ fn normalize(s: &str) -> String {
     out
 }
 
+/// Rewrite a host path so the wasm guest can read it.
+///
+/// Paths arrive from whichever machine is running the build, while this code runs
+/// in a wasm guest where `\` is an ordinary character and never a separator. On a
+/// Windows host nothing then matched: the entrypoint was not recognised as one,
+/// no call site was rewritten, and the plugin quietly did nothing at all. The
+/// `cfg!(windows)` guards that used to paper over this are compiled for the wasm
+/// target, so they were never true.
+fn to_posix_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 fn strip_script_extension(s: &str) -> String {
     s.strip_suffix(".d.ts")
         .or_else(|| s.strip_suffix(".tsx"))
@@ -290,9 +302,12 @@ impl TransformVisitor {
                 }
 
                 ResolvedOutput {
-                    output_dir: PathBuf::from(&output.output_dir),
+                    output_dir: PathBuf::from(to_posix_path(&output.output_dir)),
                     import_alias: output.import_alias.clone(),
-                    package_root: output.package_root.as_ref().map(PathBuf::from),
+                    package_root: output
+                        .package_root
+                        .as_ref()
+                        .map(|root| PathBuf::from(to_posix_path(root))),
                     import_paths: output.graphql_import_paths.clone().unwrap_or_default(),
                     manifest,
                     name_to_entry,
@@ -302,7 +317,10 @@ impl TransformVisitor {
 
         Self {
             outputs,
-            current_file: current_file.map(PathBuf::from),
+            current_file: current_file
+                .as_deref()
+                .map(to_posix_path)
+                .map(PathBuf::from),
             new_imports: HashMap::new(),
             graphql_ids: HashMap::new(),
             emit_extensions: config.emit_extensions.clone(),
@@ -380,26 +398,15 @@ impl TransformVisitor {
                 && let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent)
             {
                 let mut s = rel_path.to_string_lossy().to_string();
-                if cfg!(windows) {
-                    s = s.replace('\\', "/");
-                }
                 if !s.starts_with('.') && !s.starts_with('/') {
                     s = format!("./{}", s);
                 }
                 s
             } else {
-                let mut s = codegen_rel_path.to_string();
-                if cfg!(windows) {
-                    s = s.replace('\\', "/");
-                }
-                s
+                codegen_rel_path.to_string()
             }
         } else {
-            let mut s = codegen_rel_path.to_string();
-            if cfg!(windows) {
-                s = s.replace('\\', "/");
-            }
-            s
+            codegen_rel_path.to_string()
         };
 
         // Append the emit extension
@@ -423,12 +430,9 @@ impl TransformVisitor {
     /// any. Returns the output index so the caller knows whose manifest to
     /// resolve against and how to write the replacement import.
     fn resolve_graphql_path(&self, src: &str) -> Option<usize> {
-        // Normalize incoming src path for comparison on Windows
-        let src = if cfg!(windows) {
-            src.replace('\\', "/")
-        } else {
-            src.to_string()
-        };
+        // A specifier is source text, not a path, and may have been written with
+        // backslashes whatever the host.
+        let src = to_posix_path(src);
         let src = src.as_str();
         let src_no_ext = strip_script_extension(src);
 
@@ -462,8 +466,15 @@ impl TransformVisitor {
             let index_abs_no_ext = strip_script_extension_path(&index_abs_path);
 
             let src_path = Path::new(src);
-            let is_absolute_looking = src_path.is_absolute()
-                || (cfg!(windows) && (src.starts_with('/') || src.starts_with('\\')));
+            // A drive-letter path is absolute on the host, but the guest does not
+            // recognise it as one.
+            let has_drive_letter = src
+                .as_bytes()
+                .first()
+                .is_some_and(|c| c.is_ascii_alphabetic())
+                && src.as_bytes().get(1) == Some(&b':');
+            let is_absolute_looking =
+                src_path.is_absolute() || src.starts_with('/') || has_drive_letter;
 
             let resolved_abs = if src.starts_with('.') {
                 Some(parent.join(src_path))
@@ -487,17 +498,11 @@ impl TransformVisitor {
                 && let Some(rel_index_path) = pathdiff::diff_paths(&index_abs_path, parent)
             {
                 let mut s = rel_path.to_string_lossy().to_string();
-                if cfg!(windows) {
-                    s = s.replace('\\', "/");
-                }
                 if !s.starts_with('.') && !s.starts_with('/') {
                     s = format!("./{}", s);
                 }
 
                 let mut s_index = rel_index_path.to_string_lossy().to_string();
-                if cfg!(windows) {
-                    s_index = s_index.replace('\\', "/");
-                }
                 if !s_index.starts_with('.') && !s_index.starts_with('/') {
                     s_index = format!("./{}", s_index);
                 }
@@ -3120,4 +3125,53 @@ mod tests {
         assert!(!output.contains("spaced.codegen"), "got:\n{output}");
     }
 
+    // --- Windows hosts --------------------------------------------------------
+
+    /// Paths as a Windows host hands them over. The plugin runs in a wasm guest
+    /// where `\` is an ordinary character, so this is what the guest sees
+    /// regardless of the machine running the tests.
+    fn windows_host_config() -> Config {
+        Config {
+            manifest_data: Some(vec![ManifestEntry {
+                source: "query { me { id } }".to_string(),
+                path: "./query.codegen".to_string(),
+                name: "MyQueryDocument".to_string(),
+            }]),
+            output_dir: r"C:\proj\src\gen".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_windows_host_paths_clear_the_entrypoint() {
+        let output = transform(
+            "export const documents = { a: 1 }; export const graphql = () => documents;",
+            windows_host_config(),
+            r"C:\proj\src\gen\graphql.ts",
+        );
+
+        assert!(
+            !output.contains("export const documents"),
+            "the documents map stayed in the bundle, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_windows_host_paths_rewrite_call_sites() {
+        let output = transform(
+            "import { graphql } from './graphql'; const q = graphql(`query { me { id } }`);",
+            windows_host_config(),
+            r"C:\proj\src\gen\consumer.ts",
+        );
+
+        assert!(
+            output.contains("import { MyQueryDocument } from \"./query.codegen\""),
+            "got:\n{output}"
+        );
+        assert!(!output.contains("graphql("), "got:\n{output}");
+        assert!(
+            !output.contains('\\'),
+            "no separator may survive, got:\n{output}"
+        );
+    }
 }
