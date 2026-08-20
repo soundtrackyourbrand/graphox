@@ -73,6 +73,20 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
 
         let project_files = &project_meta.files;
 
+        // A project whose pattern matches nothing would otherwise pass silently:
+        // every stage below iterates the file list, so zero files means zero
+        // diagnostics and a clean exit. That is almost always a mistyped
+        // `documents` pattern, and it hides every problem in the project. The
+        // schema check still runs below, so a project can report both faults.
+        if project_files.is_empty() && !cfg.get_project_allow_no_documents(project_config) {
+            reporter.report_error(&format!(
+                "Project '{}' matched no documents. Fix the pattern, or set \
+                 `allow_no_documents: true` to allow it.",
+                project_config.include().as_key()
+            ));
+            success = false;
+        }
+
         if !execute_project_check(
             cfg.base_dir(),
             project_config.schema(),

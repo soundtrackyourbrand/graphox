@@ -51,6 +51,11 @@
       "description": "Enable two-tier schema cache for better performance.",
       "default": true
     },
+    "allow_no_documents": {
+      "type": "boolean",
+      "description": "Allow a project whose include/documents pattern matches no files. When false, graphox check and graphox codegen fail on such a project instead of exiting cleanly without having done anything. Can be overridden per project.",
+      "default": false
+    },
     "rules": { "$ref": "#/definitions/RulesConfig" },
     "codegen": {
       "description": "Codegen configuration. Set to false to disable codegen globally.",
@@ -80,6 +85,10 @@
         "exclude": {
           "description": "Glob pattern(s) for files to exclude from this project.",
           "$ref": "#/definitions/GlobPattern"
+        },
+        "allow_no_documents": {
+          "type": "boolean",
+          "description": "Overrides the top-level allow_no_documents for this project."
         },
         "output_dir": {
           "type": "string",

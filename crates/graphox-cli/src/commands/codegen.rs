@@ -286,7 +286,20 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 .collect();
 
             if project_files.is_empty() {
-                return None;
+                // Same silent-pass hazard as `check`: a project matching nothing
+                // generates nothing, so codegen would report success having
+                // written no files. Almost always a mistyped `documents`
+                // pattern. Projects with codegen disabled returned above, so
+                // this only fires where output was actually expected.
+                if cfg.get_project_allow_no_documents(project) {
+                    return None;
+                }
+                eprintln!(
+                    "{}: project {} matched no documents. Fix the pattern, or set `allow_no_documents: true` to allow it.",
+                    "Error".red(),
+                    project.include().as_key().blue()
+                );
+                return Some(Err(()));
             }
 
             let project_output_dir = project.output_dir().map(Path::new);

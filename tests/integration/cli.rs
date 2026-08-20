@@ -1419,3 +1419,248 @@ fn test_npm_wrapper_execution() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("graphox"));
 }
+
+/// Set up a project directory with one schema and one document under `src/`,
+/// plus the given `graphox.yaml` body. Returns the tempdir.
+fn empty_project_fixture(config: &str) -> tempfile::TempDir {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/ops.graphql"), "query Q { a }").unwrap();
+    std::fs::write(dir.path().join("graphox.yaml"), config).unwrap();
+    dir
+}
+
+fn run_graphox(dir: &Path, args: &[&str]) -> (bool, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_graphox"))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .expect("Failed to execute process");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.success(), combined)
+}
+
+fn run_check(dir: &Path) -> (bool, String) {
+    run_graphox(dir, &["check"])
+}
+
+fn run_codegen(dir: &Path) -> (bool, String) {
+    run_graphox(dir, &["codegen"])
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_check_fails_when_project_matches_no_documents() {
+    // A mistyped `documents` pattern used to exit 0 without checking anything.
+    let dir = empty_project_fixture(
+        r#"
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+"#,
+    );
+
+    let (success, out) = run_check(dir.path());
+    assert!(!success, "expected a non-zero exit, got:\n{out}");
+    assert!(
+        out.contains("matched no documents"),
+        "expected the empty-project error, got:\n{out}"
+    );
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_check_allow_no_documents_globally() {
+    let dir = empty_project_fixture(
+        r#"
+allow_no_documents: true
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+"#,
+    );
+
+    let (success, out) = run_check(dir.path());
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(!out.contains("matched no documents"), "got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_check_allow_no_documents_per_project_overrides_global_deny() {
+    let dir = empty_project_fixture(
+        r#"
+allow_no_documents: false
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    allow_no_documents: true
+  - schema: "schema.graphql"
+    documents: "src/**/*.graphql"
+"#,
+    );
+
+    let (success, out) = run_check(dir.path());
+    assert!(success, "expected a clean exit, got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_check_deny_no_documents_per_project_overrides_global_allow() {
+    let dir = empty_project_fixture(
+        r#"
+allow_no_documents: true
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    allow_no_documents: false
+"#,
+    );
+
+    let (success, out) = run_check(dir.path());
+    assert!(!success, "expected a non-zero exit, got:\n{out}");
+    assert!(out.contains("matched no documents"), "got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_check_dot_slash_documents_pattern_matches_files() {
+    // A `./`-prefixed pattern collected nothing, which the empty-project check
+    // now also catches. The document here is valid, so a clean exit proves the
+    // pattern actually matched it rather than being waved through.
+    let dir = empty_project_fixture(
+        r#"
+projects:
+  - schema: "./schema.graphql"
+    documents: "./src/**/*.graphql"
+"#,
+    );
+
+    let (success, out) = run_check(dir.path());
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(!out.contains("matched no documents"), "got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_codegen_fails_when_project_matches_no_documents() {
+    // Codegen has the same silent-pass hazard as `check`: nothing to read means
+    // nothing written, and it used to report success anyway.
+    let dir = empty_project_fixture(
+        r#"
+enable_schema_cache: false
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    output_dir: "__generated__"
+"#,
+    );
+
+    let (success, out) = run_codegen(dir.path());
+    assert!(!success, "expected a non-zero exit, got:\n{out}");
+    assert!(
+        out.contains("matched no documents"),
+        "expected the empty-project error, got:\n{out}"
+    );
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_codegen_allow_no_documents() {
+    let dir = empty_project_fixture(
+        r#"
+enable_schema_cache: false
+allow_no_documents: true
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    output_dir: "__generated__"
+"#,
+    );
+
+    let (success, out) = run_codegen(dir.path());
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(!out.contains("matched no documents"), "got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_codegen_allow_no_documents_per_project_override() {
+    let dir = empty_project_fixture(
+        r#"
+enable_schema_cache: false
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    output_dir: "__generated__"
+    allow_no_documents: true
+  - schema: "schema.graphql"
+    documents: "src/**/*.graphql"
+    output_dir: "__generated__"
+"#,
+    );
+
+    let (success, out) = run_codegen(dir.path());
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(
+        dir.path().join("__generated__/ops.codegen.ts").exists(),
+        "the non-empty project should still have generated output, got:\n{out}"
+    );
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_codegen_disabled_project_may_match_no_documents() {
+    // A project that generates nothing by configuration is not the mistake this
+    // check is for, so it must stay silent.
+    let dir = empty_project_fixture(
+        r#"
+enable_schema_cache: false
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    codegen:
+      enabled: false
+"#,
+    );
+
+    let (success, out) = run_codegen(dir.path());
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(!out.contains("matched no documents"), "got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(5000)]
+fn test_cli_codegen_clean_ignores_projects_with_no_documents() {
+    // `--clean` only removes generated files; an empty project must not fail it.
+    let dir = empty_project_fixture(
+        r#"
+enable_schema_cache: false
+
+projects:
+  - schema: "schema.graphql"
+    documents: "srcc/**/*.graphql"
+    output_dir: "__generated__"
+"#,
+    );
+
+    let (success, out) = run_graphox(dir.path(), &["codegen", "--clean"]);
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(!out.contains("matched no documents"), "got:\n{out}");
+}

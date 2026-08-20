@@ -19,6 +19,7 @@ This document provides ready-to-use configuration examples for common use cases,
 - [Ignoring Deprecations](#ignoring-deprecations)
 - [Performance Tuning](#performance-tuning)
 - [LSP Request Tracing](#lsp-request-tracing)
+- [Empty Projects](#empty-projects)
 - [Validation Rules](#validation-rules)
 
 ---
@@ -124,6 +125,9 @@ tracing:
 # Codegen settings
 codegen_watch_debounce_ms: 200                    # Debounce file changes in watch mode
 enable_schema_cache: true                         # Enable two-tier schema cache
+
+# Validation settings
+allow_no_documents: false                         # Allow a project to match zero documents
 ```
 
 ### Configuration Notes
@@ -853,6 +857,53 @@ projects:
 ```
 
 Logs appear in the LSP output panel of your editor.
+
+---
+
+## Empty Projects
+
+By default `graphox check` and `graphox codegen` fail if a project's
+`documents` (or `include`) pattern matches no files. A project that collects
+nothing produces no diagnostics and generates no output, so without this both
+commands would exit 0 while silently having done nothing — usually because the
+pattern is mistyped or points at a directory that has moved.
+
+```yaml
+# graphox.yaml
+projects:
+  - schema: "schema.graphql"
+    documents: "src/**/*.{ts,tsx}"
+```
+
+```
+Project 'srcc/**/*.{ts,tsx}' matched no documents. Fix the pattern, or set `allow_no_documents: true` to allow it.
+Check failed.
+```
+
+Two cases are exempt, because neither is the mistake this catches: a project
+with `codegen.enabled: false` during `graphox codegen`, and `graphox codegen
+--clean`, which only removes generated files.
+
+Set `allow_no_documents: true` to permit it — for a project that is
+legitimately empty, such as one scaffolded ahead of the code that will fill
+it.
+
+```yaml
+# graphox.yaml
+allow_no_documents: true                # Global default for every project
+
+projects:
+  - schema: "schema.graphql"
+    documents: "packages/new-app/**/*.ts"
+
+  # Per-project settings override the global one, in either direction.
+  - schema: "schema.graphql"
+    documents: "packages/web/**/*.ts"
+    allow_no_documents: false
+```
+
+Note that a leading `./` on a pattern is stripped, so `./src/**/*.ts` and
+`src/**/*.ts` behave identically.
 
 ---
 

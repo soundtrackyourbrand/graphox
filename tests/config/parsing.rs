@@ -285,3 +285,63 @@ fn test_project_codegen_entrypoint_name_override() {
 
     assert_eq!(codegen.entrypoint_name(), "Queries");
 }
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_allow_no_documents_defaults_to_false() {
+    let temp_dir = TempDir::new().unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("graphox.yaml"),
+        r#"
+projects:
+  - schema: schema.graphql
+    documents: "**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let config = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
+    assert!(!config.allow_no_documents());
+    assert!(!config.get_project_allow_no_documents(&config.projects()[0]));
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_allow_no_documents_global_and_per_project_override() {
+    let temp_dir = TempDir::new().unwrap();
+    fs::write(
+        temp_dir.path().join("schema.graphql"),
+        "type Query { a: String }",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("graphox.yaml"),
+        r#"
+allow_no_documents: true
+
+projects:
+  - schema: schema.graphql
+    documents: "a/**/*.graphql"
+  - schema: schema.graphql
+    documents: "b/**/*.graphql"
+    allow_no_documents: false
+"#,
+    )
+    .unwrap();
+
+    let config = Config::load_from_dir(temp_dir.path()).unwrap().unwrap();
+    assert!(config.allow_no_documents(), "global should be true");
+    assert!(
+        config.get_project_allow_no_documents(&config.projects()[0]),
+        "project without an override should inherit the global"
+    );
+    assert!(
+        !config.get_project_allow_no_documents(&config.projects()[1]),
+        "per-project false should override a global true"
+    );
+}

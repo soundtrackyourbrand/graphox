@@ -1142,6 +1142,8 @@ pub struct ProjectConfig {
     possible_types: Option<PathBuf>,
     type_policies: Option<PathBuf>,
     rules: Option<RulesConfig>,
+    /// Overrides `Config::allow_no_documents` for this project.
+    allow_no_documents: Option<bool>,
 }
 
 impl ProjectConfig {
@@ -1167,6 +1169,11 @@ impl ProjectConfig {
 
     pub fn with_exclude(mut self, exclude: GlobPattern) -> Self {
         self.exclude = Some(exclude);
+        self
+    }
+
+    pub fn with_allow_no_documents(mut self, allowed: bool) -> Self {
+        self.allow_no_documents = Some(allowed);
         self
     }
 
@@ -1288,6 +1295,7 @@ pub struct Config {
     lsp_codegen_throttle_ms: Option<u64>,
     codegen_watch_debounce_ms: Option<u64>,
     enable_schema_cache: Option<bool>,
+    allow_no_documents: Option<bool>,
     rules: Option<RulesConfig>,
     codegen: Option<CodegenConfig>,
     base_dir: PathBuf,
@@ -1320,6 +1328,7 @@ impl Clone for Config {
             lsp_codegen_throttle_ms: self.lsp_codegen_throttle_ms,
             codegen_watch_debounce_ms: self.codegen_watch_debounce_ms,
             enable_schema_cache: self.enable_schema_cache,
+            allow_no_documents: self.allow_no_documents,
             rules: self.rules.clone(),
             codegen: self.codegen.clone(),
             base_dir: self.base_dir.clone(),
@@ -1357,6 +1366,11 @@ impl Config {
 
     pub fn with_enable_schema_cache(mut self, enabled: bool) -> Self {
         self.enable_schema_cache = Some(enabled);
+        self
+    }
+
+    pub fn with_allow_no_documents(mut self, allowed: bool) -> Self {
+        self.allow_no_documents = Some(allowed);
         self
     }
 
@@ -1794,6 +1808,22 @@ impl Config {
         self.enable_schema_cache.unwrap_or(true)
     }
 
+    /// Global default for whether a project matching zero documents is allowed.
+    /// Off by default: a project that collects no files is nearly always a
+    /// mistyped `documents` pattern, and staying silent about it means
+    /// `graphox check` passes without having looked at anything.
+    pub fn allow_no_documents(&self) -> bool {
+        self.allow_no_documents.unwrap_or(false)
+    }
+
+    /// Whether `project` is allowed to match zero documents. A per-project
+    /// setting wins over the global one.
+    pub fn get_project_allow_no_documents(&self, project: &ProjectConfig) -> bool {
+        project
+            .allow_no_documents
+            .unwrap_or_else(|| self.allow_no_documents())
+    }
+
     pub fn get_timeouts(&self) -> TimeoutConfig {
         self.timeouts.clone().unwrap_or_default()
     }
@@ -1889,6 +1919,7 @@ impl Config {
             lsp_codegen_throttle_ms: None,
             codegen_watch_debounce_ms: None,
             enable_schema_cache: None,
+            allow_no_documents: None,
             rules: None,
             codegen: None,
             base_dir: PathBuf::from("."),
@@ -2018,6 +2049,7 @@ impl Config {
                 let possible_types = p_node["possible_types"].as_str().map(PathBuf::from);
                 let type_policies = p_node["type_policies"].as_str().map(PathBuf::from);
                 let rules = RulesConfig::from_yaml(&p_node["rules"]);
+                let allow_no_documents = p_node["allow_no_documents"].as_bool();
 
                 config.projects.push(ProjectConfig {
                     schema,
@@ -2033,6 +2065,7 @@ impl Config {
                     possible_types,
                     type_policies,
                     rules,
+                    allow_no_documents,
                 });
             }
         }
@@ -2103,6 +2136,7 @@ impl Config {
         config.codegen_watch_debounce_ms =
             node["codegen_watch_debounce_ms"].as_i64().map(|v| v as u64);
         config.enable_schema_cache = node["enable_schema_cache"].as_bool();
+        config.allow_no_documents = node["allow_no_documents"].as_bool();
 
         config.rules = RulesConfig::from_yaml(&node["rules"]);
 
