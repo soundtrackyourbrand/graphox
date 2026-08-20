@@ -346,6 +346,13 @@ impl FieldEnabled {
         }
     }
 
+    /// Whether the rule holds no matter which operation the selection ends up
+    /// in. Used when validating fragment definitions, where the enclosing
+    /// operation is unknown, so operation-scoped rules cannot be evaluated.
+    pub fn applies_to_any_operation(&self) -> bool {
+        matches!(self, FieldEnabled::Always(true))
+    }
+
     fn from_yaml(node: &Yaml) -> Option<Self> {
         if let Some(b) = node.as_bool() {
             return Some(FieldEnabled::Always(b));
@@ -392,6 +399,11 @@ impl FieldRule {
 
     pub fn applies_to_operation(&self, operation_type: &str) -> bool {
         self.enabled.applies_to_operation(operation_type)
+    }
+
+    /// See [`FieldEnabled::applies_to_any_operation`].
+    pub fn applies_to_any_operation(&self) -> bool {
+        self.enabled.applies_to_any_operation()
     }
 
     pub fn reason(&self) -> Option<&str> {

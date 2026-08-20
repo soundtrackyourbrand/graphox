@@ -346,3 +346,96 @@ fn test_forbidden_field_same_response_key_different_types() {
     assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
     assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "state"));
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_nested_inside_fragment_definition() {
+    // Same gap as `required_fields`: a nested selection inside a fragment body
+    // must be checked, and the diagnostic lands on the fragment's own selection.
+    let text = r#"
+        fragment PostWithAuthor on Post {
+            id
+            author {
+                id
+                password
+            }
+        }
+
+        query GetPosts {
+            posts {
+                ...PostWithAuthor
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'password' is forbidden on type 'User'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(d, &crate::support::range_for_token(&doc, text, "password"));
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_operation_scoped_rule_skipped_inside_fragment() {
+    let text = r#"
+        fragment PostWithAuthor on Post {
+            id
+            author {
+                id
+                password
+            }
+        }
+
+        query GetPosts {
+            posts {
+                ...PostWithAuthor
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}

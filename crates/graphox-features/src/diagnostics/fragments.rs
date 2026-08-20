@@ -17,6 +17,18 @@ pub(super) fn validate_fragment(
     ctx.is_operation = false;
     ctx.defined_variables.clear(); // Fragments don't have operation context variables
 
+    // Fragment bodies get the same response-key bookkeeping as operations so the
+    // required/forbidden field rules can see nested selections. The maps are
+    // per-definition, and one ValidationContext is reused across every
+    // definition in the document, so reset them here as well.
+    ctx.track_selections = true;
+    ctx.response_key_selected_fields.clear();
+    ctx.response_key_type_conditions.clear();
+    ctx.type_condition_fields.clear();
+    ctx.root_response_keys.clear();
+    ctx.response_key_anchor_ranges.clear();
+    ctx.response_key_types.clear();
+
     let mut cursor = node.walk();
     let mut type_condition_node = None;
     let mut selection_set_node = None;
@@ -169,6 +181,14 @@ pub(super) fn validate_fragment(
                                 depth + 1,
                                 None,
                                 None,
+                            );
+
+                            let scope = crate::diagnostics::operations::RuleScope::Fragment;
+                            crate::diagnostics::operations::check_required_fields(
+                                this, node, offset, ctx, scope,
+                            );
+                            crate::diagnostics::operations::check_forbidden_fields(
+                                this, node, offset, ctx, scope,
                             );
                         }
                     }

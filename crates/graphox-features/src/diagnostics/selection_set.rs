@@ -298,7 +298,7 @@ pub(super) fn validate_field(
 
         // Track selected field for required fields validation
         // Fields are tracked by response key (alias or field name)
-        if ctx.is_operation {
+        if ctx.track_selections {
             if let Some(rk) = parent_response_key {
                 if type_name.is_none() {
                     // Track field under parent response key (for nested fields)
@@ -374,12 +374,12 @@ pub(super) fn validate_field(
             if let Some(sel_set) = selection_set_node {
                 let field_type_name = field_def.ty.inner_named_type();
                 if let Some(field_type_def) = ctx.schema.types.get(field_type_name.as_str()) {
-                    if ctx.is_operation {
+                    if ctx.track_selections {
                         ctx.response_key_types
                             .insert(current_path.clone().into(), field_type_def.clone());
                     }
                     // Use this field's full path as the parent for nested fields
-                    let new_parent_rk = if ctx.is_operation {
+                    let new_parent_rk = if ctx.track_selections {
                         Some(current_path.as_str())
                     } else {
                         parent_response_key

@@ -1263,3 +1263,373 @@ fn test_required_field_same_response_key_different_types() {
         &crate::support::range_for_token_at_index(&doc, text, "subscription", 1),
     );
 }
+
+/// Shared schema for the fragment-definition rule checks below: mirrors the
+/// `account.billing.subscription` shape from the original bug report.
+fn account_schema() -> apollo_compiler::validation::Valid<Schema> {
+    let schema_text = r#"
+        type Query {
+            account: Account
+        }
+        type Account {
+            id: ID!
+            businessName: String
+            billing: Billing
+            onboardingSoundZone: SoundZone
+        }
+        type Billing {
+            id: ID!
+            subscription: AccountSubscription
+        }
+        type AccountSubscription {
+            id: ID!
+            price: Int
+        }
+        type SoundZone {
+            id: ID!
+            name: String
+        }
+    "#;
+    Schema::parse(schema_text, "schema.graphql")
+        .unwrap()
+        .validate()
+        .unwrap()
+}
+
+fn required_id_config() -> Config {
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+    Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields))
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_nested_inside_fragment_definition() {
+    // A nested selection inside a fragment body is checked just like one inside
+    // an operation, and the diagnostic lands on the fragment's own selection.
+    let text = r#"
+        fragment Checkout_Account on Account {
+            id
+            onboardingSoundZone {
+                name
+            }
+        }
+
+        query Checkout_account {
+            account {
+                ...Checkout_Account
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'onboardingSoundZone'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "onboardingSoundZone"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_deeply_nested_inside_fragment_definition() {
+    let text = r#"
+        fragment AccountBilling on Account {
+            id
+            billing {
+                id
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription'",
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "subscription"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_at_fragment_type_condition_left_to_the_operation() {
+    // A fragment need not select the required field at its own type condition:
+    // the consuming operation may select it next to the spread. Flagging the
+    // fragment here would be a false positive, and the operation-side check
+    // already covers the case where nobody selects it.
+    let text = r#"
+        fragment SubscriptionPrice on AccountSubscription {
+            price
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                billing {
+                    id
+                    subscription {
+                        id
+                        ...SubscriptionPrice
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_missing_at_fragment_type_condition_reported_once() {
+    // Nobody selects `id`, so the operation-side check reports it — once,
+    // anchored at the spread site, not also inside the fragment.
+    let text = r#"
+        fragment SubscriptionPrice on AccountSubscription {
+            price
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                billing {
+                    id
+                    subscription {
+                        ...SubscriptionPrice
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription'",
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "subscription"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_operation_scoped_rule_skipped_inside_fragment() {
+    // The enclosing operation is unknown inside a fragment, so a rule scoped to
+    // specific operation types cannot be evaluated there.
+    let text = r#"
+        fragment AccountBilling on Account {
+            billing {
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_inside_fragment_satisfied_by_nested_spread() {
+    // The nested selection gets `id` from a spread, not a literal field.
+    let text = r#"
+        fragment SubscriptionFields on AccountSubscription {
+            id
+            price
+        }
+
+        fragment AccountBilling on Account {
+            id
+            billing {
+                id
+                subscription {
+                    ...SubscriptionFields
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_inside_fragment_ignored_with_inline_comment() {
+    let text = r#"
+        fragment AccountBilling on Account {
+            id
+            billing {
+                id
+                subscription { # graphox-ignore
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_fragment_state_does_not_leak_into_operation() {
+    // One ValidationContext is reused across every definition in a document, so
+    // a fragment's response-key bookkeeping must not bleed into a later
+    // operation (or vice versa). Here only the fragment is at fault.
+    let text = r#"
+        query AccountSubscription {
+            account {
+                id
+                billing {
+                    id
+                    subscription {
+                        id
+                        price
+                    }
+                }
+            }
+        }
+
+        fragment AccountBilling on Account {
+            id
+            billing {
+                id
+                subscription {
+                    price
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &account_schema(),
+        &[],
+        None,
+        Some(&required_id_config()),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription'",
+    );
+    // The fragment's `subscription`, not the operation's.
+    assert!(
+        d.range.start.line > 10,
+        "expected the fragment's selection, got {:?}",
+        d.range
+    );
+}

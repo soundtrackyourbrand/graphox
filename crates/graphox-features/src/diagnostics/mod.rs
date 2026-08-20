@@ -28,7 +28,11 @@ pub struct ValidationContext<'a> {
     pub include_ignored: bool,
     pub workspace_loaded: bool,
     pub is_operation: bool,
-    pub current_operation_type: Option<Arc<str>>,
+    /// Whether the response-key bookkeeping used by the required/forbidden
+    /// field rules should be populated. True while walking either an operation
+    /// or a fragment definition; `is_operation` cannot serve double duty
+    /// because fragments legitimately reference variables they do not define.
+    pub track_selections: bool,
     pub response_key_selected_fields: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
     pub response_key_type_conditions: ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>,
     pub type_condition_fields:
@@ -106,7 +110,7 @@ impl DocumentDiagnostics for DocumentState {
                 include_ignored: verbose,
                 workspace_loaded,
                 is_operation: false,
-                current_operation_type: None,
+                track_selections: false,
                 response_key_selected_fields: ahash::AHashMap::default(),
                 response_key_type_conditions: ahash::AHashMap::default(),
                 type_condition_fields: ahash::AHashMap::default(),

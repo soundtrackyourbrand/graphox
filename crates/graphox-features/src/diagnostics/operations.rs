@@ -6,6 +6,37 @@ use graphox_core::document::DocumentState;
 use lsp_types::*;
 use tree_sitter::Node;
 
+/// Which kind of definition a required/forbidden field check is running inside.
+#[derive(Clone, Copy)]
+pub(super) enum RuleScope<'a> {
+    /// An operation definition. Every rule can be evaluated, including the
+    /// root-level requirements on Query/Mutation/Subscription.
+    Operation(&'a str),
+    /// A fragment definition. The enclosing operation is unknown, so
+    /// operation-scoped rules are skipped. The fragment's own type condition is
+    /// also left alone: the consuming operation merges the fragment's top-level
+    /// fields into the response key it is spread under, so only the nested
+    /// selections inside the fragment body need checking here.
+    Fragment,
+}
+
+impl<'a> RuleScope<'a> {
+    fn operation_type(&self) -> Option<&'a str> {
+        match self {
+            RuleScope::Operation(op) => Some(op),
+            RuleScope::Fragment => None,
+        }
+    }
+
+    /// Whether a rule can be evaluated in this scope.
+    fn allows(&self, rule: &graphox_core::config::FieldRule) -> bool {
+        match self {
+            RuleScope::Operation(op) => rule.applies_to_operation(op),
+            RuleScope::Fragment => rule.applies_to_any_operation(),
+        }
+    }
+}
+
 fn push_required_field_diagnostic(diagnostics: &mut Vec<Diagnostic>, diagnostic: Diagnostic) {
     let is_duplicate = diagnostics.iter().any(|existing| {
         existing.range == diagnostic.range
@@ -49,6 +80,7 @@ pub(super) fn validate_operation(
     ctx: &mut ValidationContext,
 ) {
     ctx.is_operation = true;
+    ctx.track_selections = true;
     ctx.used_variables.clear();
     ctx.defined_variables.clear();
     ctx.response_key_selected_fields.clear();
@@ -69,9 +101,6 @@ pub(super) fn validate_operation(
             var_defs_node = Some(child);
         }
     }
-
-    // Set the current operation type
-    ctx.current_operation_type = Some(operation_type_string.clone().into());
 
     // 1. Collect and validate variable definitions
     if let Some(var_defs) = var_defs_node {
@@ -122,8 +151,9 @@ pub(super) fn validate_operation(
     }
 
     // Check required/forbidden fields after validating the selection set
-    check_required_fields(this, node, offset, ctx);
-    check_forbidden_fields(this, node, offset, ctx);
+    let scope = RuleScope::Operation(operation_type_string.as_str());
+    check_required_fields(this, node, offset, ctx, scope);
+    check_forbidden_fields(this, node, offset, ctx, scope);
 
     // 3. Check for unused variables
     if ctx.workspace_loaded {
@@ -171,31 +201,28 @@ pub(super) fn check_required_fields(
     node: Node,
     offset: usize,
     ctx: &mut ValidationContext,
+    scope: RuleScope,
 ) {
-    if let Some(config) = ctx.config
-        && let Some(operation_type) = ctx.current_operation_type.clone()
-    {
+    if let Some(config) = ctx.config {
         let rules = config.rules();
         let mut emitted_operation_requirements = ahash::AHashSet::default();
         let mut emitted_response_key_requirements = ahash::AHashSet::default();
         let mut emitted_type_condition_requirements = ahash::AHashSet::default();
 
-        // Find the name node of the operation for the diagnostic range
-        let mut cursor = node.walk();
-        let name_node = node.children(&mut cursor).find(|c| c.kind() == "name");
-        let operation_range = name_node
-            .map(|n| this.translate_to_file_range(n, offset))
-            .unwrap_or_else(|| this.translate_to_file_range(node, offset));
+        // Range of the enclosing definition, used as a fallback anchor
+        let definition_range = definition_name_range(this, node, offset);
 
-        // 1. Check root-level required fields (fields on Query/Mutation/Subscription)
-        let root_type_name = match operation_type.as_ref() {
-            "query" => ctx.schema.root_operation(OperationType::Query),
-            "mutation" => ctx.schema.root_operation(OperationType::Mutation),
-            "subscription" => ctx.schema.root_operation(OperationType::Subscription),
+        // 1. Check root-level required fields (fields on Query/Mutation/Subscription).
+        // Only meaningful inside an operation; see `RuleScope::Fragment`.
+        let root_type_name = match scope.operation_type() {
+            Some("query") => ctx.schema.root_operation(OperationType::Query),
+            Some("mutation") => ctx.schema.root_operation(OperationType::Mutation),
+            Some("subscription") => ctx.schema.root_operation(OperationType::Subscription),
             _ => None,
         };
 
-        if let Some(rtn) = root_type_name
+        if let Some(operation_type) = scope.operation_type()
+            && let Some(rtn) = root_type_name
             && let Some(root_type) = ctx.schema.types.get(rtn.as_str())
         {
             let rtn_str = rtn.as_str();
@@ -207,7 +234,7 @@ pub(super) fn check_required_fields(
 
             for field_name_str in fields_to_check {
                 if let Some(rule) = rules.get_required_rule(rtn_str, field_name_str) {
-                    if !rule.applies_to_operation(operation_type.as_ref()) {
+                    if !rule.applies_to_operation(operation_type) {
                         continue;
                     }
 
@@ -239,7 +266,7 @@ pub(super) fn check_required_fields(
                             Diagnostic {
                                 range: anchor_node
                                     .map(|n| this.translate_to_file_range(n, offset))
-                                    .unwrap_or(operation_range),
+                                    .unwrap_or(definition_range),
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
                                     "Required field '{}' must be selected in {} operations{}",
@@ -284,7 +311,7 @@ pub(super) fn check_required_fields(
 
             for field_name_str in fields_to_check {
                 if let Some(rule) = rules.get_required_rule(type_name, field_name_str) {
-                    if !rule.applies_to_operation(operation_type.as_ref()) {
+                    if !scope.allows(rule) {
                         continue;
                     }
 
@@ -318,7 +345,7 @@ pub(super) fn check_required_fields(
                             offset,
                             ctx,
                             response_key,
-                            operation_range,
+                            definition_range,
                         ) else {
                             continue;
                         };
@@ -368,7 +395,7 @@ pub(super) fn check_required_fields(
                     for field_name_str in fields_to_check {
                         if let Some(rule) = rules.get_required_rule(&type_name_str, field_name_str)
                         {
-                            if !rule.applies_to_operation(operation_type.as_ref()) {
+                            if !scope.allows(rule) {
                                 continue;
                             }
 
@@ -402,7 +429,7 @@ pub(super) fn check_required_fields(
                                     offset,
                                     ctx,
                                     response_key,
-                                    operation_range,
+                                    definition_range,
                                 ) else {
                                     continue;
                                 };
@@ -442,18 +469,13 @@ pub(super) fn check_forbidden_fields(
     node: Node,
     offset: usize,
     ctx: &mut ValidationContext,
+    scope: RuleScope,
 ) {
-    if let Some(config) = ctx.config
-        && let Some(operation_type) = ctx.current_operation_type.clone()
-    {
+    if let Some(config) = ctx.config {
         let rules = config.rules();
 
-        // Find the name node of the operation for the diagnostic range fallback
-        let mut cursor = node.walk();
-        let name_node = node.children(&mut cursor).find(|c| c.kind() == "name");
-        let operation_range = name_node
-            .map(|n| this.translate_to_file_range(n, offset))
-            .unwrap_or_else(|| this.translate_to_file_range(node, offset));
+        // Range of the enclosing definition, used as a fallback anchor
+        let definition_range = definition_name_range(this, node, offset);
 
         // 1. Check all selected fields (recursive check)
         for (response_key, selected_fields) in &ctx.response_key_selected_fields {
@@ -463,7 +485,7 @@ pub(super) fn check_forbidden_fields(
                 for field_name_str in selected_fields {
                     let rule = rules.get_forbidden_rule(type_name, field_name_str);
                     if let Some(rule) = rule {
-                        if !rule.applies_to_operation(operation_type.as_ref()) {
+                        if !scope.allows(rule) {
                             continue;
                         }
 
@@ -474,10 +496,12 @@ pub(super) fn check_forbidden_fields(
                         let field_node = if ctx.root_response_keys.contains(response_key) {
                             // Check if the root selection itself is the forbidden field
                             // (e.g. Query.users is forbidden)
-                            let root_type_name = match operation_type.as_ref() {
-                                "query" => ctx.schema.root_operation(OperationType::Query),
-                                "mutation" => ctx.schema.root_operation(OperationType::Mutation),
-                                "subscription" => {
+                            let root_type_name = match scope.operation_type() {
+                                Some("query") => ctx.schema.root_operation(OperationType::Query),
+                                Some("mutation") => {
+                                    ctx.schema.root_operation(OperationType::Mutation)
+                                }
+                                Some("subscription") => {
                                     ctx.schema.root_operation(OperationType::Subscription)
                                 }
                                 _ => None,
@@ -526,7 +550,7 @@ pub(super) fn check_forbidden_fields(
                                 offset,
                                 ctx,
                                 response_key,
-                                operation_range,
+                                definition_range,
                             ) else {
                                 continue;
                             };
@@ -539,10 +563,10 @@ pub(super) fn check_forbidden_fields(
                                     range: diagnostic_range,
                                     severity: Some(DiagnosticSeverity::ERROR),
                                     message: format!(
-                                        "Field '{}' is forbidden on type '{}' in {} operations{}",
+                                        "Field '{}' is forbidden on type '{}'{}{}",
                                         field_name_str,
                                         type_name,
-                                        operation_type,
+                                        operation_suffix(scope),
                                         rule.reason()
                                             .map(|r| format!(": {}", r))
                                             .unwrap_or_default()
@@ -570,7 +594,7 @@ pub(super) fn check_forbidden_fields(
             for (type_name, fields) in type_fields {
                 for field_name_str in fields {
                     if let Some(rule) = rules.get_forbidden_rule(type_name, field_name_str) {
-                        if !rule.applies_to_operation(operation_type.as_ref()) {
+                        if !scope.allows(rule) {
                             continue;
                         }
 
@@ -588,7 +612,7 @@ pub(super) fn check_forbidden_fields(
                                 offset,
                                 ctx,
                                 response_key,
-                                operation_range,
+                                definition_range,
                             ) else {
                                 continue;
                             };
@@ -601,10 +625,10 @@ pub(super) fn check_forbidden_fields(
                                     range: diagnostic_range,
                                     severity: Some(DiagnosticSeverity::ERROR),
                                     message: format!(
-                                        "Field '{}' is forbidden on '... on {}' in {} operations{}",
+                                        "Field '{}' is forbidden on '... on {}'{}{}",
                                         field_name_str,
                                         type_name,
-                                        operation_type,
+                                        operation_suffix(scope),
                                         rule.reason()
                                             .map(|r| format!(": {}", r))
                                             .unwrap_or_default()
@@ -627,6 +651,33 @@ pub(super) fn check_forbidden_fields(
             }
         }
     }
+}
+
+/// ` in query operations` inside an operation, empty inside a fragment where
+/// the enclosing operation is unknown.
+fn operation_suffix(scope: RuleScope) -> String {
+    match scope.operation_type() {
+        Some(op) => format!(" in {} operations", op),
+        None => String::new(),
+    }
+}
+
+/// Range of a definition's name, falling back to the whole definition. Operation
+/// names are a direct `name` child; fragment names are nested under
+/// `fragment_name`.
+fn definition_name_range(this: &DocumentState, node: Node, offset: usize) -> Range {
+    let mut cursor = node.walk();
+    let name_node = node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "name")
+        .or_else(|| {
+            this.find_child_by_kind(node, "fragment_name")
+                .and_then(|n| this.find_child_by_kind(n, "name"))
+        });
+
+    name_node
+        .map(|n| this.translate_to_file_range(n, offset))
+        .unwrap_or_else(|| this.translate_to_file_range(node, offset))
 }
 
 fn find_root_field_node_by_name<'a>(
@@ -890,7 +941,7 @@ fn resolve_anchor_and_check_ignore(
     offset: usize,
     ctx: &ValidationContext,
     response_key: &str,
-    operation_range: Range,
+    definition_range: Range,
 ) -> Option<Range> {
     if let Some(ranges) = ctx.response_key_anchor_ranges.get(response_key) {
         let mut first_non_ignored = None;
@@ -916,11 +967,11 @@ fn resolve_anchor_and_check_ignore(
             return None;
         }
 
-        return Some(first_non_ignored.unwrap_or(operation_range));
+        return Some(first_non_ignored.unwrap_or(definition_range));
     }
 
-    // Fallback to operation level
-    if let Some(anchor_node) = find_node_for_range(this, node, offset, &operation_range)
+    // Fallback to the enclosing definition
+    if let Some(anchor_node) = find_node_for_range(this, node, offset, &definition_range)
         && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
             this,
             anchor_node,
@@ -930,7 +981,7 @@ fn resolve_anchor_and_check_ignore(
         return None;
     }
 
-    Some(operation_range)
+    Some(definition_range)
 }
 
 fn find_node_for_range<'a>(
