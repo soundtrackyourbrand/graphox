@@ -3,8 +3,14 @@ const fs = require('fs');
 const {
   findNearestFile,
   resolveTsConfigPaths,
-  resolvePackageJsonImports
+  resolvePackageJsonImports,
+  resolvePackageExportAlias
 } = require('./utils');
+
+// Resolution depends only on the plugin options, but Program.enter runs per
+// file. Babel hands back the same options object each time, so key the cache on
+// it — this also stops the exports warning repeating once per module.
+const resolvedOutputsCache = new WeakMap();
 
 function normalize(s) {
   return s.replace(/\s+/g, '');
@@ -47,90 +53,168 @@ module.exports = function (babel) {
     visitor: {
       Program: {
         enter(programPath, state) {
-          let {
-            manifestPath,
-            manifestData,
-            outputDir,
-            graphqlImportPaths: configuredImportPaths = [],
-            emitExtensions,
-          } = state.opts;
-
-          if (!outputDir) {
-            throw new Error('outputDir is required for @graphox/babel-plugin');
-          }
-
+          const opts = state.opts;
           const currentFile = state.file.opts.filename;
           const currentDir = currentFile ? path.dirname(currentFile) : process.cwd();
 
-          const tsconfigPath = findNearestFile(currentDir, 'tsconfig.json');
-          const pkgJsonPath = findNearestFile(currentDir, 'package.json');
-          const rootDir = (pkgJsonPath || tsconfigPath) ? path.dirname(pkgJsonPath || tsconfigPath) : process.cwd();
+          const extension = getExtension(opts.emitExtensions);
 
-          const absoluteOutputDir = path.isAbsolute(outputDir)
-            ? outputDir
-            : path.resolve(rootDir, outputDir);
+          let outputs = resolvedOutputsCache.get(opts);
+          if (!outputs) {
+            const declared =
+              opts.outputs && opts.outputs.length > 0
+                ? opts.outputs
+                : [
+                    {
+                      outputDir: opts.outputDir,
+                      manifestPath: opts.manifestPath,
+                      manifestData: opts.manifestData,
+                      graphqlImportPaths: opts.graphqlImportPaths,
+                      importAlias: opts.importAlias,
+                      packageRoot: opts.packageRoot,
+                    },
+                  ];
 
-          // Resolve manifestPath relative to rootDir if provided as relative
-          if (manifestPath && !path.isAbsolute(manifestPath)) {
-            manifestPath = path.resolve(rootDir, manifestPath);
-          }
-
-          // Default manifestPath if not provided
-          if (!manifestPath && !manifestData) {
-            manifestPath = path.join(absoluteOutputDir, 'manifest.json');
-          }
-
-          // Auto-detect import paths from tsconfig.json and package.json
-          const importPathsSet = new Set(configuredImportPaths.map(toPosixPath));
-
-          if (tsconfigPath) {
-            const paths = resolveTsConfigPaths(tsconfigPath, absoluteOutputDir);
-            for (const p of paths) {
-              importPathsSet.add(toPosixPath(p));
+            for (const output of declared) {
+              if (!output.outputDir) {
+                throw new Error('outputDir is required for @graphox/babel-plugin');
+              }
             }
-          }
 
-          if (pkgJsonPath) {
-             const imports = resolvePackageJsonImports(pkgJsonPath, absoluteOutputDir);
-             for (const p of imports) {
-               importPathsSet.add(toPosixPath(p));
-             }
-          }
+            const tsconfigPath = findNearestFile(currentDir, 'tsconfig.json');
+            const pkgJsonPath = findNearestFile(currentDir, 'package.json');
+            const rootDir =
+              pkgJsonPath || tsconfigPath
+                ? path.dirname(pkgJsonPath || tsconfigPath)
+                : process.cwd();
 
-          const graphqlImportPaths = Array.from(importPathsSet);
-          const extension = getExtension(emitExtensions);
+            outputs = declared.map((output) => {
+              const absoluteOutputDir = path.isAbsolute(output.outputDir)
+                ? output.outputDir
+                : path.resolve(rootDir, output.outputDir);
 
-          let entries = [];
-          if (manifestData) {
-            entries = manifestData;
-          } else if (manifestPath) {
-            try {
-              const content = fs.readFileSync(manifestPath, 'utf8');
-              entries = JSON.parse(content);
-            } catch (e) {
-              // Ignore missing manifest during build if necessary
+              let manifestFile = output.manifestPath;
+              if (manifestFile && !path.isAbsolute(manifestFile)) {
+                manifestFile = path.resolve(rootDir, manifestFile);
+              }
+              if (!manifestFile && !output.manifestData) {
+                manifestFile = path.join(absoluteOutputDir, 'manifest.json');
+              }
+
+              const projectTsconfig =
+                findNearestFile(absoluteOutputDir, 'tsconfig.json') || tsconfigPath;
+              const projectPkgJson =
+                findNearestFile(absoluteOutputDir, 'package.json') || pkgJsonPath;
+
+              const importPathsSet = new Set(
+                (output.graphqlImportPaths || []).map(toPosixPath)
+              );
+              if (projectTsconfig) {
+                for (const p of resolveTsConfigPaths(projectTsconfig, absoluteOutputDir)) {
+                  importPathsSet.add(toPosixPath(p));
+                }
+              }
+              if (projectPkgJson) {
+                for (const p of resolvePackageJsonImports(projectPkgJson, absoluteOutputDir)) {
+                  importPathsSet.add(toPosixPath(p));
+                }
+              }
+
+              // Modules inside this package import its documents by relative
+              // path; anything outside has to go through the alias, because a
+              // relative path would reach past the package's subpath exports.
+              const packageRoot =
+                output.packageRoot ||
+                (projectPkgJson ? path.dirname(projectPkgJson) : undefined);
+
+              let importAlias = output.importAlias;
+              if (!importAlias && projectPkgJson) {
+                const inferred = resolvePackageExportAlias(projectPkgJson, absoluteOutputDir);
+                if (inferred) {
+                  importAlias = inferred.alias;
+                  if (!inferred.canServeDeep) {
+                    console.warn(
+                      `@graphox/babel-plugin: "${inferred.alias}" resolves to ${absoluteOutputDir}, ` +
+                        `but ${projectPkgJson} has no exports entry that can serve files inside it. ` +
+                        `Documents imported from another package are rewritten to ` +
+                        `"${inferred.alias}/<file>", which will not resolve. Add ` +
+                        `"${inferred.subpath}/*": "${inferred.subpath}/*" to its exports.`
+                    );
+                  }
+                }
+              }
+
+              // The alias is also how another project names this entrypoint.
+              if (importAlias) {
+                importPathsSet.add(toPosixPath(importAlias));
+              }
+
+              let entries = [];
+              if (output.manifestData) {
+                entries = output.manifestData;
+              } else if (manifestFile) {
+                try {
+                  entries = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+                } catch (e) {
+                  // Ignore a missing manifest during build
+                }
+              }
+
+              const manifest = new Map();
+              const documentNameToEntry = new Map();
+              for (const entry of entries) {
+                const normalizedSource = normalize(entry.source);
+                if (!manifest.has(normalizedSource)) {
+                  manifest.set(normalizedSource, entry);
+                }
+                if (entry.name) {
+                  documentNameToEntry.set(entry.name, entry);
+                }
+              }
+
+              return {
+                outputDir: absoluteOutputDir,
+                importAlias,
+                packageRoot,
+                graphqlImportPaths: Array.from(importPathsSet),
+                entrypointPath: path.join(absoluteOutputDir, 'graphql'),
+                indexPath: path.join(absoluteOutputDir, 'index'),
+                manifest,
+                documentNameToEntry,
+              };
+            });
+
+            for (let i = 0; i < outputs.length; i++) {
+              for (let j = i + 1; j < outputs.length; j++) {
+                const a = outputs[i].outputDir;
+                const b = outputs[j].outputDir;
+                if (a === b) {
+                  throw new Error(
+                    `@graphox/babel-plugin: duplicate outputDir "${a}" in outputs.`
+                  );
+                }
+                if (b.startsWith(a + path.sep) || a.startsWith(b + path.sep)) {
+                  throw new Error(
+                    `@graphox/babel-plugin: outputDir "${a}" and "${b}" overlap. Outputs must ` +
+                      `be distinct so each module belongs to exactly one.`
+                  );
+                }
+              }
             }
+
+            resolvedOutputsCache.set(opts, outputs);
           }
 
-          const manifest = new Map();
-          const documentNameToEntry = new Map();
-          for (const entry of entries) {
-            const normalizedSource = normalize(entry.source);
-            if (!manifest.has(normalizedSource)) {
-              manifest.set(normalizedSource, entry);
-            }
-            if (entry.name) {
-              documentNameToEntry.set(entry.name, entry);
-            }
-          }
+          const unresolvedDocumentError = (importedName, source) =>
+            `@graphox/babel-plugin could not rewrite "${importedName}" from "${source}". ` +
+            `It is in none of the configured manifests [` +
+            outputs.map((o) => o.outputDir).join(', ') +
+            `]. Register the outputDir of the project that defines it, or run Graphox codegen.`;
 
-          const absoluteIndexPath = path.join(absoluteOutputDir, 'index');
-          const absoluteEntrypointPath = path.join(absoluteOutputDir, 'graphql');
-
-          // If processing the entrypoint itself, clear it
+          // If processing any configured entrypoint, clear it
           if (currentFile) {
             const currentFileNoExt = currentFile.replace(/\.(js|ts)x?$/, '');
-            if (currentFileNoExt === absoluteEntrypointPath) {
+            if (outputs.some((output) => currentFileNoExt === output.entrypointPath)) {
               programPath.node.body = [
                 t.exportNamedDeclaration(
                   t.variableDeclaration('const', [
@@ -150,52 +234,49 @@ module.exports = function (babel) {
             }
           }
 
-          const isOurGraphqlPath = (src) => {
+          // Which output's entrypoint (or index barrel) `src` refers to, if any.
+          // Returns the index so callers know whose manifest to use and how to
+          // write the replacement import.
+          const resolveGraphqlPath = (src) => {
             src = toPosixPath(src);
-            if (graphqlImportPaths.includes(src)) return true;
             const srcNoExt = stripScriptExtension(src);
-            if (graphqlImportPaths.includes(srcNoExt)) return true;
 
-            // Support prefix matching for directory aliases discovered from tsconfig/package.json
-            for (const p of graphqlImportPaths) {
-              if (p.endsWith('/') && src.startsWith(p)) {
-                const subPath = src.slice(p.length);
-                const subPathNoExt = stripScriptExtension(subPath);
-                if (subPathNoExt === 'graphql' || subPathNoExt === 'index') {
-                  return true;
+            for (let i = 0; i < outputs.length; i++) {
+              const paths = outputs[i].graphqlImportPaths;
+              if (paths.includes(src) || paths.includes(srcNoExt)) return i;
+
+              // Directory aliases discovered from tsconfig/package.json
+              for (const p of paths) {
+                if (p.endsWith('/') && src.startsWith(p)) {
+                  const subPathNoExt = stripScriptExtension(src.slice(p.length));
+                  if (subPathNoExt === 'graphql' || subPathNoExt === 'index') return i;
                 }
               }
             }
 
-            if (currentDir) {
-              let absoluteSrc = null;
-              try {
-                if (src.startsWith('.') || path.isAbsolute(src)) {
-                  absoluteSrc = path.resolve(currentDir, srcNoExt);
-                } else {
-                  absoluteSrc = stripScriptExtension(
-                    require.resolve(src, { paths: [currentDir] }),
-                  );
-                }
-              } catch (_) {}
+            if (!currentDir) return null;
 
-              if (absoluteSrc) {
-                if (
-                  absoluteSrc === absoluteEntrypointPath ||
-                  absoluteSrc === absoluteIndexPath
-                ) {
-                  return true;
-                }
-                // Handle directory import resolving to index
-                const absoluteSrcIndex = path.join(absoluteSrc, 'index');
-                if (absoluteSrcIndex === absoluteIndexPath) {
-                  return true;
-                }
+            let absoluteSrc = null;
+            try {
+              if (src.startsWith('.') || path.isAbsolute(src)) {
+                absoluteSrc = path.resolve(currentDir, srcNoExt);
+              } else {
+                absoluteSrc = stripScriptExtension(require.resolve(src, { paths: [currentDir] }));
               }
+            } catch (_) {}
+
+            if (!absoluteSrc) return null;
+
+            for (let i = 0; i < outputs.length; i++) {
+              const { entrypointPath, indexPath } = outputs[i];
+              if (absoluteSrc === entrypointPath || absoluteSrc === indexPath) return i;
+              if (path.join(absoluteSrc, 'index') === indexPath) return i;
             }
 
-            return false;
+            return null;
           };
+
+          const isOurGraphqlPath = (src) => resolveGraphqlPath(src) !== null;
 
           const getStaticString = (node) => {
             if (t.isStringLiteral(node)) {
@@ -213,8 +294,25 @@ module.exports = function (babel) {
             return null;
           };
 
-          const getRelativeImportPath = (entryPath) => {
-            const codegenAbsPath = path.join(absoluteOutputDir, entryPath);
+          const getImportPath = (outputIdx, entryPath) => {
+            const output = outputs[outputIdx];
+            const inSamePackage = output.packageRoot && currentFile
+              ? currentFile.startsWith(output.packageRoot)
+              : true;
+
+            if (!inSamePackage) {
+              if (!output.importAlias) {
+                throw new Error(
+                  `@graphox/babel-plugin: "${entryPath}" belongs to the output at ` +
+                    `"${output.outputDir}", which has no importAlias. Set one so documents ` +
+                    `in it can be imported from other projects.`
+                );
+              }
+              const file = stripScriptExtension(toPosixPath(entryPath)).replace(/^\.\//, '');
+              return `${output.importAlias.replace(/\/$/, '')}/${file}${extension}`;
+            }
+
+            const codegenAbsPath = path.join(output.outputDir, entryPath);
             let relPath = path.relative(path.dirname(currentFile), codegenAbsPath);
             relPath = toPosixPath(relPath);
             if (!relPath.startsWith('.') && !path.isAbsolute(relPath)) {
@@ -306,7 +404,9 @@ module.exports = function (babel) {
             );
           };
 
-          const graphqlIds = new Set();
+          // binding -> index of the output whose entrypoint it came from, so a
+          // call resolves against that project's manifest.
+          const graphqlIds = new Map();
           // newImports stores: localName -> { sourcePath, importedName }
           const newImports = new Map();
           // Map from original document name to unique local name in this file
@@ -350,7 +450,8 @@ module.exports = function (babel) {
           programPath.traverse({
             ImportDeclaration(importPath) {
               const src = importPath.node.source.value;
-              if (isOurGraphqlPath(src)) {
+              const outputIdx = resolveGraphqlPath(src);
+              if (outputIdx !== null) {
                 const importIsTypeOnly = importPath.node.importKind === 'type';
                 importPath.get('specifiers').forEach((specifier) => {
                   if (specifier.isImportDefaultSpecifier() || specifier.isImportNamespaceSpecifier()) {
@@ -373,11 +474,14 @@ module.exports = function (babel) {
                     const specifierIsTypeOnly = specifier.node.importKind === 'type' || importIsTypeOnly;
                     
                     if (importedName === 'graphql' || importedName === 'gql') {
-                      graphqlIds.add(specifier.scope.getBinding(localName));
-                    } else if (documentNameToEntry.has(importedName) && !specifierIsTypeOnly) {
+                      graphqlIds.set(specifier.scope.getBinding(localName), outputIdx);
+                    } else if (
+                      outputs[outputIdx].documentNameToEntry.has(importedName) &&
+                      !specifierIsTypeOnly
+                    ) {
                       // Only rewrite non-type-only imports of document names
-                      const entry = documentNameToEntry.get(importedName);
-                      const relPath = getRelativeImportPath(entry.path);
+                      const entry = outputs[outputIdx].documentNameToEntry.get(importedName);
+                      const relPath = getImportPath(outputIdx, entry.path);
 
                       // If the original import was aliased (e.g. import { D as MyD }),
                       // we want to keep that alias if possible.
@@ -398,7 +502,7 @@ module.exports = function (babel) {
                       }
                     } else if (!specifierIsTypeOnly) {
                       throw specifier.buildCodeFrameError(
-                        `@graphox/babel-plugin could not rewrite "${importedName}" from "${src}". ` +
+                        unresolvedDocumentError(importedName, src) + ' ' +
                         'Run Graphox codegen and ensure the manifest includes this document.',
                       );
                     }
@@ -415,6 +519,7 @@ module.exports = function (babel) {
               if (callee.isIdentifier()) {
                 const binding = callPath.scope.getBinding(callee.node.name);
                 if (graphqlIds.has(binding)) {
+                  const outputIdx = graphqlIds.get(binding);
                   const arg = callPath.node.arguments[0];
                   let source = null;
 
@@ -434,15 +539,16 @@ module.exports = function (babel) {
                   }
 
                   const normalizedSource = normalize(source);
-                  const entry = manifest.get(normalizedSource);
+                  const entry = outputs[outputIdx].manifest.get(normalizedSource);
                   if (!entry) {
                     throw callPath.buildCodeFrameError(
-                      `@graphox/babel-plugin could not find this ${callee.node.name}() document in the manifest. ` +
+                      `@graphox/babel-plugin could not find this ${callee.node.name}() document in the manifest for ` +
+                      `"${outputs[outputIdx].outputDir}". ` +
                       'Run Graphox codegen and ensure the build is using the correct manifest.',
                     );
                   }
 
-                  const relPath = getRelativeImportPath(entry.path);
+                  const relPath = getImportPath(outputIdx, entry.path);
 
                   const uniqueLocalName = getLocalName(entry.name, callPath.scope);
                   newImports.set(uniqueLocalName, { sourcePath: relPath, importedName: entry.name });
@@ -497,17 +603,18 @@ module.exports = function (babel) {
                   );
                 }
 
-                const entry = documentNameToEntry.get(importedName);
+                const dynamicOutputIdx = resolveGraphqlPath(source) ?? 0;
+                const entry = outputs[dynamicOutputIdx].documentNameToEntry.get(importedName);
                 if (!entry) {
                   throw propertyPath.buildCodeFrameError(
-                    `@graphox/babel-plugin could not rewrite "${importedName}" from "${source}". ` +
+                    unresolvedDocumentError(importedName, source) + ' ' +
                     'Run Graphox codegen and ensure the manifest includes this document.',
                   );
                 }
 
                 requests.push({
                   importedName,
-                  sourcePath: getRelativeImportPath(entry.path),
+                  sourcePath: getImportPath(dynamicOutputIdx, entry.path),
                 });
               }
 

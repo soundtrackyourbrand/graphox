@@ -585,4 +585,125 @@ describe('@graphox/babel-plugin', () => {
       expect(output).not.toContain('PlaylistPermissionsFragmentDoc');
     });
   });
+
+  describe('multi-project outputs', () => {
+    const businessOut = path.resolve('/repo/apps/business/app/graphql');
+    const remoteOut = path.resolve('/repo/packages/playback/remote/graphql');
+
+    const outputs = [
+      {
+        outputDir: businessOut,
+        importAlias: '@business/graphql',
+        packageRoot: path.resolve('/repo/apps/business'),
+        manifestData: [
+          {
+            source: 'mutation AssignSource { assignSource { id } }',
+            path: './business.codegen',
+            name: 'AssignSourceMutationDocument',
+          },
+          {
+            source: 'mutation BlockTrack { blockTrack { id } }',
+            path: './business.codegen',
+            name: 'BlockTrackMutationDocument',
+          },
+        ],
+      },
+      {
+        outputDir: remoteOut,
+        importAlias: '@soundtrack/playback-remote/graphql',
+        packageRoot: path.resolve('/repo/packages/playback/remote'),
+        manifestData: [
+          {
+            source: 'mutation AssignSource { assignSource { id } }',
+            path: './remote.codegen',
+            name: 'AssignSourceMutationDocument',
+          },
+          {
+            source: 'mutation BlockTrack { blockTrack(remote: true) { id } }',
+            path: './remote.codegen',
+            name: 'BlockTrackMutationDocument',
+          },
+        ],
+      },
+    ];
+
+    it('rewrites a cross-package document import through the alias', () => {
+      const code =
+        "import { BlockTrackMutationDocument } from '@soundtrack/playback-remote/graphql';\nconst d = BlockTrackMutationDocument;";
+      const output = transform(code, { outputs }, '/repo/apps/business/app/thing.ts');
+
+      expect(output).toContain('@soundtrack/playback-remote/graphql/remote.codegen');
+      expect(output).not.toContain("'@soundtrack/playback-remote/graphql'");
+    });
+
+    it('keeps a same-package document import relative', () => {
+      const code =
+        "import { BlockTrackMutationDocument } from '@business/graphql';\nconst d = BlockTrackMutationDocument;";
+      const output = transform(code, { outputs }, '/repo/apps/business/app/thing.ts');
+
+      expect(output).toContain('graphql/business.codegen');
+      expect(output).not.toContain('@business/graphql/');
+    });
+
+    it('resolves identical document source per entrypoint', () => {
+      const code =
+        "import { graphql } from './graphql';\nconst m = graphql(`mutation AssignSource { assignSource { id } }`);";
+
+      const business = transform(code, { outputs }, path.join(businessOut, 'consumer.ts'));
+      expect(business).toContain('./business.codegen');
+      expect(business).not.toContain('remote.codegen');
+
+      const remote = transform(code, { outputs }, path.join(remoteOut, 'consumer.ts'));
+      expect(remote).toContain('./remote.codegen');
+      expect(remote).not.toContain('business.codegen');
+    });
+
+    it('resolves the same document name from both projects in one module', () => {
+      const code =
+        "import { BlockTrackMutationDocument as B1 } from '@business/graphql';\n" +
+        "import { BlockTrackMutationDocument as B2 } from '@soundtrack/playback-remote/graphql';\n" +
+        'const a = B1; const b = B2;';
+      const output = transform(code, { outputs }, '/repo/apps/business/app/thing.ts');
+
+      expect(output).toContain('graphql/business.codegen');
+      expect(output).toContain('@soundtrack/playback-remote/graphql/remote.codegen');
+    });
+
+    it('clears the entrypoint of every configured output', () => {
+      for (const dir of [businessOut, remoteOut]) {
+        const output = transform(
+          'export const documents = { a: 1 }; export const graphql = () => documents;',
+          { outputs },
+          path.join(dir, 'graphql.ts')
+        );
+        expect(output).not.toContain('documents');
+        expect(output).toContain('export const graphql = () => null;');
+      }
+    });
+
+    it('names the configured outputs when a document is in no manifest', () => {
+      const code =
+        "import { MissingDoc } from '@business/graphql';\nconst d = MissingDoc;";
+      expect(() => transform(code, { outputs }, '/repo/apps/business/app/thing.ts')).toThrow(
+        /in none of the configured manifests/
+      );
+    });
+
+    it('rejects overlapping outputDirs', () => {
+      expect(() =>
+        transform(
+          'const x = 1;',
+          { outputs: [{ outputDir: businessOut }, { outputDir: path.join(businessOut, 'nested') }] },
+          '/repo/apps/business/app/thing.ts'
+        )
+      ).toThrow(/overlap/);
+    });
+
+    it('still accepts the single-output form', () => {
+      const code =
+        "import { graphql } from './gen/graphql';\nconst q = graphql(`query { me { id } }`);";
+      const output = transform(code, defaultOptions);
+      expect(output).toContain('./gen/query.codegen');
+    });
+  });
 });
