@@ -151,76 +151,38 @@ pnpm run build:all
 ```
 
 **Rust-Only Build:**
-```bash
-cd plugins/swc/rust
 
-# Add WASM target if not already installed
-rustup target add wasm32-unknown-unknown
-
-# Build with wasm-pack
-wasm-pack build --target nodejs --out-dir ../node/wasm
-```
-
-### Running Tests
+SWC loads the plugin as a raw `wasm32-wasip1` module, so build it with cargo
+directly — this is what `pnpm run build:wasm` runs:
 
 ```bash
-cd plugins/swc/node
+# Add the target once
+rustup target add wasm32-wasip1
 
-# Run TypeScript/Node.js tests
-pnpm test
-
-# Run Rust tests
-cd ../rust
-cargo test
-```
-
-### Running Tests
-
-```bash
-# Node.js package tests
-cd plugins/swc/node
-pnpm test
-
-# Rust unit tests
-cd plugins/swc/rust
-cargo test
-
-# Integration tests (requires wasm32-wasip1)
-cargo test --include-ignored
-```
-
-### Building
-
-```bash
-cd plugins/swc
-
-# Debug build (faster)
-cargo build -p graphox-swc-plugin
-
-# Release build (for production/WASM)
 cargo build -p graphox-swc-plugin --target wasm32-wasip1 --release
 
-# Output location:
-# target/wasm32-wasip1/debug/graphox_swc_plugin.wasm
-# target/wasm32-wasip1/release/graphox_swc_plugin.wasm
+# Output: target/wasm32-wasip1/release/graphox_swc_plugin.wasm
+# The wrapper looks for it at plugins/swc/node/wasm/, so copy it there,
+# or point GRAPHOX_SWC_PLUGIN_PATH at it.
 ```
+
+A debug build (`--target wasm32-wasip1` omitted) is faster and enough for the
+Rust unit tests, which do not load the wasm module.
 
 ### Running Tests
 
 ```bash
-cd plugins/swc
+# Rust unit tests
+cargo test -p graphox-swc-plugin
 
-# Run unit tests (fast)
-cargo test
+# One test, with output
+cargo test -p graphox-swc-plugin test_visitor_basic -- --nocapture
 
-# Run integration tests (slow, requires wasm32-wasip1)
-cargo test --include-ignored
+# Node.js wrapper tests (needs the wasm built for the tuple path)
+cd plugins/swc/node && pnpm test
 
-# Run with output
-cargo test -- --nocapture
-
-# Run specific test
-cargo test test_visitor_basic
+# End-to-end integration test (slow; builds the wasm)
+cargo test --test integration_suite swc_cli -- --ignored
 ```
 
 ### Test Structure

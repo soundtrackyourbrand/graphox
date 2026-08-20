@@ -10,7 +10,6 @@ Building the WASM plugin from source requires:
 
 - **Rust toolchain** (1.70+): `rustup install stable`
 - **WASM target**: `rustup target add wasm32-wasip1`
-- **wasm-pack**: `cargo install wasm-pack`
 - **Node.js** 18+
 - **pnpm**: `corepack enable && corepack install -g pnpm@latest`
 
