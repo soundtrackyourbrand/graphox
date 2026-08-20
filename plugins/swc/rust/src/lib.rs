@@ -119,8 +119,60 @@ pub struct TransformVisitor {
     id_renames: HashMap<Id, String>,
 }
 
+/// Collapse a document's source into a key that ignores formatting.
+///
+/// Whitespace between GraphQL tokens carries no meaning, and dropping it is what
+/// lets a call site's indentation differ from the manifest's. Inside a string or
+/// block string it does carry meaning: dropping it there made two documents that
+/// differ only in a literal's contents share one key, so the first entry
+/// answered for both and a call site silently got the other document. Anonymous
+/// operations make that reachable — there is no duplicate name to reject them.
+///
+/// This is a key builder, not a GraphQL parser. It only has to be wrong in the
+/// same way on both sides of a comparison.
 fn normalize(s: &str) -> String {
-    s.chars().filter(|c| !c.is_whitespace()).collect()
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] != '"' {
+            if !chars[i].is_whitespace() {
+                out.push(chars[i]);
+            }
+            i += 1;
+            continue;
+        }
+
+        let block = chars[i + 1..].starts_with(&['"', '"']);
+        let quote = if block { 3 } else { 1 };
+
+        out.extend(std::iter::repeat_n('"', quote));
+        i += quote;
+
+        while i < chars.len() {
+            if chars[i] == '\\' {
+                // An escape cannot close the string, so take both characters.
+                out.push(chars[i]);
+                if let Some(next) = chars.get(i + 1) {
+                    out.push(*next);
+                }
+                i += 2;
+                continue;
+            }
+
+            if chars[i] == '"' && (!block || chars[i + 1..].starts_with(&['"', '"'])) {
+                out.extend(std::iter::repeat_n('"', quote));
+                i += quote;
+                break;
+            }
+
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    out
 }
 
 fn strip_script_extension(s: &str) -> String {
@@ -1608,6 +1660,18 @@ mod tests {
     fn test_normalization_fn() {
         assert_eq!(normalize("  query  { me { id } }  "), "query{me{id}}");
         assert_eq!(normalize("query{\nme{\nid\n}\n}"), "query{me{id}}");
+
+        // Whitespace inside a literal is part of the value, not formatting.
+        assert_eq!(normalize("query { f(s: \"a b\") }"), "query{f(s:\"a b\")}");
+        assert_eq!(
+            normalize("query { f(s: \"\"\"a\n  b\"\"\") }"),
+            "query{f(s:\"\"\"a\n  b\"\"\")}"
+        );
+        // A closing quote can be escaped, and the string continues past it.
+        assert_eq!(
+            normalize("query { f(s: \"a \\\" b\") }"),
+            "query{f(s:\"a \\\" b\")}"
+        );
     }
 
     #[test]
@@ -3021,5 +3085,38 @@ mod tests {
             !output.contains("MyQueryDocument: MyQueryDocument"),
             "no reason to expand it, got:\n{output}"
         );
+    }
+
+    #[test]
+    fn test_documents_differing_only_inside_a_string_stay_distinct() {
+        // Two anonymous queries, identical but for a string argument. Neither has
+        // a name, so nothing rejects the pair, and stripping whitespace
+        // everywhere used to collapse them onto one manifest key — the first
+        // entry then answered for both and the call site got the other document.
+        let config = Config {
+            manifest_data: Some(vec![
+                ManifestEntry {
+                    source: "query { search(term: \"a b\") { id } }".to_string(),
+                    path: "./spaced.codegen".to_string(),
+                    name: "SpacedDocument".to_string(),
+                },
+                ManifestEntry {
+                    source: "query { search(term: \"ab\") { id } }".to_string(),
+                    path: "./tight.codegen".to_string(),
+                    name: "TightDocument".to_string(),
+                },
+            ]),
+            output_dir: ".".to_string(),
+            ..Default::default()
+        };
+
+        let output = transform(
+            "import { graphql } from './graphql'; const q = graphql(`query { search(term: \"ab\") { id } }`);",
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("./tight.codegen"), "got:\n{output}");
+        assert!(!output.contains("spaced.codegen"), "got:\n{output}");
     }
 }
