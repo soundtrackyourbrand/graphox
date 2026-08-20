@@ -3119,4 +3119,5 @@ mod tests {
         assert!(output.contains("./tight.codegen"), "got:\n{output}");
         assert!(!output.contains("spaced.codegen"), "got:\n{output}");
     }
+
 }

@@ -680,3 +680,46 @@ describe('entrypoint alias detection', () => {
     }
   });
 });
+
+describe('output directory ambiguity', () => {
+  it('warns when a sibling file shadows the output directory specifier', () => {
+    // `./gen` resolves to gen.ts, not gen/ — a file beats a directory. The plugin
+    // has no filesystem and reads the directory form as the generated barrel.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphox-shadow-'));
+    fs.mkdirSync(path.join(root, 'gen'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'gen/manifest.json'), JSON.stringify([]));
+    fs.writeFileSync(path.join(root, 'gen.ts'), 'export const handWritten = 1;');
+
+    try {
+      const warnings: string[] = [];
+      resolvePluginOutputs(
+        { outputs: [{ outputDir: 'gen' }] },
+        { cwd: root, onWarn: (message) => warnings.push(message) }
+      );
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('gen.ts');
+      expect(warnings[0]).toContain('gen/graphql');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+
+  it('stays quiet when nothing shadows it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphox-noshadow-'));
+    fs.mkdirSync(path.join(root, 'gen'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'gen/manifest.json'), JSON.stringify([]));
+
+    try {
+      const warnings: string[] = [];
+      resolvePluginOutputs(
+        { outputs: [{ outputDir: 'gen' }] },
+        { cwd: root, onWarn: (message) => warnings.push(message) }
+      );
+
+      expect(warnings).toHaveLength(0);
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+});

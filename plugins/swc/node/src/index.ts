@@ -473,6 +473,23 @@ function resolveOutput(
     ? path.resolve(rootDir, output.manifestPath)
     : path.join(resolvedOutputDir, 'manifest.json');
 
+  // A sibling file named like the output directory makes the bare specifier
+  // ambiguous: `./gen` resolves to `gen.ts`, not to `gen/`, because a file beats
+  // a directory. The plugin runs in wasm with no filesystem and claims the
+  // directory form regardless, so say so from here, where the answer is knowable.
+  for (const extension of ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']) {
+    const sibling = `${resolvedOutputDir}${extension}`;
+    if (fs.existsSync(sibling)) {
+      warn(
+        `@graphox/swc-plugin: "${sibling}" sits next to the output directory ` +
+          `${resolvedOutputDir}, so an import of "${path.basename(resolvedOutputDir)}" resolves ` +
+          `to that file while graphox reads it as the generated barrel. Rename one of them, or ` +
+          `import the barrel explicitly as "${path.basename(resolvedOutputDir)}/graphql".`
+      );
+      break;
+    }
+  }
+
   const projectTsconfig = findNearestFile(resolvedOutputDir, 'tsconfig.json') || fallbackTsconfig;
   const projectPkgJson = findNearestFile(resolvedOutputDir, 'package.json') || fallbackPkgJson;
 
