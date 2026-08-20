@@ -322,9 +322,11 @@ fn verify_rsbuild_bundles(temp_dir: &Path) {
         stdout.contains("Mutation: {"),
         "Mutation was not transformed"
     );
+    // `{` and not just the label: an unrewritten call site reaches the emptied
+    // entrypoint and yields a non-document, which the label alone still prints.
     assert!(
-        stdout.contains("Alias Query:"),
-        "Alias query runtime path regressed"
+        stdout.contains("Alias Query: {"),
+        "Alias query was not transformed"
     );
     println!("✅ Babel bundle verified successfully");
 
@@ -373,8 +375,8 @@ fn verify_rsbuild_bundles(temp_dir: &Path) {
             "Query 1 was not transformed (SWC)"
         );
         assert!(
-            stdout_swc.contains("Alias Query:"),
-            "Alias query runtime path regressed (SWC)"
+            stdout_swc.contains("Alias Query: {"),
+            "Alias query was not transformed (SWC)"
         );
         println!("✅ SWC bundle verified successfully");
     } else {
