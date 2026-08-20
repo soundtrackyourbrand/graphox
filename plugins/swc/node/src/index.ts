@@ -63,7 +63,7 @@ export interface OutputConfig {
 
   /**
    * Bare specifier other projects use to import this output, e.g.
-   * `@soundtrack/playback/graphql`. A document here imported from another
+   * `@example/catalog/graphql`. A document here imported from another
    * package is rewritten to `<importAlias>/<codegen file>`, because a relative
    * path would reach past the package's subpath exports.
    *

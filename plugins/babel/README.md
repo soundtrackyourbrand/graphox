@@ -93,7 +93,7 @@ imports that cross a project boundary can be rewritten:
 ['@graphox/babel-plugin', {
   outputs: [
     { outputDir: path.resolve(__dirname, '__generated__') },
-    { outputDir: path.resolve(repoRoot, 'packages/playback/base/graphql') },
+    { outputDir: path.resolve(repoRoot, 'packages/catalog/graphql') },
   ],
 }]
 ```
@@ -104,16 +104,16 @@ specifier instead, because a relative path would reach past its subpath exports:
 
 ```js
 // before
-import { PlaybackDisplayFragmentDoc } from "@soundtrack/playback/graphql";
+import { ProductCardFragmentDoc } from "@example/catalog/graphql";
 // after
-import { PlaybackDisplayFragmentDoc } from "@soundtrack/playback/graphql/base.codegen";
+import { ProductCardFragmentDoc } from "@example/catalog/graphql/catalog.codegen";
 ```
 
 That needs the owning package to export the files inside the output directory:
 
 ```json
 {
-  "name": "@soundtrack/playback",
+  "name": "@example/catalog",
   "exports": {
     "./graphql": "./graphql/index.ts",
     "./graphql/*": "./graphql/*"

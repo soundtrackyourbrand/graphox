@@ -38,7 +38,7 @@ pub struct OutputConfig {
     #[serde(rename = "outputDir")]
     pub output_dir: String,
     /// Bare specifier other projects use to import this output, e.g.
-    /// `@soundtrack/playback/graphql`. Required for a document in this output to
+    /// `@example/catalog/graphql`. Required for a document in this output to
     /// be importable from another project: the rewritten import becomes
     /// `<importAlias>/<codegen file>`, which needs a matching subpath export.
     /// Configured explicitly rather than inferred from `exports`.
@@ -1561,9 +1561,9 @@ mod tests {
     #[test]
     fn test_rewrites_dynamic_import_destructuring_from_graphql_js() {
         let manifest = vec![ManifestEntry {
-            source: "mutation CreatePlaybackClient { createPlaybackClient { id } }".to_string(),
-            path: "./CreatePlaybackClientMutation.codegen".to_string(),
-            name: "CreatePlaybackClientDocument".to_string(),
+            source: "mutation CreateCart { createCart { id } }".to_string(),
+            path: "./CreateCartMutation.codegen".to_string(),
+            name: "CreateCartDocument".to_string(),
         }];
 
         let config = Config {
@@ -1579,8 +1579,8 @@ mod tests {
         let output = transform(
             r#"
             async function load() {
-                const { CreatePlaybackClientDocument } = await import("../gen/graphql.js");
-                return CreatePlaybackClientDocument;
+                const { CreateCartDocument } = await import("../gen/graphql.js");
+                return CreateCartDocument;
             }
             "#,
             config,
@@ -1588,7 +1588,7 @@ mod tests {
         );
 
         assert!(output.contains(
-            "const { CreatePlaybackClientDocument } = await import(\"../gen/CreatePlaybackClientMutation.codegen\");"
+            "const { CreateCartDocument } = await import(\"../gen/CreateCartMutation.codegen\");"
         ));
         assert!(!output.contains("graphql.js"));
     }
@@ -2147,23 +2147,23 @@ mod tests {
         Config {
             outputs: Some(vec![
                 OutputConfig {
-                    output_dir: "/repo/packages/playback/base/graphql".to_string(),
-                    import_alias: Some("@soundtrack/playback/graphql".to_string()),
-                    package_root: Some("/repo/packages/playback/base".to_string()),
+                    output_dir: "/repo/packages/catalog/graphql".to_string(),
+                    import_alias: Some("@example/catalog/graphql".to_string()),
+                    package_root: Some("/repo/packages/catalog".to_string()),
                     manifest_data: Some(vec![ManifestEntry {
-                        source: "fragment PlaybackDisplay on Display { id }".to_string(),
-                        path: "./base.codegen".to_string(),
-                        name: "PlaybackDisplayFragmentDoc".to_string(),
+                        source: "fragment ProductCard on Product { id }".to_string(),
+                        path: "./catalog.codegen".to_string(),
+                        name: "ProductCardFragmentDoc".to_string(),
                     }]),
                     ..Default::default()
                 },
                 OutputConfig {
-                    output_dir: "/repo/packages/playback/web/graphql".to_string(),
-                    import_alias: Some("@soundtrack/playback/web/graphql".to_string()),
-                    package_root: Some("/repo/packages/playback/web".to_string()),
+                    output_dir: "/repo/packages/storefront/graphql".to_string(),
+                    import_alias: Some("@example/storefront/graphql".to_string()),
+                    package_root: Some("/repo/packages/storefront".to_string()),
                     manifest_data: Some(vec![ManifestEntry {
                         source: "query Web { web { id } }".to_string(),
-                        path: "./web.codegen".to_string(),
+                        path: "./storefront.codegen".to_string(),
                         name: "WebQueryDocument".to_string(),
                     }]),
                     ..Default::default()
@@ -2180,19 +2180,19 @@ mod tests {
         // A's alias rather than a relative path that would reach past A's
         // subpath exports.
         let output = transform(
-            "import { PlaybackDisplayFragmentDoc } from \"@soundtrack/playback/graphql\";\nconst d = PlaybackDisplayFragmentDoc;",
+            "import { ProductCardFragmentDoc } from \"@example/catalog/graphql\";\nconst d = ProductCardFragmentDoc;",
             two_project_config(),
-            "/repo/packages/playback/web/graphql/web.codegen.ts",
+            "/repo/packages/storefront/graphql/storefront.codegen.ts",
         );
 
         assert!(
             output.contains(
-                "import { PlaybackDisplayFragmentDoc } from \"@soundtrack/playback/graphql/base.codegen\""
+                "import { ProductCardFragmentDoc } from \"@example/catalog/graphql/catalog.codegen\""
             ),
             "got:\n{output}"
         );
         assert!(
-            !output.contains("\"@soundtrack/playback/graphql\";"),
+            !output.contains("\"@example/catalog/graphql\";"),
             "the barrel import must be gone, got:\n{output}"
         );
     }
@@ -2202,13 +2202,16 @@ mod tests {
         // A module inside A's own package keeps the relative path; only crossing
         // a package boundary needs the alias.
         let output = transform(
-            "import { graphql } from \"./graphql\";\nconst d = graphql(`fragment PlaybackDisplay on Display { id }`);",
+            "import { graphql } from \"./graphql\";\nconst d = graphql(`fragment ProductCard on Product { id }`);",
             two_project_config(),
-            "/repo/packages/playback/base/graphql/consumer.ts",
+            "/repo/packages/catalog/graphql/consumer.ts",
         );
 
-        assert!(output.contains("from \"./base.codegen\""), "got:\n{output}");
-        assert!(!output.contains("@soundtrack"), "got:\n{output}");
+        assert!(
+            output.contains("from \"./catalog.codegen\""),
+            "got:\n{output}"
+        );
+        assert!(!output.contains("@example"), "got:\n{output}");
     }
 
     #[test]
@@ -2216,13 +2219,13 @@ mod tests {
         // The call resolves through the output its `graphql` symbol was imported
         // from, so two outputs are never ambiguous for the same source text.
         let output = transform(
-            "import { graphql } from \"@soundtrack/playback/web/graphql\";\nconst q = graphql(`query Web { web { id } }`);",
+            "import { graphql } from \"@example/storefront/graphql\";\nconst q = graphql(`query Web { web { id } }`);",
             two_project_config(),
-            "/repo/apps/business/app/thing.ts",
+            "/repo/apps/web/app/thing.ts",
         );
 
         assert!(
-            output.contains("@soundtrack/playback/web/graphql/web.codegen"),
+            output.contains("@example/storefront/graphql/storefront.codegen"),
             "got:\n{output}"
         );
     }
@@ -2230,8 +2233,8 @@ mod tests {
     #[test]
     fn test_entrypoint_cleared_for_every_configured_output() {
         for entrypoint in [
-            "/repo/packages/playback/base/graphql/graphql.ts",
-            "/repo/packages/playback/web/graphql/graphql.ts",
+            "/repo/packages/catalog/graphql/graphql.ts",
+            "/repo/packages/storefront/graphql/graphql.ts",
         ] {
             let output = transform(
                 "export const documents = { a: 1 }; export const graphql = () => documents;",
@@ -2253,9 +2256,9 @@ mod tests {
     #[should_panic(expected = "in none of the configured manifests")]
     fn test_unresolved_document_names_the_configured_outputs() {
         transform(
-            "import { SomeOtherDoc } from \"@soundtrack/playback/graphql\";\nconst d = SomeOtherDoc;",
+            "import { SomeOtherDoc } from \"@example/catalog/graphql\";\nconst d = SomeOtherDoc;",
             two_project_config(),
-            "/repo/packages/playback/web/graphql/web.codegen.ts",
+            "/repo/packages/storefront/graphql/storefront.codegen.ts",
         );
     }
 
@@ -2266,55 +2269,55 @@ mod tests {
         config.outputs.as_mut().unwrap()[0].import_alias = None;
         // Still recognised via graphqlImportPaths, but not rewritable.
         config.outputs.as_mut().unwrap()[0].graphql_import_paths =
-            Some(vec!["@soundtrack/playback/graphql".to_string()]);
+            Some(vec!["@example/catalog/graphql".to_string()]);
 
         transform(
-            "import { PlaybackDisplayFragmentDoc } from \"@soundtrack/playback/graphql\";\nconst d = PlaybackDisplayFragmentDoc;",
+            "import { ProductCardFragmentDoc } from \"@example/catalog/graphql\";\nconst d = ProductCardFragmentDoc;",
             config,
-            "/repo/packages/playback/web/graphql/web.codegen.ts",
+            "/repo/packages/storefront/graphql/storefront.codegen.ts",
         );
     }
     // --- duplicate document names across projects ------------------------------
 
-    /// Two projects that legitimately share document names. `AssignSource` has
-    /// byte-identical source in both; `BlockTrack` differs. Neither is ambiguous:
+    /// Two projects that legitimately share document names. `SetPrice` has
+    /// byte-identical source in both; `ArchiveItem` differs. Neither is ambiguous:
     /// resolution is scoped to the entrypoint the import came from.
     fn duplicate_name_config() -> Config {
         Config {
             outputs: Some(vec![
                 OutputConfig {
-                    output_dir: "/repo/apps/business/app/graphql".to_string(),
-                    import_alias: Some("@business/graphql".to_string()),
-                    package_root: Some("/repo/apps/business".to_string()),
+                    output_dir: "/repo/apps/web/app/graphql".to_string(),
+                    import_alias: Some("@example/web/graphql".to_string()),
+                    package_root: Some("/repo/apps/web".to_string()),
                     manifest_data: Some(vec![
                         ManifestEntry {
-                            source: "mutation AssignSource { assignSource { id } }".to_string(),
-                            path: "./business.codegen".to_string(),
-                            name: "AssignSourceMutationDocument".to_string(),
+                            source: "mutation SetPrice { setPrice { id } }".to_string(),
+                            path: "./web.codegen".to_string(),
+                            name: "SetPriceMutationDocument".to_string(),
                         },
                         ManifestEntry {
-                            source: "mutation BlockTrack { blockTrack { id } }".to_string(),
-                            path: "./business.codegen".to_string(),
-                            name: "BlockTrackMutationDocument".to_string(),
+                            source: "mutation ArchiveItem { archiveItem { id } }".to_string(),
+                            path: "./web.codegen".to_string(),
+                            name: "ArchiveItemMutationDocument".to_string(),
                         },
                     ]),
                     ..Default::default()
                 },
                 OutputConfig {
-                    output_dir: "/repo/packages/playback/remote/graphql".to_string(),
-                    import_alias: Some("@soundtrack/playback-remote/graphql".to_string()),
-                    package_root: Some("/repo/packages/playback/remote".to_string()),
+                    output_dir: "/repo/packages/checkout/graphql".to_string(),
+                    import_alias: Some("@example/checkout/graphql".to_string()),
+                    package_root: Some("/repo/packages/checkout".to_string()),
                     manifest_data: Some(vec![
                         ManifestEntry {
-                            source: "mutation AssignSource { assignSource { id } }".to_string(),
-                            path: "./remote.codegen".to_string(),
-                            name: "AssignSourceMutationDocument".to_string(),
+                            source: "mutation SetPrice { setPrice { id } }".to_string(),
+                            path: "./checkout.codegen".to_string(),
+                            name: "SetPriceMutationDocument".to_string(),
                         },
                         ManifestEntry {
-                            source: "mutation BlockTrack { blockTrack(remote: true) { id } }"
+                            source: "mutation ArchiveItem { archiveItem(remote: true) { id } }"
                                 .to_string(),
-                            path: "./remote.codegen".to_string(),
-                            name: "BlockTrackMutationDocument".to_string(),
+                            path: "./checkout.codegen".to_string(),
+                            name: "ArchiveItemMutationDocument".to_string(),
                         },
                     ]),
                     ..Default::default()
@@ -2328,21 +2331,21 @@ mod tests {
     fn test_identical_source_in_two_projects_resolves_per_entrypoint() {
         // Byte-identical source in both manifests. The call resolves through the
         // entrypoint its `graphql` symbol came from, so each side gets its own.
-        let business = transform(
-            "import { graphql } from \"./graphql\";\nconst m = graphql(`mutation AssignSource { assignSource { id } }`);",
+        let web = transform(
+            "import { graphql } from \"./graphql\";\nconst m = graphql(`mutation SetPrice { setPrice { id } }`);",
             duplicate_name_config(),
-            "/repo/apps/business/app/graphql/consumer.ts",
+            "/repo/apps/web/app/graphql/consumer.ts",
         );
-        assert!(business.contains("./business.codegen"), "got:\n{business}");
-        assert!(!business.contains("remote.codegen"), "got:\n{business}");
+        assert!(web.contains("./web.codegen"), "got:\n{web}");
+        assert!(!web.contains("checkout.codegen"), "got:\n{web}");
 
-        let remote = transform(
-            "import { graphql } from \"./graphql\";\nconst m = graphql(`mutation AssignSource { assignSource { id } }`);",
+        let checkout = transform(
+            "import { graphql } from \"./graphql\";\nconst m = graphql(`mutation SetPrice { setPrice { id } }`);",
             duplicate_name_config(),
-            "/repo/packages/playback/remote/graphql/consumer.ts",
+            "/repo/packages/checkout/graphql/consumer.ts",
         );
-        assert!(remote.contains("./remote.codegen"), "got:\n{remote}");
-        assert!(!remote.contains("business.codegen"), "got:\n{remote}");
+        assert!(checkout.contains("./checkout.codegen"), "got:\n{checkout}");
+        assert!(!checkout.contains("web.codegen"), "got:\n{checkout}");
     }
 
     #[test]
@@ -2350,46 +2353,40 @@ mod tests {
         // Same name, different source. A named import resolves in the manifest of
         // whichever output the specifier matched. This module is inside the
         // business package, so its own documents come in by relative path.
-        let business = transform(
-            "import { BlockTrackMutationDocument } from \"@business/graphql\";\nconst d = BlockTrackMutationDocument;",
+        let web = transform(
+            "import { ArchiveItemMutationDocument } from \"@example/web/graphql\";\nconst d = ArchiveItemMutationDocument;",
             duplicate_name_config(),
-            "/repo/apps/business/app/thing.ts",
+            "/repo/apps/web/app/thing.ts",
         );
-        assert!(
-            business.contains("./graphql/business.codegen"),
-            "got:\n{business}"
-        );
-        assert!(!business.contains("remote.codegen"), "got:\n{business}");
+        assert!(web.contains("./graphql/web.codegen"), "got:\n{web}");
+        assert!(!web.contains("checkout.codegen"), "got:\n{web}");
 
-        let remote = transform(
-            "import { BlockTrackMutationDocument } from \"@soundtrack/playback-remote/graphql\";\nconst d = BlockTrackMutationDocument;",
+        let checkout = transform(
+            "import { ArchiveItemMutationDocument } from \"@example/checkout/graphql\";\nconst d = ArchiveItemMutationDocument;",
             duplicate_name_config(),
-            "/repo/apps/business/app/thing.ts",
+            "/repo/apps/web/app/thing.ts",
         );
         assert!(
-            remote.contains("@soundtrack/playback-remote/graphql/remote.codegen"),
-            "got:\n{remote}"
+            checkout.contains("@example/checkout/graphql/checkout.codegen"),
+            "got:\n{checkout}"
         );
-        assert!(!remote.contains("business.codegen"), "got:\n{remote}");
+        assert!(!checkout.contains("web.codegen"), "got:\n{checkout}");
     }
 
     #[test]
     fn test_both_duplicated_documents_in_one_module() {
         // The sharpest case: one module pulls the same name from both projects.
         let output = transform(
-            "import { BlockTrackMutationDocument as B1 } from \"@business/graphql\";\nimport { BlockTrackMutationDocument as B2 } from \"@soundtrack/playback-remote/graphql\";\nconst a = B1; const b = B2;",
+            "import { ArchiveItemMutationDocument as B1 } from \"@example/web/graphql\";\nimport { ArchiveItemMutationDocument as B2 } from \"@example/checkout/graphql\";\nconst a = B1; const b = B2;",
             duplicate_name_config(),
-            "/repo/apps/business/app/thing.ts",
+            "/repo/apps/web/app/thing.ts",
         );
 
         // Local project by relative path, the other through its alias — the same
         // name resolving two different ways in one module.
+        assert!(output.contains("./graphql/web.codegen"), "got:\n{output}");
         assert!(
-            output.contains("./graphql/business.codegen"),
-            "got:\n{output}"
-        );
-        assert!(
-            output.contains("@soundtrack/playback-remote/graphql/remote.codegen"),
+            output.contains("@example/checkout/graphql/checkout.codegen"),
             "got:\n{output}"
         );
     }

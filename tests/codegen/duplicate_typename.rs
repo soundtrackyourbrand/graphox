@@ -24,12 +24,12 @@ type SmartShuffleOrigin {
   id: ID!
 }
 
-type PlaybackItem {
+type CatalogItem {
   origin: Origin
 }
 
 type Query {
-  item: PlaybackItem
+  item: CatalogItem
 }
 "#,
     )
@@ -42,7 +42,7 @@ type Query {
         &query_file,
         r#"
 const fragment = gql`
-  fragment PlaybackItemFragment on PlaybackItem {
+  fragment CatalogItemFragment on CatalogItem {
     origin {
       ... on ManuallyQueuedOrigin {
         __typename

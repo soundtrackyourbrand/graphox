@@ -137,7 +137,7 @@ async fn test_missing_field_literal_include_matching() {
     fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
 
     // Create a sub-directory and a file in it
-    let sub_dir_rel = "packages/playback/src";
+    let sub_dir_rel = "packages/catalog/src";
     let sub_dir = dir.path().join(sub_dir_rel);
     fs::create_dir_all(&sub_dir).expect("create sub-dir");
 

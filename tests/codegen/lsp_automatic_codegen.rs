@@ -1107,30 +1107,30 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
         type User {
           id: ID!
           name: String
-          display: Display
+          product: Product
         }
 
-        type Display {
+        type Product {
           title: String
         }
         "#,
     )
     .unwrap();
 
-    let playback_path = base_dir.join("apps/mobile/app/lib/playback/graphql.ts");
-    fs::create_dir_all(playback_path.parent().unwrap()).unwrap();
+    let catalog_path = base_dir.join("apps/mobile/app/lib/catalog/graphql.ts");
+    fs::create_dir_all(catalog_path.parent().unwrap()).unwrap();
     fs::write(
-        &playback_path,
+        &catalog_path,
         r#"
         import type { ResultOf } from '@graphql-typed-document-node/core';
         import { graphql } from 'app/graphql';
 
-        const PlaybackDisplayFragmentDoc = graphql(/* GraphQL */ `
-          fragment PlaybackDisplay on Display {
+        const ProductCardFragmentDoc = graphql(/* GraphQL */ `
+          fragment ProductCard on Product {
             title
           }
         `);
-        export type PlaybackDisplayFragment = ResultOf<typeof PlaybackDisplayFragmentDoc>;
+        export type ProductCardFragment = ResultOf<typeof ProductCardFragmentDoc>;
         "#,
     )
     .unwrap();
@@ -1182,28 +1182,28 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
     let output_dir = base_dir.join("apps/mobile/app/graphql");
     let cli_snapshot = snapshot_generated_tree(&output_dir);
     assert!(
-        cli_snapshot.contains_key("lib/playback/graphql.codegen.ts"),
-        "CLI snapshot should contain generated playback fragment module"
+        cli_snapshot.contains_key("lib/catalog/graphql.codegen.ts"),
+        "CLI snapshot should contain generated catalog fragment module"
     );
     assert!(
-        cli_snapshot["lib/playback/graphql.codegen.ts"].contains("PlaybackDisplayFragmentDoc"),
-        "CLI snapshot should export the playback fragment document. content={}",
-        cli_snapshot["lib/playback/graphql.codegen.ts"]
+        cli_snapshot["lib/catalog/graphql.codegen.ts"].contains("ProductCardFragmentDoc"),
+        "CLI snapshot should export the catalog fragment document. content={}",
+        cli_snapshot["lib/catalog/graphql.codegen.ts"]
     );
 
     fs::remove_dir_all(&output_dir).unwrap();
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let playback_uri = Url::from_file_path(&playback_path).unwrap();
+    let catalog_uri = Url::from_file_path(&catalog_path).unwrap();
     {
         // This manipulation is intentional for testing the cold-cache scenario (i.e., to simulate files
         // absent from the live cache). It couples the test to internal state (backend.metadata, backend.documents)
         // so that we can verify the engine correctly re-discovers files from disk when they are missing from
         // the in-memory cache but still present on disk and within the project's include patterns.
         let backend = service.inner();
-        backend.metadata.remove(&playback_uri);
-        backend.documents.remove(&playback_uri);
+        backend.metadata.remove(&catalog_uri);
+        backend.documents.remove(&catalog_uri);
     }
 
     let home_uri = Url::from_file_path(&home_path).unwrap();
@@ -1226,31 +1226,31 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
         .await
         .unwrap();
 
-    let playback_codegen = output_dir.join("lib/playback/graphql.codegen.ts");
+    let catalog_codegen = output_dir.join("lib/catalog/graphql.codegen.ts");
     assert!(
         support::wait_for_file_async(
-            &playback_codegen,
+            &catalog_codegen,
             Duration::from_millis(2000),
-            Some("PlaybackDisplayFragmentDoc"),
+            Some("ProductCardFragmentDoc"),
         )
         .await,
         "LSP auto-codegen should regenerate fragment-only project files even when they were absent from the live metadata cache. exists={} content={}",
-        playback_codegen.exists(),
-        if playback_codegen.exists() {
-            fs::read_to_string(&playback_codegen).unwrap()
+        catalog_codegen.exists(),
+        if catalog_codegen.exists() {
+            fs::read_to_string(&catalog_codegen).unwrap()
         } else {
             "<missing>".to_string()
         }
     );
     assert!(
-        service.inner().documents.get(&playback_uri).is_none(),
+        service.inner().documents.get(&catalog_uri).is_none(),
         "LSP codegen should not populate backend.documents for unopened files from disk during codegen runs"
     );
     assert!(
         support::wait_for_file_async(
             &output_dir.join("manifest.json"),
             Duration::from_millis(2000),
-            Some("PlaybackDisplayFragmentDoc"),
+            Some("ProductCardFragmentDoc"),
         )
         .await,
         "LSP auto-codegen should finish writing the manifest before comparing bundle snapshots"

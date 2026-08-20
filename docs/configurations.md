@@ -570,8 +570,8 @@ For projects with multiple schemas, generate `possibleTypes` at the **project le
 projects:
   # Business API project
   - schema: "schemas/business.graphql"
-    include: "apps/business/src/**/*.{ts,tsx}"
-    possible_types: "apps/business/src/graphql-introspection.ts"
+    include: "apps/web/src/**/*.{ts,tsx}"
+    possible_types: "apps/web/src/graphql-introspection.ts"
 
   # Storefront project (different schema)
   - schema: "schemas/storefront.graphql"
@@ -592,7 +592,7 @@ schema_types:
 
 projects:
   - schema: "shared/schema.graphql"
-    include: "apps/business/**/*.{ts,tsx}"
+    include: "apps/web/**/*.{ts,tsx}"
 
   - schema: "shared/schema.graphql"
     include: "apps/storefront/**/*.{ts,tsx}"

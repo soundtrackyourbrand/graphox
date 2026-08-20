@@ -525,7 +525,7 @@ fn test_semantic_tokens_embedded_ts() {
     // to verify ranges are correctly translated
     let text = r#"
 import type { ResultOf } from '@graphql-typed-document-node/core'
-import type { Get } from '@soundtrackyourbrand/object-utils.js'
+import type { Get } from '@example/object-utils.js'
 import { graphql } from '@/src/graphql/gql'
 
 export const NearbySoundZonesDoc = graphql(/* GraphQL */ `

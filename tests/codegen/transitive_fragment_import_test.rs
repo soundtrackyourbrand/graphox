@@ -4,29 +4,29 @@ use std::process::Command;
 /// another fragment in a different file) does not get an `import` statement generated in the
 /// codegen file that references it by name in its TypeScript output.
 ///
-/// Concrete scenario (mirrors packages/playback/src/base.ts + remote.ts):
+/// Concrete scenario (mirrors packages/catalog/src/base.ts + remote.ts):
 ///
 ///   base.ts defines:
-///     - `fragment PlaybackDisplay on Display { ... }`
-///     - `fragment PlaylistInfo on Playlist { display { ...PlaybackDisplay } }`
+///     - `fragment ProductCard on Product { ... }`
+///     - `fragment PlaylistInfo on Playlist { product { ...ProductCard } }`
 ///
 ///   remote.ts defines:
-///     - a query that spreads `...PlaylistInfo` (NEVER spreads `...PlaybackDisplay` directly)
+///     - a query that spreads `...PlaylistInfo` (NEVER spreads `...ProductCard` directly)
 ///
-/// Codegen output in base.codegen.ts:
-///   export interface PlaybackDisplayFragment { ... }
+/// Codegen output in catalog.codegen.ts:
+///   export interface ProductCardFragment { ... }
 ///   export interface PlaylistInfoFragment {
-///     display: ({ __typename: "Display" } & PlaybackDisplayFragment) | null;
+///     product: ({ __typename: "Product" } & ProductCardFragment) | null;
 ///   }
 ///
-/// Expected codegen in remote.codegen.ts:
-///   import type { PlaylistInfoFragment, PlaybackDisplayFragment } from "./base.codegen";
-///   // PlaybackDisplayFragment must be imported because it appears by name in the
-///   // body of PlaylistInfoFragment, which remote.codegen.ts imports.
+/// Expected codegen in checkout.codegen.ts:
+///   import type { PlaylistInfoFragment, ProductCardFragment } from "./catalog.codegen";
+///   // ProductCardFragment must be imported because it appears by name in the
+///   // body of PlaylistInfoFragment, which checkout.codegen.ts imports.
 ///
-/// Actual (buggy) codegen in remote.codegen.ts:
-///   import type { PlaylistInfoFragment } from "./base.codegen";
-///   // PlaybackDisplayFragment is NOT imported even though it's referenced by name
+/// Actual (buggy) codegen in checkout.codegen.ts:
+///   import type { PlaylistInfoFragment } from "./catalog.codegen";
+///   // ProductCardFragment is NOT imported even though it's referenced by name
 ///   // inside PlaylistInfoFragment's type definition — TypeScript cannot resolve it.
 #[test]
 #[ntest::timeout(15000)]
@@ -49,7 +49,7 @@ type Query {
 type Playlist {
   id: ID!
   name: String!
-  display: Display
+  product: Product
 }
 
 type Track {
@@ -61,10 +61,10 @@ type Track {
 type Album {
   id: ID!
   title: String!
-  display: Display
+  product: Product
 }
 
-type Display {
+type Product {
   image: Image
 }
 
@@ -76,14 +76,14 @@ type Image {
     .unwrap();
 
     // --- base.ts ---
-    // Defines PlaybackDisplay (no @public) and TrackInfo (no @public) which spreads PlaybackDisplay.
-    // Also defines PlaylistInfo which spreads PlaybackDisplay.
-    // This mirrors base.ts in the playback package.
+    // Defines ProductCard (no @public) and TrackInfo (no @public) which spreads ProductCard.
+    // Also defines PlaylistInfo which spreads ProductCard.
+    // This mirrors base.ts in the catalog package.
     std::fs::write(
-        temp_dir.join("base.ts"),
+        temp_dir.join("catalog.ts"),
         r#"
 const a = gql`
-  fragment PlaybackDisplay on Display {
+  fragment ProductCard on Product {
     image {
       placeholder
     }
@@ -97,8 +97,8 @@ const b = gql`
     album {
       id
       title
-      display {
-        ...PlaybackDisplay
+      product {
+        ...ProductCard
       }
     }
   }
@@ -108,8 +108,8 @@ const c = gql`
   fragment PlaylistInfo on Playlist {
     id
     name
-    display {
-      ...PlaybackDisplay
+    product {
+      ...ProductCard
     }
   }
 `;
@@ -119,10 +119,10 @@ const c = gql`
 
     // --- remote.ts ---
     // Directly spreads ...TrackInfo and ...PlaylistInfo in its operations,
-    // but never directly spreads ...PlaybackDisplay.
-    // This mirrors remote.ts in the playback package.
+    // but never directly spreads ...ProductCard.
+    // This mirrors remote.ts in the catalog package.
     std::fs::write(
-        temp_dir.join("remote.ts"),
+        temp_dir.join("checkout.ts"),
         r#"
 const q = gql`
   query GetPlaylist($id: ID!) {
@@ -142,8 +142,8 @@ const q = gql`
 projects:
   - schema: "schema.graphql"
     include:
-      - "base.ts"
-      - "remote.ts"
+      - "catalog.ts"
+      - "checkout.ts"
     output_dir: "."
     codegen:
       fragment_suffix: "Fragment"
@@ -164,29 +164,29 @@ projects:
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let remote_codegen = temp_dir.join("remote.codegen.ts");
-    let content = std::fs::read_to_string(&remote_codegen)
-        .unwrap_or_else(|_| panic!("remote.codegen.ts was not generated"));
+    let checkout_codegen = temp_dir.join("checkout.codegen.ts");
+    let content = std::fs::read_to_string(&checkout_codegen)
+        .unwrap_or_else(|_| panic!("checkout.codegen.ts was not generated"));
 
-    println!("=== remote.codegen.ts ===\n{content}");
+    println!("=== checkout.codegen.ts ===\n{content}");
 
     // Sanity check: PlaylistInfoFragment IS imported (directly spread in remote.ts).
     assert!(
-        content.contains("PlaylistInfoFragment") && content.contains("\"./base.codegen\""),
+        content.contains("PlaylistInfoFragment") && content.contains("\"./catalog.codegen\""),
         "PlaylistInfoFragment should be imported (it is directly spread in remote.ts).\nContent:\n{content}"
     );
 
-    // BUG ASSERTION: PlaybackDisplayFragment is referenced BY NAME inside the body of
-    // PlaylistInfoFragment in base.codegen.ts
-    // Confirm the bug is fixed: PlaybackDisplayFragment IS referenced AND imported.
+    // BUG ASSERTION: ProductCardFragment is referenced BY NAME inside the body of
+    // PlaylistInfoFragment in catalog.codegen.ts
+    // Confirm the bug is fixed: ProductCardFragment IS referenced AND imported.
     assert!(
-        content.contains("PlaybackDisplayFragment"),
-        "Expected PlaybackDisplayFragment to be referenced in remote.codegen.ts (via PlaylistInfoFragment).\nContent:\n{content}"
+        content.contains("ProductCardFragment"),
+        "Expected ProductCardFragment to be referenced in checkout.codegen.ts (via PlaylistInfoFragment).\nContent:\n{content}"
     );
 
     assert!(
-        content.contains("PlaybackDisplayFragment") && content.contains("\"./base.codegen\""),
-        "PlaybackDisplayFragment should be imported from base.codegen.\nContent:\n{content}"
+        content.contains("ProductCardFragment") && content.contains("\"./catalog.codegen\""),
+        "ProductCardFragment should be imported from catalog.codegen.\nContent:\n{content}"
     );
 
     // Cleanup

@@ -114,7 +114,7 @@ graphox.createSWCPlugin({
   outputs: [
     { outputDir: path.resolve(__dirname, 'app/graphql') },
     { outputDir: path.resolve(repoRoot, 'packages/auth/graphql') },
-    { outputDir: path.resolve(repoRoot, 'packages/playback/base/graphql') },
+    { outputDir: path.resolve(repoRoot, 'packages/catalog/graphql') },
   ],
 })
 ```
@@ -138,11 +138,11 @@ subpath exports, so the import goes through the package's public specifier
 instead:
 
 ```ts
-// packages/playback/web/graphql/web.codegen.ts, before
-import { PlaybackDisplayFragmentDoc } from "@soundtrack/playback/graphql";
+// packages/storefront/graphql/storefront.codegen.ts, before
+import { ProductCardFragmentDoc } from "@example/catalog/graphql";
 
 // after
-import { PlaybackDisplayFragmentDoc } from "@soundtrack/playback/graphql/base.codegen";
+import { ProductCardFragmentDoc } from "@example/catalog/graphql/catalog.codegen";
 ```
 
 That requires the owning package to export the files inside its output
@@ -150,7 +150,7 @@ directory, not just the entrypoint:
 
 ```json
 {
-  "name": "@soundtrack/playback",
+  "name": "@example/catalog",
   "exports": {
     "./graphql": "./graphql/index.ts",
     "./graphql/*": "./graphql/*"
@@ -165,7 +165,7 @@ resolves to the output directory — so set `importAlias` explicitly for a packa
 with no `exports` field, or one resolved only through bundler aliases.
 
 Document names and sources may repeat across outputs. Two projects defining
-`AssignSourceMutationDocument`, even with identical source text, is fine:
+`SetPriceMutationDocument`, even with identical source text, is fine:
 resolution is scoped to the entrypoint an import came from rather than searched
 across a merged map.
 
@@ -186,7 +186,7 @@ Each entry in `outputs`:
 | `manifestPath` | `string` | No | Path to `manifest.json`. Defaults to `<outputDir>/manifest.json` |
 | `manifestData` | `object[]` | No | Inline manifest data, used instead of `manifestPath` |
 | `graphqlImportPaths` | `string[]` | No | Extra import paths to treat as GraphQL entrypoints |
-| `importAlias` | `string` | No | Public specifier for this output, e.g. `@soundtrack/playback/graphql`. Inferred from the package's `name` and `exports` |
+| `importAlias` | `string` | No | Public specifier for this output, e.g. `@example/catalog/graphql`. Inferred from the package's `name` and `exports` |
 | `packageRoot` | `string` | No | Root of the package owning this output. Inferred as the directory of the nearest `package.json` |
 
 *The single-output form — `outputDir`, `manifestPath`, `manifestData`,

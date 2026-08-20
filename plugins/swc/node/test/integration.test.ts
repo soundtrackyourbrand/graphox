@@ -371,28 +371,28 @@ describe('multi-project outputs', () => {
   function fixture(baseExports: Record<string, unknown>) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphox-multi-'));
 
-    const base = path.join(root, 'packages/playback/base');
+    const base = path.join(root, 'packages/catalog');
     fs.mkdirSync(path.join(base, 'graphql'), { recursive: true });
     fs.writeFileSync(
       path.join(base, 'package.json'),
-      JSON.stringify({ name: '@soundtrack/playback', exports: baseExports })
+      JSON.stringify({ name: '@example/catalog', exports: baseExports })
     );
     fs.writeFileSync(
       path.join(base, 'graphql/manifest.json'),
       JSON.stringify([
         {
-          source: 'fragment PlaybackDisplay on Display { id }',
-          path: './base.codegen',
-          name: 'PlaybackDisplayFragmentDoc',
+          source: 'fragment ProductCard on Product { id }',
+          path: './catalog.codegen',
+          name: 'ProductCardFragmentDoc',
         },
       ])
     );
 
-    const web = path.join(root, 'packages/playback/web');
+    const web = path.join(root, 'packages/storefront');
     fs.mkdirSync(path.join(web, 'graphql'), { recursive: true });
     fs.writeFileSync(
       path.join(web, 'package.json'),
-      JSON.stringify({ name: '@soundtrack/playback-web', exports: { './graphql': './graphql/index.ts' } })
+      JSON.stringify({ name: '@example/catalog-web', exports: { './graphql': './graphql/index.ts' } })
     );
     fs.writeFileSync(path.join(web, 'graphql/manifest.json'), JSON.stringify([]));
 
@@ -412,7 +412,7 @@ describe('multi-project outputs', () => {
     );
 
     const output = outputs[0];
-    expect(output.importAlias).toBe('@soundtrack/playback/graphql');
+    expect(output.importAlias).toBe('@example/catalog/graphql');
     expect(output.packageRoot).toBe(base);
     expect(warnings).toEqual([]);
   });
@@ -428,7 +428,7 @@ describe('multi-project outputs', () => {
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('"./graphql/*": "./graphql/*"');
-    expect(warnings[0]).toContain('@soundtrack/playback/graphql/<file>');
+    expect(warnings[0]).toContain('@example/catalog/graphql/<file>');
   });
 
   it('treats the alias as a recognised entrypoint', () => {
@@ -438,7 +438,7 @@ describe('multi-project outputs', () => {
       { cwd: root, onWarn: () => {} }
     );
 
-    expect(outputs[0].graphqlImportPaths).toContain('@soundtrack/playback/graphql');
+    expect(outputs[0].graphqlImportPaths).toContain('@example/catalog/graphql');
   });
 
   it('inlines a manifest per output', () => {
@@ -487,9 +487,9 @@ describe('multi-project outputs', () => {
     const { root, base, web } = fixture({ './graphql': './graphql/index.ts' });
     const shared = [
       {
-        source: 'fragment PlaybackDisplay on Display { id }',
-        path: './web.codegen',
-        name: 'PlaybackDisplayFragmentDoc',
+        source: 'fragment ProductCard on Product { id }',
+        path: './storefront.codegen',
+        name: 'ProductCardFragmentDoc',
       },
     ];
 
@@ -503,8 +503,8 @@ describe('multi-project outputs', () => {
       { cwd: root, onWarn: () => {} }
     );
 
-    expect(outputs[0].manifestData![0].path).toBe('./base.codegen');
-    expect(outputs[1].manifestData![0].path).toBe('./web.codegen');
+    expect(outputs[0].manifestData![0].path).toBe('./catalog.codegen');
+    expect(outputs[1].manifestData![0].path).toBe('./storefront.codegen');
   });
 
   it('still accepts the single-output form', () => {

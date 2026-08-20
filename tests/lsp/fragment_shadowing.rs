@@ -14,16 +14,16 @@ async fn test_fragment_references_respect_shadowing() {
     let schema_path = dir.path().join("schema.graphql");
     fs::write(&schema_path, schema_text).expect("write schema");
 
-    fs::create_dir_all(dir.path().join("packages/playback")).unwrap();
-    fs::write(dir.path().join("packages/playback/package.json"), "{}").unwrap();
-    fs::create_dir_all(dir.path().join("apps/business")).unwrap();
-    fs::write(dir.path().join("apps/business/package.json"), "{}").unwrap();
+    fs::create_dir_all(dir.path().join("packages/catalog")).unwrap();
+    fs::write(dir.path().join("packages/catalog/package.json"), "{}").unwrap();
+    fs::create_dir_all(dir.path().join("apps/web")).unwrap();
+    fs::write(dir.path().join("apps/web/package.json"), "{}").unwrap();
 
-    let query_a_text = "fragment PlaybackDisplay on Display @public { id } # A_DEF\nquery GetA { user { display { ...PlaybackDisplay } } } # A_USAGE";
-    let query_b_text = "fragment PlaybackDisplay on Display { name } # B_DEF\nquery GetB { user { display { ...PlaybackDisplay } } } # B_USAGE";
+    let query_a_text = "fragment ProductCard on Product @public { id } # A_DEF\nquery GetA { user { display { ...ProductCard } } } # A_USAGE";
+    let query_b_text = "fragment ProductCard on Product { name } # B_DEF\nquery GetB { user { display { ...ProductCard } } } # B_USAGE";
 
-    let query_a_uri = write_project_file(&dir, "packages/playback/query.graphql", query_a_text);
-    let query_b_uri = write_project_file(&dir, "apps/business/query.graphql", query_b_text);
+    let query_a_uri = write_project_file(&dir, "packages/catalog/query.graphql", query_a_text);
+    let query_b_uri = write_project_file(&dir, "apps/web/query.graphql", query_b_text);
 
     let config = Config::new_test(
         dir.path().to_path_buf(),
@@ -31,14 +31,12 @@ async fn test_fragment_references_respect_shadowing() {
             ProjectConfig::default()
                 .with_schema(SchemaSource::Single("schema.graphql".to_string()))
                 .with_include(GlobPattern::Single(
-                    "packages/playback/**/*.graphql".to_string(),
+                    "packages/catalog/**/*.graphql".to_string(),
                 ))
                 .with_codegen(CodegenConfig::disabled()),
             ProjectConfig::default()
                 .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-                .with_include(GlobPattern::Single(
-                    "apps/business/**/*.graphql".to_string(),
-                ))
+                .with_include(GlobPattern::Single("apps/web/**/*.graphql".to_string()))
                 .with_codegen(CodegenConfig::disabled()),
         ],
     )
@@ -82,7 +80,7 @@ async fn test_fragment_references_respect_shadowing() {
         _ => panic!("Expected scalar location"),
     };
     assert!(
-        loc_def.uri.as_str().contains("apps/business"),
+        loc_def.uri.as_str().contains("apps/web"),
         "Definition for B usage should be in B, got {}",
         loc_def.uri
     );
@@ -107,7 +105,7 @@ async fn test_fragment_references_respect_shadowing() {
     let locations = result_ref.expect("Should have references");
     for loc in &locations {
         assert!(
-            loc.uri.as_str().contains("packages/playback"),
+            loc.uri.as_str().contains("packages/catalog"),
             "Reference in {} should be in Project A",
             loc.uri
         );
@@ -126,7 +124,7 @@ async fn test_fragment_references_respect_shadowing() {
             },
             position: Position::new(0, 9),
         },
-        new_name: "RenamedDisplay".to_string(),
+        new_name: "RenamedProductCard".to_string(),
         work_done_progress_params: Default::default(),
     };
 

@@ -212,9 +212,9 @@ describe('@graphox/babel-plugin', () => {
   it('rewrites dynamic import destructuring from graphql.js to the codegen module', () => {
     const manifest = [
       {
-        source: 'mutation CreatePlaybackClient { createPlaybackClient { id } }',
-        path: './CreatePlaybackClientMutation.codegen',
-        name: 'CreatePlaybackClientDocument',
+        source: 'mutation CreateCart { createCart { id } }',
+        path: './CreateCartMutation.codegen',
+        name: 'CreateCartDocument',
       },
     ];
     const outputDir = path.resolve('/root/gen');
@@ -222,16 +222,16 @@ describe('@graphox/babel-plugin', () => {
     const output = transform(
       `
         async function load() {
-          const { CreatePlaybackClientDocument } = await import('../gen/graphql.js');
-          return CreatePlaybackClientDocument;
+          const { CreateCartDocument } = await import('../gen/graphql.js');
+          return CreateCartDocument;
         }
       `,
       { manifestData: manifest, outputDir },
       filename,
     );
 
-    expect(output).toContain('CreatePlaybackClientDocument');
-    expect(output).toContain('await import("../gen/CreatePlaybackClientMutation.codegen")');
+    expect(output).toContain('CreateCartDocument');
+    expect(output).toContain('await import("../gen/CreateCartMutation.codegen")');
     expect(output).not.toContain('graphql.js');
   });
 
@@ -587,41 +587,41 @@ describe('@graphox/babel-plugin', () => {
   });
 
   describe('multi-project outputs', () => {
-    const businessOut = path.resolve('/repo/apps/business/app/graphql');
-    const remoteOut = path.resolve('/repo/packages/playback/remote/graphql');
+    const businessOut = path.resolve('/repo/apps/web/app/graphql');
+    const remoteOut = path.resolve('/repo/packages/checkout/graphql');
 
     const outputs = [
       {
         outputDir: businessOut,
-        importAlias: '@business/graphql',
-        packageRoot: path.resolve('/repo/apps/business'),
+        importAlias: '@example/web/graphql',
+        packageRoot: path.resolve('/repo/apps/web'),
         manifestData: [
           {
-            source: 'mutation AssignSource { assignSource { id } }',
-            path: './business.codegen',
-            name: 'AssignSourceMutationDocument',
+            source: 'mutation SetPrice { setPrice { id } }',
+            path: './web.codegen',
+            name: 'SetPriceMutationDocument',
           },
           {
-            source: 'mutation BlockTrack { blockTrack { id } }',
-            path: './business.codegen',
-            name: 'BlockTrackMutationDocument',
+            source: 'mutation ArchiveItem { archiveItem { id } }',
+            path: './web.codegen',
+            name: 'ArchiveItemMutationDocument',
           },
         ],
       },
       {
         outputDir: remoteOut,
-        importAlias: '@soundtrack/playback-remote/graphql',
-        packageRoot: path.resolve('/repo/packages/playback/remote'),
+        importAlias: '@example/checkout/graphql',
+        packageRoot: path.resolve('/repo/packages/checkout'),
         manifestData: [
           {
-            source: 'mutation AssignSource { assignSource { id } }',
-            path: './remote.codegen',
-            name: 'AssignSourceMutationDocument',
+            source: 'mutation SetPrice { setPrice { id } }',
+            path: './checkout.codegen',
+            name: 'SetPriceMutationDocument',
           },
           {
-            source: 'mutation BlockTrack { blockTrack(remote: true) { id } }',
-            path: './remote.codegen',
-            name: 'BlockTrackMutationDocument',
+            source: 'mutation ArchiveItem { archiveItem(remote: true) { id } }',
+            path: './checkout.codegen',
+            name: 'ArchiveItemMutationDocument',
           },
         ],
       },
@@ -629,44 +629,44 @@ describe('@graphox/babel-plugin', () => {
 
     it('rewrites a cross-package document import through the alias', () => {
       const code =
-        "import { BlockTrackMutationDocument } from '@soundtrack/playback-remote/graphql';\nconst d = BlockTrackMutationDocument;";
-      const output = transform(code, { outputs }, '/repo/apps/business/app/thing.ts');
+        "import { ArchiveItemMutationDocument } from '@example/checkout/graphql';\nconst d = ArchiveItemMutationDocument;";
+      const output = transform(code, { outputs }, '/repo/apps/web/app/thing.ts');
 
-      expect(output).toContain('@soundtrack/playback-remote/graphql/remote.codegen');
-      expect(output).not.toContain("'@soundtrack/playback-remote/graphql'");
+      expect(output).toContain('@example/checkout/graphql/checkout.codegen');
+      expect(output).not.toContain("'@example/checkout/graphql'");
     });
 
     it('keeps a same-package document import relative', () => {
       const code =
-        "import { BlockTrackMutationDocument } from '@business/graphql';\nconst d = BlockTrackMutationDocument;";
-      const output = transform(code, { outputs }, '/repo/apps/business/app/thing.ts');
+        "import { ArchiveItemMutationDocument } from '@example/web/graphql';\nconst d = ArchiveItemMutationDocument;";
+      const output = transform(code, { outputs }, '/repo/apps/web/app/thing.ts');
 
-      expect(output).toContain('graphql/business.codegen');
-      expect(output).not.toContain('@business/graphql/');
+      expect(output).toContain('graphql/web.codegen');
+      expect(output).not.toContain('@example/web/graphql/');
     });
 
     it('resolves identical document source per entrypoint', () => {
       const code =
-        "import { graphql } from './graphql';\nconst m = graphql(`mutation AssignSource { assignSource { id } }`);";
+        "import { graphql } from './graphql';\nconst m = graphql(`mutation SetPrice { setPrice { id } }`);";
 
       const business = transform(code, { outputs }, path.join(businessOut, 'consumer.ts'));
-      expect(business).toContain('./business.codegen');
-      expect(business).not.toContain('remote.codegen');
+      expect(business).toContain('./web.codegen');
+      expect(business).not.toContain('checkout.codegen');
 
       const remote = transform(code, { outputs }, path.join(remoteOut, 'consumer.ts'));
-      expect(remote).toContain('./remote.codegen');
-      expect(remote).not.toContain('business.codegen');
+      expect(remote).toContain('./checkout.codegen');
+      expect(remote).not.toContain('web.codegen');
     });
 
     it('resolves the same document name from both projects in one module', () => {
       const code =
-        "import { BlockTrackMutationDocument as B1 } from '@business/graphql';\n" +
-        "import { BlockTrackMutationDocument as B2 } from '@soundtrack/playback-remote/graphql';\n" +
+        "import { ArchiveItemMutationDocument as B1 } from '@example/web/graphql';\n" +
+        "import { ArchiveItemMutationDocument as B2 } from '@example/checkout/graphql';\n" +
         'const a = B1; const b = B2;';
-      const output = transform(code, { outputs }, '/repo/apps/business/app/thing.ts');
+      const output = transform(code, { outputs }, '/repo/apps/web/app/thing.ts');
 
-      expect(output).toContain('graphql/business.codegen');
-      expect(output).toContain('@soundtrack/playback-remote/graphql/remote.codegen');
+      expect(output).toContain('graphql/web.codegen');
+      expect(output).toContain('@example/checkout/graphql/checkout.codegen');
     });
 
     it('clears the entrypoint of every configured output', () => {
@@ -683,8 +683,8 @@ describe('@graphox/babel-plugin', () => {
 
     it('names the configured outputs when a document is in no manifest', () => {
       const code =
-        "import { MissingDoc } from '@business/graphql';\nconst d = MissingDoc;";
-      expect(() => transform(code, { outputs }, '/repo/apps/business/app/thing.ts')).toThrow(
+        "import { MissingDoc } from '@example/web/graphql';\nconst d = MissingDoc;";
+      expect(() => transform(code, { outputs }, '/repo/apps/web/app/thing.ts')).toThrow(
         /in none of the configured manifests/
       );
     });
@@ -694,7 +694,7 @@ describe('@graphox/babel-plugin', () => {
         transform(
           'const x = 1;',
           { outputs: [{ outputDir: businessOut }, { outputDir: path.join(businessOut, 'nested') }] },
-          '/repo/apps/business/app/thing.ts'
+          '/repo/apps/web/app/thing.ts'
         )
       ).toThrow(/overlap/);
     });

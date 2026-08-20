@@ -679,13 +679,13 @@ fn test_required_id_with_fragment_spread() {
         type Album {
             id: ID!
             title: String!
-            display: PlaybackDisplay
+            display: ProductCard
         }
         type Artist {
             id: ID!
             name: String!
         }
-        type PlaybackDisplay {
+        type ProductCard {
             id: ID!
             url: String
         }
@@ -696,7 +696,7 @@ fn test_required_id_with_fragment_spread() {
         .unwrap();
 
     let query_text = r#"
-        fragment PlaybackDisplay on PlaybackDisplay {
+        fragment ProductCard on ProductCard {
             id
             url
         }
@@ -707,7 +707,7 @@ fn test_required_id_with_fragment_spread() {
             durationMs
             album {
                 display {
-                    ...PlaybackDisplay
+                    ...ProductCard
                 }
                 id
                 title

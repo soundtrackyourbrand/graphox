@@ -35,7 +35,7 @@ fn test_union_fragment_codegen() {
     let content = run_codegen_fixture(
         "graphox_union_fragment_test",
         r#"
-union PlaybackSource = Playlist | Schedule | Soundtrack
+union MediaSource = Playlist | Schedule | Station
 
 type Playlist {
   id: ID!
@@ -47,13 +47,13 @@ type Schedule {
   time: String!
 }
 
-type Soundtrack {
+type Station {
   id: ID!
   artist: String!
 }
 
 type Query {
-  playFrom: PlaybackSource
+  playFrom: MediaSource
 }
 "#,
         r#"
@@ -83,10 +83,10 @@ projects:
     );
 
     // Current (presumably buggy) output might look like:
-    // playFrom: ({ __typename: "PlaybackSource" } & PlaylistInfo & ScheduleInfo) | null;
+    // playFrom: ({ __typename: "MediaSource" } & PlaylistInfo & ScheduleInfo) | null;
 
     // We want it to be more like a union:
-    // playFrom: PlaylistInfo | ScheduleInfo | { __typename: "Soundtrack" } | null;
+    // playFrom: PlaylistInfo | ScheduleInfo | { __typename: "Station" } | null;
 
     // Check if it's using intersection (buggy behavior)
     assert!(
@@ -95,9 +95,9 @@ projects:
         content
     );
 
-    // Check if it includes Soundtrack (the missing member)
+    // Check if it includes Station (the missing member)
     assert!(
-        content.contains("__typename: \"Soundtrack\""),
+        content.contains("__typename: \"Station\""),
         "Should include unhandled union members. Content:\n{}",
         content
     );
@@ -109,7 +109,7 @@ fn test_union_fragment_codegen_merge_keys_use_applicable_spreads() {
     let content = run_codegen_fixture(
         "graphox_union_fragment_merge_key_test",
         r#"
-union PlaybackSource = Playlist | Schedule | Soundtrack
+union MediaSource = Playlist | Schedule | Station
 
 type Playlist {
   id: ID!
@@ -121,13 +121,13 @@ type Schedule {
   time: String!
 }
 
-type Soundtrack {
+type Station {
   id: ID!
   artist: String!
 }
 
 type Query {
-  playFrom: PlaybackSource
+  playFrom: MediaSource
 }
 "#,
         r#"
