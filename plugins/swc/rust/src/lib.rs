@@ -493,6 +493,38 @@ impl TransformVisitor {
         )
     }
 
+    /// Stands in for `graphql`/`gql` once the entrypoint has been emptied.
+    ///
+    /// Nothing should reach it: a rewritten call site imports the generated
+    /// document directly, and a call site left holding a live reference to
+    /// `graphql` is a build error already. It is reachable only when the plugin
+    /// failed to recognise the specifier some module used to import this
+    /// entrypoint — the module is then untouched while the entrypoint it calls is
+    /// emptied regardless, because clearing keys on the file path. Returning a
+    /// non-document there fails much later, inside whichever client receives it,
+    /// with nothing pointing back here.
+    fn emptied_entrypoint_stub(&self) -> Expr {
+        let file = self
+            .current_file
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "this graphql entrypoint".to_string());
+
+        let message = format!(
+            "graphox: {} was emptied at build time — its documents are inlined into the \
+             generated files — but graphql() was called through it at runtime. \
+             @graphox/swc-plugin did not recognise the specifier the calling module used to \
+             import this entrypoint, so that module was never rewritten. Add the specifier it \
+             imports to graphqlImportPaths for this output.",
+            file
+        );
+
+        parse_expression(&format!(
+            "() => {{ throw new Error({}) }}",
+            serde_json::to_string(&message).unwrap()
+        ))
+    }
+
     fn dynamic_import_error(&self, source: &str) -> String {
         format!(
             "could not fully rewrite this dynamic import from \"{}\". Use object destructuring of named documents from the generated graphql entrypoint or split the import by document.",
@@ -631,18 +663,7 @@ impl VisitMut for TransformVisitor {
                                     },
                                     type_ann: None,
                                 }),
-                                init: Some(Box::new(Expr::Arrow(ArrowExpr {
-                                    span: DUMMY_SP,
-                                    ctxt: SyntaxContext::empty(),
-                                    params: vec![],
-                                    body: Box::new(BlockStmtOrExpr::Expr(Box::new(Expr::Lit(
-                                        Lit::Null(Null { span: DUMMY_SP }),
-                                    )))),
-                                    is_async: false,
-                                    is_generator: false,
-                                    type_params: None,
-                                    return_type: None,
-                                }))),
+                                init: Some(Box::new(self.emptied_entrypoint_stub())),
                                 definite: false,
                             }],
                         })),
@@ -1570,7 +1591,14 @@ mod tests {
             "/root/gen/graphql.ts",
         );
 
-        assert!(output.contains("export const graphql = ()=>null"));
+        // The documents are gone, and what is left names the problem if anything
+        // still calls it — a non-document would surface far from here.
+        assert!(
+            output.contains("export const graphql = ()=>{"),
+            "got:\n{output}"
+        );
+        assert!(output.contains("throw new Error("), "got:\n{output}");
+        assert!(output.contains("/root/gen/graphql.ts"), "got:\n{output}");
         assert!(output.contains("export const gql = graphql"));
         assert!(!output.contains("big map"));
     }
@@ -2259,11 +2287,12 @@ mod tests {
                 entrypoint,
             );
             assert!(
-                !output.contains("documents"),
+                !output.contains("export const documents") && !output.contains("a: 1"),
                 "{entrypoint} should be cleared, got:\n{output}"
             );
             assert!(
-                output.contains("export const graphql = ()=>null"),
+                output.contains("export const graphql = ()=>{")
+                    && output.contains("throw new Error("),
                 "got:\n{output}"
             );
         }

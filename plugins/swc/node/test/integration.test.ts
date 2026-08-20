@@ -519,3 +519,164 @@ describe('multi-project outputs', () => {
     expect(outputs[0].outputDir).toBe(path.join(base, 'graphql'));
   });
 });
+
+/**
+ * How a project's own call sites name its entrypoint. This matters more than it
+ * looks: the plugin empties an entrypoint whenever the file path matches, but it
+ * only rewrites call sites whose import specifier it recognises. An alias shape
+ * we cannot read means the entrypoint is emptied while its callers are left
+ * calling it — valid JavaScript that fails when the document reaches the client.
+ */
+describe('entrypoint alias detection', () => {
+  function workspace(files: Record<string, unknown>, outputSubdir: string) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graphox-alias-'));
+    for (const [relative, contents] of Object.entries(files)) {
+      const target = path.join(root, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, JSON.stringify(contents));
+    }
+    fs.mkdirSync(path.join(root, outputSubdir), { recursive: true });
+    fs.writeFileSync(path.join(root, outputSubdir, 'manifest.json'), JSON.stringify([]));
+    return root;
+  }
+
+  it('resolves a package.json imports wildcard that has a suffix after the star', () => {
+    // "#lucy-graphql/*" -> "./lucy-graphql/*.ts": call sites write
+    // `import { graphql } from '#lucy-graphql/playback/graphql'`, so that exact
+    // specifier is what has to be recognised.
+    const root = workspace(
+      {
+        'packages/web/package.json': {
+          name: '@example/web',
+          imports: { '#lucy-graphql/*': './lucy-graphql/*.ts' },
+        },
+      },
+      'packages/web/lucy-graphql/playback'
+    );
+
+    try {
+      const outputs = resolvePluginOutputs(
+        { outputs: [{ outputDir: 'packages/web/lucy-graphql/playback' }] },
+        { cwd: root }
+      );
+
+      expect(outputs[0].graphqlImportPaths).toContain('#lucy-graphql/playback/graphql');
+      expect(outputs[0].graphqlImportPaths).toContain('#lucy-graphql/playback/index');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+
+  it('resolves a tsconfig paths wildcard that has a suffix after the star', () => {
+    const root = workspace(
+      {
+        'tsconfig.json': {
+          compilerOptions: { baseUrl: '.', paths: { '@gen/*': ['gen/*.ts'] } },
+        },
+      },
+      'gen/playback'
+    );
+
+    try {
+      const outputs = resolvePluginOutputs({ outputs: [{ outputDir: 'gen/playback' }] }, { cwd: root });
+      expect(outputs[0].graphqlImportPaths).toContain('@gen/playback/graphql');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+
+  it('resolves a wildcard whose target names the entrypoint file directly', () => {
+    // "@gen/*" -> "gen/*/graphql.ts": the star stands for the project directory,
+    // so the specifier is the alias with no trailing file segment.
+    const root = workspace(
+      {
+        'tsconfig.json': {
+          compilerOptions: { baseUrl: '.', paths: { '@gen/*': ['gen/*/graphql.ts'] } },
+        },
+      },
+      'gen/playback'
+    );
+
+    try {
+      const outputs = resolvePluginOutputs({ outputs: [{ outputDir: 'gen/playback' }] }, { cwd: root });
+      expect(outputs[0].graphqlImportPaths).toContain('@gen/playback');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+
+  it('reads a wildcard target behind a condition key', () => {
+    const root = workspace(
+      {
+        'packages/web/package.json': {
+          name: '@example/web',
+          imports: { '#gen/*': { node: './gen/*.ts', default: './gen/*.js' } },
+        },
+      },
+      'packages/web/gen/playback'
+    );
+
+    try {
+      const outputs = resolvePluginOutputs(
+        { outputs: [{ outputDir: 'packages/web/gen/playback' }] },
+        { cwd: root }
+      );
+      expect(outputs[0].graphqlImportPaths).toContain('#gen/playback/graphql');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+
+  it('leaves an unrelated alias alone', () => {
+    const root = workspace(
+      {
+        'packages/web/package.json': {
+          name: '@example/web',
+          imports: { '#utils/*': './src/utils/*.ts' },
+        },
+      },
+      'packages/web/gen/playback'
+    );
+
+    try {
+      const warnings: string[] = [];
+      const outputs = resolvePluginOutputs(
+        { outputs: [{ outputDir: 'packages/web/gen/playback' }] },
+        { cwd: root, onWarn: (message) => warnings.push(message) }
+      );
+
+      expect(outputs[0].graphqlImportPaths).not.toContain('#utils/');
+      expect(warnings).toHaveLength(0);
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+
+  it('warns when an alias leads into the output but yields no specifier', () => {
+    // The star reaches the output directory, but nothing it can stand for lands
+    // on the entrypoint. Silence here is what took down a production build.
+    const root = workspace(
+      {
+        'packages/web/package.json': {
+          name: '@example/web',
+          imports: { '#gen/*': './gen/*/documents.ts' },
+        },
+      },
+      'packages/web/gen/playback'
+    );
+
+    try {
+      const warnings: string[] = [];
+      resolvePluginOutputs(
+        { outputs: [{ outputDir: 'packages/web/gen/playback' }] },
+        { cwd: root, onWarn: (message) => warnings.push(message) }
+      );
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('#gen/*');
+      expect(warnings[0]).toContain('graphqlImportPaths');
+    } finally {
+      fs.rmSync(root, { recursive: true });
+    }
+  });
+});
