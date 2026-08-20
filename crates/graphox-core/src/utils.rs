@@ -1819,8 +1819,12 @@ mod tests {
 
         let path = Path::new("/Users/foo/bar/baz.ts");
         let prefix = Path::new("/private/Users/foo");
+        // The /private normalization is macOS-only; elsewhere this is a plain
+        // prefix comparison and the paths genuinely do not match.
         #[cfg(target_os = "macos")]
         assert!(path_starts_with(path, prefix));
+        #[cfg(not(target_os = "macos"))]
+        assert!(!path_starts_with(path, prefix));
 
         let path = Path::new("/Users/foo/bar/baz.ts");
         let prefix = Path::new("/Users/fo");
