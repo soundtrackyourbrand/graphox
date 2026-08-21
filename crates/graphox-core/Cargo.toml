@@ -18,7 +18,6 @@ tree-sitter-graphql = { workspace = true }
 tree-sitter-typescript = { workspace = true }
 pathdiff = { workspace = true }
 ahash = { workspace = true }
-once_cell = { workspace = true }
 yaml-rust2 = { workspace = true }
 log = { workspace = true }
 dashmap = { workspace = true }

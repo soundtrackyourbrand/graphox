@@ -20,7 +20,8 @@ members = [
 license = "MIT"
 # The crates are not published to crates.io; the npm packages are the
 # distribution. Set so `cargo publish` refuses rather than relying on nobody
-# trying it.
+# trying it. A consequence: the per-crate versions under crates/ are not
+# maintained and mean nothing — only the root version is bumped on release.
 publish = false
 
 [workspace.dependencies]
@@ -96,13 +97,14 @@ regex = { workspace = true }
 ahash = { workspace = true }
 colored = { workspace = true }
 dirs = { workspace = true }
-once_cell = { workspace = true }
 strsim = { workspace = true }
 yaml-rust2 = { workspace = true }
 sonic-rs = { workspace = true }
 criterion = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Test-only: tests/support uses once_cell::sync::{OnceCell, Lazy}.
+once_cell = { workspace = true }
 libc = "0.2"
 ntest = "0.9"
 tempfile = "3.24.0"

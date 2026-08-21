@@ -127,7 +127,7 @@ make release-major
 ```
 
 The release script will:
-- Update the version in the root `Cargo.toml`, every workspace crate, `plugins/swc/rust/Cargo.toml`, `plugins/swc/node/package.json`, `plugins/babel/package.json`, `editors/vscode/package.json`, and `npm/graphox-cli/package.json` (including its `optionalDependencies`)
+- Update the version in the root `Cargo.toml`, `plugins/swc/rust/Cargo.toml`, `plugins/swc/node/package.json`, `plugins/babel/package.json`, `editors/vscode/package.json`, and `npm/graphox-cli/package.json` (including its `optionalDependencies`). The crates under `crates/` are left alone — they are unpublished, so their versions are not maintained
 - Update `Cargo.lock`
 - Create a commit with message: `chore: bump version to X.Y.Z`
 - Create a git tag: `vX.Y.Z`

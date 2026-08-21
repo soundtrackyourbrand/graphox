@@ -20,7 +20,6 @@ tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }
 tree-sitter-typescript = { workspace = true }
 strsim = { workspace = true }
-once_cell = { workspace = true }
 
 [dev-dependencies]
 ntest = "0.9"

@@ -24,11 +24,8 @@ tree-sitter-graphql = { workspace = true }
 tree-sitter-typescript = { workspace = true }
 url = { workspace = true }
 colored = { workspace = true }
-notify = { workspace = true }
-notify-debouncer-mini = { workspace = true }
 ignore = { workspace = true }
 regex = { workspace = true }
-once_cell = { workspace = true }
 env_logger = { workspace = true }
 pathdiff = { workspace = true }
 glob = { workspace = true }

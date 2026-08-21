@@ -53,13 +53,11 @@ fi
 sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
 rm Cargo.toml.bak
 
-# Update version in all workspace crates
-for crate in crates/graphox-*; do
-    if [ -f "$crate/Cargo.toml" ]; then
-        sed -i.bak "s/^version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" "$crate/Cargo.toml"
-        rm "$crate/Cargo.toml.bak"
-    fi
-done
+# The crates under crates/ are deliberately left alone. They are not published
+# (publish = false in [workspace.package]), so their versions carry no meaning
+# and are not maintained — they have sat at 0.1.0 since early on. This loop used
+# to try to bump them and silently did nothing, because the sed matched on the
+# root version they never shared.
 
 # Update version in SWC plugin Rust crate Cargo.toml
 if [ -f "plugins/swc/rust/Cargo.toml" ]; then
