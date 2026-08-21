@@ -79,30 +79,23 @@ graphox-cli = { path = "crates/graphox-cli" }
 apollo-compiler = { workspace = true }
 clap = { workspace = true }
 dashmap = { workspace = true }
-ropey = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tower-lsp = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }
 tree-sitter-typescript = { workspace = true }
-pathdiff = { workspace = true }
 ignore = { workspace = true }
 serde = { workspace = true }
-glob = { workspace = true }
-globset = { workspace = true }
-rayon = { workspace = true }
-log = { workspace = true }
-regex = { workspace = true }
 ahash = { workspace = true }
-colored = { workspace = true }
-dirs = { workspace = true }
-strsim = { workspace = true }
 yaml-rust2 = { workspace = true }
-sonic-rs = { workspace = true }
 criterion = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Test-only: used by tests/ and benches/, not by src/.
+dirs = { workspace = true }
+glob = { workspace = true }
+log = { workspace = true }
 # Test-only: tests/support uses once_cell::sync::{OnceCell, Lazy}.
 once_cell = { workspace = true }
 libc = "0.2"

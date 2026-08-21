@@ -14,8 +14,6 @@ apollo-compiler = { workspace = true }
 ahash = { workspace = true }
 dashmap = { workspace = true }
 colored = { workspace = true }
-serde = { workspace = true }
-sonic-rs = { workspace = true }
 log = { workspace = true }
 pathdiff = { workspace = true }
 

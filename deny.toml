@@ -1,0 +1,67 @@
+# cargo-deny configuration. Run `cargo deny check`.
+#
+# Four checks: security advisories, dependency licenses, banned/duplicate
+# crates, and where crates may come from.
+
+[graph]
+# Evaluate every feature, so a dependency behind a feature flag cannot slip
+# past the license check.
+all-features = true
+
+[advisories]
+# Fails on anything in the RustSec database. Note for CI: run this on a
+# schedule rather than per pull request — advisories are published
+# continuously, so a PR touching a README can otherwise fail because of an
+# unrelated CVE published that morning.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Our own crates are unpublished (publish = false) and carry no licence
+# metadata worth checking here.
+private = { ignore = true }
+# Permissive licenses only. Everything currently in the tree resolves against
+# this list. Deliberately *not* listed: any GPL/LGPL/AGPL variant. r-efi is
+# `MIT OR Apache-2.0 OR LGPL-2.1-or-later`, which satisfies this through MIT,
+# so a genuinely GPL-only dependency would still fail the check.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+  # Weak, file-level copyleft: obligations attach to modifications of the
+  # crate's own files, not to us linking it. Currently colored, option-ext
+  # and smartstring. Worth noticing if the count grows.
+  "MPL-2.0",
+]
+# Two crates ship a LICENSE file without an SPDX field, so they warn rather
+# than fail. Both were read and are plain MIT:
+#   jsonpath-rust       MIT, Copyright (c) 2021 Boris Zhguchev
+#   tree-sitter-graphql MIT, Copyright (c) 2025 Joohwan Oh
+
+[bans]
+# A 394-crate tree will have some duplication; surface it without failing.
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace crates are path dependencies without versions, which reads as a
+# wildcard. That is correct for unpublished crates.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# One exception, listed here so it stays visible rather than disabling the
+# check. [patch.crates-io] in the root manifest points ariadne at a fork; the
+# lockfile pins a commit, but the build depends on that personal repository
+# staying available, and the patch does not carry to any consumer. Worth
+# upstreaming or pinning by rev rather than branch.
+[sources.allow-org]
+github = ["Pajn"]

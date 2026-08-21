@@ -11,7 +11,6 @@ default = []
 [dependencies]
 apollo-compiler = { workspace = true }
 ropey = { workspace = true }
-serde = { workspace = true }
 sonic-rs = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }

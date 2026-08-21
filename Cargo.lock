@@ -599,9 +599,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -811,19 +811,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
-dependencies = [
- "humantime",
- "is-terminal",
- "log",
- "regex",
- "termcolor",
 ]
 
 [[package]]
@@ -1060,13 +1047,11 @@ dependencies = [
  "ahash",
  "apollo-compiler",
  "clap",
- "colored",
  "criterion",
  "dashmap 6.1.0",
  "dirs",
  "futures-util",
  "glob",
- "globset",
  "graphox-cli",
  "graphox-codegen",
  "graphox-core",
@@ -1077,14 +1062,9 @@ dependencies = [
  "log",
  "ntest",
  "once_cell",
- "pathdiff",
- "rayon",
- "regex",
- "ropey",
  "serde",
  "serde_json",
  "sonic-rs",
- "strsim",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -1103,9 +1083,6 @@ dependencies = [
  "ahash",
  "apollo-compiler",
  "colored",
- "env_logger",
- "glob",
- "globset",
  "graphox-codegen",
  "graphox-core",
  "graphox-features",
@@ -1115,9 +1092,6 @@ dependencies = [
  "ntest",
  "pathdiff",
  "rayon",
- "regex",
- "serde",
- "serde_json",
  "sonic-rs",
  "tokio",
  "tower-lsp",
@@ -1135,8 +1109,6 @@ dependencies = [
  "log",
  "ntest",
  "pathdiff",
- "serde",
- "sonic-rs",
 ]
 
 [[package]]
@@ -1157,7 +1129,6 @@ dependencies = [
  "pathdiff",
  "rayon",
  "ropey",
- "serde",
  "sonic-rs",
  "tempfile",
  "tree-sitter",
@@ -1173,10 +1144,8 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "apollo-compiler",
- "colored",
  "dashmap 6.1.0",
  "graphox-core",
- "log",
  "lsp-types",
  "ntest",
  "regex",
@@ -1184,7 +1153,6 @@ dependencies = [
  "strsim",
  "tree-sitter",
  "tree-sitter-graphql",
- "tree-sitter-typescript",
  "url",
 ]
 
@@ -1194,11 +1162,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "apollo-compiler",
- "colored",
  "dashmap 6.1.0",
- "env_logger",
- "glob",
- "globset",
  "graphox-codegen",
  "graphox-core",
  "graphox-features",
@@ -1207,16 +1171,12 @@ dependencies = [
  "ntest",
  "pathdiff",
  "rayon",
- "regex",
- "ropey",
- "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tower-lsp",
  "tree-sitter",
  "tree-sitter-graphql",
- "tree-sitter-typescript",
  "url",
 ]
 
@@ -1309,12 +1269,6 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
-
-[[package]]
-name = "humantime"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "icu_collections"
