@@ -25,7 +25,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-apollo-compiler = "1.31"
+apollo-compiler = "1.32"
 clap = { version = "4.5", features = ["derive"] }
 dashmap = { version = "6", features = ["rayon"] }
 ropey = "1.6"
@@ -177,7 +177,22 @@ strip = true
 codegen-units = 1
 
 [patch.crates-io]
-ariadne = { git = "https://github.com/Pajn/ariadne", branch = "5-1" }
+# ariadne writes "Unable to fetch source ..." to stderr when a cache cannot
+# supply a source, which corrupts the LSP stdio stream. This fork drops those
+# three eprintln! calls and changes nothing else: the source is still skipped,
+# exactly as upstream does.
+#
+# Forwarding the error to the caller instead — the obvious fix, and what
+# zesterer/ariadne#167 suggested — is not viable. apollo-compiler's Display
+# impl for diagnostics maps any write error to fmt::Error, and its cache
+# returns NotFound for any FileId outside the SourceMap it was handed, which
+# happens whenever a document is validated against a separately validated
+# schema. That turns a skipped label into a panic.
+#
+# Upstream now lives at codeberg.org/zesterer/ariadne. Drop this patch once a
+# release carries a fix. Pinned by rev, not branch, so a force-push cannot
+# move what we build against.
+ariadne = { git = "https://github.com/Pajn/ariadne", rev = "a7939eb010e37039c4b9f140e0908c4bdee8809e" }
 
 # Optimize dependencies even in debug mode for faster runtime (e.g. tests)
 # This slows down initial build slightly but speeds up iteration

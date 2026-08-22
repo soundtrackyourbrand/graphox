@@ -113,9 +113,9 @@ checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
 name = "apollo-compiler"
-version = "1.31.0"
+version = "1.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a66f8eefe0ed21932dcc31eeca614cc8337bdc9ec7d4b2fb200b2a1539ba5c92"
+checksum = "b877306ffde4d3cc428bbc8f506fdd67b99255298ae92b919954c0c52f530504"
 dependencies = [
  "ahash",
  "apollo-parser",
@@ -152,11 +152,11 @@ dependencies = [
 
 [[package]]
 name = "ariadne"
-version = "0.5.1"
-source = "git+https://github.com/Pajn/ariadne?branch=5-1#f3e6b079a58620a8c68203f96cb1491b3209fbc2"
+version = "0.6.0"
+source = "git+https://github.com/Pajn/ariadne?rev=a7939eb010e37039c4b9f140e0908c4bdee8809e#a7939eb010e37039c4b9f140e0908c4bdee8809e"
 dependencies = [
  "concolor",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.2",
  "yansi",
 ]
 
