@@ -104,6 +104,22 @@ pub const HANDLED_BY_GRAPHOX: &[MessageRule] = &[
     },
 ];
 
+/// A fragment name defined more than once across the workspace. The engine
+/// treats this as fatal for fragment resolution, so it is matched separately
+/// from the diagnostics that are merely suppressed. Operation-name collisions
+/// share the "defined multiple times" wording and must not match here, which is
+/// why the fragment wording is part of the needle.
+pub const DUPLICATE_FRAGMENT: &[MessageRule] = &[
+    MessageRule {
+        name: "duplicate_fragment",
+        needles: &["the fragment", "defined multiple times"],
+    },
+    MessageRule {
+        name: "duplicate_fragment_name",
+        needles: &["Duplicate fragment name"],
+    },
+];
+
 /// Build errors tolerated because codegen accepts these documents: a block may
 /// legitimately contain type-system definitions we ignore.
 pub const TOLERATED_BUILD_ERRORS: &[MessageRule] = &[MessageRule {
@@ -115,6 +131,12 @@ pub const TOLERATED_BUILD_ERRORS: &[MessageRule] = &[MessageRule {
 pub fn is_handled_by_graphox(rendered: &str) -> bool {
     let s = summary(rendered);
     HANDLED_BY_GRAPHOX.iter().any(|r| r.matches(s))
+}
+
+/// Whether this diagnostic reports a duplicated fragment name.
+pub fn is_duplicate_fragment(rendered: &str) -> bool {
+    let s = summary(rendered);
+    DUPLICATE_FRAGMENT.iter().any(|r| r.matches(s))
 }
 
 /// Whether this build error is tolerated rather than surfaced.

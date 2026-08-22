@@ -7,7 +7,7 @@
 //! users. Every rule in `HANDLED_BY_GRAPHOX` must appear in `CASES`.
 
 use apollo_compiler::{ExecutableDocument, Schema};
-use graphox_core::apollo_messages::{self, HANDLED_BY_GRAPHOX, MessageRule};
+use graphox_core::apollo_messages::{self, DUPLICATE_FRAGMENT, HANDLED_BY_GRAPHOX, MessageRule};
 
 const SCHEMA: &str = r#"
 type Query { user(id: ID!): User, users(first: Int): [User] }
@@ -75,11 +75,16 @@ const CASES: &[(&str, &str)] = &[
         "variable_type_mismatch",
         "query A($x: String) { user(id: $x){ id } }",
     ),
+    (
+        "duplicate_fragment",
+        "fragment F on User { id } fragment F on User { id } query A { user(id:\"1\"){ ...F } }",
+    ),
 ];
 
 fn rule(name: &str) -> &'static MessageRule {
     HANDLED_BY_GRAPHOX
         .iter()
+        .chain(DUPLICATE_FRAGMENT)
         .find(|r| r.name == name)
         .unwrap_or_else(|| panic!("no rule named {name}"))
 }
@@ -113,11 +118,33 @@ fn every_rule_still_matches_a_real_apollo_message() {
 
 #[test]
 fn every_rule_has_a_case() {
-    for r in HANDLED_BY_GRAPHOX {
+    // duplicate_fragment_name has no case: it matches a message apollo no
+    // longer emits, kept only because the engine treated it as fatal before.
+    for r in HANDLED_BY_GRAPHOX.iter().chain(DUPLICATE_FRAGMENT) {
+        if r.name == "duplicate_fragment_name" {
+            continue;
+        }
         assert!(
             CASES.iter().any(|(name, _)| *name == r.name),
             "rule `{}` has no case in CASES, so nothing proves it still matches",
             r.name
+        );
+    }
+}
+
+/// A duplicated *operation* name must not be taken for a duplicated fragment:
+/// both messages say "defined multiple times".
+#[test]
+fn operation_duplicates_are_not_fragment_duplicates() {
+    let reports = rendered("query A { user(id:\"1\"){id} } query A { user(id:\"1\"){id} }");
+    assert!(
+        !reports.is_empty(),
+        "expected a duplicate operation diagnostic"
+    );
+    for rep in &reports {
+        assert!(
+            !apollo_messages::is_duplicate_fragment(rep),
+            "an operation-name collision was read as a fragment collision:\n{rep}"
         );
     }
 }

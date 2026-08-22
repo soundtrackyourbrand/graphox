@@ -10,10 +10,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub const DUPLICATE_FRAGMENT_MSG_A: &str = "the fragment";
-pub const DUPLICATE_FRAGMENT_MSG_B: &str = "Duplicate fragment name";
-const DUPLICATE_MSG_C: &str = "defined multiple times";
-
 #[derive(Debug, Clone)]
 pub struct FragmentMetadata {
     pub name: Arc<str>,
@@ -669,13 +665,10 @@ impl Engine {
             let mut critical_errors = Vec::new();
             for err in errors.iter() {
                 let err_str = err.to_string();
-                // Match fragment-specific duplicate errors:
-                // - "the fragment `X` is defined multiple times" (apollo-compiler)
-                // - "Duplicate fragment name `X`" (apollo-compiler)
-                // Exclude operation duplicate errors ("the operation `X` is defined multiple times")
-                if (err_str.contains(DUPLICATE_FRAGMENT_MSG_A) && err_str.contains(DUPLICATE_MSG_C))
-                    || err_str.contains(DUPLICATE_FRAGMENT_MSG_B)
-                {
+                // Matches the summary line only. err_str is a rendered report
+                // that quotes the source, so matching all of it would let a
+                // comment mentioning a duplicate fragment fail the workspace.
+                if crate::apollo_messages::is_duplicate_fragment(&err_str) {
                     critical_errors.push(err_str);
                 }
             }
@@ -943,8 +936,9 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.contains(DUPLICATE_FRAGMENT_MSG_A) || err.contains(DUPLICATE_FRAGMENT_MSG_B),
-            "Error message should contain one of the duplicate fragment constants. Got: {}",
+            err.lines()
+                .any(crate::apollo_messages::is_duplicate_fragment),
+            "Error should be recognised as a duplicate fragment. Got: {}",
             err
         );
     }
