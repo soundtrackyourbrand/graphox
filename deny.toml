@@ -40,10 +40,10 @@ allow = [
   # and smartstring. Worth noticing if the count grows.
   "MPL-2.0",
 ]
-# Two crates ship a LICENSE file without an SPDX field, so they warn rather
-# than fail. Both were read and are plain MIT:
-#   jsonpath-rust       MIT, Copyright (c) 2021 Boris Zhguchev
-#   tree-sitter-graphql MIT, Copyright (c) 2025 Joohwan Oh
+# One crate ships a LICENSE file without an SPDX field, so it warns rather than
+# fails. It was read and is plain MIT:
+#   jsonpath-rust  MIT, Copyright (c) 2021 Boris Zhguchev
+# tree-sitter-graphql was the other, and 0.2.0 declares `license = "MIT"`.
 
 [bans]
 # A 394-crate tree will have some duplication; surface it without failing.
