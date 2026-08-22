@@ -190,3 +190,11 @@ jobs:
       - name: Run memory tests
         if: runner.os == 'Linux'
         run: cargo test --test integration_suite long_running -- --nocapture --ignored
+
+      # A separate step because the filter above is a name match, not "all
+      # ignored tests": anything ignored outside long_running would silently
+      # never run. These spawn the binary and wait on real filesystem events,
+      # which is why they are ignored by default.
+      - name: Run watcher tests
+        if: runner.os == 'Linux'
+        run: cargo test --test integration_suite codegen_watch -- --nocapture --ignored

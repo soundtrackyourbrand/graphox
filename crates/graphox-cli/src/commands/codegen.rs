@@ -55,33 +55,14 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
             std::time::Duration::from_millis(debounce_ms),
             move |res: notify_debouncer_mini::DebounceEventResult| match res {
                 Ok(events) => {
-                    let has_config_change = events.iter().any(|e| {
-                        let file_name = e.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        file_name == "graphox.yaml" || file_name == "graphox.yml"
-                    });
-
-                    if has_config_change {
-                        let _ = config_tx_clone.try_send(());
-                        return;
-                    }
-
-                    let has_relevant_change = events.iter().any(|e| {
-                        if !utils::is_relevant_file(&e.path) {
-                            return false;
+                    match classify_watch_events(&events, &config_for_watcher, &gitignore) {
+                        WatchOutcome::ConfigChanged => {
+                            let _ = config_tx_clone.try_send(());
                         }
-                        if utils::is_path_ignored(&e.path, &gitignore) {
-                            return false;
+                        WatchOutcome::Regenerate => {
+                            let _ = tx.try_send(());
                         }
-                        if config_for_watcher.is_output_file(&e.path) {
-                            return false;
-                        }
-                        if !should_trigger_codegen_for_path(&e.path) {
-                            return false;
-                        }
-                        true
-                    });
-                    if has_relevant_change {
-                        let _ = tx.try_send(());
+                        WatchOutcome::Ignore => {}
                     }
                 }
                 Err(e) => eprintln!("{}: {:?}", "Watch error".red(), e),
@@ -162,6 +143,50 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                 }
             }
         }
+    }
+}
+
+/// What a batch of debounced filesystem events means for the watch loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WatchOutcome {
+    /// A config file changed, so the loop restarts with a reloaded config.
+    /// Checked first: a config change supersedes any source change in the same
+    /// batch, since the reload re-runs codegen anyway.
+    ConfigChanged,
+    /// A watched source file changed; re-run codegen.
+    Regenerate,
+    /// Nothing in this batch is worth acting on.
+    Ignore,
+}
+
+/// Decide what to do about a debounced batch of filesystem events.
+///
+/// Extracted from the debouncer callback so it can be tested without a real
+/// watcher: the callback is spawned inside notify's own thread, which no test
+/// reaches.
+pub(crate) fn classify_watch_events(
+    events: &[notify_debouncer_mini::DebouncedEvent],
+    config: &Config,
+    gitignore: &ignore::gitignore::Gitignore,
+) -> WatchOutcome {
+    let is_config = |path: &Path| {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        name == "graphox.yaml" || name == "graphox.yml"
+    };
+    if events.iter().any(|e| is_config(&e.path)) {
+        return WatchOutcome::ConfigChanged;
+    }
+
+    let triggers = |path: &Path| {
+        utils::is_relevant_file(path)
+            && !utils::is_path_ignored(path, gitignore)
+            && !config.is_output_file(path)
+            && should_trigger_codegen_for_path(path)
+    };
+    if events.iter().any(|e| triggers(&e.path)) {
+        WatchOutcome::Regenerate
+    } else {
+        WatchOutcome::Ignore
     }
 }
 
@@ -1456,4 +1481,170 @@ fn execute_single_file_codegen(
         }
     }
     Ok((ops, frags))
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use super::*;
+    use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+    use std::fs;
+
+    /// A workspace on disk with a real graphox.yaml, so `is_output_file` and the
+    /// gitignore matcher behave as they do in production rather than against a
+    /// synthesised config.
+    struct Workspace {
+        /// Held only so the directory outlives the test; dropping it deletes the
+        /// fixture from under `config`.
+        _dir: tempfile::TempDir,
+        config: Config,
+        gitignore: ignore::gitignore::Gitignore,
+    }
+
+    impl Workspace {
+        fn new() -> Self {
+            let dir = tempfile::TempDir::new().unwrap();
+            let root = dir.path();
+            fs::write(
+                root.join("graphox.yaml"),
+                "projects:\n  - schema: \"schema.graphql\"\n    include: \"**/*.graphql\"\n    output_dir: \"gen\"\n",
+            )
+            .unwrap();
+            fs::write(
+                root.join("schema.graphql"),
+                "type Query { hello: String }\n",
+            )
+            .unwrap();
+            fs::write(root.join(".gitignore"), "ignored_dir/\n*.ignored.graphql\n").unwrap();
+            let config = Config::load_from_dir(root)
+                .expect("fixture config should parse")
+                .expect("fixture config should be found");
+            let gitignore = utils::get_gitignore_matcher(config.base_dir());
+            Self {
+                _dir: dir,
+                config,
+                gitignore,
+            }
+        }
+
+        /// Write a file and return the debounced event a watcher would report.
+        fn touch(&self, rel: &str, contents: &str) -> DebouncedEvent {
+            let path = self.config.base_dir().join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, contents).unwrap();
+            DebouncedEvent::new(path, DebouncedEventKind::Any)
+        }
+
+        fn classify(&self, events: &[DebouncedEvent]) -> WatchOutcome {
+            classify_watch_events(events, &self.config, &self.gitignore)
+        }
+    }
+
+    #[test]
+    fn config_change_reloads() {
+        let w = Workspace::new();
+        let ev = w.touch("graphox.yaml", "projects: []\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::ConfigChanged);
+    }
+
+    #[test]
+    fn config_change_reloads_for_the_yml_spelling() {
+        let w = Workspace::new();
+        let ev = w.touch("graphox.yml", "projects: []\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::ConfigChanged);
+    }
+
+    /// A reload re-runs codegen anyway, so the config change wins and we do not
+    /// also queue a regeneration for the same batch.
+    #[test]
+    fn config_change_wins_over_a_source_change_in_the_same_batch() {
+        let w = Workspace::new();
+        let source = w.touch("query.graphql", "query Q { hello }\n");
+        let config = w.touch("graphox.yaml", "projects: []\n");
+        assert_eq!(w.classify(&[source, config]), WatchOutcome::ConfigChanged);
+    }
+
+    #[test]
+    fn graphql_source_change_regenerates() {
+        let w = Workspace::new();
+        let ev = w.touch("query.graphql", "query Q { hello }\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Regenerate);
+    }
+
+    /// Without this the watcher would react to its own output and loop forever.
+    #[test]
+    fn generated_output_is_ignored() {
+        let w = Workspace::new();
+        let ev = w.touch(
+            "gen/query.codegen.ts",
+            "// @generated\nexport const q = 1;\n",
+        );
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
+    }
+
+    #[test]
+    fn unrelated_extensions_are_ignored() {
+        let w = Workspace::new();
+        let ev = w.touch("README.md", "# docs\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
+    }
+
+    #[test]
+    fn node_modules_is_ignored() {
+        let w = Workspace::new();
+        let ev = w.touch("node_modules/pkg/index.ts", "export const gql = 1;\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
+    }
+
+    #[test]
+    fn a_gitignored_file_is_ignored() {
+        let w = Workspace::new();
+        let ev = w.touch("build.ignored.graphql", "query Q { hello }\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
+    }
+
+    /// Documents a gap rather than asserting the ideal. `is_path_ignored` calls
+    /// `Gitignore::matched`, which tests the path itself and not its parents, so
+    /// a file inside a gitignored *directory* still reaches codegen. The walk in
+    /// `get_gitignore_matcher` prunes such directories so its callers never see
+    /// them, but the watcher gets raw filesystem events and does. Switching to
+    /// `matched_path_or_any_parents` would close it, at the cost of a stat per
+    /// ancestor on a hot path shared with the LSP.
+    #[test]
+    fn a_file_inside_a_gitignored_directory_is_not_filtered() {
+        let w = Workspace::new();
+        let ev = w.touch("ignored_dir/query.graphql", "query Q { hello }\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Regenerate);
+    }
+
+    /// A host file only matters if it might embed a document, which is decided by
+    /// reading it — so these two cases differ only in content.
+    #[test]
+    fn host_file_containing_a_document_regenerates() {
+        let w = Workspace::new();
+        let ev = w.touch("app.ts", "const q = gql`query Q { hello }`;\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Regenerate);
+    }
+
+    #[test]
+    fn host_file_without_a_document_is_ignored() {
+        let w = Workspace::new();
+        let ev = w.touch("app.ts", "export const answer = 42;\n");
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
+    }
+
+    #[test]
+    fn an_empty_batch_is_ignored() {
+        let w = Workspace::new();
+        assert_eq!(w.classify(&[]), WatchOutcome::Ignore);
+    }
+
+    /// One actionable path is enough, whatever else the batch contains.
+    #[test]
+    fn a_single_relevant_change_carries_a_noisy_batch() {
+        let w = Workspace::new();
+        let noise = w.touch("notes.md", "ignore me\n");
+        let output = w.touch("gen/other.codegen.ts", "// @generated\n");
+        let real = w.touch("query.graphql", "query Q { hello }\n");
+        assert_eq!(w.classify(&[noise, output, real]), WatchOutcome::Regenerate);
+    }
 }

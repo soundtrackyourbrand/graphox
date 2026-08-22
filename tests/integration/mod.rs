@@ -1,5 +1,6 @@
 mod clean_test;
 mod cli;
+mod codegen_watch;
 mod cross_project_docs;
 mod cross_project_features;
 mod duplicate_fragments_codegen;
