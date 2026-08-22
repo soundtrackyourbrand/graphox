@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 pathdiff = { workspace = true }
-swc_core = { version = "56.0.0", features = [
+swc_core = { version = "77.0.2", features = [
   "common",
   "ecma_ast",
   "ecma_visit",
@@ -25,7 +25,7 @@ swc_core = { version = "56.0.0", features = [
 [dev-dependencies]
 # `resolver` and `hygiene`, so tests can run the transform inside the pass
 # pipeline a real build uses. Dev-only: it is not unified into the wasm build.
-swc_core = { version = "56.0.0", features = ["ecma_transforms"] }
+swc_core = { version = "77.0.2", features = ["ecma_transforms"] }
 tempfile = "3.24.0"
 ntest = "0.9"
 serde_json = { workspace = true }
