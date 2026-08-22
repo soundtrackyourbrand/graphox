@@ -215,7 +215,7 @@ pub fn generate_typescript_with_profile(
         if let Some(errors) = errors {
             return Err(format!(
                 "GraphQL validation errors in file {}:\n{}",
-                doc.uri.path().as_str(),
+                graphox_core::utils::uri_path_text(&doc.uri),
                 errors.join("\n")
             ));
         }
@@ -627,11 +627,8 @@ pub fn generate_typescript_with_profile(
     used_frag_ids.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
     let mut imports: BTreeMap<Arc<str>, Vec<FragmentId>> = BTreeMap::new();
-    let current_path = doc
-        .uri
-        .to_file_path()
-        .map(|p| p.into_owned())
-        .unwrap_or_else(|| PathBuf::from(doc.uri.path().as_str()));
+    let current_path = graphox_core::utils::uri_to_path(&doc.uri)
+        .unwrap_or_else(|| PathBuf::from(graphox_core::utils::uri_path_text(&doc.uri)));
     let current_canonical = ctx.canonicalize_path(&current_path);
 
     for frag_id in &used_frag_ids {

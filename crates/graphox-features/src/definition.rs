@@ -634,7 +634,7 @@ fn load_document_for_uri(
 ) -> Option<Arc<DocumentState>> {
     if let Some(doc) = documents.get(uri).map(|r| r.value().clone()) {
         Some(doc)
-    } else if let Some(path) = uri.to_file_path()
+    } else if let Some(path) = graphox_core::utils::uri_to_path(uri)
         && let Ok(content) = std::fs::read_to_string(&path)
     {
         Some(Arc::new(DocumentState::new_from_thread_local(

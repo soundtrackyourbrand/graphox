@@ -200,7 +200,7 @@ where
     all_uris
         .into_iter()
         .filter(|uri| {
-            if let Some(doc_path) = uri.to_file_path() {
+            if let Some(doc_path) = graphox_core::utils::uri_to_path(uri) {
                 config
                     .get_schema_for_path(&doc_path)
                     .is_some_and(|p| p.as_str() == schema_key)

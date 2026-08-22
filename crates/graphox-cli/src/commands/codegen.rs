@@ -1413,7 +1413,7 @@ fn execute_single_file_codegen(
 > {
     let (ts_code, mut ops, mut frags) = codegen::generate_typescript(doc, ctx)?;
     let out_path_raw = utils::get_output_path(
-        doc.uri.to_file_path().unwrap().as_ref(),
+        graphox_core::utils::uri_to_path(&doc.uri).unwrap().as_ref(),
         base_dir,
         output_dir,
         Some(include_prefix),

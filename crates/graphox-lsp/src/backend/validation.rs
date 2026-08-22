@@ -188,7 +188,7 @@ pub async fn validate_uris(
                 );
 
                 if config.rules().unique_operation_name()
-                    && let Some(path) = uri.to_file_path()
+                    && let Some(path) = graphox_core::utils::uri_to_path(&uri)
                     && let Some(schema_key) = config.get_schema_for_path(&path)
                 {
                     add_duplicate_operation_diagnostics(
@@ -278,7 +278,7 @@ pub fn is_schema_document_path(path: &Path, config: &Config) -> bool {
 }
 
 pub fn get_configured_document_path(uri: &Uri, config: &Config) -> Option<PathBuf> {
-    let path = uri.to_file_path()?.into_owned();
+    let path = graphox_core::utils::uri_to_path(uri)?;
     if is_schema_document_path(&path, config) {
         return None;
     }
@@ -370,7 +370,7 @@ pub fn get_schema_for_doc(
     validated_schemas: &Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     valid_empty_schema: &Arc<Valid<Schema>>,
 ) -> Arc<Valid<Schema>> {
-    if let Some(path) = uri.to_file_path()
+    if let Some(path) = graphox_core::utils::uri_to_path(uri)
         && let Some(schema_path) = config.get_schema_for_path(&path)
         && let Some(schema) = validated_schemas.get(&schema_path)
     {
@@ -440,7 +440,7 @@ fn add_duplicate_operation_diagnostics(
         if let Some(name) = &op.name {
             // Look up this operation name in the index
             if let Some(entry) = operation_names.get(name) {
-                let path = uri.to_file_path().unwrap().into_owned();
+                let path = graphox_core::utils::uri_to_path(uri).unwrap();
                 let project_key = config
                     .get_project_for_path(&path)
                     .map(|p| p.include().as_key())
@@ -466,7 +466,7 @@ fn add_duplicate_operation_diagnostics(
                     let mut other_files: Vec<String> = locations_in_project
                         .iter()
                         .filter(|loc| **loc != uri)
-                        .filter_map(|loc| loc.to_file_path().map(|p| p.into_owned()))
+                        .filter_map(|loc| graphox_core::utils::uri_to_path(loc))
                         .map(|path| path.display().to_string())
                         .collect();
 

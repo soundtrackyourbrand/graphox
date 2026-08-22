@@ -79,7 +79,7 @@ pub async fn handle_completion(
             if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = backend.get_schema_for_doc(&uri);
 
-                let project_subgraphs = if let Some(path) = uri.to_file_path()
+                let project_subgraphs = if let Some(path) = graphox_core::utils::uri_to_path(&uri)
                     && let Ok(config) = backend.config.read()
                 {
                     let schema_key = config.get_schema_for_path(&path);
@@ -149,7 +149,8 @@ pub async fn handle_completion(
                                         documents.get(&frag.uri).map(|r| r.value().clone())
                                     {
                                         Some(frag_doc)
-                                    } else if let Some(path) = frag.uri.to_file_path()
+                                    } else if let Some(path) =
+                                        graphox_core::utils::uri_to_path(&frag.uri)
                                         && let Ok(content) = std::fs::read_to_string(&path)
                                     {
                                         Some(Arc::new(DocumentState::new_from_thread_local(

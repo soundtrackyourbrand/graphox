@@ -25,7 +25,7 @@ fn codegen_project_keys<'a>(
     let mut seen = ahash::AHashSet::default();
     let mut keys = Vec::new();
     for uri in uris {
-        let Some(path) = uri.to_file_path() else {
+        let Some(path) = graphox_core::utils::uri_to_path(uri) else {
             continue;
         };
         let Some(project) = config.get_project_for_path(&path) else {
@@ -263,7 +263,7 @@ pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParam
     let doc_for_codegen = if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone())
     {
         Some(doc)
-    } else if let Some(path) = uri.to_file_path()
+    } else if let Some(path) = graphox_core::utils::uri_to_path(&uri)
         && let Ok(content) = std::fs::read_to_string(&path)
     {
         Some(Arc::new(DocumentState::new_from_thread_local(
@@ -304,10 +304,7 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
     let uri = backend.normalize_uri(params.text_document.uri);
     backend.open_documents.remove(&uri);
 
-    let missing_on_disk = uri
-        .to_file_path()
-        .map(|p| p.into_owned())
-        .is_some_and(|path| !path.exists());
+    let missing_on_disk = graphox_core::utils::uri_to_path(&uri).is_some_and(|path| !path.exists());
     let mut removed_from_workspace = false;
 
     if missing_on_disk {

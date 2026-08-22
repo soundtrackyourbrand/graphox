@@ -361,7 +361,7 @@ impl Backend {
             return Some(doc);
         }
 
-        let path = uri.to_file_path()?.into_owned();
+        let path = graphox_core::utils::uri_to_path(uri)?;
         let encoding = self.get_position_encoding();
         let uri_clone = uri.clone();
 
@@ -715,7 +715,7 @@ impl Backend {
 
         // Pre-load schemas for open documents to ensure immediate validation is correct
         for (uri, _) in &open_docs {
-            if let Some(path) = uri.to_file_path()
+            if let Some(path) = graphox_core::utils::uri_to_path(uri)
                 && let Some(schema_key) = new_config.get_schema_for_path(&path)
                 && !self.schemas.contains_key(&schema_key)
                 && let Some(project) = new_config
@@ -753,7 +753,7 @@ impl Backend {
             self.metadata.insert(uri.clone(), metadata);
 
             // Re-populate operation names index
-            if let Some(path) = uri.to_file_path()
+            if let Some(path) = graphox_core::utils::uri_to_path(&uri)
                 && let Some(schema_key) = new_config.get_schema_for_path(&path)
             {
                 let project_key = new_config
@@ -1008,7 +1008,7 @@ impl Backend {
             self.metadata.insert(uri.clone(), metadata);
 
             // Re-populate operation names index
-            if let Some(path) = uri.to_file_path()
+            if let Some(path) = graphox_core::utils::uri_to_path(&uri)
                 && let Some(schema_key) = new_config.get_schema_for_path(&path)
             {
                 let project_key = new_config
@@ -1132,7 +1132,7 @@ impl Backend {
 
         // Ensure schemas for these URIs are loaded
         for uri in &uris {
-            if let Some(path) = uri.to_file_path()
+            if let Some(path) = graphox_core::utils::uri_to_path(uri)
                 && let Some(schema_key) = config.get_schema_for_path(&path)
                 && !self.validated_schemas.contains_key(&schema_key)
                 && let Some(project) = config
@@ -1260,7 +1260,7 @@ impl Backend {
 
     pub fn get_preferred_schema_uris(&self, uri: &Uri) -> Vec<Uri> {
         let mut preferred_uris = Vec::new();
-        if let Some(path) = uri.to_file_path() {
+        if let Some(path) = graphox_core::utils::uri_to_path(uri) {
             let config = self.config.read().unwrap();
             if let Some(project) = config.get_project_for_path(&path) {
                 for schema_file in project.schema().files() {
@@ -1380,8 +1380,8 @@ impl Backend {
 
         // CHECK PROJECT IMPORTS
         if let (Some(f_path), Some(t_path)) = (
-            fragment_doc_uri.to_file_path(),
-            target_doc_uri.to_file_path(),
+            graphox_core::utils::uri_to_path(fragment_doc_uri),
+            graphox_core::utils::uri_to_path(target_doc_uri),
         ) {
             let config = self.config.read().unwrap();
             if let (Some(f_proj), Some(t_project)) = (

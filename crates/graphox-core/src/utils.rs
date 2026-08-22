@@ -112,6 +112,28 @@ impl<V: Clone> BoundedPathCache<V> {
     }
 }
 
+/// The filesystem path a document URI points at, owned.
+///
+/// `Uri::to_file_path` returns `Option<Cow<'_, Path>>` borrowed from a
+/// percent-decoded copy of the URI, so nearly every caller ended up writing
+/// `.into_owned()` or juggling the `Cow`. It also handles the Windows cases —
+/// a `file:///c:/...` drive letter and a `file://server/...` share — which is
+/// reason enough not to reimplement the conversion at each call site.
+pub fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
+    uri.to_file_path().map(|p| p.into_owned())
+}
+
+/// The URI's path as text, percent-decoded.
+///
+/// `Uri::path()` hands back a percent-encoded `EStr`, so matching on it
+/// directly disagrees with [`uri_to_path`] for any path containing an escape:
+/// a file whose name ends in an encoded character would fail an extension
+/// check that the decoded path passes. Decoding here keeps one meaning of "the
+/// path" across the codebase.
+pub fn uri_path_text(uri: &Uri) -> String {
+    uri.path().decode().to_string_lossy().into_owned()
+}
+
 pub fn flush_stdio() {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
@@ -1571,7 +1593,7 @@ pub fn to_posix_path(path: &Path) -> String {
 }
 
 pub fn normalize_uri(uri: Uri) -> Uri {
-    if let Some(path) = uri.to_file_path() {
+    if let Some(path) = crate::utils::uri_to_path(&uri) {
         let path = canonicalize_cached(&path);
         let path_str = path.to_string_lossy();
 

@@ -19,7 +19,8 @@ async fn test_lsp_fragment_scoping() {
 
     // 1. Open Public/Private fragments in pkg_a
     let pkg_a_uri = workspace.uri_for("pkg_a/fragment.graphql");
-    let pkg_a_text = std::fs::read_to_string(pkg_a_uri.to_file_path().unwrap()).unwrap();
+    let pkg_a_text =
+        std::fs::read_to_string(graphox::utils::uri_to_path(&pkg_a_uri).unwrap()).unwrap();
 
     lsp_did_open(&mut service, pkg_a_uri.clone(), "graphql", 1, &pkg_a_text).await;
 

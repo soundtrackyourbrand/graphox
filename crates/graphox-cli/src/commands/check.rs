@@ -48,7 +48,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
     for doc in workspace_metadata.documents.values() {
         let package_root = doc.package_root.clone();
         let project_import = cfg
-            .get_project_for_path(&doc.uri.to_file_path().unwrap_or_default())
+            .get_project_for_path(&graphox_core::utils::uri_to_path(&doc.uri).unwrap_or_default())
             .and_then(|p| p.import().map(Arc::from));
 
         for frag in doc.fragments.iter() {

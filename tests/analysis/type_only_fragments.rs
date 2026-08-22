@@ -96,7 +96,7 @@ async fn test_type_only_diagnostic_when_used() {
     assert!(
         changes
             .keys()
-            .any(|u| u.path().as_str().ends_with("fragments.graphql"))
+            .any(|u| graphox::utils::uri_path_text(u).ends_with("fragments.graphql"))
     );
 }
 

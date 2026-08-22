@@ -46,7 +46,7 @@ pub async fn process_file_created_or_changed(
     normalize_uri: impl Fn(Uri) -> Uri,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
-    let path = uri.to_file_path()?.into_owned();
+    let path = graphox_core::utils::uri_to_path(&uri)?;
     let path_str = path.to_string_lossy().to_string();
 
     // Check if this is the config file
@@ -223,7 +223,7 @@ pub fn process_file_deleted(
     normalize_uri: impl Fn(Uri) -> Uri,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
-    let path = uri.to_file_path()?.into_owned();
+    let path = graphox_core::utils::uri_to_path(&uri)?;
 
     // Check if this is the config file
     if is_config_file(&path, params.config) {

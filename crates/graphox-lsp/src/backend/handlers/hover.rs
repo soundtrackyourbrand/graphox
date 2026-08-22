@@ -20,7 +20,7 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
     if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
         let schema = backend.get_schema_for_doc(&uri);
 
-        let project_subgraphs = if let Some(path) = uri.to_file_path()
+        let project_subgraphs = if let Some(path) = graphox_core::utils::uri_to_path(&uri)
             && let Ok(config) = backend.config.read()
         {
             let schema_key = config.get_schema_for_path(&path);
@@ -115,7 +115,9 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                                 value.push_str(&desc);
                             }
 
-                            if !is_same_package && let Some(other_p) = frag.uri.to_file_path() {
+                            if !is_same_package
+                                && let Some(other_p) = graphox_core::utils::uri_to_path(&frag.uri)
+                            {
                                 let config = backend.config.read().unwrap();
                                 if let Some(proj) = config.get_project_for_path(&other_p)
                                     && let Some(import) = proj.import()

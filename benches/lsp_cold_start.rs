@@ -429,7 +429,7 @@ fn generate_source_tree(
 fn parse_and_keep(uri: &Uri, content: &str) -> bool {
     let doc =
         DocumentState::new_from_thread_local(uri.clone(), content, PositionEncodingKind::UTF16);
-    !doc.get_graphql_trees().is_empty() || uri.path().as_str().ends_with(".graphql")
+    !doc.get_graphql_trees().is_empty() || graphox::utils::uri_path_text(uri).ends_with(".graphql")
 }
 
 /// The workspace scan tree-sitter-parses every candidate file. The vast majority of

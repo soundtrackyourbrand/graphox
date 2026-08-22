@@ -44,7 +44,7 @@ pub fn update_operation_name_index(
         affected_operation_names.insert(name.clone());
     }
 
-    let Some(path) = uri.to_file_path() else {
+    let Some(path) = graphox_core::utils::uri_to_path(uri) else {
         return affected_operation_names;
     };
     let Some(schema_key) = config.get_schema_for_path(&path) else {

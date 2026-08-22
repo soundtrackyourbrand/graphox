@@ -43,7 +43,7 @@ impl DocumentTypeDefinition for DocumentState {
                             )
                         })?;
 
-                let path = self.uri.to_file_path()?.into_owned();
+                let path = graphox_core::utils::uri_to_path(&self.uri)?;
                 let project_config = config.get_project_for_path(&path)?;
 
                 // Fields are emitted as inline nested properties of the operation/
@@ -72,7 +72,7 @@ pub fn resolve_codegen_location(
     project_config: &ProjectConfig,
     config: &Config,
 ) -> Option<Location> {
-    let source_path = doc.uri.to_file_path()?.into_owned();
+    let source_path = graphox_core::utils::uri_to_path(&doc.uri)?;
     let codegen_path = get_codegen_path(&source_path, project_config, config)?;
     let type_name = get_codegen_type_name(&symbol, project_config, config)?;
 
@@ -205,7 +205,7 @@ fn resolve_field_codegen_location(
     project_config: &ProjectConfig,
     config: &Config,
 ) -> Option<Location> {
-    let source_path = doc.uri.to_file_path()?.into_owned();
+    let source_path = graphox_core::utils::uri_to_path(&doc.uri)?;
     let codegen_path = get_codegen_path(&source_path, project_config, config)?;
 
     let root_type = enclosing_root_type_name(doc, node, offset, project_config, config)?;

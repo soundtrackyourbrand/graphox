@@ -475,11 +475,11 @@ fn mark_used_variables_recursive(
                     let mut part = n.clone();
                     if let Some(fmeta) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == *n) {
                         part.push_str(" (");
-                        part.push_str(fmeta.uri.path().as_str());
+                        part.push_str(&graphox_core::utils::uri_path_text(&fmeta.uri));
                         part.push(')');
                     } else if this.fragments.iter().any(|f| f.name.as_ref() == *n) {
                         part.push_str(" (");
-                        part.push_str(this.uri.path().as_str());
+                        part.push_str(&graphox_core::utils::uri_path_text(&this.uri));
                         part.push(')');
                     }
                     part

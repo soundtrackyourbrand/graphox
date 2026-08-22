@@ -25,7 +25,7 @@ pub enum DocumentLanguage {
 impl DocumentLanguage {
     pub fn from_uri(uri: &Uri) -> Self {
         // fluent-uri returns a percent-encoded path, not a plain str.
-        let path = uri.path().as_str();
+        let path = crate::utils::uri_path_text(uri);
         if path.ends_with(".tsx") || path.ends_with(".jsx") {
             DocumentLanguage::TSX
         } else if path.ends_with(".ts")
@@ -214,7 +214,7 @@ impl DocumentState {
 
         let rope = Rope::from_str(content);
         let tree = Arc::new(parser.parse(content, None).unwrap());
-        let (package_root, mtime) = if let Some(path) = uri.to_file_path() {
+        let (package_root, mtime) = if let Some(path) = crate::utils::uri_to_path(&uri) {
             (
                 find_package_root(&path),
                 std::fs::metadata(&path).and_then(|m| m.modified()).ok(),

@@ -497,7 +497,7 @@ async fn validate_all_documents_cancellable(
                     let doc = documents.get(uri)?;
                     let meta = metadata.get(uri)?;
 
-                    let schema = if let Some(path) = uri.to_file_path()
+                    let schema = if let Some(path) = graphox_core::utils::uri_to_path(uri)
                         && let Some(schema_path) = config.get_schema_for_path(&path)
                         && let Some(schema) = validated_schemas.get(&schema_path)
                     {
@@ -623,7 +623,7 @@ fn add_duplicate_operation_diagnostics(
     operation_names: &OperationNamesMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let path = match uri.to_file_path() {
+    let path = match graphox_core::utils::uri_to_path(uri) {
         Some(p) => p,
         None => return,
     };

@@ -33,7 +33,7 @@ pub async fn handle_goto_definition(
             // 1. Try unified definition lookup using the shared resolver
             let preferred_uris = backend.get_preferred_schema_uris(&uri);
 
-            let project_subgraphs = if let Some(path) = uri.to_file_path()
+            let project_subgraphs = if let Some(path) = graphox_core::utils::uri_to_path(&uri)
                 && let Ok(config) = backend.config.read()
             {
                 let schema_key = config.get_schema_for_path(&path);
@@ -485,7 +485,7 @@ fn relevant_schema_paths(
     config: &graphox_core::config::Config,
     source_uri: &Uri,
 ) -> Option<ahash::AHashSet<std::path::PathBuf>> {
-    let path = source_uri.to_file_path()?.into_owned();
+    let path = graphox_core::utils::uri_to_path(source_uri)?;
     let canon = |p: std::path::PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
 
     if let Some(project) = config.get_project_for_path(&path) {
@@ -512,13 +512,13 @@ fn is_foreign_schema_doc(
     doc_uri: &Uri,
     relevant: &ahash::AHashSet<std::path::PathBuf>,
 ) -> bool {
-    let Some(doc_path) = doc_uri.to_file_path() else {
+    let Some(doc_path) = graphox_core::utils::uri_to_path(doc_uri) else {
         return false;
     };
     if !super::super::validation::is_schema_document_path(&doc_path, config) {
         return false;
     }
-    let canon = std::fs::canonicalize(&doc_path).unwrap_or_else(|_| doc_path.into_owned());
+    let canon = std::fs::canonicalize(&doc_path).unwrap_or(doc_path);
     !relevant.contains(&canon)
 }
 
