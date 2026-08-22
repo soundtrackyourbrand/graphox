@@ -146,31 +146,12 @@ impl DocumentDiagnostics for DocumentState {
 
             for (err_str, range_opt) in apollo_diagnostics {
                 let err_str: String = err_str;
-                // Suppress apollo-compiler diagnostics that we handle ourselves
-                // or that are redundant/confusing in our multi-file context.
-                let is_duplicate = err_str.contains("defined multiple times")
-                    || err_str.contains("is defined multiple times")
-                    || err_str.contains("unused")
-                    || err_str.contains("not defined")
-                    || err_str.contains("is not defined")
-                    || err_str.contains("not found on type")
-                    || err_str.contains("does not have a field")
-                    || err_str.contains("must be used in an operation")
-                    || err_str.contains("fragment")
-                        && err_str.contains("must be used in an operation")
-                    || err_str.contains("must not contain an")
-                    || err_str.contains("cannot select different fields into the same alias")
-                    || err_str.contains("must not select different types using the same name")
-                    || err_str.contains("conflicting field arguments")
-                    || (err_str.contains("variable")
-                        && err_str.contains("cannot be used for argument"))
-                    || err_str.contains("is deprecated")
-                    // Suppress apollo-compiler messages about recursive / circular fragments
-                    || err_str.contains("cannot reference itself")
-                    || err_str.contains("references itself")
-                    || err_str.contains("recursive fragment")
-                    || err_str.contains("circular fragment")
-                    || err_str.contains("circular reference");
+                // Dropped when graphox reports the same problem itself, often
+                // with cross-file knowledge apollo lacks for a single block.
+                // Matches the summary line only: the rendered report quotes the
+                // user's query, so matching all of it let a field named
+                // `unused` suppress every diagnostic for the block.
+                let is_duplicate = graphox_core::apollo_messages::is_handled_by_graphox(&err_str);
 
                 if !is_duplicate {
                     let range = if let Some(r) = range_opt {

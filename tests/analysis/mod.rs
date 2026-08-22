@@ -1,3 +1,4 @@
+mod apollo_message_contract;
 mod apollo_validation;
 mod duplicate_fragments;
 mod duplicate_operations;

@@ -287,16 +287,9 @@ impl DocumentState {
             Err(e) => {
                 for err in e.errors.iter() {
                     let err_str = err.to_string();
-                    // Filter out structural errors that we tolerate for codegen (e.g. schemas in executable docs)
-                    if !err_str.contains("must not contain an object type definition")
-                        && !err_str.contains("must not contain an enum type definition")
-                        && !err_str.contains("must not contain a scalar type definition")
-                        && !err_str.contains("must not contain an interface type definition")
-                        && !err_str.contains("must not contain a union type definition")
-                        && !err_str.contains("must not contain an input object type definition")
-                        && !err_str.contains("must not contain a schema definition")
-                        && !err_str.contains("must not contain a directive definition")
-                    {
+                    // Structural errors we tolerate for codegen, e.g. a block
+                    // that also carries type-system definitions.
+                    if !crate::apollo_messages::is_tolerated_build_error(&err_str) {
                         errors.push(err_str);
                     }
                 }
