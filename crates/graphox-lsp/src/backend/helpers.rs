@@ -44,7 +44,7 @@ pub fn update_operation_name_index(
         affected_operation_names.insert(name.clone());
     }
 
-    let Ok(path) = uri.to_file_path() else {
+    let Some(path) = uri.to_file_path() else {
         return affected_operation_names;
     };
     let Some(schema_key) = config.get_schema_for_path(&path) else {
@@ -134,9 +134,9 @@ mod tests {
     #[test]
     #[ntest::timeout(3000)]
     fn test_normalize_uri_preserves_valid_uri() {
-        let uri = Uri::from_str("file:///tmp/test.graphql").unwrap();
+        let uri = "file:///tmp/test.graphql".parse::<Uri>().unwrap();
         let normalized = normalize_uri(uri.clone());
-        assert!(normalized.scheme() == "file");
+        assert!(normalized.scheme().as_str() == "file");
     }
 
     #[test]

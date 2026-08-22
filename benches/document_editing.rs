@@ -20,7 +20,7 @@ fn generate_base_document() -> String {
 
 fn bench_single_insert(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Uri::from_str("file:///test.graphql").unwrap();
+    let uri = "file:///test.graphql".parse::<Uri>().unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -54,7 +54,7 @@ fn bench_single_insert(c: &mut Criterion) {
 
 fn bench_multiline_insert(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Uri::from_str("file:///test.graphql").unwrap();
+    let uri = "file:///test.graphql".parse::<Uri>().unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -88,7 +88,7 @@ fn bench_multiline_insert(c: &mut Criterion) {
 
 fn bench_fragment_spread_add(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Uri::from_str("file:///test.graphql").unwrap();
+    let uri = "file:///test.graphql".parse::<Uri>().unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -122,7 +122,7 @@ fn bench_fragment_spread_add(c: &mut Criterion) {
 
 fn bench_type_annotation_add(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Uri::from_str("file:///test.graphql").unwrap();
+    let uri = "file:///test.graphql".parse::<Uri>().unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -173,7 +173,7 @@ fn bench_large_document_edit(c: &mut Criterion) {
 "#,
     );
 
-    let uri = Uri::from_str("file:///large.graphql").unwrap();
+    let uri = "file:///large.graphql".parse::<Uri>().unwrap();
 
     let mut parser = Parser::new();
     parser

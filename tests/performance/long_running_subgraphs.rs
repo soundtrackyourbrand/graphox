@@ -84,8 +84,9 @@ async fn test_memory_long_running_subgraphs() {
     .with_lsp_automatic_codegen(false);
 
     // Initialize LSP service and await full workspace scan
-    let (mut service, _) =
-        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
+    let (mut service, _) = tower_lsp_server::LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(graphox::Backend::new(client, config))
+    });
     lsp_initialize_sequence(&mut service).await;
 
     // Simulate long-running session by cycling through many files.

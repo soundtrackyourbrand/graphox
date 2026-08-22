@@ -41,7 +41,9 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
     .unwrap();
 
     let _guard = rt.enter();
-    let (service, _) = tower_lsp_server::LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = tower_lsp_server::LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+    });
     let backend = service.inner();
 
     // Seed some documents

@@ -308,8 +308,8 @@ async fn test_goto_definition_field_in_schema() {
         "Goto definition should return something for 'username'"
     );
     if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
-        let expected_path = schema_uri.path().to_lowercase();
-        let actual_path = loc.uri.path().to_lowercase();
+        let expected_path = schema_uri.path().as_str().to_lowercase();
+        let actual_path = loc.uri.path().as_str().to_lowercase();
         // Handle macOS /private/var vs /var
         let expected_path = expected_path.trim_start_matches("/private");
         let actual_path = actual_path.trim_start_matches("/private");

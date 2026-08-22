@@ -13,7 +13,6 @@ ahash = { workspace = true }
 dashmap = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
-url = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }
 strsim = { workspace = true }

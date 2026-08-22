@@ -77,7 +77,7 @@ type User {
     assert!(
         loc.uri.to_string().contains("project-a/schema.graphql"),
         "Expected definition in project-a/schema.graphql, but got {}",
-        loc.uri
+        loc.uri.as_str()
     );
 
     // Test 2: Go to definition from WITHIN project-a/schema.graphql
@@ -111,7 +111,7 @@ type User {
     assert!(
         loc.uri.to_string().contains("project-a/schema.graphql"),
         "Expected definition for User to be in project-a/schema.graphql, but got {}",
-        loc.uri
+        loc.uri.as_str()
     );
 
     // Check that it points to the correct line (line 2 in schema_a)

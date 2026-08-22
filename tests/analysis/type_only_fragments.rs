@@ -96,7 +96,7 @@ async fn test_type_only_diagnostic_when_used() {
     assert!(
         changes
             .keys()
-            .any(|u| u.path().ends_with("fragments.graphql"))
+            .any(|u| u.path().as_str().ends_with("fragments.graphql"))
     );
 }
 

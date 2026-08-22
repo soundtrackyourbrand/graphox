@@ -168,7 +168,6 @@ pub async fn validate_uris(
 
                 let project_config = uri
                     .to_file_path()
-                    .ok()
                     .and_then(|path| config.get_project_for_path(&path));
                 let effective_config = if let Some(project) = project_config
                     && let Some(project_rules) = project.rules()
@@ -189,7 +188,7 @@ pub async fn validate_uris(
                 );
 
                 if config.rules().unique_operation_name()
-                    && let Ok(path) = uri.to_file_path()
+                    && let Some(path) = uri.to_file_path()
                     && let Some(schema_key) = config.get_schema_for_path(&path)
                 {
                     add_duplicate_operation_diagnostics(

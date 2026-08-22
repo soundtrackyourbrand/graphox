@@ -115,7 +115,7 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
                                 value.push_str(&desc);
                             }
 
-                            if !is_same_package && let Ok(other_p) = frag.uri.to_file_path() {
+                            if !is_same_package && let Some(other_p) = frag.uri.to_file_path() {
                                 let config = backend.config.read().unwrap();
                                 if let Some(proj) = config.get_project_for_path(&other_p)
                                     && let Some(import) = proj.import()

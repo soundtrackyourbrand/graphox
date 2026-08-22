@@ -35,7 +35,8 @@ async fn test_embedded_fragment_spreads_interface_tsx() {
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) =
+        LspService::new(|client| graphox::GraphoxLanguageServer::new(Backend::new(client, config)));
     let init_params = InitializeParams {
         ..Default::default()
     };
@@ -137,7 +138,8 @@ async fn test_embedded_fragment_spreads_union_tsx() {
     .with_enable_schema_cache(true)
     .with_lsp_automatic_codegen(false);
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, config));
+    let (mut service, _) =
+        LspService::new(|client| graphox::GraphoxLanguageServer::new(Backend::new(client, config)));
     let init_params = InitializeParams {
         ..Default::default()
     };

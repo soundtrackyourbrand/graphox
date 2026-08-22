@@ -3,7 +3,6 @@ use crate::utils::{find_package_root, mask_interpolations};
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{ExecutableDocument, Schema};
 use dashmap::DashMap;
-use std::str::FromStr;
 use ls_types::*;
 use ropey::Rope;
 use std::cell::RefCell;
@@ -1963,7 +1962,7 @@ pub enum CompletionContext {
 mod tests {
     use super::*;
     fn create_doc(src: &str, encoding: PositionEncodingKind) -> DocumentState {
-        let uri = Uri::from_str("file:///tmp/test.tsx").unwrap();
+        let uri = "file:///tmp/test.tsx".parse::<Uri>().unwrap();
         DocumentState::new_from_thread_local(uri, src, encoding)
     }
 

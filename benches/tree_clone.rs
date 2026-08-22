@@ -33,7 +33,7 @@ fn generate_large_document() -> String {
 
 fn bench_arc_operations(c: &mut Criterion) {
     let content = generate_large_document();
-    let uri = Uri::from_str("file:///test.graphql").unwrap();
+    let uri = "file:///test.graphql".parse::<Uri>().unwrap();
 
     let mut group = c.benchmark_group("Arc Operations (Document Editing Investigation)");
     group.sample_size(50);
@@ -86,7 +86,7 @@ fn bench_arc_operations(c: &mut Criterion) {
 
 fn bench_clone_then_edit(c: &mut Criterion) {
     let content = generate_large_document();
-    let uri = Uri::from_str("file:///test.graphql").unwrap();
+    let uri = "file:///test.graphql".parse::<Uri>().unwrap();
 
     let mut group = c.benchmark_group("Clone + Edit (Potential Optimization)");
     group.sample_size(20);

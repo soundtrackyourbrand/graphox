@@ -131,7 +131,7 @@ pub async fn handle_code_action(
 
                             if let Some(data) = &diagnostic.data {
                                 if let Some(def_uri) = data.get("def_uri").and_then(|v| v.as_str())
-                                    && let Ok(parsed) = Uri::from_str(def_uri)
+                                    && let Ok(parsed) = def_uri.parse::<Uri>()
                                 {
                                     target_uri = parsed;
                                 }

@@ -196,7 +196,7 @@ impl FragmentInfoBuilder {
             name: name.to_string(),
             type_condition: type_condition.to_string(),
             is_public: false,
-            uri: Uri::from_str("file:///test.graphql").unwrap(),
+            uri: "file:///test.graphql".parse::<Uri>().unwrap(),
             package_root: None,
         }
     }

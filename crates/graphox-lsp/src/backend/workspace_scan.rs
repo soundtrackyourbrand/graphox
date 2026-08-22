@@ -528,7 +528,6 @@ async fn validate_all_documents_cancellable(
 
                     let project_config = uri
                         .to_file_path()
-                        .ok()
                         .and_then(|path| config.get_project_for_path(&path));
                     let effective_config = if let Some(project) = project_config {
                         let merged_rules = if let Some(project_rules) = project.rules() {
@@ -625,8 +624,8 @@ fn add_duplicate_operation_diagnostics(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let path = match uri.to_file_path() {
-        Ok(p) => p,
-        Err(_) => return,
+        Some(p) => p,
+        None => return,
     };
 
     let schema_key = match config.get_schema_for_path(&path) {
@@ -651,7 +650,6 @@ fn add_duplicate_operation_diagnostics(
                 .map(|(_, op_uri)| {
                     op_uri
                         .to_file_path()
-                        .ok()
                         .map(|p| config.relativize(&p).to_string_lossy().to_string())
                         .unwrap_or_else(|| op_uri.to_string())
                 })

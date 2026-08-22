@@ -19,7 +19,6 @@ log = { workspace = true }
 ahash = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-graphql = { workspace = true }
-url = { workspace = true }
 ignore = { workspace = true }
 pathdiff = { workspace = true }
 

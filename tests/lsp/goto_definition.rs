@@ -514,6 +514,6 @@ async fn test_goto_definition_to_schema_file_outside_include() {
     assert!(
         loc_field.uri.as_str().contains("schema.graphql"),
         "Definition should be in schema.graphql, got {}",
-        loc_field.uri
+        loc_field.uri.as_str()
     );
 }

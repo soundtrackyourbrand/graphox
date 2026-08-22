@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use graphox_core::document::DocumentState;
 use ls_types::*;
 
@@ -108,7 +107,7 @@ mod tests {
     use super::*;
 
     fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-        let uri = Uri::from_str(uri_str).unwrap();
+        let uri = uri_str.parse::<Uri>().unwrap();
         DocumentState::new_from_thread_local(uri, text, PositionEncodingKind::UTF8)
     }
 

@@ -32,6 +32,9 @@ allow = [
   "CC0-1.0",
   "ISC",
   "MIT",
+  # MIT without the attribution requirement, so strictly more permissive than
+  # MIT above. Arrived with fluent-uri, via ls-types.
+  "MIT-0",
   "Unicode-3.0",
   "Unlicense",
   "Zlib",

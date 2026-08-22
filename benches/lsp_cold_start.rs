@@ -162,7 +162,9 @@ fn bench_backend_startup(c: &mut Criterion) {
     // gitignore matcher build.
     group.bench_function("Backend::new (blocks initialize)", |b| {
         b.iter(|| {
-            let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+            let (service, _) = LspService::new(|client| {
+                graphox::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+            });
             // Keep the constructed backend alive across the measurement.
             std::hint::black_box(service.inner().documents.len());
         })
@@ -173,7 +175,11 @@ fn bench_backend_startup(c: &mut Criterion) {
 
 /// Seed a backend's maps with `files` documents, each defining `frags_per_file`
 /// fragments, so `collect_fragment_metadata` has realistic work to do.
-fn seed_backend(base: &Path, files: usize, frags_per_file: usize) -> Arc<Backend> {
+fn seed_backend(
+    base: &Path,
+    files: usize,
+    frags_per_file: usize,
+) -> graphox::GraphoxLanguageServer {
     fs::write(
         base.join("schema.graphql"),
         "type Query { user: User } type User { id: ID! name: String email: String }",
@@ -189,7 +195,8 @@ fn seed_backend(base: &Path, files: usize, frags_per_file: usize) -> Arc<Backend
         ],
     );
 
-    let (service, _) = LspService::new(|client| Backend::new(client, config));
+    let (service, _) =
+        LspService::new(|client| graphox::GraphoxLanguageServer::new(Backend::new(client, config)));
     let backend = service.inner().clone();
 
     for i in 0..files {
@@ -422,7 +429,7 @@ fn generate_source_tree(
 fn parse_and_keep(uri: &Uri, content: &str) -> bool {
     let doc =
         DocumentState::new_from_thread_local(uri.clone(), content, PositionEncodingKind::UTF16);
-    !doc.get_graphql_trees().is_empty() || uri.path().ends_with(".graphql")
+    !doc.get_graphql_trees().is_empty() || uri.path().as_str().ends_with(".graphql")
 }
 
 /// The workspace scan tree-sitter-parses every candidate file. The vast majority of

@@ -154,7 +154,7 @@ async fn test_lsp_multi_schema_goto_definition() {
             assert!(
                 loc.uri.to_string().contains("user.graphql"),
                 "Should jump to user.graphql for 'email', got: {}",
-                loc.uri
+                loc.uri.as_str()
             );
         }
         Some(GotoDefinitionResponse::Array(locs)) => {

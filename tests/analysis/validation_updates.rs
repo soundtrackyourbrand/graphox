@@ -70,7 +70,7 @@ fn test_diagnostics_update_on_fragment_change() {
         .unwrap();
 
     let query_text = "query { me { ...UserFrag } }";
-    let query_uri = Uri::from_str("file:///query.graphql").unwrap();
+    let query_uri = "file:///query.graphql".parse::<Uri>().unwrap();
     let query_doc = create_doc(query_uri.as_str(), query_text);
 
     // 1. Missing fragment
@@ -86,7 +86,7 @@ fn test_diagnostics_update_on_fragment_change() {
         import_path: None,
         is_public: false,
         is_type_only: false,
-        uri: Uri::from_str("file:///frag.graphql").unwrap(),
+        uri: "file:///frag.graphql".parse::<Uri>().unwrap(),
         package_root: None,
         used_variables: Arc::from([]),
         used_fragments: Arc::from([]),
@@ -112,7 +112,7 @@ fn test_diagnostics_update_on_fragment_change() {
         import_path: None,
         is_public: false,
         is_type_only: false,
-        uri: Uri::from_str("file:///frag.graphql").unwrap(),
+        uri: "file:///frag.graphql".parse::<Uri>().unwrap(),
         package_root: None,
         used_variables: Arc::from([]),
         used_fragments: Arc::from([]),
@@ -137,8 +137,8 @@ fn test_incremental_fragment_removal_falls_back_to_public_fragment() {
         .validate()
         .unwrap();
 
-    let local_uri = Uri::from_str("file:///pkg_b/local.graphql").unwrap();
-    let query_uri = Uri::from_str("file:///pkg_b/query.graphql").unwrap();
+    let local_uri = "file:///pkg_b/local.graphql".parse::<Uri>().unwrap();
+    let query_uri = "file:///pkg_b/query.graphql".parse::<Uri>().unwrap();
     let local_text = "fragment UserFields on User { name }";
     let query_text = "query { me { ...UserFields } }";
 
@@ -152,7 +152,7 @@ fn test_incremental_fragment_removal_falls_back_to_public_fragment() {
         import_path: None,
         is_public: true,
         is_type_only: false,
-        uri: Uri::from_str("file:///pkg_a/public.graphql").unwrap(),
+        uri: "file:///pkg_a/public.graphql".parse::<Uri>().unwrap(),
         package_root: Some(std::path::PathBuf::from("/pkg_a")),
         used_variables: Arc::from([]),
         used_fragments: Arc::from([]),
@@ -229,7 +229,9 @@ async fn test_backend_schema_reload() {
     let schema_path = base_dir.join("schema.graphql");
     fs::write(&schema_path, "type Query { me: String }").unwrap();
 
-    let (mut service, _) = LspService::new(|client| Backend::new(client, Config::new_empty()));
+    let (mut service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, Config::new_empty()))
+    });
 
     let params = DidChangeWatchedFilesParams {
         changes: vec![FileEvent {

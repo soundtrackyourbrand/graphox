@@ -220,8 +220,8 @@ async fn test_alias_definition() {
             assert!(
                 loc.uri == query_uri,
                 "Definition should point to the same document. Got {}, expected {}",
-                loc.uri,
-                query_uri
+                loc.uri.as_str(),
+                query_uri.as_str()
             );
         }
         Some(tower_lsp_server::ls_types::GotoDefinitionResponse::Array(arr)) => {

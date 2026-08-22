@@ -3,10 +3,10 @@ use apollo_compiler::Schema;
 use dashmap::DashMap;
 use graphox_core::document::DocumentState;
 use graphox_core::queries::*;
+use ls_types::Uri;
 use ls_types::*;
 use std::sync::Arc;
 use tree_sitter::{QueryCursor, StreamingIterator};
-use ls_types::Uri;
 
 use crate::shared::type_resolver::{self, SemanticSymbol};
 

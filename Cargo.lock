@@ -1116,7 +1116,6 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-graphql",
  "tree-sitter-typescript",
- "url",
  "yaml-rust2",
 ]
 
@@ -1135,7 +1134,6 @@ dependencies = [
  "strsim",
  "tree-sitter",
  "tree-sitter-graphql",
- "url",
 ]
 
 [[package]]
@@ -1159,7 +1157,6 @@ dependencies = [
  "tower-lsp-server",
  "tree-sitter",
  "tree-sitter-graphql",
- "url",
 ]
 
 [[package]]
@@ -3410,7 +3407,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
- "serde_derive",
 ]
 
 [[package]]

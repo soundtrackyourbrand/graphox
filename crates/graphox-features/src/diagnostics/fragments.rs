@@ -151,7 +151,7 @@ pub(super) fn validate_fragment(
                             message: format!(
                                 "Private fragment '{}' shadows a public fragment defined in {}.",
                                 name,
-                                    other.uri.as_str()
+                                other.uri.as_str()
                             ),
                             source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()

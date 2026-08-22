@@ -430,7 +430,9 @@ mod tests {
             ],
         );
 
-        let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+        let (service, _) = LspService::new(|client| {
+            crate::backend::lsp::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+        });
         let backend = service.inner();
 
         for i in 0..5 {

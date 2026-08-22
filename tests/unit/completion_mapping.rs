@@ -7,7 +7,7 @@ use tree_sitter::Parser;
 #[ntest::timeout(3000)]
 fn mapping_graphql_in_tsx_template_literal() {
     let src = "const q = graphql(/* GraphQL */ `\nquery {\n  users {\n    ... on \n  }\n}\n`);\n";
-    let uri = Uri::from_str("file:///tmp/test.tsx").unwrap();
+    let uri = "file:///tmp/test.tsx".parse::<Uri>().unwrap();
     let mut parser = Parser::new();
     parser
         .set_language(tree_sitter_typescript::LANGUAGE_TSX.into())

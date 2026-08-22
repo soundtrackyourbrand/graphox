@@ -1379,7 +1379,7 @@ impl Backend {
         }
 
         // CHECK PROJECT IMPORTS
-        if let (Ok(f_path), Ok(t_path)) = (
+        if let (Some(f_path), Some(t_path)) = (
             fragment_doc_uri.to_file_path(),
             target_doc_uri.to_file_path(),
         ) {
@@ -1431,7 +1431,9 @@ mod tests {
             ],
         );
 
-        let (service, _) = LspService::new(|client| Backend::new(client, config));
+        let (service, _) = LspService::new(|client| {
+            crate::backend::lsp::GraphoxLanguageServer::new(Backend::new(client, config))
+        });
         let backend = service.inner();
 
         let schema_uri = Uri::from_file_path(&schema_path).unwrap();

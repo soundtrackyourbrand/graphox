@@ -26,7 +26,13 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
     // each unique schema once — in parallel, overlapped with the scan — replaces what
     // was a per-project load+validate of the same large schemas.
     let (workspace_metadata, validated_schemas) = rayon::join(
-        || Engine::scan_workspace(&cfg, tower_lsp_server::ls_types::PositionEncodingKind::UTF8, None),
+        || {
+            Engine::scan_workspace(
+                &cfg,
+                tower_lsp_server::ls_types::PositionEncodingKind::UTF8,
+                None,
+            )
+        },
         || build_validated_schemas(&cfg),
     );
 

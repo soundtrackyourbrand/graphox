@@ -232,7 +232,13 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     // and — crucially — validate each DISTINCT schema once rather than per project
     // (many projects share the same large schema).
     let (workspace_metadata, (validated_schemas, workspace_type_imports)) = rayon::join(
-        || Engine::scan_workspace(&cfg, tower_lsp_server::ls_types::PositionEncodingKind::UTF8, None),
+        || {
+            Engine::scan_workspace(
+                &cfg,
+                tower_lsp_server::ls_types::PositionEncodingKind::UTF8,
+                None,
+            )
+        },
         || {
             rayon::join(
                 || super::build_validated_schemas(&cfg),

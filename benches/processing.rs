@@ -4,6 +4,7 @@ use graphox::{
     DocumentState,
     features::{diagnostics::DocumentDiagnostics, semantic_tokens::DocumentSemanticTokens},
 };
+use std::str::FromStr;
 use std::time::Duration;
 use tower_lsp_server::ls_types::{
     Position, PositionEncodingKind, Range, TextDocumentContentChangeEvent, Uri,
@@ -54,7 +55,9 @@ fn bench_document_processing(c: &mut Criterion) {
         .expect("Failed to parse schema")
         .validate()
         .expect("Failed to validate schema");
-    let uri = Uri::from_str("file:///tests/fixtures/component.ts").unwrap();
+    let uri = "file:///tests/fixtures/component.ts"
+        .parse::<Uri>()
+        .unwrap();
 
     let mut group = c.benchmark_group("Document Processing");
     group.sample_size(10);
@@ -138,7 +141,7 @@ fn bench_multi_file_update(c: &mut Criterion) {
         parser
             .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
             .unwrap();
-        let uri = Uri::from_str("file:///doc_50.ts").unwrap();
+        let uri = "file:///doc_50.ts".parse::<Uri>().unwrap();
         let mut doc =
             DocumentState::new(uri, &base_content, &mut parser, PositionEncodingKind::UTF8);
         let mut update_parser = tree_sitter::Parser::new();
@@ -171,7 +174,9 @@ fn bench_large_file_simulation(c: &mut Criterion) {
         large_content.push_str(&base_content);
         large_content.push('\n');
     }
-    let uri = Uri::from_str("file:///tests/fixtures/large_component.ts").unwrap();
+    let uri = "file:///tests/fixtures/large_component.ts"
+        .parse::<Uri>()
+        .unwrap();
 
     let mut group = c.benchmark_group("Large File Simulation (100x)");
     group.sample_size(10);
@@ -224,7 +229,7 @@ fn bench_fragment_heavy_document(c: &mut Criterion) {
         text.push_str(&format!("fragment F{} on User {{ username email }}\n", i));
     }
 
-    let uri = Uri::from_str("file:///heavy.graphql").unwrap();
+    let uri = "file:///heavy.graphql".parse::<Uri>().unwrap();
     let mut group = c.benchmark_group("Fragment Heavy Document");
     group.sample_size(10);
 

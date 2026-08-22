@@ -84,6 +84,7 @@ async fn test_pull_diagnostics_basic() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -162,7 +163,9 @@ async fn test_workspace_diagnostic_refresh_survives_delayed_client_response() {
     )
     .with_lsp_automatic_codegen(false);
 
-    let (mut service, socket) = LspService::new(move |client| Backend::new(client, config));
+    let (mut service, socket) = LspService::new(move |client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config))
+    });
     let (mut requests, mut responses) = socket.split();
     let (refresh_responded_tx, refresh_responded_rx) = tokio::sync::oneshot::channel();
 
@@ -199,6 +202,7 @@ async fn test_workspace_diagnostic_refresh_survives_delayed_client_response() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -275,6 +279,7 @@ async fn test_pull_diagnostics_returns_empty_for_unconfigured_file() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -369,6 +374,7 @@ async fn test_pull_diagnostics_unchanged() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -451,6 +457,7 @@ async fn test_pull_diagnostics_refresh_after_duplicate_file_deleted_and_closed()
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -672,6 +679,7 @@ export const EditorialHomeDoc = graphql(/* GraphQL */ `
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -750,6 +758,7 @@ async fn test_pull_diagnostics_unchanged_on_bare_epoch_bump() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -858,7 +867,9 @@ async fn test_pull_diagnostics_refreshes_when_private_fragment_deletion_revalida
     )
     .with_lsp_automatic_codegen(false);
 
-    let (mut service, socket) = LspService::new(move |client| Backend::new(client, config));
+    let (mut service, socket) = LspService::new(move |client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config))
+    });
     let (mut requests, mut responses) = socket.split();
     let (refresh_seen_tx, refresh_seen_rx) = tokio::sync::oneshot::channel();
 
@@ -892,6 +903,7 @@ async fn test_pull_diagnostics_refreshes_when_private_fragment_deletion_revalida
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1049,6 +1061,7 @@ async fn test_workspace_diagnostics() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1155,6 +1168,7 @@ async fn test_workspace_diagnostics_omit_unconfigured_files() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1257,6 +1271,7 @@ async fn test_workspace_diagnostics_no_mass_refresh_on_bare_epoch_bump() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1377,6 +1392,7 @@ async fn test_workspace_diagnostics_omits_unchanged_items() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1488,6 +1504,7 @@ async fn test_workspace_diagnostics_returns_empty_while_workspace_loading() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1562,6 +1579,7 @@ async fn test_workspace_diagnostics_omit_schema_files() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1636,6 +1654,7 @@ async fn test_pull_diagnostics_return_empty_for_open_schema_file() {
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1942,6 +1961,7 @@ rules:
                 diagnostic: Some(DiagnosticClientCapabilities {
                     dynamic_registration: Some(false),
                     related_document_support: Some(true),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),

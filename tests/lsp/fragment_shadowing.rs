@@ -82,7 +82,7 @@ async fn test_fragment_references_respect_shadowing() {
     assert!(
         loc_def.uri.as_str().contains("apps/web"),
         "Definition for B usage should be in B, got {}",
-        loc_def.uri
+        loc_def.uri.as_str()
     );
 
     // 2. Verify References
@@ -107,7 +107,7 @@ async fn test_fragment_references_respect_shadowing() {
         assert!(
             loc.uri.as_str().contains("packages/catalog"),
             "Reference in {} should be in Project A",
-            loc.uri
+            loc.uri.as_str()
         );
     }
     assert_eq!(

@@ -25,7 +25,7 @@ fn codegen_project_keys<'a>(
     let mut seen = ahash::AHashSet::default();
     let mut keys = Vec::new();
     for uri in uris {
-        let Ok(path) = uri.to_file_path() else {
+        let Some(path) = uri.to_file_path() else {
             continue;
         };
         let Some(project) = config.get_project_for_path(&path) else {
@@ -304,7 +304,10 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
     let uri = backend.normalize_uri(params.text_document.uri);
     backend.open_documents.remove(&uri);
 
-    let missing_on_disk = uri.to_file_path().map(|p| p.into_owned()).is_some_and(|path| !path.exists());
+    let missing_on_disk = uri
+        .to_file_path()
+        .map(|p| p.into_owned())
+        .is_some_and(|path| !path.exists());
     let mut removed_from_workspace = false;
 
     if missing_on_disk {
@@ -375,7 +378,7 @@ pub async fn handle_did_change_watched_files(
         let is_config = backend
             .normalize_uri(change.uri.clone())
             .to_file_path()
-            .is_ok_and(|path| file_change_handler::is_config_file(&path, &config));
+            .is_some_and(|path| file_change_handler::is_config_file(&path, &config));
 
         if is_config {
             config_changed = true;

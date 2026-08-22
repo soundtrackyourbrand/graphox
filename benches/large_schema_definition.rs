@@ -84,7 +84,9 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
 
     // Enter the runtime context before creating Backend (which spawns tasks in CodegenThrottle::new)
     let _guard = rt.enter();
-    let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+    });
     let backend = service.inner();
 
     // Pre-populate ALL documents (schemas are already loaded in Backend::new)

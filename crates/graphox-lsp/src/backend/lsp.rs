@@ -4,12 +4,38 @@ use crate::backend::handlers::{
 use crate::backend::state::Backend;
 use graphox_core::Config;
 use graphox_features::signature_help::DocumentSignatureHelp;
+use std::sync::Arc;
 use tower_lsp_server::jsonrpc::Result;
+
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{LanguageServer, LspService, Server};
 
-#[tower_lsp_server::async_trait]
-impl LanguageServer for Backend {
+/// The service handed to tower-lsp-server.
+///
+/// tower-lsp provided a blanket `impl LanguageServer for Arc<S>`;
+/// tower-lsp-server does not, and `Backend::new` returns `Arc<Self>`. The
+/// orphan rule forbids implementing the foreign trait for `Arc<Backend>`
+/// directly, so this local newtype carries it. It derefs to `Backend`, which
+/// keeps every method body below unchanged.
+#[derive(Clone)]
+pub struct GraphoxLanguageServer(Arc<Backend>);
+
+impl GraphoxLanguageServer {
+    pub fn new(backend: Arc<Backend>) -> Self {
+        Self(backend)
+    }
+}
+
+impl std::ops::Deref for GraphoxLanguageServer {
+    type Target = Backend;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+// No async_trait attribute: the fork uses native async fn in traits.
+impl LanguageServer for GraphoxLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         let caps = crate::backend::state::ClientCapabilities::from_params(&params);
 
@@ -26,6 +52,9 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: super::capabilities::build_server_capabilities(&caps),
+            // Unofficial clangd UTF-8 offsets extension; we negotiate
+            // encoding through capabilities instead.
+            offset_encoding: None,
             server_info: Some(ServerInfo {
                 name: "graphox-lsp".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -144,8 +173,12 @@ impl LanguageServer for Backend {
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
-    ) -> Result<Option<Vec<SymbolInformation>>> {
-        symbols::handle_workspace_symbol(self, params).await
+    ) -> Result<Option<WorkspaceSymbolResponse>> {
+        // ls-types widened this to an enum over SymbolInformation and the newer
+        // WorkspaceSymbol; our handler still produces the former.
+        Ok(symbols::handle_workspace_symbol(self, params)
+            .await?
+            .map(Into::into))
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
@@ -246,7 +279,8 @@ impl LanguageServer for Backend {
 }
 
 pub async fn run_lsp(config: Config) {
-    let (service, socket) = LspService::new(|client| Backend::new(client, config));
+    let (service, socket) =
+        LspService::new(|client| GraphoxLanguageServer(Backend::new(client, config)));
     Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
         .serve(service)
         .await;
@@ -272,7 +306,9 @@ mod tests {
             ],
         );
 
-        let (service, _) = LspService::new(|client| Backend::new(client, config));
+        let (service, _) = LspService::new(|client| {
+            crate::backend::lsp::GraphoxLanguageServer::new(Backend::new(client, config))
+        });
 
         // This should complete very quickly even with multiple documents
         let res = timeout(
@@ -291,11 +327,13 @@ mod tests {
     async fn test_get_all_fragments_info_no_deadlock() {
         let config = Config::new_test(std::env::current_dir().unwrap(), vec![]);
 
-        let (service, _) = LspService::new(|client| Backend::new(client, config));
+        let (service, _) = LspService::new(|client| {
+            crate::backend::lsp::GraphoxLanguageServer::new(Backend::new(client, config))
+        });
         let backend = service.inner();
 
         // Simulate some data
-        let uri = Uri::from_str("file:///test.graphql").unwrap();
+        let uri = "file:///test.graphql".parse::<Uri>().unwrap();
         let metadata = Arc::new(graphox_core::types::DocumentMetadata {
             fragments: Arc::from([]),
             fragment_spreads: Arc::from([]),

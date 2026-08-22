@@ -24,7 +24,6 @@ rayon = { workspace = true }
 glob = { workspace = true }
 globset = { workspace = true }
 ignore = { workspace = true }
-url = { workspace = true }
 ls-types = { workspace = true }
 colored = { workspace = true }
 dirs = { workspace = true }

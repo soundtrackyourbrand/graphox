@@ -101,7 +101,9 @@ fn bench_call_hierarchy(c: &mut Criterion) {
     let config = generate_call_hierarchy_workspace(&base_dir, 10, 5);
 
     let _guard = rt.enter();
-    let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+    });
     let backend = service.inner();
 
     rt.block_on(async {

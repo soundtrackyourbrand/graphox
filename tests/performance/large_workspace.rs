@@ -19,9 +19,11 @@ const MAX_SCAN_TIME: Duration = Duration::from_secs(2);
 /// Helper to initialize the LSP and return the time taken
 async fn init_and_time_lsp(
     config: Config,
-) -> (Duration, LspService<std::sync::Arc<graphox::Backend>>) {
+) -> (Duration, LspService<graphox::GraphoxLanguageServer>) {
     let start = Instant::now();
-    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config));
+    let (mut service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(graphox::Backend::new(client, config))
+    });
     lsp_initialize_sequence(&mut service).await;
     (start.elapsed(), service)
 }
@@ -164,7 +166,9 @@ async fn test_fragment_resolution_chain() {
 
     let config = create_file_config(&base_dir);
     let start = std::time::Instant::now();
-    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    let (mut service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(graphox::Backend::new(client, config.clone()))
+    });
     lsp_initialize_sequence(&mut service).await;
 
     let uri = Uri::from_file_path(base_dir.join("deep_chain.graphql")).unwrap();
@@ -208,7 +212,9 @@ async fn test_many_projects() {
 
     let config = create_10_project_config(&base_dir);
     let start = std::time::Instant::now();
-    let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
+    let (mut service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(graphox::Backend::new(client, config.clone()))
+    });
     lsp_initialize_sequence(&mut service).await;
     let duration = start.elapsed();
 

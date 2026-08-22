@@ -13,7 +13,7 @@ pub use graphox_core::CodegenConfig;
 pub use graphox_core::Config;
 pub use graphox_core::DocumentState;
 pub use graphox_core::document::DocumentLanguage;
-pub use graphox_lsp::Backend;
+pub use graphox_lsp::{Backend, GraphoxLanguageServer};
 
 // Re-export commonly used schema cache functions
 pub use graphox_core::schema_cache::clear_cache as clear_schema_cache;

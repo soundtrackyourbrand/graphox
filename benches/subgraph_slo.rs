@@ -250,7 +250,9 @@ fn bench_subgraph_lsp_actions(c: &mut Criterion) {
 
     // Enter runtime before creating Backend
     let _guard = rt.enter();
-    let (service, _) = LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+    });
     let backend = service.inner();
 
     // Pre-populate all documents

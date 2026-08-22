@@ -512,13 +512,13 @@ fn is_foreign_schema_doc(
     doc_uri: &Uri,
     relevant: &ahash::AHashSet<std::path::PathBuf>,
 ) -> bool {
-    let Ok(doc_path) = doc_uri.to_file_path() else {
+    let Some(doc_path) = doc_uri.to_file_path() else {
         return false;
     };
     if !super::super::validation::is_schema_document_path(&doc_path, config) {
         return false;
     }
-    let canon = std::fs::canonicalize(&doc_path).unwrap_or(doc_path);
+    let canon = std::fs::canonicalize(&doc_path).unwrap_or_else(|_| doc_path.into_owned());
     !relevant.contains(&canon)
 }
 

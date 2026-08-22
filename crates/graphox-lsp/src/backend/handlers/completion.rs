@@ -95,7 +95,7 @@ pub async fn handle_completion(
 
                 log::trace!(
                     "completion: fragments for doc {} = {:?}",
-                    doc.uri,
+                    doc.uri.as_str(),
                     fragments.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
                 );
 
@@ -228,7 +228,9 @@ mod tests {
 
     #[test]
     fn test_sanitize_completion_items_clamps_out_of_range_positions() {
-        let uri = Uri::from_str("file:///tmp/test.graphql").expect("valid test uri");
+        let uri = "file:///tmp/test.graphql"
+            .parse::<Uri>()
+            .expect("valid test uri");
         let doc = DocumentState::new_from_thread_local(
             uri,
             "query {\n  users\n}\n",

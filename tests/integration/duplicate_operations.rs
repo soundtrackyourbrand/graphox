@@ -13,7 +13,7 @@ use tower_lsp_server::ls_types::Uri;
 #[ntest::timeout(500)]
 async fn test_document_operations_extraction() {
     let query_text = "query GetUser { user(id: \"1\") { id name } }";
-    let uri = Uri::from_str("file:///test/query.graphql").unwrap();
+    let uri = "file:///test/query.graphql".parse::<Uri>().unwrap();
 
     let doc = create_doc(uri.as_str(), query_text);
 

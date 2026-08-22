@@ -42,7 +42,9 @@ pub fn bench_cross_project_resolution(c: &mut Criterion) {
 
     let config = Config::new_test(base_dir.clone(), projects);
     let _guard = rt.enter();
-    let (service, _) = tower_lsp_server::LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = tower_lsp_server::LspService::new(|client| {
+        graphox::GraphoxLanguageServer::new(Backend::new(client, config.clone()))
+    });
     let backend = service.inner();
 
     // Seed multiple files per project with fragment definitions and spreads to exercise metadata collection
