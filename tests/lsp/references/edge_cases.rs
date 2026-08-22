@@ -15,7 +15,8 @@ async fn test_references_cursor_on_whitespace() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -53,7 +54,8 @@ async fn test_references_cursor_on_punctuation() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -91,7 +93,8 @@ async fn test_references_empty_file() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -129,7 +132,8 @@ async fn test_references_partial_name() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -168,7 +172,8 @@ async fn test_references_comment() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -207,7 +212,8 @@ async fn test_references_unknown_symbol() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -249,7 +255,8 @@ async fn test_references_multiple_fields_same_name() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -308,7 +315,8 @@ async fn test_references_schema_syntax_error() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -346,7 +354,8 @@ async fn test_references_aliased_field() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -385,7 +394,8 @@ async fn test_references_nested_selection_unknown_field() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -428,7 +438,8 @@ async fn test_references_nested_selection_valid() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -471,7 +482,8 @@ async fn test_references_directive_shorthand() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 

@@ -82,7 +82,7 @@ async fn test_lsp_pull_circular_fragments() {
     // Open the files
     for rel in ["frag_a.graphql", "frag_b.graphql", "query.graphql"] {
         let path = base_dir.join(rel);
-        let url = Uri::from_file_path(&path).unwrap();
+        let url = graphox::utils::path_to_uri(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         lsp_did_open(&mut service, url, "graphql", 1, &text).await;
     }
@@ -92,7 +92,7 @@ async fn test_lsp_pull_circular_fragments() {
 
     // Request diagnostics via pull for query file
     let diag_params = DocumentDiagnosticParams {
-        text_document: TextDocumentIdentifier::new(Uri::from_file_path(&base_dir.join("query.graphql")).unwrap()),
+        text_document: TextDocumentIdentifier::new(graphox::utils::path_to_uri(&base_dir.join("query.graphql")).unwrap()),
         identifier: None,
         previous_result_id: None,
         work_done_progress_params: Default::default(),

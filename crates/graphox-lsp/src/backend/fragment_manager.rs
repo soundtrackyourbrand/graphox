@@ -436,7 +436,8 @@ mod tests {
         let backend = service.inner();
 
         for i in 0..5 {
-            let uri = Uri::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
+            let uri =
+                graphox_core::utils::path_to_uri(base.join(format!("doc_{i}.graphql"))).unwrap();
             let content = format!(
                 "query Q{i} {{ user {{ ...Frag{i} }} }}\nfragment Frag{i} on User {{ id name }}\n"
             );

@@ -4,7 +4,6 @@ use crate::support::{self, lsp_did_open, lsp_initialize_sequence};
 use futures_util::StreamExt;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
-use tower_lsp_server::ls_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lsp_multi_schema_merge() {
@@ -51,7 +50,7 @@ async fn test_lsp_multi_schema_merge() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name } }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // If merging works, diagnostics should be empty.
@@ -113,7 +112,7 @@ async fn test_lsp_multi_schema_extension_first() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name } }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -177,7 +176,7 @@ async fn test_lsp_multi_schema_with_docs() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name } }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -238,7 +237,7 @@ async fn test_lsp_multi_schema_duplicate_scalars() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { now }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -301,7 +300,7 @@ async fn test_lsp_multi_schema_triple_overlap() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name age } }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -362,7 +361,7 @@ async fn test_lsp_multi_schema_extension_first_separate_files() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me { id name } }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     tokio::time::sleep(Duration::from_millis(50)).await;

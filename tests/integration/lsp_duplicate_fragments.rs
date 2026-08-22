@@ -41,7 +41,7 @@ async fn test_lsp_duplicate_fragments_same_project_via_config() {
     let service = initialized.service();
 
     let frag_a = base_dir.join("pkg_a/frag_a.graphql");
-    let uri_a = Uri::from_file_path(&frag_a).unwrap();
+    let uri_a = graphox::utils::path_to_uri(&frag_a).unwrap();
 
     // Pull diagnostics for frag_a and assert duplicate fragment diagnostic exists
     let params = tower_lsp_server::ls_types::DocumentDiagnosticParams {
@@ -129,8 +129,8 @@ async fn test_lsp_private_duplicates_different_projects_no_error() {
 
     lsp_initialize_sequence(&mut service).await;
 
-    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
-    let uri_b = Uri::from_file_path(&frag_b_path).unwrap();
+    let uri_a = graphox::utils::path_to_uri(&frag_a_path).unwrap();
+    let uri_b = graphox::utils::path_to_uri(&frag_b_path).unwrap();
 
     lsp_did_open(
         &mut service,

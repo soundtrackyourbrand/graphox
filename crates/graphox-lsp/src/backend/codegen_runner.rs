@@ -70,7 +70,7 @@ fn load_or_parse_document(
     unreadable: &mut UnreadableFiles,
     position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> Option<Arc<graphox_core::DocumentState>> {
-    let uri = Uri::from_file_path(path)?;
+    let uri = graphox_core::utils::path_to_uri(path)?;
 
     if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
         return Some(doc);
@@ -121,7 +121,7 @@ fn get_document_for_codegen(
     documents: &DocumentsMap,
     run_cache: &RunDocumentCache,
 ) -> Option<Arc<graphox_core::DocumentState>> {
-    let uri = Uri::from_file_path(path)?;
+    let uri = graphox_core::utils::path_to_uri(path)?;
 
     documents
         .get(&uri)

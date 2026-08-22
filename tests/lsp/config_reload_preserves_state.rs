@@ -31,7 +31,7 @@ rules:
     let query_text_disk = "query GetUser { user { id } }";
     let query_path = ws.write_file("query.graphql", query_text_disk);
     let query_path = fs::canonicalize(&query_path).unwrap();
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     // 2. Initialize LSP
     let config = Config::load_from_dir(root).unwrap().unwrap();
@@ -85,7 +85,7 @@ rules:
     fs::write(root.join("graphox.yaml"), new_config_text).unwrap();
 
     let changes = vec![FileEvent {
-        uri: Uri::from_file_path(root.join("graphox.yaml")).unwrap(),
+        uri: graphox::utils::path_to_uri(root.join("graphox.yaml")).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
     let reload_req = Request::build("workspace/didChangeWatchedFiles")

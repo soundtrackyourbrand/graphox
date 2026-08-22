@@ -3,7 +3,6 @@ use crate::document::{DocumentLanguage, DocumentState, FragmentId, TransitiveDep
 use crate::utils::{WorkspaceScanInstrumentation, get_project_scan_files, has_generated_header};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
-use ls_types::Uri;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -355,7 +354,7 @@ impl Engine {
                 } else {
                     crate::utils::canonicalize_cached(&config.base_dir().join(&full_path))
                 };
-                let uri = Uri::from_file_path(&abs_path)?;
+                let uri = crate::utils::path_to_uri(&abs_path)?;
                 let uri = crate::utils::normalize_uri(uri);
                 let language = DocumentLanguage::from_uri(&uri);
 
@@ -875,7 +874,7 @@ impl Engine {
     ) -> Option<DocumentState> {
         let content = std::fs::read_to_string(path).ok()?;
         let abs_path = crate::utils::canonicalize_cached(path);
-        let uri = Uri::from_file_path(&abs_path)?;
+        let uri = crate::utils::path_to_uri(&abs_path)?;
         let uri = crate::utils::normalize_uri(uri);
         let language = DocumentLanguage::from_uri(&uri);
 

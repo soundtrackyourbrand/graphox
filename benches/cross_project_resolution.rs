@@ -58,7 +58,7 @@ pub fn bench_cross_project_resolution(c: &mut Criterion) {
                 );
                 std::fs::write(&path, &content).unwrap();
 
-                let uri = Uri::from_file_path(&path).unwrap();
+                let uri = graphox::utils::path_to_uri(&path).unwrap();
                 let doc = graphox_core::DocumentState::new_from_thread_local(
                     uri.clone(),
                     &content,
@@ -96,7 +96,8 @@ pub fn bench_cross_project_resolution(c: &mut Criterion) {
         }
     });
 
-    let target_uri = Uri::from_file_path(base_dir.join("project_0/file_0.graphql")).unwrap();
+    let target_uri =
+        graphox::utils::path_to_uri(base_dir.join("project_0/file_0.graphql")).unwrap();
 
     let mut group =
         c.benchmark_group("Cross-Project Resolution (10 projects, 200 files, 100 base fragments)");

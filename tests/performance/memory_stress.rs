@@ -199,10 +199,8 @@ async fn test_memory_open_close_cycles() {
         crate::support::lsp_initialize_sequence(&mut service).await;
 
         for i in 0..20 {
-            let uri = tower_lsp_server::ls_types::Uri::from_file_path(
-                base_dir.join(format!("query_{}.graphql", i)),
-            )
-            .unwrap();
+            let uri =
+                graphox::utils::path_to_uri(base_dir.join(format!("query_{}.graphql", i))).unwrap();
             let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", i))).unwrap();
             crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
         }
@@ -249,10 +247,8 @@ async fn test_memory_cached_documents_100() {
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     for i in 0..100 {
-        let uri = tower_lsp_server::ls_types::Uri::from_file_path(
-            base_dir.join(format!("query_{}.graphql", i)),
-        )
-        .unwrap();
+        let uri =
+            graphox::utils::path_to_uri(base_dir.join(format!("query_{}.graphql", i))).unwrap();
         let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", i))).unwrap();
         crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
     }
@@ -300,10 +296,8 @@ async fn test_memory_schema_caching() {
         crate::support::lsp_initialize_sequence(&mut service).await;
 
         for j in 0..10 {
-            let uri = tower_lsp_server::ls_types::Uri::from_file_path(
-                base_dir.join(format!("query_{}.graphql", j)),
-            )
-            .unwrap();
+            let uri =
+                graphox::utils::path_to_uri(base_dir.join(format!("query_{}.graphql", j))).unwrap();
             let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", j))).unwrap();
             crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
         }
@@ -360,8 +354,7 @@ async fn test_memory_fragment_index() {
     });
     crate::support::lsp_initialize_sequence(&mut service).await;
 
-    let uri = tower_lsp_server::ls_types::Uri::from_file_path(base_dir.join("fragments.graphql"))
-        .unwrap();
+    let uri = graphox::utils::path_to_uri(base_dir.join("fragments.graphql")).unwrap();
     crate::support::lsp_did_open(&mut service, uri.clone(), "graphql", 1, &all_fragments).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -401,10 +394,8 @@ async fn test_memory_large_schema() {
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     for i in 0..50 {
-        let uri = tower_lsp_server::ls_types::Uri::from_file_path(
-            base_dir.join(format!("query_{}.graphql", i)),
-        )
-        .unwrap();
+        let uri =
+            graphox::utils::path_to_uri(base_dir.join(format!("query_{}.graphql", i))).unwrap();
         let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", i))).unwrap();
         crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
     }

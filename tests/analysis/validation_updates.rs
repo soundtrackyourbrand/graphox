@@ -235,7 +235,7 @@ async fn test_backend_schema_reload() {
 
     let params = DidChangeWatchedFilesParams {
         changes: vec![FileEvent {
-            uri: Uri::from_file_path(&schema_path).unwrap(),
+            uri: graphox::utils::path_to_uri(&schema_path).unwrap(),
             typ: FileChangeType::CHANGED,
         }],
     };

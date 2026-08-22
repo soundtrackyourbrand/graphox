@@ -18,7 +18,6 @@ use graphox_core::config::ProjectConfig;
 use graphox_core::config::SchemaSource;
 use tempfile::TempDir;
 use tower_lsp_server::ls_types::DiagnosticSeverity;
-use tower_lsp_server::ls_types::Uri;
 
 #[test]
 #[ntest::timeout(300)]
@@ -38,7 +37,7 @@ fn test_private_shadows_public_warning() {
     let frag_a_path = pkg_a.join("frag.graphql");
     let text_a = "fragment ShadowFrag on User { id }";
 
-    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
+    let uri_a = graphox::utils::path_to_uri(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
@@ -51,7 +50,7 @@ fn test_private_shadows_public_warning() {
 
     let public_frag = FragmentInfoBuilder::new("ShadowFrag", "User")
         .public()
-        .with_uri(Uri::from_file_path(base.join("pkg_b").join("frag.graphql")).unwrap())
+        .with_uri(graphox::utils::path_to_uri(base.join("pkg_b").join("frag.graphql")).unwrap())
         .with_package_root(base.join("pkg_b"))
         .build();
 
@@ -88,7 +87,7 @@ fn test_public_collision_error() {
     let frag_a_path = base.join("pkg_a").join("frag.graphql");
     let text_a = "fragment CollideFrag on User @public { id }";
 
-    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
+    let uri_a = graphox::utils::path_to_uri(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
@@ -101,7 +100,7 @@ fn test_public_collision_error() {
 
     let other_frag = FragmentInfoBuilder::new("CollideFrag", "User")
         .public()
-        .with_uri(Uri::from_file_path(base.join("pkg_b").join("frag.graphql")).unwrap())
+        .with_uri(graphox::utils::path_to_uri(base.join("pkg_b").join("frag.graphql")).unwrap())
         .with_package_root(base.join("pkg_b"))
         .build();
 
@@ -134,8 +133,8 @@ fn test_cross_project_fragment_usage() {
     let frag_a_path = base.join("pkg_a").join("frag.graphql");
     let query_path = base.join("query.graphql");
 
-    let uri_frag = Uri::from_file_path(&frag_a_path).unwrap();
-    let uri_query = Uri::from_file_path(&query_path).unwrap();
+    let uri_frag = graphox::utils::path_to_uri(&frag_a_path).unwrap();
+    let uri_query = graphox::utils::path_to_uri(&query_path).unwrap();
 
     let schema = Schema::parse(
         "type User { id: ID! } type Query { me: User }",

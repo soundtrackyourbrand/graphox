@@ -274,7 +274,7 @@ async fn test_goto_definition_field_in_schema() {
 
     // Open schema first so it's in documents
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = graphox::utils::path_to_uri(fs::canonicalize(&schema_path).unwrap()).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
 
     let text = r#"

@@ -187,6 +187,19 @@ fn to_posix_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+/// A relative path rendered as an ES module specifier.
+///
+/// Specifiers always use forward slashes, but `PathBuf` renders with the
+/// platform separator — so on Windows `pathdiff` output became `..\q.codegen`,
+/// which is not a valid specifier and does not match what codegen emitted.
+fn to_module_specifier(path: &Path) -> String {
+    let mut s = path.to_string_lossy().replace('\\', "/");
+    if !s.starts_with('.') && !s.starts_with('/') {
+        s = format!("./{}", s);
+    }
+    s
+}
+
 fn strip_script_extension(s: &str) -> String {
     s.strip_suffix(".d.ts")
         .or_else(|| s.strip_suffix(".tsx"))
@@ -397,11 +410,7 @@ impl TransformVisitor {
             if let Some(parent) = current_file.parent()
                 && let Some(rel_path) = pathdiff::diff_paths(&codegen_abs_path, parent)
             {
-                let mut s = rel_path.to_string_lossy().to_string();
-                if !s.starts_with('.') && !s.starts_with('/') {
-                    s = format!("./{}", s);
-                }
-                s
+                to_module_specifier(&rel_path)
             } else {
                 codegen_rel_path.to_string()
             }
@@ -497,15 +506,8 @@ impl TransformVisitor {
             if let Some(rel_path) = pathdiff::diff_paths(&entrypoint_abs_path, parent)
                 && let Some(rel_index_path) = pathdiff::diff_paths(&index_abs_path, parent)
             {
-                let mut s = rel_path.to_string_lossy().to_string();
-                if !s.starts_with('.') && !s.starts_with('/') {
-                    s = format!("./{}", s);
-                }
-
-                let mut s_index = rel_index_path.to_string_lossy().to_string();
-                if !s_index.starts_with('.') && !s_index.starts_with('/') {
-                    s_index = format!("./{}", s_index);
-                }
+                let s = to_module_specifier(&rel_path);
+                let s_index = to_module_specifier(&rel_index_path);
 
                 // Normalize both source and our paths to compare without extensions
                 let src_normalized = src_no_ext.as_str();

@@ -107,7 +107,7 @@ async fn test_pull_diagnostics_basic() {
         .unwrap();
 
     // Open document
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Request diagnostics via pull
@@ -301,7 +301,7 @@ async fn test_pull_diagnostics_returns_empty_for_unconfigured_file() {
 
     wait_for_workspace_loaded(&mut service).await;
 
-    let ignored_uri = Uri::from_file_path(&ignored_path).unwrap();
+    let ignored_uri = graphox::utils::path_to_uri(&ignored_path).unwrap();
     lsp_did_open(
         &mut service,
         ignored_uri.clone(),
@@ -395,7 +395,7 @@ async fn test_pull_diagnostics_unchanged() {
         .unwrap();
 
     // Open document
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // First pull request
@@ -778,7 +778,7 @@ async fn test_pull_diagnostics_unchanged_on_bare_epoch_bump() {
         .await
         .unwrap();
 
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     let diag_params = DocumentDiagnosticParams {
@@ -927,9 +927,9 @@ async fn test_pull_diagnostics_refreshes_when_private_fragment_deletion_revalida
     let public_path = base_dir.join("pkg_a/public.graphql");
     let local_path = base_dir.join("pkg_b/local.graphql");
     let query_path = base_dir.join("pkg_b/query.graphql");
-    let public_uri = Uri::from_file_path(&public_path).unwrap();
-    let local_uri = Uri::from_file_path(&local_path).unwrap();
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let public_uri = graphox::utils::path_to_uri(&public_path).unwrap();
+    let local_uri = graphox::utils::path_to_uri(&local_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     let public_text = std::fs::read_to_string(&public_path).unwrap();
     let local_text = std::fs::read_to_string(&local_path).unwrap();
@@ -1084,8 +1084,8 @@ async fn test_workspace_diagnostics() {
     wait_for_workspace_loaded(&mut service).await;
 
     // Open both documents
-    let query1_uri = Uri::from_file_path(&query1_path).unwrap();
-    let query2_uri = Uri::from_file_path(&query2_path).unwrap();
+    let query1_uri = graphox::utils::path_to_uri(&query1_path).unwrap();
+    let query2_uri = graphox::utils::path_to_uri(&query2_path).unwrap();
 
     lsp_did_open(&mut service, query1_uri.clone(), "graphql", 1, query1_text).await;
     lsp_did_open(&mut service, query2_uri.clone(), "graphql", 1, query2_text).await;
@@ -1146,8 +1146,8 @@ async fn test_workspace_diagnostics_omit_unconfigured_files() {
         .with_file("ignored.graphql", ignored_text);
 
     let base_dir = scenario.write_files().unwrap();
-    let configured_uri = Uri::from_file_path(base_dir.join("configured.graphql")).unwrap();
-    let ignored_uri = Uri::from_file_path(base_dir.join("ignored.graphql")).unwrap();
+    let configured_uri = graphox::utils::path_to_uri(base_dir.join("configured.graphql")).unwrap();
+    let ignored_uri = graphox::utils::path_to_uri(base_dir.join("ignored.graphql")).unwrap();
 
     let config = Config::new_test(
         base_dir.clone(),
@@ -1633,7 +1633,7 @@ async fn test_pull_diagnostics_return_empty_for_open_schema_file() {
         crate::support::lsp::LspTestScenario::new().with_file("schema.graphqls", schema_text);
 
     let base_dir = scenario.write_files().unwrap();
-    let schema_uri = Uri::from_file_path(base_dir.join("schema.graphqls")).unwrap();
+    let schema_uri = graphox::utils::path_to_uri(base_dir.join("schema.graphqls")).unwrap();
 
     let config = Config::new_test(
         base_dir.clone(),
@@ -1759,7 +1759,7 @@ async fn test_fallback_to_push_diagnostics() {
         .unwrap();
 
     // Open document
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Wait for validation (poll for diagnostics)
@@ -1861,7 +1861,7 @@ async fn test_push_diagnostics_publish_empty_for_unconfigured_file() {
 
     wait_for_workspace_loaded(&mut service).await;
 
-    let ignored_uri = Uri::from_file_path(&ignored_path).unwrap();
+    let ignored_uri = graphox::utils::path_to_uri(&ignored_path).unwrap();
     lsp_did_open(
         &mut service,
         ignored_uri.clone(),
@@ -1988,7 +1988,7 @@ rules:
         .expect("Initial workspace scan did not complete in time")
         .expect("scan_done_rx closed before initial scan completed");
 
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     let query_text = std::fs::read_to_string(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
@@ -2031,7 +2031,7 @@ rules:
     .unwrap();
 
     let changes = vec![FileEvent {
-        uri: Uri::from_file_path(&config_path).unwrap(),
+        uri: graphox::utils::path_to_uri(&config_path).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
 

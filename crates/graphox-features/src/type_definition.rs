@@ -2,7 +2,7 @@ use crate::shared::type_resolver::{self, SemanticSymbol};
 use apollo_compiler::Schema;
 use graphox_core::config::{Config, ProjectConfig};
 use graphox_core::document::DocumentState;
-use ls_types::{Location, Position, Range, Uri};
+use ls_types::{Location, Position, Range};
 use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 
@@ -80,7 +80,7 @@ pub fn resolve_codegen_location(
     let range = find_type_in_content(&content, &type_name)?;
 
     Some(Location {
-        uri: Uri::from_file_path(codegen_path)?,
+        uri: graphox_core::utils::path_to_uri(codegen_path)?,
         range,
     })
 }
@@ -215,7 +215,7 @@ fn resolve_field_codegen_location(
     let range = find_field_property(&content, &root_type, &field_path)?;
 
     Some(Location {
-        uri: Uri::from_file_path(codegen_path)?,
+        uri: graphox_core::utils::path_to_uri(codegen_path)?,
         range,
     })
 }

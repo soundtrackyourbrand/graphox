@@ -170,7 +170,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                     return None;
                 }
 
-                let uri = Uri::from_file_path(&path)?;
+                let uri = graphox_core::utils::path_to_uri(&path)?;
 
                 // Cheap pre-filter: a host-language file (.ts/.tsx) that contains no
                 // `gql`/`graphql` marker cannot hold embedded GraphQL, so skip the full

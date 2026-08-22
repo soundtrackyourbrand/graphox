@@ -20,7 +20,8 @@ async fn test_goto_definition_schema_field_to_field() {
 
     // Open schema file - cursor on 'user' field in Query type
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -68,7 +69,8 @@ async fn test_goto_definition_schema_type_to_type() {
 
     // Open schema with cursor on User type in field definition
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -116,7 +118,8 @@ async fn test_goto_definition_schema_enum_value() {
 
     // Open schema with cursor on enum value
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -163,7 +166,8 @@ async fn test_goto_definition_schema_argument() {
 
     // Open schema with cursor on argument
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -213,7 +217,8 @@ async fn test_goto_definition_type_extension() {
 
     // Open schema with cursor on extended type
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 

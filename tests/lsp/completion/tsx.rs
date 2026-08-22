@@ -58,7 +58,7 @@ async fn test_embedded_fragment_spreads_interface_tsx() {
     let text = r#"const q = graphql(/* GraphQL */ `fragment OnNode on Node { id } fragment OnA on A { name } fragment OnB on B { title } query { node { ... } item { ... } }`);"#;
     fs::write(&query_path, text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Uri::from_file_path(&query_path).unwrap();
+    let uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     service
         .call(
@@ -161,7 +161,7 @@ async fn test_embedded_fragment_spreads_union_tsx() {
     let text = r#"const q = graphql(/* GraphQL */ `fragment OnItem on Item { id } fragment OnA on A { name } fragment OnB on B { title } query { item { ... } other { ... } }`);"#;
     fs::write(&query_path, text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Uri::from_file_path(&query_path).unwrap();
+    let uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     service
         .call(

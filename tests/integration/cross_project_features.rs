@@ -72,7 +72,7 @@ async fn test_cross_project_references_and_rename() {
     let fragment_text = "fragment UserFields on User @public { id name }";
     fs::write(&frag_path, fragment_text).unwrap();
     let frag_path = std::fs::canonicalize(frag_path).unwrap();
-    let fragment_uri = Uri::from_file_path(&frag_path).unwrap();
+    let fragment_uri = graphox::utils::path_to_uri(&frag_path).unwrap();
 
     service
         .call(
@@ -98,7 +98,7 @@ async fn test_cross_project_references_and_rename() {
     let query_text = "query { user { ...UserFields } }";
     fs::write(&query_path, query_text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     service
         .call(
@@ -242,7 +242,7 @@ async fn test_unrelated_projects_rename_isolation() {
     let p1_frag = p1_dir.join("f1.graphql");
     fs::write(&p1_frag, "fragment LocalFields on User { id }").unwrap();
     let p1_frag = std::fs::canonicalize(p1_frag).unwrap();
-    let p1_uri = Uri::from_file_path(&p1_frag).unwrap();
+    let p1_uri = graphox::utils::path_to_uri(&p1_frag).unwrap();
 
     service
         .call(
@@ -267,7 +267,7 @@ async fn test_unrelated_projects_rename_isolation() {
     let p2_frag = p2_dir.join("f2.graphql");
     fs::write(&p2_frag, "fragment LocalFields on User { name }").unwrap();
     let p2_frag = std::fs::canonicalize(p2_frag).unwrap();
-    let p2_uri = Uri::from_file_path(&p2_frag).unwrap();
+    let p2_uri = graphox::utils::path_to_uri(&p2_frag).unwrap();
 
     service
         .call(

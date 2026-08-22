@@ -200,7 +200,7 @@ fn seed_backend(
     let backend = service.inner().clone();
 
     for i in 0..files {
-        let uri = Uri::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
+        let uri = graphox::utils::path_to_uri(base.join(format!("doc_{i}.graphql"))).unwrap();
         let mut content = format!("query GetUser{i} {{ user {{ ...Frag{i}_0 }} }}\n");
         for f in 0..frags_per_file {
             content.push_str(&format!(
@@ -388,7 +388,7 @@ fn generate_source_tree(
     let mut candidates = Vec::new();
 
     let mut push = |path: PathBuf, content: String| {
-        let uri = Uri::from_file_path(&path).unwrap();
+        let uri = graphox::utils::path_to_uri(&path).unwrap();
         let is_host = DocumentLanguage::from_uri(&uri).is_host_language();
         candidates.push((uri, content, is_host));
     };

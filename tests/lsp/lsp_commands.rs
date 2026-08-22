@@ -51,7 +51,7 @@ async fn test_lsp_command_clear_cache() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me }";
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Initial diagnostics (should be empty)

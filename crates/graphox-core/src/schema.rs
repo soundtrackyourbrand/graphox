@@ -150,7 +150,7 @@ pub fn load_subgraphs(
                 }
 
                 let owner = owners.and_then(|m| m.get(name).cloned());
-                if let Some(uri) = ls_types::Uri::from_file_path(&path) {
+                if let Some(uri) = crate::utils::path_to_uri(&path) {
                     subgraphs.push(SubgraphInfo {
                         name: name.to_string(),
                         owner,

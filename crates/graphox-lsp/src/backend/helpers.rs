@@ -168,8 +168,8 @@ mod tests {
             ],
         );
 
-        let uri = Uri::from_file_path(base_dir.join("query.graphql")).unwrap();
-        let other_uri = Uri::from_file_path(base_dir.join("other.graphql")).unwrap();
+        let uri = graphox_core::utils::path_to_uri(base_dir.join("query.graphql")).unwrap();
+        let other_uri = graphox_core::utils::path_to_uri(base_dir.join("other.graphql")).unwrap();
         let operation_names: OperationNamesMap =
             Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         operation_names.insert(

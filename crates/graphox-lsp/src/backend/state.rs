@@ -409,7 +409,7 @@ impl Backend {
         let file_id = name_node.location()?.file_id();
         let source_file = schema.sources.get(&file_id)?;
         let path = source_file.path();
-        let uri = Uri::from_file_path(path)?;
+        let uri = graphox_core::utils::path_to_uri(path)?;
 
         let range = graphox_core::utils::apollo_location_to_range(
             &name_node.location(),
@@ -1265,7 +1265,7 @@ impl Backend {
             if let Some(project) = config.get_project_for_path(&path) {
                 for schema_file in project.schema().files() {
                     let schema_path = config.base_dir().join(schema_file);
-                    if let Some(schema_uri) = Uri::from_file_path(schema_path) {
+                    if let Some(schema_uri) = graphox_core::utils::path_to_uri(schema_path) {
                         preferred_uris.push(schema_uri);
                     }
                 }
@@ -1436,8 +1436,8 @@ mod tests {
         });
         let backend = service.inner();
 
-        let schema_uri = Uri::from_file_path(&schema_path).unwrap();
-        let query_uri = Uri::from_file_path(&query_path).unwrap();
+        let schema_uri = graphox_core::utils::path_to_uri(&schema_path).unwrap();
+        let query_uri = graphox_core::utils::path_to_uri(&query_path).unwrap();
 
         backend.documents.insert(
             schema_uri.clone(),

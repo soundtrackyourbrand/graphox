@@ -123,6 +123,31 @@ pub fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
     uri.to_file_path().map(|p| p.into_owned())
 }
 
+/// A `file:` URI for this path.
+///
+/// `path_to_uri` mishandles Windows verbatim paths. It replaces
+/// backslashes first, so `\\?\C:\x` becomes `//?/C:/x`, whose second character
+/// is not a colon — the drive letter is then neither recognised nor capitalised,
+/// and the `//?/` prefix survives into the URI. `std::fs::canonicalize` returns
+/// exactly that shape on Windows, so a URI built from a canonicalised path could
+/// not match one built from a plain path, and lookups keyed by `Uri` missed.
+/// `url::Url::from_file_path`, which this replaced, stripped the prefix itself.
+///
+/// Everything that turns a path into a URI should come through here, so the two
+/// only have one spelling.
+pub fn path_to_uri(path: impl AsRef<Path>) -> Option<Uri> {
+    let path = path.as_ref();
+
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        return Uri::from_file_path(Path::new(&normalize_windows_path(&text)));
+    }
+
+    #[cfg(not(windows))]
+    Uri::from_file_path(path)
+}
+
 /// The URI's path as text, percent-decoded.
 ///
 /// `Uri::path()` hands back a percent-encoded `EStr`, so matching on it
@@ -1625,7 +1650,7 @@ pub fn normalize_uri(uri: Uri) -> Uri {
         #[cfg(windows)]
         let path_str = normalize_windows_path(&path_str);
 
-        return Uri::from_file_path(Path::new(&*path_str)).unwrap_or(uri);
+        return path_to_uri(Path::new(&*path_str)).unwrap_or(uri);
     }
     uri
 }

@@ -50,7 +50,7 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
     let num_docs = 50;
     for i in 0..num_docs {
         let doc_path = base_dir.join(format!("doc_{}.graphql", i));
-        let uri = Uri::from_file_path(&doc_path).unwrap();
+        let uri = graphox::utils::path_to_uri(&doc_path).unwrap();
         let content = format!("query GetUser{} {{ user {{ id name }} }}", i);
         // Write to disk too so codegen's filesystem walk has realistic work.
         std::fs::write(&doc_path, &content).unwrap();
@@ -71,9 +71,9 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
         backend.metadata.insert(uri, metadata);
     }
 
-    let target_uri = Uri::from_file_path(base_dir.join("doc_0.graphql")).unwrap();
-    let index_uri = Uri::from_file_path(base_dir.join("ops.graphql")).unwrap();
-    let other_uri = Uri::from_file_path(base_dir.join("ops_other.graphql")).unwrap();
+    let target_uri = graphox::utils::path_to_uri(base_dir.join("doc_0.graphql")).unwrap();
+    let index_uri = graphox::utils::path_to_uri(base_dir.join("ops.graphql")).unwrap();
+    let other_uri = graphox::utils::path_to_uri(base_dir.join("ops_other.graphql")).unwrap();
     std::fs::write(
         base_dir.join("ops.graphql"),
         "query SharedQuery { user { id } }",

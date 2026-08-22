@@ -197,7 +197,7 @@ async fn test_completion_fragment_spread_type_filtering() {
     let text = "fragment OnUser on User { id } fragment OnPost on Post { id } query { users { ... } posts { ... } }";
     fs::write(&query_path, text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Uri::from_file_path(&query_path).unwrap();
+    let uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {

@@ -87,7 +87,7 @@ async fn test_concurrent_document_operations() {
         );
         fs::write(&query_path, &text).unwrap();
         let query_path = std::fs::canonicalize(query_path).unwrap();
-        let uri = Uri::from_file_path(&query_path).unwrap();
+        let uri = graphox::utils::path_to_uri(&query_path).unwrap();
         uris.push((uri, text));
     }
 

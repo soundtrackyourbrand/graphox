@@ -46,7 +46,7 @@ fn test_shallow_duplicate_fields_check() {
         .validate()
         .unwrap();
 
-    let uri = Uri::from_file_path(&q_path).unwrap();
+    let uri = graphox::utils::path_to_uri(&q_path).unwrap();
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 
@@ -97,7 +97,7 @@ fn test_duplicate_fields_with_different_arg_order_are_reported() {
         .validate()
         .unwrap();
 
-    let uri = Uri::from_file_path(&q_path).unwrap();
+    let uri = graphox::utils::path_to_uri(&q_path).unwrap();
     let doc = create_doc(uri.as_str(), query_text);
     let diags = doc.get_semantic_diagnostics(&schema, &[], None, Some(&cfg), false, true);
 

@@ -731,10 +731,8 @@ async fn test_memory_cached_documents_1000() {
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     for i in 0..1000 {
-        let uri = tower_lsp_server::ls_types::Uri::from_file_path(
-            base_dir.join(format!("query_{}.graphql", i)),
-        )
-        .unwrap();
+        let uri =
+            graphox::utils::path_to_uri(base_dir.join(format!("query_{}.graphql", i))).unwrap();
         let text = fs::read_to_string(base_dir.join(format!("query_{}.graphql", i))).unwrap();
         crate::support::lsp_did_open(&mut service, uri, "graphql", 1, &text).await;
     }

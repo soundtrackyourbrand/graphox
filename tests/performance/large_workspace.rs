@@ -8,7 +8,6 @@ use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use tempfile::TempDir;
 use tower_lsp_server::LspService;
-use tower_lsp_server::ls_types::Uri;
 
 use crate::support::{
     create_deep_fragment_chain, create_large_schema, create_many_fragments, lsp_initialize_sequence,
@@ -171,7 +170,7 @@ async fn test_fragment_resolution_chain() {
     });
     lsp_initialize_sequence(&mut service).await;
 
-    let uri = Uri::from_file_path(base_dir.join("deep_chain.graphql")).unwrap();
+    let uri = graphox::utils::path_to_uri(base_dir.join("deep_chain.graphql")).unwrap();
     crate::support::lsp_request_hover(&mut service, uri, crate::support::pos(0, 0)).await;
     let duration = start.elapsed();
 

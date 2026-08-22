@@ -56,7 +56,7 @@ impl PathBenchWorkspace {
                     ),
                 )
                 .expect("write source file");
-                source_uris.push(Uri::from_file_path(&source_path).expect("source uri"));
+                source_uris.push(graphox::utils::path_to_uri(&source_path).expect("source uri"));
                 source_paths.push(source_path);
 
                 let output_path = output_dir.join(format!("query_{file_idx}.codegen.ts"));

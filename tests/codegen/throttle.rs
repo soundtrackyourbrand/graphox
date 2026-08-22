@@ -87,7 +87,7 @@ async fn test_codegen_throttle() {
         }
     }
 
-    let query_uri = Uri::from_file_path(&query_path).unwrap();
+    let query_uri = graphox::utils::path_to_uri(&query_path).unwrap();
 
     // Open the document - this should trigger first codegen
     service

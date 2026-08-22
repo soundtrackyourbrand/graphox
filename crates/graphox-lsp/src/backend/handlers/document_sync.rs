@@ -550,9 +550,9 @@ mod tests {
             vec![project("a/**/*.graphql"), project("b/**/*.graphql")],
         );
 
-        let a1 = Uri::from_file_path(base.join("a/one.graphql")).unwrap();
-        let a2 = Uri::from_file_path(base.join("a/two.graphql")).unwrap();
-        let b1 = Uri::from_file_path(base.join("b/one.graphql")).unwrap();
+        let a1 = graphox_core::utils::path_to_uri(base.join("a/one.graphql")).unwrap();
+        let a2 = graphox_core::utils::path_to_uri(base.join("a/two.graphql")).unwrap();
+        let b1 = graphox_core::utils::path_to_uri(base.join("b/one.graphql")).unwrap();
 
         // A closure spanning both projects (public fragment in `a` consumed by `b`)
         // yields both project keys.

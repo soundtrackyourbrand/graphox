@@ -24,7 +24,8 @@ async fn test_goto_type_definition_operation() {
     // Codegen replaces the extension: query.graphql -> query.codegen.ts.
     let codegen_path = tmpdir.path().join("query.codegen.ts");
     fs::write(&codegen_path, codegen_text).unwrap();
-    let codegen_uri = Uri::from_file_path(fs::canonicalize(&codegen_path).unwrap()).unwrap();
+    let codegen_uri =
+        graphox::utils::path_to_uri(fs::canonicalize(&codegen_path).unwrap()).unwrap();
 
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
@@ -70,7 +71,7 @@ async fn test_goto_type_definition_fragment_spread() {
     let frag_codegen_path = tmpdir.path().join("fragment.codegen.ts");
     fs::write(&frag_codegen_path, frag_codegen_text).unwrap();
     let frag_codegen_uri =
-        Uri::from_file_path(fs::canonicalize(&frag_codegen_path).unwrap()).unwrap();
+        graphox::utils::path_to_uri(fs::canonicalize(&frag_codegen_path).unwrap()).unwrap();
 
     // Create query file with spread
     let (query_text, position) = with_cursor("query GetUser { user { ...UserF|ields } }");
@@ -125,7 +126,8 @@ async fn test_goto_type_definition_nested_field() {
          address?: {\n      city?: string | null;\n    } | null;\n  } | null;\n}\n";
     let codegen_path = tmpdir.path().join("query.codegen.ts");
     fs::write(&codegen_path, codegen_text).unwrap();
-    let codegen_uri = Uri::from_file_path(fs::canonicalize(&codegen_path).unwrap()).unwrap();
+    let codegen_uri =
+        graphox::utils::path_to_uri(fs::canonicalize(&codegen_path).unwrap()).unwrap();
 
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 
@@ -179,7 +181,8 @@ async fn test_goto_type_definition_inline_fragment_field() {
          | {\n      __typename: \"User\";\n      id: string;\n      name?: string | null;\n    } | null;\n}\n";
     let codegen_path = tmpdir.path().join("query.codegen.ts");
     fs::write(&codegen_path, codegen_text).unwrap();
-    let codegen_uri = Uri::from_file_path(fs::canonicalize(&codegen_path).unwrap()).unwrap();
+    let codegen_uri =
+        graphox::utils::path_to_uri(fs::canonicalize(&codegen_path).unwrap()).unwrap();
 
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, &query_text).await;
 

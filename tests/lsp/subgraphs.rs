@@ -22,7 +22,8 @@ async fn test_goto_definition_subgraph_type() {
       }
     "#;
     let schema_uri = workspace.write_file("schema.graphql", main_schema);
-    let schema_url = Uri::from_file_path(std::fs::canonicalize(schema_uri).unwrap()).unwrap();
+    let schema_url =
+        graphox::utils::path_to_uri(std::fs::canonicalize(schema_uri).unwrap()).unwrap();
 
     // 2. Create subgraph schema
     let subgraph_schema = r#"
@@ -32,7 +33,8 @@ async fn test_goto_definition_subgraph_type() {
       }
     "#;
     let subgraph_uri = workspace.write_file("subgraphs/user.graphql", subgraph_schema);
-    let subgraph_url = Uri::from_file_path(std::fs::canonicalize(subgraph_uri).unwrap()).unwrap();
+    let subgraph_url =
+        graphox::utils::path_to_uri(std::fs::canonicalize(subgraph_uri).unwrap()).unwrap();
 
     // 3. Create config with subgraphs
     let config = Config::new_test(
@@ -196,7 +198,7 @@ async fn test_hover_slo_field_with_fallback() {
     // Create a query file
     let query_text = "query Test { user { id username } }";
     let query_uri = workspace.write_file("query.graphql", query_text);
-    let query_url = Uri::from_file_path(std::fs::canonicalize(query_uri).unwrap()).unwrap();
+    let query_url = graphox::utils::path_to_uri(std::fs::canonicalize(query_uri).unwrap()).unwrap();
 
     lsp_did_open(&mut service, query_url.clone(), "graphql", 1, query_text).await;
 
@@ -332,7 +334,7 @@ async fn test_hover_slo_operation_worst() {
     // Create a query file
     let query_text = "query GetBoth { a b }";
     let query_uri = workspace.write_file("query.graphql", query_text);
-    let query_url = Uri::from_file_path(std::fs::canonicalize(query_uri).unwrap()).unwrap();
+    let query_url = graphox::utils::path_to_uri(std::fs::canonicalize(query_uri).unwrap()).unwrap();
 
     lsp_did_open(&mut service, query_url.clone(), "graphql", 1, query_text).await;
 
@@ -428,7 +430,7 @@ async fn test_completion_slo_field() {
     // Create a query file
     let query_text = "query {  }";
     let query_uri = workspace.write_file("query.graphql", query_text);
-    let query_url = Uri::from_file_path(std::fs::canonicalize(query_uri).unwrap()).unwrap();
+    let query_url = graphox::utils::path_to_uri(std::fs::canonicalize(query_uri).unwrap()).unwrap();
 
     lsp_did_open(&mut service, query_url.clone(), "graphql", 1, query_text).await;
 
@@ -562,13 +564,13 @@ async fn test_completion_slo_fragment_spread() {
     // 4. Create a fragment that uses both fields
     let frag_text = "fragment Frag on Query { a b }";
     let frag_uri = workspace.write_file("fragment.graphql", frag_text);
-    let frag_url = Uri::from_file_path(std::fs::canonicalize(frag_uri).unwrap()).unwrap();
+    let frag_url = graphox::utils::path_to_uri(std::fs::canonicalize(frag_uri).unwrap()).unwrap();
     lsp_did_open(&mut service, frag_url.clone(), "graphql", 1, frag_text).await;
 
     // 5. Create a query file and trigger completion for fragment spread
     let query_text = "query { ... }";
     let query_uri = workspace.write_file("query.graphql", query_text);
-    let query_url = Uri::from_file_path(std::fs::canonicalize(query_uri).unwrap()).unwrap();
+    let query_url = graphox::utils::path_to_uri(std::fs::canonicalize(query_uri).unwrap()).unwrap();
     lsp_did_open(&mut service, query_url.clone(), "graphql", 1, query_text).await;
 
     // Wait for indexing

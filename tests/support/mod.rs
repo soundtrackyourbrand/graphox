@@ -451,7 +451,7 @@ pub fn write_project_file_at(dir: &Path, rel: &str, contents: &str) -> Uri {
     }
     fs::write(&path, contents).expect("write file");
     let canonical = std::fs::canonicalize(path).expect("canonicalize");
-    Uri::from_file_path(canonical).expect("from_file_path")
+    graphox::utils::path_to_uri(canonical).expect("from_file_path")
 }
 
 /// Open multiple files via `didOpen` notifications. Accepts a vector of owned
@@ -838,7 +838,7 @@ impl TestWorkspace {
 
     pub fn uri_for(&self, rel: &str) -> Uri {
         let path = std::fs::canonicalize(self.tmp.path().join(rel)).expect("canonicalize");
-        Uri::from_file_path(path).expect("from_file_path")
+        graphox::utils::path_to_uri(path).expect("from_file_path")
     }
 
     /// Copy a directory recursively to the workspace root.

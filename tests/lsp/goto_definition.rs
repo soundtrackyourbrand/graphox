@@ -17,7 +17,8 @@ async fn test_goto_definition_type_vs_fragment_collision() {
     config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -102,7 +103,8 @@ async fn test_goto_definition_directive() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -150,7 +152,8 @@ type User { id: ID! }";
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -202,7 +205,8 @@ async fn test_goto_definition_enum_value() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -250,7 +254,8 @@ async fn test_goto_definition_variable_in_argument() {
     config = config.with_base_dir(std::fs::canonicalize(tmpdir.path()).unwrap());
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -329,7 +334,8 @@ async fn test_goto_definition_inline_fragment_type() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let _schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -379,7 +385,8 @@ async fn test_goto_definition_input_object_field() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let _schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 
@@ -420,7 +427,8 @@ async fn test_goto_definition_nested_enum_value() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri =
+        graphox::utils::path_to_uri(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     let schema_doc = create_doc(schema_uri.as_str(), &schema_text);
 

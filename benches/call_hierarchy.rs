@@ -112,7 +112,7 @@ fn bench_call_hierarchy(c: &mut Criterion) {
         for project_meta in workspace_metadata.projects {
             for file_path in project_meta.files {
                 let abs_path = fs::canonicalize(&file_path).unwrap();
-                let uri = Uri::from_file_path(&abs_path).unwrap();
+                let uri = graphox::utils::path_to_uri(&abs_path).unwrap();
                 let content = fs::read_to_string(&file_path).unwrap();
                 let doc = DocumentState::new_from_thread_local(
                     uri.clone(),
@@ -124,7 +124,8 @@ fn bench_call_hierarchy(c: &mut Criterion) {
         }
     });
 
-    let target_uri = Uri::from_file_path(base_dir.join("project_0/file_0.graphql")).unwrap();
+    let target_uri =
+        graphox::utils::path_to_uri(base_dir.join("project_0/file_0.graphql")).unwrap();
     let target_position = Position::new(2, 10);
 
     let mut group = c.benchmark_group("Call Hierarchy (10 projects, 5 deep chain)");
