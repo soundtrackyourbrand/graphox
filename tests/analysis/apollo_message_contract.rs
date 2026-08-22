@@ -118,12 +118,7 @@ fn every_rule_still_matches_a_real_apollo_message() {
 
 #[test]
 fn every_rule_has_a_case() {
-    // duplicate_fragment_name has no case: it matches a message apollo no
-    // longer emits, kept only because the engine treated it as fatal before.
     for r in HANDLED_BY_GRAPHOX.iter().chain(DUPLICATE_FRAGMENT) {
-        if r.name == "duplicate_fragment_name" {
-            continue;
-        }
         assert!(
             CASES.iter().any(|(name, _)| *name == r.name),
             "rule `{}` has no case in CASES, so nothing proves it still matches",

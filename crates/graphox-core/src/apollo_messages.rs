@@ -109,16 +109,10 @@ pub const HANDLED_BY_GRAPHOX: &[MessageRule] = &[
 /// from the diagnostics that are merely suppressed. Operation-name collisions
 /// share the "defined multiple times" wording and must not match here, which is
 /// why the fragment wording is part of the needle.
-pub const DUPLICATE_FRAGMENT: &[MessageRule] = &[
-    MessageRule {
-        name: "duplicate_fragment",
-        needles: &["the fragment", "defined multiple times"],
-    },
-    MessageRule {
-        name: "duplicate_fragment_name",
-        needles: &["Duplicate fragment name"],
-    },
-];
+pub const DUPLICATE_FRAGMENT: &[MessageRule] = &[MessageRule {
+    name: "duplicate_fragment",
+    needles: &["the fragment", "defined multiple times"],
+}];
 
 /// Build errors tolerated because codegen accepts these documents: a block may
 /// legitimately contain type-system definitions we ignore.
