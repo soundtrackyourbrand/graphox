@@ -3,8 +3,8 @@ use crate::support::{
     pos, write_project_file,
 };
 use std::time::Duration;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test]

@@ -3,7 +3,8 @@ use crate::utils::{find_package_root, mask_interpolations};
 use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::{ExecutableDocument, Schema};
 use dashmap::DashMap;
-use lsp_types::*;
+use std::str::FromStr;
+use ls_types::*;
 use ropey::Rope;
 use std::cell::RefCell;
 use std::fmt;
@@ -23,8 +24,9 @@ pub enum DocumentLanguage {
 }
 
 impl DocumentLanguage {
-    pub fn from_uri(uri: &Url) -> Self {
-        let path = uri.path();
+    pub fn from_uri(uri: &Uri) -> Self {
+        // fluent-uri returns a percent-encoded path, not a plain str.
+        let path = uri.path().as_str();
         if path.ends_with(".tsx") || path.ends_with(".jsx") {
             DocumentLanguage::TSX
         } else if path.ends_with(".ts")
@@ -134,7 +136,7 @@ pub type CachedExecutableDocument = (Arc<ExecutableDocument>, Option<Arc<Vec<Str
 
 #[derive(Debug, Clone)]
 pub struct DocumentState {
-    pub uri: Url,
+    pub uri: Uri,
     pub rope: Rope,
     pub tree: Arc<Tree>,
     pub language: DocumentLanguage,
@@ -152,7 +154,7 @@ pub struct DocumentState {
 
 impl DocumentState {
     pub fn new_from_thread_local(
-        uri: Url,
+        uri: Uri,
         content: &str,
         position_encoding: PositionEncodingKind,
     ) -> Self {
@@ -162,7 +164,7 @@ impl DocumentState {
         })
     }
 
-    pub fn mask_source_from_thread_local(uri: &Url, content: &str) -> Arc<str> {
+    pub fn mask_source_from_thread_local(uri: &Uri, content: &str) -> Arc<str> {
         let language = DocumentLanguage::from_uri(uri);
         if !language.is_host_language() {
             return content.into();
@@ -201,7 +203,7 @@ impl DocumentState {
     }
 
     pub fn new(
-        uri: Url,
+        uri: Uri,
         content: &str,
         parser: &mut Parser,
         position_encoding: PositionEncodingKind,
@@ -213,7 +215,7 @@ impl DocumentState {
 
         let rope = Rope::from_str(content);
         let tree = Arc::new(parser.parse(content, None).unwrap());
-        let (package_root, mtime) = if let Ok(path) = uri.to_file_path() {
+        let (package_root, mtime) = if let Some(path) = uri.to_file_path() {
             (
                 find_package_root(&path),
                 std::fs::metadata(&path).and_then(|m| m.modified()).ok(),
@@ -1961,7 +1963,7 @@ pub enum CompletionContext {
 mod tests {
     use super::*;
     fn create_doc(src: &str, encoding: PositionEncodingKind) -> DocumentState {
-        let uri = Url::parse("file:///tmp/test.tsx").unwrap();
+        let uri = Uri::from_str("file:///tmp/test.tsx").unwrap();
         DocumentState::new_from_thread_local(uri, src, encoding)
     }
 

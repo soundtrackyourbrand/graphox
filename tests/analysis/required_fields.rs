@@ -3,7 +3,7 @@ use apollo_compiler::Schema;
 use graphox::Config;
 use graphox::config::{RequiredFieldRule, RulesConfig};
 use graphox::features::diagnostics::DocumentDiagnostics;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 use crate::support::{
     assert_diag_range_equals, assert_diagnostic_severity, assert_diagnostic_with_message,

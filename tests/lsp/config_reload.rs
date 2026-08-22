@@ -6,8 +6,8 @@ use graphox::Config;
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 /// This test verifies that config file changes are processed without errors.
@@ -62,7 +62,7 @@ projects:
 
     // Simulate file watcher notification for config file change
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&config_path).unwrap(),
+        uri: Uri::from_file_path(&config_path).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
 
@@ -81,7 +81,7 @@ projects:
     sleep(Duration::from_millis(10)).await;
 
     // Verify LSP still works by opening a document
-    let doc_uri = Url::from_file_path(&query_path).unwrap();
+    let doc_uri = Uri::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, doc_uri, "graphql", 1, query_text).await;
 }
 
@@ -128,7 +128,7 @@ projects:
 
     // Simulate file watcher notification
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&config_path).unwrap(),
+        uri: Uri::from_file_path(&config_path).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
 
@@ -149,7 +149,7 @@ projects:
     sleep(Duration::from_millis(10)).await;
 
     // LSP should still work with old config - test by opening a document
-    let doc_uri = Url::from_file_path(&query_path).unwrap();
+    let doc_uri = Uri::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, doc_uri, "graphql", 1, query_text).await;
 }
 
@@ -191,7 +191,7 @@ projects:
 
     // Simulate file watcher notification for schema change
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&schema_path).unwrap(),
+        uri: Uri::from_file_path(&schema_path).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
 
@@ -265,7 +265,7 @@ projects:
         .expect("Initial workspace scan did not complete in time")
         .expect("scan_done_rx closed before initial scan completed");
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri, "graphql", 1, query_text).await;
 
     let entrypoint_path = base_dir.join("graphql.ts");
@@ -301,7 +301,7 @@ projects:
     .unwrap();
 
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&config_path).unwrap(),
+        uri: Uri::from_file_path(&config_path).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
 

@@ -2,7 +2,7 @@ use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_hover,
     make_temp_project_with_schema, pos, pos_for_token, with_cursor, write_project_file,
 };
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 // Tests use helpers from tests/support/mod.rs to create temporary projects and
 // initialize LSP services. This avoids repeating setup boilerplate.
@@ -106,7 +106,7 @@ async fn test_hover_graphql_description() {
     lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -556,7 +556,7 @@ async fn test_hover_enum_value_definition() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -699,7 +699,7 @@ async fn test_hover_type_extension() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -800,7 +800,7 @@ async fn test_hover_union_members() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -835,7 +835,7 @@ async fn test_hover_interface_implementations() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -874,7 +874,7 @@ async fn test_hover_object_interfaces() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -915,7 +915,7 @@ async fn test_hover_input_field_description() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -940,7 +940,7 @@ async fn test_hover_sdl_argument_name() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -970,7 +970,7 @@ async fn test_hover_sdl_argument_type() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -995,7 +995,7 @@ async fn test_hover_sdl_directive_arg() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -1020,7 +1020,7 @@ async fn test_hover_scalar_details() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -1058,7 +1058,7 @@ async fn test_hover_implements_keyword() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -1090,7 +1090,7 @@ async fn test_hover_multiline_description() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -1115,7 +1115,7 @@ async fn test_hover_recursive_type() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -1145,7 +1145,7 @@ async fn test_hover_multiple_extensions() {
     let (mut service, _) = create_initialized_lsp_service(config).await;
 
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = std::fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 

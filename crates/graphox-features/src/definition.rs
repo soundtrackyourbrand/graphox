@@ -3,10 +3,10 @@ use apollo_compiler::Schema;
 use dashmap::DashMap;
 use graphox_core::document::DocumentState;
 use graphox_core::queries::*;
-use lsp_types::*;
+use ls_types::*;
 use std::sync::Arc;
 use tree_sitter::{QueryCursor, StreamingIterator};
-use url::Url;
+use ls_types::Uri;
 
 use crate::shared::type_resolver::{self, SemanticSymbol};
 
@@ -48,8 +48,8 @@ pub trait DocumentDefinition {
         position: Position,
         schema: &Schema,
         subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
-        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
-        preferred_uris: &[Url],
+        documents: &DashMap<Uri, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Uri],
     ) -> Option<Location>;
 }
 
@@ -419,8 +419,8 @@ impl DocumentDefinition for DocumentState {
         position: Position,
         schema: &Schema,
         _subgraphs: Option<&[graphox_core::schema::SubgraphInfo]>,
-        documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
-        preferred_uris: &[Url],
+        documents: &DashMap<Uri, Arc<DocumentState>, RandomState>,
+        preferred_uris: &[Uri],
     ) -> Option<Location> {
         let symbol_query = GQL_SYMBOL_QUERY_CACHE.get_or_init(|| {
             let lang = tree_sitter_graphql::LANGUAGE.into();
@@ -628,13 +628,13 @@ impl DocumentDefinition for DocumentState {
 }
 
 fn load_document_for_uri(
-    uri: &Url,
-    documents: &DashMap<Url, Arc<DocumentState>, RandomState>,
+    uri: &Uri,
+    documents: &DashMap<Uri, Arc<DocumentState>, RandomState>,
     position_encoding: &PositionEncodingKind,
 ) -> Option<Arc<DocumentState>> {
     if let Some(doc) = documents.get(uri).map(|r| r.value().clone()) {
         Some(doc)
-    } else if let Ok(path) = uri.to_file_path()
+    } else if let Some(path) = uri.to_file_path()
         && let Ok(content) = std::fs::read_to_string(&path)
     {
         Some(Arc::new(DocumentState::new_from_thread_local(

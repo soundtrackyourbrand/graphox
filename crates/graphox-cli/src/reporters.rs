@@ -1,6 +1,6 @@
 use colored::*;
 use std::path::Path;
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
+use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity};
 
 pub trait Reporter: Send + Sync {
     fn report_project_start(&self, project_name: &str);

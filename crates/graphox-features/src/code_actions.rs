@@ -1,5 +1,5 @@
 use graphox_core::document::DocumentState;
-use lsp_types::*;
+use ls_types::*;
 
 /// Code action kind for Graphox's on-save GraphQL formatting. Namespaced under
 /// `source.fixAll` so `editor.codeActionsOnSave` applies it whether the user

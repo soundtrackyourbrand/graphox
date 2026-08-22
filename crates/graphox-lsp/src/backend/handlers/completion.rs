@@ -6,8 +6,8 @@ use graphox_features::completion::{
 
 use ahash::AHashMap;
 use std::sync::{Arc, Mutex};
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::{
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::{
     CompletionItem, CompletionParams, CompletionResponse, CompletionTextEdit, Position,
     PositionEncodingKind, Range,
 };
@@ -79,7 +79,7 @@ pub async fn handle_completion(
             if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
                 let schema = backend.get_schema_for_doc(&uri);
 
-                let project_subgraphs = if let Ok(path) = uri.to_file_path()
+                let project_subgraphs = if let Some(path) = uri.to_file_path()
                     && let Ok(config) = backend.config.read()
                 {
                     let schema_key = config.get_schema_for_path(&path);
@@ -149,7 +149,7 @@ pub async fn handle_completion(
                                         documents.get(&frag.uri).map(|r| r.value().clone())
                                     {
                                         Some(frag_doc)
-                                    } else if let Ok(path) = frag.uri.to_file_path()
+                                    } else if let Some(path) = frag.uri.to_file_path()
                                         && let Ok(content) = std::fs::read_to_string(&path)
                                     {
                                         Some(Arc::new(DocumentState::new_from_thread_local(
@@ -224,11 +224,11 @@ pub async fn handle_completion(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tower_lsp::lsp_types::{TextEdit, Url};
+    use tower_lsp_server::ls_types::{TextEdit, Uri};
 
     #[test]
     fn test_sanitize_completion_items_clamps_out_of_range_positions() {
-        let uri = Url::parse("file:///tmp/test.graphql").expect("valid test uri");
+        let uri = Uri::from_str("file:///tmp/test.graphql").expect("valid test uri");
         let doc = DocumentState::new_from_thread_local(
             uri,
             "query {\n  users\n}\n",

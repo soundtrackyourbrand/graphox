@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use graphox::document::DocumentState;
-use tower_lsp::lsp_types::{
-    Position, PositionEncodingKind, Range, TextDocumentContentChangeEvent, Url,
+use tower_lsp_server::ls_types::{
+    Position, PositionEncodingKind, Range, TextDocumentContentChangeEvent, Uri,
 };
 use tree_sitter::Parser;
 
@@ -20,7 +20,7 @@ fn generate_base_document() -> String {
 
 fn bench_single_insert(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let uri = Uri::from_str("file:///test.graphql").unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -54,7 +54,7 @@ fn bench_single_insert(c: &mut Criterion) {
 
 fn bench_multiline_insert(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let uri = Uri::from_str("file:///test.graphql").unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -88,7 +88,7 @@ fn bench_multiline_insert(c: &mut Criterion) {
 
 fn bench_fragment_spread_add(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let uri = Uri::from_str("file:///test.graphql").unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -122,7 +122,7 @@ fn bench_fragment_spread_add(c: &mut Criterion) {
 
 fn bench_type_annotation_add(c: &mut Criterion) {
     let base_content = generate_base_document();
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let uri = Uri::from_str("file:///test.graphql").unwrap();
 
     let doc = DocumentState::new_from_thread_local(
         uri.clone(),
@@ -173,7 +173,7 @@ fn bench_large_document_edit(c: &mut Criterion) {
 "#,
     );
 
-    let uri = Url::parse("file:///large.graphql").unwrap();
+    let uri = Uri::from_str("file:///large.graphql").unwrap();
 
     let mut parser = Parser::new();
     parser

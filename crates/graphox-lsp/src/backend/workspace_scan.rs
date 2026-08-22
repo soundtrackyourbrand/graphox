@@ -20,8 +20,8 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 /// Percentage of progress where validation starts
 pub const VALIDATION_PROGRESS_START: u32 = 70;
@@ -58,7 +58,7 @@ pub struct WorkspaceScanParams {
     pub position_encoding: PositionEncodingKind,
     pub workspace_version: Arc<std::sync::atomic::AtomicUsize>,
     pub last_full_validation_version: Arc<std::sync::atomic::AtomicUsize>,
-    pub open_documents: Arc<DashSet<Url, ahash::RandomState>>,
+    pub open_documents: Arc<DashSet<Uri, ahash::RandomState>>,
 }
 
 /// Spawns a background workspace scan task
@@ -170,7 +170,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
                     return None;
                 }
 
-                let uri = Url::from_file_path(&path).ok()?;
+                let uri = Uri::from_file_path(&path)?;
 
                 // Cheap pre-filter: a host-language file (.ts/.tsx) that contains no
                 // `gql`/`graphql` marker cannot hold embedded GraphQL, so skip the full
@@ -346,7 +346,7 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
             .store(validated_version, Ordering::SeqCst);
 
         if params.supports_pull_diagnostics {
-            let open_uris: Vec<Url> = params
+            let open_uris: Vec<Uri> = params
                 .open_documents
                 .iter()
                 .map(|entry| entry.key().clone())
@@ -428,7 +428,7 @@ async fn validate_all_documents_cancellable(
     );
 
     let used_fragments = super::validation::get_used_fragments(&params.metadata, config);
-    let uris: Vec<Url> = documents
+    let uris: Vec<Uri> = documents
         .iter()
         .map(|e| e.key().clone())
         .filter(|uri| super::validation::is_configured_document_uri(uri, config))
@@ -477,7 +477,7 @@ async fn validate_all_documents_cancellable(
             return (false, valid_empty_schema);
         }
 
-        let batch_uris: Vec<Url> = batch.to_vec();
+        let batch_uris: Vec<Uri> = batch.to_vec();
         let documents = params.documents.clone();
         let metadata = params.metadata.clone();
         let config = params.config.clone();
@@ -493,11 +493,11 @@ async fn validate_all_documents_cancellable(
         let results = match tokio::task::spawn_blocking(move || {
             batch_uris
                 .par_iter()
-                .filter_map(|uri: &Url| {
+                .filter_map(|uri: &Uri| {
                     let doc = documents.get(uri)?;
                     let meta = metadata.get(uri)?;
 
-                    let schema = if let Ok(path) = uri.to_file_path()
+                    let schema = if let Some(path) = uri.to_file_path()
                         && let Some(schema_path) = config.get_schema_for_path(&path)
                         && let Some(schema) = validated_schemas.get(&schema_path)
                     {
@@ -619,7 +619,7 @@ async fn validate_all_documents_cancellable(
 /// Adds diagnostics for duplicate operation names within the same project
 fn add_duplicate_operation_diagnostics(
     config: &graphox_core::Config,
-    uri: &Url,
+    uri: &Uri,
     doc: &DocumentState,
     operation_names: &OperationNamesMap,
     diagnostics: &mut Vec<Diagnostic>,

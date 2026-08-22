@@ -215,7 +215,7 @@ pub fn generate_typescript_with_profile(
         if let Some(errors) = errors {
             return Err(format!(
                 "GraphQL validation errors in file {}:\n{}",
-                doc.uri.path(),
+                doc.uri.path().as_str(),
                 errors.join("\n")
             ));
         }
@@ -630,7 +630,8 @@ pub fn generate_typescript_with_profile(
     let current_path = doc
         .uri
         .to_file_path()
-        .unwrap_or_else(|_| PathBuf::from(doc.uri.path()));
+        .map(|p| p.into_owned())
+        .unwrap_or_else(|| PathBuf::from(doc.uri.path().as_str()));
     let current_canonical = ctx.canonicalize_path(&current_path);
 
     for frag_id in &used_frag_ids {

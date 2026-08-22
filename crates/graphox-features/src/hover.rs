@@ -5,7 +5,7 @@ use ahash::AHashSet;
 use apollo_compiler::Schema;
 use graphox_core::document::{DocumentState, FragmentDef, GraphQLBlock};
 use graphox_core::schema::SloClass;
-use lsp_types::*;
+use ls_types::*;
 use std::sync::Arc;
 
 pub trait DocumentHover {

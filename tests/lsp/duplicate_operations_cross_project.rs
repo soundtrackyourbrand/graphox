@@ -5,7 +5,7 @@ use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, RulesConfig, SchemaSource};
 use std::fs;
 use tempfile::TempDir;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 async fn test_duplicate_operation_names_across_projects_same_schema() {

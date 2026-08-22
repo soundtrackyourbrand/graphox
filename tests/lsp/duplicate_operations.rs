@@ -5,7 +5,7 @@ use crate::support::{
 };
 use futures_util::StreamExt;
 use graphox::config::RulesConfig;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]
@@ -20,7 +20,7 @@ async fn test_duplicate_operation_names_cross_file() {
     // Create service and capture server->client messages so we can assert push diagnostics
     let (mut service, mut messages) = create_lsp_service_with_socket(config);
     let received_push = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
-        Url,
+        Uri,
         Vec<Diagnostic>,
     >::new()));
     let received_push_clone = received_push.clone();

@@ -10,7 +10,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
-use tower_lsp::lsp_types::{PositionEncodingKind, Url};
+use tower_lsp_server::ls_types::{PositionEncodingKind, Uri};
 
 const HOT_SET_SIZES: &[usize] = &[1, 32, 256];
 const PROJECT_COUNT: usize = 8;
@@ -21,7 +21,7 @@ struct PathBenchWorkspace {
     config: Config,
     source_paths: Vec<PathBuf>,
     output_paths: Vec<PathBuf>,
-    source_uris: Vec<Url>,
+    source_uris: Vec<Uri>,
 }
 
 impl PathBenchWorkspace {
@@ -56,7 +56,7 @@ impl PathBenchWorkspace {
                     ),
                 )
                 .expect("write source file");
-                source_uris.push(Url::from_file_path(&source_path).expect("source uri"));
+                source_uris.push(Uri::from_file_path(&source_path).expect("source uri"));
                 source_paths.push(source_path);
 
                 let output_path = output_dir.join(format!("query_{file_idx}.codegen.ts"));

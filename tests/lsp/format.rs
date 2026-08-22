@@ -1,7 +1,7 @@
 use crate::support::create_doc;
 use std::fs;
 use std::path::PathBuf;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 /// Helper to load fixture file content
 fn load_fixture(name: &str) -> String {

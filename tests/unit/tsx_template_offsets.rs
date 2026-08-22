@@ -1,6 +1,6 @@
 use crate::support::pos;
 use graphox::DocumentLanguage;
-use tower_lsp::lsp_types::Url;
+use tower_lsp_server::ls_types::Uri;
 
 #[test]
 #[ntest::timeout(300)]
@@ -26,7 +26,7 @@ fn test_various_tsx_template_shapes_map_offsets() {
     ];
 
     for (name, src) in fixtures {
-        let uri = Url::parse(&format!("file:///{}.tsx", name)).unwrap();
+        let uri = Uri::from_str(&format!("file:///{}.tsx", name)).unwrap();
         let language = DocumentLanguage::from_uri(&uri);
         let doc = create_doc(&format!("file:///{}.tsx", name), src);
         let blocks = doc.get_graphql_trees();

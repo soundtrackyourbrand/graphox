@@ -34,8 +34,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::tempdir;
-use tower_lsp::LspService;
-use tower_lsp::lsp_types::{PositionEncodingKind, Url};
+use tower_lsp_server::LspService;
+use tower_lsp_server::ls_types::{PositionEncodingKind, Uri};
 
 /// Build a synthetic monorepo: a handful of real `.graphql` project files plus a
 /// large `node_modules` tree of ignored files, with the nested `.gitignore` files
@@ -193,7 +193,7 @@ fn seed_backend(base: &Path, files: usize, frags_per_file: usize) -> Arc<Backend
     let backend = service.inner().clone();
 
     for i in 0..files {
-        let uri = Url::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
+        let uri = Uri::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
         let mut content = format!("query GetUser{i} {{ user {{ ...Frag{i}_0 }} }}\n");
         for f in 0..frags_per_file {
             content.push_str(&format!(
@@ -366,7 +366,7 @@ fn bench_document_classification(c: &mut Criterion) {
 
 /// A parsed candidate file the workspace scan considers: its URI, its content, and
 /// whether it is a host language (.ts/.tsx) file.
-type Candidate = (Url, String, bool);
+type Candidate = (Uri, String, bool);
 
 /// Build a source tree shaped like a real frontend repo: mostly host-language files
 /// with no GraphQL, a minority with embedded `gql` tags, and some `.graphql` files.
@@ -381,7 +381,7 @@ fn generate_source_tree(
     let mut candidates = Vec::new();
 
     let mut push = |path: PathBuf, content: String| {
-        let uri = Url::from_file_path(&path).unwrap();
+        let uri = Uri::from_file_path(&path).unwrap();
         let is_host = DocumentLanguage::from_uri(&uri).is_host_language();
         candidates.push((uri, content, is_host));
     };
@@ -419,7 +419,7 @@ fn generate_source_tree(
     candidates
 }
 
-fn parse_and_keep(uri: &Url, content: &str) -> bool {
+fn parse_and_keep(uri: &Uri, content: &str) -> bool {
     let doc =
         DocumentState::new_from_thread_local(uri.clone(), content, PositionEncodingKind::UTF16);
     !doc.get_graphql_trees().is_empty() || uri.path().ends_with(".graphql")

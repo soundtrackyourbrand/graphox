@@ -2,7 +2,7 @@ use crate::completion::{cursor, utils};
 use crate::shared::markdown_utils;
 use apollo_compiler::{Schema, ast, schema};
 use graphox_core::document::DocumentState;
-use lsp_types::{
+use ls_types::{
     CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, MarkupContent,
     MarkupKind, Range, TextEdit,
 };

@@ -2,7 +2,7 @@ use crate::support::{
     create_doc, create_initialized_lsp_service, find_code_action_by_title, lsp_did_open,
     lsp_request_code_actions, make_temp_project_with_schema, pos, with_cursor, write_project_file,
 };
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]
@@ -169,7 +169,7 @@ async fn test_alias_hover() {
     assert!(hover.is_some(), "Hover should return information for alias");
     let hover_content = hover.unwrap();
     match hover_content.contents {
-        tower_lsp::lsp_types::HoverContents::Markup(markup) => {
+        tower_lsp_server::ls_types::HoverContents::Markup(markup) => {
             assert!(
                 markup.value.contains("myAlias"),
                 "Hover content should contain alias name 'myAlias': {}",
@@ -212,11 +212,11 @@ async fn test_alias_definition() {
         partial_result_params: Default::default(),
     };
 
-    let result: Option<tower_lsp::lsp_types::GotoDefinitionResponse> =
+    let result: Option<tower_lsp_server::ls_types::GotoDefinitionResponse> =
         crate::support::lsp_request_typed(&mut service, "textDocument/definition", &params).await;
 
     match result {
-        Some(tower_lsp::lsp_types::GotoDefinitionResponse::Scalar(loc)) => {
+        Some(tower_lsp_server::ls_types::GotoDefinitionResponse::Scalar(loc)) => {
             assert!(
                 loc.uri == query_uri,
                 "Definition should point to the same document. Got {}, expected {}",
@@ -224,13 +224,13 @@ async fn test_alias_definition() {
                 query_uri
             );
         }
-        Some(tower_lsp::lsp_types::GotoDefinitionResponse::Array(arr)) => {
+        Some(tower_lsp_server::ls_types::GotoDefinitionResponse::Array(arr)) => {
             assert!(
                 !arr.is_empty(),
                 "Definition should return at least one location"
             );
         }
-        Some(tower_lsp::lsp_types::GotoDefinitionResponse::Link(_)) => {
+        Some(tower_lsp_server::ls_types::GotoDefinitionResponse::Link(_)) => {
             // Link responses are valid
         }
         None => {
@@ -322,7 +322,7 @@ async fn test_alias_diagnostic_response_key() {
         .expect("Expected actions");
 
     let has_remove_action = actions.iter().any(|ca| {
-        if let tower_lsp::lsp_types::CodeActionOrCommand::CodeAction(ca) = ca {
+        if let tower_lsp_server::ls_types::CodeActionOrCommand::CodeAction(ca) = ca {
             ca.title.contains("Remove") || ca.title.contains("duplicate")
         } else {
             false

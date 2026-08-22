@@ -5,7 +5,7 @@ use crate::support::builders::FragmentInfoBuilder;
 use crate::support::create_doc;
 use apollo_compiler::Schema;
 use graphox::features::diagnostics::DocumentDiagnostics;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[test]
 #[ntest::timeout(500)]
@@ -21,7 +21,7 @@ fn test_private_duplicate_same_package_root_reports_error() {
     let frag_b_path = pkg.join("b.graphql");
     let text_a = "fragment DuplicateFrag on User { id }";
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
@@ -33,7 +33,7 @@ fn test_private_duplicate_same_package_root_reports_error() {
     .unwrap();
 
     let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
-        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_uri(Uri::from_file_path(&frag_b_path).unwrap())
         .with_package_root(base.clone())
         .build();
 
@@ -62,7 +62,7 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     let frag_b_path = pkg_b.join("b.graphql");
     let text_a = "fragment DuplicateFrag on User { id }";
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
@@ -88,7 +88,7 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
     );
 
     let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
-        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_uri(Uri::from_file_path(&frag_b_path).unwrap())
         .with_package_root(base.clone())
         .build();
 
@@ -124,7 +124,7 @@ fn test_public_duplicate_across_workspace_reports_error() {
     let frag_b_path = pkg_b.join("b.graphql");
     let text_a = "fragment PublicFrag on User @public { id }";
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
@@ -137,7 +137,7 @@ fn test_public_duplicate_across_workspace_reports_error() {
 
     let other_frag = FragmentInfoBuilder::new("PublicFrag", "User")
         .public()
-        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_uri(Uri::from_file_path(&frag_b_path).unwrap())
         .with_package_root(base.clone())
         .build();
 
@@ -169,7 +169,7 @@ fn test_private_shadows_public_emits_hint() {
     let frag_b_path = pkg_b.join("b.graphql");
     let text_a = "fragment Shadowed on User { id }";
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(uri_a.as_str(), text_a);
 
     let schema = Schema::parse(
@@ -182,7 +182,7 @@ fn test_private_shadows_public_emits_hint() {
 
     let public_frag = FragmentInfoBuilder::new("Shadowed", "User")
         .public()
-        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_uri(Uri::from_file_path(&frag_b_path).unwrap())
         .with_package_root(pkg_b.clone())
         .build();
 
@@ -214,7 +214,7 @@ fn test_private_duplicates_across_different_projects_do_not_error() {
     let frag_a_path = pkg_a.join("a.graphql");
     let frag_b_path = pkg_b.join("b.graphql");
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
     let doc = create_doc(
         uri_a.as_str(),
         &std::fs::read_to_string(&frag_a_path).unwrap(),
@@ -229,7 +229,7 @@ fn test_private_duplicates_across_different_projects_do_not_error() {
     .unwrap();
 
     let other_frag = FragmentInfoBuilder::new("DuplicateFrag", "User")
-        .with_uri(Url::from_file_path(&frag_b_path).unwrap())
+        .with_uri(Uri::from_file_path(&frag_b_path).unwrap())
         .with_package_root(pkg_b.clone())
         .build();
 

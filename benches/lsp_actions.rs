@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tempfile::tempdir;
-use tower_lsp::LanguageServer;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::LanguageServer;
+use tower_lsp_server::ls_types::*;
 
 pub fn bench_lsp_actions(c: &mut Criterion) {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -41,14 +41,14 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
     .unwrap();
 
     let _guard = rt.enter();
-    let (service, _) = tower_lsp::LspService::new(|client| Backend::new(client, config.clone()));
+    let (service, _) = tower_lsp_server::LspService::new(|client| Backend::new(client, config.clone()));
     let backend = service.inner();
 
     // Seed some documents
     let num_docs = 50;
     for i in 0..num_docs {
         let doc_path = base_dir.join(format!("doc_{}.graphql", i));
-        let uri = Url::from_file_path(&doc_path).unwrap();
+        let uri = Uri::from_file_path(&doc_path).unwrap();
         let content = format!("query GetUser{} {{ user {{ id name }} }}", i);
         // Write to disk too so codegen's filesystem walk has realistic work.
         std::fs::write(&doc_path, &content).unwrap();
@@ -69,9 +69,9 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
         backend.metadata.insert(uri, metadata);
     }
 
-    let target_uri = Url::from_file_path(base_dir.join("doc_0.graphql")).unwrap();
-    let index_uri = Url::from_file_path(base_dir.join("ops.graphql")).unwrap();
-    let other_uri = Url::from_file_path(base_dir.join("ops_other.graphql")).unwrap();
+    let target_uri = Uri::from_file_path(base_dir.join("doc_0.graphql")).unwrap();
+    let index_uri = Uri::from_file_path(base_dir.join("ops.graphql")).unwrap();
+    let other_uri = Uri::from_file_path(base_dir.join("ops_other.graphql")).unwrap();
     std::fs::write(
         base_dir.join("ops.graphql"),
         "query SharedQuery { user { id } }",
@@ -135,7 +135,7 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
     group.bench_function("Check Workspace (Full Diagnostics)", |b| {
         b.to_async(&rt).iter(|| async {
             let config_val = backend.config.read().unwrap().clone();
-            let all_uris: Vec<Url> = backend.documents.iter().map(|e| e.key().clone()).collect();
+            let all_uris: Vec<Uri> = backend.documents.iter().map(|e| e.key().clone()).collect();
             let validated_schemas = backend.validated_schemas.clone();
             let valid_empty_schema = backend.valid_empty_schema.clone();
             let workspace_loaded = backend.workspace_loaded.clone();

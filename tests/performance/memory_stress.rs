@@ -122,7 +122,7 @@ async fn test_memory_complex_monorepo_workspace_scan() {
 
     // 4. Initialize LSP service
     let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     // Wait for workspace scan to complete (lsp_initialize_sequence already does this)
@@ -193,11 +193,11 @@ async fn test_memory_open_close_cycles() {
 
         let config = create_100_file_config(&base_dir);
         let (mut service, _) =
-            tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+            tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
         crate::support::lsp_initialize_sequence(&mut service).await;
 
         for i in 0..20 {
-            let uri = tower_lsp::lsp_types::Url::from_file_path(
+            let uri = tower_lsp_server::ls_types::Uri::from_file_path(
                 base_dir.join(format!("query_{}.graphql", i)),
             )
             .unwrap();
@@ -242,11 +242,11 @@ async fn test_memory_cached_documents_100() {
 
     let config = create_100_file_config(&base_dir);
     let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     for i in 0..100 {
-        let uri = tower_lsp::lsp_types::Url::from_file_path(
+        let uri = tower_lsp_server::ls_types::Uri::from_file_path(
             base_dir.join(format!("query_{}.graphql", i)),
         )
         .unwrap();
@@ -292,11 +292,11 @@ async fn test_memory_schema_caching() {
     for (i, base_dir) in temp_dirs.iter().enumerate() {
         let config = create_10_schema_config(base_dir);
         let (mut service, _) =
-            tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+            tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
         crate::support::lsp_initialize_sequence(&mut service).await;
 
         for j in 0..10 {
-            let uri = tower_lsp::lsp_types::Url::from_file_path(
+            let uri = tower_lsp_server::ls_types::Uri::from_file_path(
                 base_dir.join(format!("query_{}.graphql", j)),
             )
             .unwrap();
@@ -352,11 +352,11 @@ async fn test_memory_fragment_index() {
 
     let config = create_100_file_config(&base_dir);
     let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     let uri =
-        tower_lsp::lsp_types::Url::from_file_path(base_dir.join("fragments.graphql")).unwrap();
+        tower_lsp_server::ls_types::Uri::from_file_path(base_dir.join("fragments.graphql")).unwrap();
     crate::support::lsp_did_open(&mut service, uri.clone(), "graphql", 1, &all_fragments).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -391,11 +391,11 @@ async fn test_memory_large_schema() {
 
     let config = create_100_file_config(&base_dir);
     let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     for i in 0..50 {
-        let uri = tower_lsp::lsp_types::Url::from_file_path(
+        let uri = tower_lsp_server::ls_types::Uri::from_file_path(
             base_dir.join(format!("query_{}.graphql", i)),
         )
         .unwrap();

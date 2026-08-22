@@ -20,8 +20,8 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 /// Type alias for diagnostic cache
 pub type DiagnosticCache = DiagnosticCacheMap;
@@ -43,7 +43,7 @@ pub struct ValidationParams<'a> {
     pub validated_schemas: &'a Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     pub valid_empty_schema: &'a Arc<Valid<Schema>>,
     pub workspace_loaded: &'a Arc<AtomicBool>,
-    pub open_documents: &'a Arc<DashSet<Url, ahash::RandomState>>,
+    pub open_documents: &'a Arc<DashSet<Uri, ahash::RandomState>>,
     pub fragment_dependents: &'a FragmentDependentsMap,
     pub fragment_definitions: &'a FragmentDefinitionsMap,
     pub operation_names: &'a OperationNamesMap,
@@ -64,7 +64,7 @@ pub struct ValidationParams<'a> {
 /// If false, diagnostics are only cached for pull-based retrieval.
 pub async fn validate_uris(
     params: ValidationParams<'_>,
-    uris: Vec<Url>,
+    uris: Vec<Uri>,
     use_push: bool,
     diagnostic_cache: Option<&DiagnosticCache>,
 ) {
@@ -261,7 +261,7 @@ pub async fn validate_all_documents(
     use_push: bool,
     diagnostic_cache: Option<&DiagnosticCache>,
 ) {
-    let all_uris: Vec<Url> = params.documents.iter().map(|e| e.key().clone()).collect();
+    let all_uris: Vec<Uri> = params.documents.iter().map(|e| e.key().clone()).collect();
     validate_uris(params, all_uris, use_push, diagnostic_cache).await;
 }
 
@@ -278,8 +278,8 @@ pub fn is_schema_document_path(path: &Path, config: &Config) -> bool {
         .any(|schema| graphox_core::utils::paths_match(Some(&abs_path), Some(schema)))
 }
 
-pub fn get_configured_document_path(uri: &Url, config: &Config) -> Option<PathBuf> {
-    let path = uri.to_file_path().ok()?;
+pub fn get_configured_document_path(uri: &Uri, config: &Config) -> Option<PathBuf> {
+    let path = uri.to_file_path()?.into_owned();
     if is_schema_document_path(&path, config) {
         return None;
     }
@@ -287,14 +287,14 @@ pub fn get_configured_document_path(uri: &Url, config: &Config) -> Option<PathBu
     Some(path)
 }
 
-pub fn is_configured_document_uri(uri: &Url, config: &Config) -> bool {
+pub fn is_configured_document_uri(uri: &Uri, config: &Config) -> bool {
     get_configured_document_path(uri, config).is_some()
 }
 
 /// Computes the set of URIs that need validation based on affected fragments and operations
 #[allow(clippy::too_many_arguments)]
 pub fn get_affected_uris(
-    initial_uri: Url,
+    initial_uri: Uri,
     affected_fragment_names: AHashSet<Arc<str>>,
     affected_spread_names: AHashSet<Arc<str>>,
     affected_operation_names: AHashSet<Arc<str>>,
@@ -302,7 +302,7 @@ pub fn get_affected_uris(
     fragment_dependents: &FragmentDependentsMap,
     fragment_definitions: &FragmentDefinitionsMap,
     operation_names: &OperationNamesMap,
-) -> Vec<Url> {
+) -> Vec<Uri> {
     let mut uris_to_validate = AHashSet::default();
     uris_to_validate.insert(initial_uri.clone());
 
@@ -325,7 +325,7 @@ pub fn get_affected_uris(
 
         if let Some(dependents) = fragment_dependents.get(&frag_name) {
             for dep_uri in dependents.value().iter() {
-                let dep_uri: &Url = dep_uri;
+                let dep_uri: &Uri = dep_uri;
                 if uris_to_validate.insert(dep_uri.clone())
                     && let Some(doc) = documents.get(dep_uri).map(|r| r.value().clone())
                 {
@@ -340,7 +340,7 @@ pub fn get_affected_uris(
     for spread_name in affected_spread_names {
         if let Some(definitions) = fragment_definitions.get(&spread_name) {
             for def_uri in definitions.value().iter() {
-                let def_uri: &Url = def_uri;
+                let def_uri: &Uri = def_uri;
                 uris_to_validate.insert(def_uri.clone());
             }
         }
@@ -366,12 +366,12 @@ pub fn get_used_fragments(metadata: &MetadataMap, config: &Config) -> AHashSet<A
 
 /// Gets the schema for a given document URI
 pub fn get_schema_for_doc(
-    uri: &Url,
+    uri: &Uri,
     config: &Config,
     validated_schemas: &Arc<DashMap<String, Arc<Valid<Schema>>, ahash::RandomState>>,
     valid_empty_schema: &Arc<Valid<Schema>>,
 ) -> Arc<Valid<Schema>> {
-    if let Ok(path) = uri.to_file_path()
+    if let Some(path) = uri.to_file_path()
         && let Some(schema_path) = config.get_schema_for_path(&path)
         && let Some(schema) = validated_schemas.get(&schema_path)
     {
@@ -387,7 +387,7 @@ pub fn get_fragments_for_doc(
     config: &Config,
     metadata: &MetadataMap,
     subgraphs: &Arc<DashMap<String, Vec<graphox_core::schema::SubgraphInfo>, ahash::RandomState>>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    documents: &Arc<DashMap<Uri, Arc<DocumentState>, ahash::RandomState>>,
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
 ) -> Vec<FragmentCompletionInfo> {
     let all_fragments = super::fragment_manager::collect_fragment_metadata(
@@ -431,7 +431,7 @@ pub fn get_fragments_for_doc_with_metadata(
 fn add_duplicate_operation_diagnostics(
     config: &graphox_core::Config,
     doc: &DocumentState,
-    uri: &Url,
+    uri: &Uri,
     schema_key: &str,
     operation_names: &OperationNamesMap,
     diagnostics: &mut Vec<Diagnostic>,
@@ -441,14 +441,14 @@ fn add_duplicate_operation_diagnostics(
         if let Some(name) = &op.name {
             // Look up this operation name in the index
             if let Some(entry) = operation_names.get(name) {
-                let path = uri.to_file_path().unwrap();
+                let path = uri.to_file_path().unwrap().into_owned();
                 let project_key = config
                     .get_project_for_path(&path)
                     .map(|p| p.include().as_key())
                     .unwrap_or_else(|| schema_key.to_string());
                 // Filter to only operations in the same project (same schema)
 
-                let locations_in_project: Vec<&Url> = entry
+                let locations_in_project: Vec<&Uri> = entry
                     .value()
                     .iter()
                     .filter(|(p_key, _)| p_key.as_ref() == project_key)
@@ -467,7 +467,7 @@ fn add_duplicate_operation_diagnostics(
                     let mut other_files: Vec<String> = locations_in_project
                         .iter()
                         .filter(|loc| **loc != uri)
-                        .filter_map(|loc| loc.to_file_path().ok())
+                        .filter_map(|loc| loc.to_file_path().map(|p| p.into_owned()))
                         .map(|path| path.display().to_string())
                         .collect();
 

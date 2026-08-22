@@ -5,7 +5,7 @@ use graphox::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -72,7 +72,7 @@ async fn test_lsp_pull_circular_fragments() {
 
     service
         .call(
-            tower_lsp::jsonrpc::Request::build("initialized")
+            tower_lsp_server::jsonrpc::Request::build("initialized")
                 .params(serde_json::json!({}))
                 .finish(),
         )
@@ -82,7 +82,7 @@ async fn test_lsp_pull_circular_fragments() {
     // Open the files
     for rel in ["frag_a.graphql", "frag_b.graphql", "query.graphql"] {
         let path = base_dir.join(rel);
-        let url = Url::from_file_path(&path).unwrap();
+        let url = Uri::from_file_path(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         lsp_did_open(&mut service, url, "graphql", 1, &text).await;
     }
@@ -92,7 +92,7 @@ async fn test_lsp_pull_circular_fragments() {
 
     // Request diagnostics via pull for query file
     let diag_params = DocumentDiagnosticParams {
-        text_document: TextDocumentIdentifier::new(Url::from_file_path(&base_dir.join("query.graphql")).unwrap()),
+        text_document: TextDocumentIdentifier::new(Uri::from_file_path(&base_dir.join("query.graphql")).unwrap()),
         identifier: None,
         previous_result_id: None,
         work_done_progress_params: Default::default(),

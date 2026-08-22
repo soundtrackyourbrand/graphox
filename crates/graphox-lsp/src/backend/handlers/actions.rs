@@ -2,8 +2,8 @@ use crate::backend::state::Backend;
 use ahash::AHashSet;
 use graphox_features::code_actions::{DocumentCodeActions, SOURCE_FIX_ALL_GRAPHOX};
 
-use tower_lsp::jsonrpc::{Error, Result};
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::{Error, Result};
+use tower_lsp_server::ls_types::*;
 
 fn action_kind_matches(kind: CodeActionKind, filters: &[CodeActionKind]) -> bool {
     let action_kind = kind.as_str();
@@ -131,7 +131,7 @@ pub async fn handle_code_action(
 
                             if let Some(data) = &diagnostic.data {
                                 if let Some(def_uri) = data.get("def_uri").and_then(|v| v.as_str())
-                                    && let Ok(parsed) = Url::parse(def_uri)
+                                    && let Ok(parsed) = Uri::from_str(def_uri)
                                 {
                                     target_uri = parsed;
                                 }

@@ -5,7 +5,7 @@ use std::fs;
 use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use tempfile::TempDir;
-use tower_lsp::lsp_types::Url;
+use tower_lsp_server::ls_types::Uri;
 
 use crate::support::{
     PERF_MEMORY_MUTEX, create_large_schema, lsp_did_close, lsp_did_open, lsp_initialize_sequence,
@@ -85,7 +85,7 @@ async fn test_memory_long_running_subgraphs() {
 
     // Initialize LSP service and await full workspace scan
     let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
     lsp_initialize_sequence(&mut service).await;
 
     // Simulate long-running session by cycling through many files.
@@ -95,7 +95,7 @@ async fn test_memory_long_running_subgraphs() {
         for i in 0..50 {
             let file_path = base_dir.join(format!("query_{}.graphql", i + cycle * 10));
             if file_path.exists() {
-                let uri = Url::from_file_path(file_path.clone()).unwrap();
+                let uri = Uri::from_file_path(file_path.clone()).unwrap();
                 let text = fs::read_to_string(file_path).unwrap();
                 lsp_did_open(&mut service, uri.clone(), "graphql", 1, &text).await;
                 lsp_did_close(&mut service, uri).await;

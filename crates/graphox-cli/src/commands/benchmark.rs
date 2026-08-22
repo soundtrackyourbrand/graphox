@@ -42,7 +42,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
 
     let workspace_metadata = Engine::scan_workspace_with_instrumentation(
         &config,
-        tower_lsp::lsp_types::PositionEncodingKind::UTF8,
+        tower_lsp_server::ls_types::PositionEncodingKind::UTF8,
         None,
         scan_instrumentation.clone(),
     );

@@ -7,7 +7,7 @@ use graphox::{
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -41,22 +41,22 @@ async fn test_lsp_duplicate_fragments_same_project_via_config() {
     let service = initialized.service();
 
     let frag_a = base_dir.join("pkg_a/frag_a.graphql");
-    let uri_a = Url::from_file_path(&frag_a).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a).unwrap();
 
     // Pull diagnostics for frag_a and assert duplicate fragment diagnostic exists
-    let params = tower_lsp::lsp_types::DocumentDiagnosticParams {
-        text_document: tower_lsp::lsp_types::TextDocumentIdentifier { uri: uri_a.clone() },
+    let params = tower_lsp_server::ls_types::DocumentDiagnosticParams {
+        text_document: tower_lsp_server::ls_types::TextDocumentIdentifier { uri: uri_a.clone() },
         identifier: None,
         previous_result_id: None,
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let result: tower_lsp::lsp_types::DocumentDiagnosticReportResult =
+    let result: tower_lsp_server::ls_types::DocumentDiagnosticReportResult =
         crate::support::lsp_request_typed(service, "textDocument/diagnostic", &params).await;
 
-    if let tower_lsp::lsp_types::DocumentDiagnosticReportResult::Report(
-        tower_lsp::lsp_types::DocumentDiagnosticReport::Full(full_report),
+    if let tower_lsp_server::ls_types::DocumentDiagnosticReportResult::Report(
+        tower_lsp_server::ls_types::DocumentDiagnosticReport::Full(full_report),
     ) = result
     {
         let diagnostics = &full_report.full_document_diagnostic_report.items;
@@ -108,7 +108,7 @@ async fn test_lsp_private_duplicates_different_projects_no_error() {
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(
-        std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
+        std::collections::HashMap::<Uri, Vec<Diagnostic>>::new(),
     ));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
@@ -129,8 +129,8 @@ async fn test_lsp_private_duplicates_different_projects_no_error() {
 
     lsp_initialize_sequence(&mut service).await;
 
-    let uri_a = Url::from_file_path(&frag_a_path).unwrap();
-    let uri_b = Url::from_file_path(&frag_b_path).unwrap();
+    let uri_a = Uri::from_file_path(&frag_a_path).unwrap();
+    let uri_b = Uri::from_file_path(&frag_b_path).unwrap();
 
     lsp_did_open(
         &mut service,

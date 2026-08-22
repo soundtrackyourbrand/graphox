@@ -3,14 +3,14 @@ use crate::support::{
     lsp_request_completion, make_temp_project_with_schema, with_cursor, write_project_file,
 };
 use tempfile::TempDir;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 async fn make_completion_fixture(
     schema: &str,
     fixture: &str,
 ) -> (
-    tower_lsp::LspService<LspBackend>,
-    Url,
+    tower_lsp_server::LspService<LspBackend>,
+    Uri,
     Position,
     TempDir,
     tokio::task::JoinHandle<()>,

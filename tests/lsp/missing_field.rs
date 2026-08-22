@@ -5,7 +5,7 @@ use crate::support::{
 };
 use graphox::config::{CodegenConfig, Config, GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]

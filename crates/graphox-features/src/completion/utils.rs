@@ -1,7 +1,7 @@
 use crate::completion::cursor;
 use apollo_compiler::ast;
 use graphox_core::document::DocumentState;
-use lsp_types::{InsertTextFormat, Range, TextEdit};
+use ls_types::{InsertTextFormat, Range, TextEdit};
 
 pub fn get_type_before_equals(doc: &DocumentState, cursor_offset: usize) -> Option<ast::Type> {
     let mut eq_pos = cursor_offset;

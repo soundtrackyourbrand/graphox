@@ -5,9 +5,9 @@ use graphox::{Backend, Config};
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::LspService;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 use crate::support::create_doc;
@@ -70,7 +70,7 @@ fn test_diagnostics_update_on_fragment_change() {
         .unwrap();
 
     let query_text = "query { me { ...UserFrag } }";
-    let query_uri = Url::parse("file:///query.graphql").unwrap();
+    let query_uri = Uri::from_str("file:///query.graphql").unwrap();
     let query_doc = create_doc(query_uri.as_str(), query_text);
 
     // 1. Missing fragment
@@ -86,7 +86,7 @@ fn test_diagnostics_update_on_fragment_change() {
         import_path: None,
         is_public: false,
         is_type_only: false,
-        uri: Url::parse("file:///frag.graphql").unwrap(),
+        uri: Uri::from_str("file:///frag.graphql").unwrap(),
         package_root: None,
         used_variables: Arc::from([]),
         used_fragments: Arc::from([]),
@@ -112,7 +112,7 @@ fn test_diagnostics_update_on_fragment_change() {
         import_path: None,
         is_public: false,
         is_type_only: false,
-        uri: Url::parse("file:///frag.graphql").unwrap(),
+        uri: Uri::from_str("file:///frag.graphql").unwrap(),
         package_root: None,
         used_variables: Arc::from([]),
         used_fragments: Arc::from([]),
@@ -137,8 +137,8 @@ fn test_incremental_fragment_removal_falls_back_to_public_fragment() {
         .validate()
         .unwrap();
 
-    let local_uri = Url::parse("file:///pkg_b/local.graphql").unwrap();
-    let query_uri = Url::parse("file:///pkg_b/query.graphql").unwrap();
+    let local_uri = Uri::from_str("file:///pkg_b/local.graphql").unwrap();
+    let query_uri = Uri::from_str("file:///pkg_b/query.graphql").unwrap();
     let local_text = "fragment UserFields on User { name }";
     let query_text = "query { me { ...UserFields } }";
 
@@ -152,7 +152,7 @@ fn test_incremental_fragment_removal_falls_back_to_public_fragment() {
         import_path: None,
         is_public: true,
         is_type_only: false,
-        uri: Url::parse("file:///pkg_a/public.graphql").unwrap(),
+        uri: Uri::from_str("file:///pkg_a/public.graphql").unwrap(),
         package_root: Some(std::path::PathBuf::from("/pkg_a")),
         used_variables: Arc::from([]),
         used_fragments: Arc::from([]),
@@ -233,7 +233,7 @@ async fn test_backend_schema_reload() {
 
     let params = DidChangeWatchedFilesParams {
         changes: vec![FileEvent {
-            uri: Url::from_file_path(&schema_path).unwrap(),
+            uri: Uri::from_file_path(&schema_path).unwrap(),
             typ: FileChangeType::CHANGED,
         }],
     };

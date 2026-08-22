@@ -54,7 +54,7 @@ pub struct SubgraphInfo {
     pub name: String,
     pub owner: Option<String>,
     pub schema: Arc<Schema>,
-    pub uri: lsp_types::Url,
+    pub uri: ls_types::Uri,
     /// Overall SLO class for the subgraph (from schema definition)
     pub schema_slo: Option<SloClass>,
     /// Maps TypeName -> FieldName -> SloClass
@@ -150,7 +150,7 @@ pub fn load_subgraphs(
                 }
 
                 let owner = owners.and_then(|m| m.get(name).cloned());
-                if let Ok(uri) = lsp_types::Url::from_file_path(&path) {
+                if let Some(uri) = ls_types::Uri::from_file_path(&path) {
                     subgraphs.push(SubgraphInfo {
                         name: name.to_string(),
                         owner,

@@ -556,7 +556,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
         engine::Engine,
         schema,
     };
-    use tower_lsp::lsp_types::PositionEncodingKind;
+    use tower_lsp_server::ls_types::PositionEncodingKind;
 
     let temp_dir = std::env::temp_dir().join("graphox_codegen_cache_ordering_test");
     if temp_dir.exists() {

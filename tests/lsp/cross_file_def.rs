@@ -2,7 +2,7 @@ use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_typed,
     make_temp_project_with_schema, range_for_token, with_cursor, write_project_file,
 };
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]

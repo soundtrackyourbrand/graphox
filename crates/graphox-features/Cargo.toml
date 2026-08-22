@@ -8,7 +8,7 @@ publish.workspace = true
 [dependencies]
 graphox-core = { path = "../graphox-core" }
 apollo-compiler = { workspace = true }
-lsp-types = { workspace = true }
+ls-types = { workspace = true }
 ahash = { workspace = true }
 dashmap = { workspace = true }
 serde_json = { workspace = true }

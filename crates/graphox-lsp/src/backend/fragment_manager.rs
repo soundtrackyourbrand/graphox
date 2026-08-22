@@ -11,7 +11,7 @@ use graphox_core::schema::{SloClass, SubgraphInfo};
 use graphox_core::types::MetadataMap;
 use graphox_features::completion::FragmentCompletionInfo;
 use std::sync::Arc;
-use tower_lsp::lsp_types::Url;
+use tower_lsp_server::ls_types::Uri;
 use tree_sitter::StreamingIterator;
 
 /// Collects fragment metadata from fragment definitions
@@ -58,8 +58,8 @@ fn compute_worst_slo_for_fragment(
     schema: &apollo_compiler::Schema,
     project_subgraphs: &[SubgraphInfo],
     fragment_nodes: &AHashMap<String, (tree_sitter::Node<'_>, usize)>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
-    uri: &Url,
+    documents: &Arc<DashMap<Uri, Arc<DocumentState>, ahash::RandomState>>,
+    uri: &Uri,
     fragment_index: &ahash::AHashMap<
         Arc<str>,
         Vec<(Arc<DocumentState>, graphox_core::document::FragmentDef)>,
@@ -108,7 +108,7 @@ pub fn collect_fragment_metadata(
     metadata: &MetadataMap,
     config: &Config,
     subgraphs: &Arc<DashMap<String, Vec<SubgraphInfo>, ahash::RandomState>>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    documents: &Arc<DashMap<Uri, Arc<DocumentState>, ahash::RandomState>>,
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
     compute_slo: bool,
 ) -> Vec<FragmentCompletionInfo> {
@@ -229,7 +229,7 @@ pub fn collect_fragment_metadata_with_schema(
     metadata: &MetadataMap,
     config: &Config,
     subgraphs: &Arc<DashMap<String, Vec<SubgraphInfo>, ahash::RandomState>>,
-    documents: &Arc<DashMap<Url, Arc<DocumentState>, ahash::RandomState>>,
+    documents: &Arc<DashMap<Uri, Arc<DocumentState>, ahash::RandomState>>,
     schemas: &Arc<DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
     compute_slo: bool,
 ) -> Vec<(FragmentCompletionInfo, Option<Arc<str>>)> {
@@ -351,8 +351,8 @@ pub fn collect_fragment_metadata_with_schema(
 
 /// Updates the fragment dependent index when fragments change
 pub fn update_fragment_dependents(
-    fragment_dependents: &Arc<DashMap<Arc<str>, AHashSet<Url>, ahash::RandomState>>,
-    uri: &Url,
+    fragment_dependents: &Arc<DashMap<Arc<str>, AHashSet<Uri>, ahash::RandomState>>,
+    uri: &Uri,
     old_spreads: Option<Arc<[Arc<str>]>>,
     new_spreads: Arc<[Arc<str>]>,
 ) {
@@ -376,8 +376,8 @@ pub fn update_fragment_dependents(
 
 /// Updates the fragment definition index when fragments are added/removed
 pub fn update_fragment_definitions(
-    fragment_definitions: &Arc<DashMap<Arc<str>, AHashSet<Url>, ahash::RandomState>>,
-    uri: &Url,
+    fragment_definitions: &Arc<DashMap<Arc<str>, AHashSet<Uri>, ahash::RandomState>>,
+    uri: &Uri,
     old_fragments: Option<Arc<[Arc<str>]>>,
     new_fragments: Arc<[Arc<str>]>,
 ) {
@@ -404,8 +404,8 @@ mod tests {
     use super::*;
     use crate::backend::state::Backend;
     use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
-    use tower_lsp::LspService;
-    use tower_lsp::lsp_types::PositionEncodingKind;
+    use tower_lsp_server::LspService;
+    use tower_lsp_server::ls_types::PositionEncodingKind;
 
     /// `compute_slo = false` (the validation hot path) must return exactly the same
     /// fragments as `compute_slo = true`; it may only differ by leaving `worst_slo`
@@ -434,7 +434,7 @@ mod tests {
         let backend = service.inner();
 
         for i in 0..5 {
-            let uri = Url::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
+            let uri = Uri::from_file_path(base.join(format!("doc_{i}.graphql"))).unwrap();
             let content = format!(
                 "query Q{i} {{ user {{ ...Frag{i} }} }}\nfragment Frag{i} on User {{ id name }}\n"
             );

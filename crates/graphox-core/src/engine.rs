@@ -3,7 +3,7 @@ use crate::document::{DocumentLanguage, DocumentState, FragmentId, TransitiveDep
 use crate::utils::{WorkspaceScanInstrumentation, get_project_scan_files, has_generated_header};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
-use lsp_types::Url;
+use ls_types::Uri;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -197,7 +197,7 @@ impl Engine {
 
     pub fn scan_workspace(
         config: &Config,
-        position_encoding: lsp_types::PositionEncodingKind,
+        position_encoding: ls_types::PositionEncodingKind,
         previous_metadata: Option<&WorkspaceMetadata>,
     ) -> WorkspaceMetadata {
         Self::scan_workspace_with_instrumentation(
@@ -210,7 +210,7 @@ impl Engine {
 
     pub fn scan_workspace_with_instrumentation(
         config: &Config,
-        position_encoding: lsp_types::PositionEncodingKind,
+        position_encoding: ls_types::PositionEncodingKind,
         previous_metadata: Option<&WorkspaceMetadata>,
         instrumentation: Option<WorkspaceScanInstrumentation>,
     ) -> WorkspaceMetadata {
@@ -230,7 +230,7 @@ impl Engine {
         mut on_doc: F,
         mut on_progress: P,
         cancelled: Arc<AtomicBool>,
-        position_encoding: lsp_types::PositionEncodingKind,
+        position_encoding: ls_types::PositionEncodingKind,
         previous_metadata: Option<&WorkspaceMetadata>,
         instrumentation: Option<WorkspaceScanInstrumentation>,
     ) -> WorkspaceMetadata
@@ -355,7 +355,7 @@ impl Engine {
                 } else {
                     crate::utils::canonicalize_cached(&config.base_dir().join(&full_path))
                 };
-                let uri = Url::from_file_path(&abs_path).ok()?;
+                let uri = Uri::from_file_path(&abs_path)?;
                 let uri = crate::utils::normalize_uri(uri);
                 let language = DocumentLanguage::from_uri(&uri);
 
@@ -871,11 +871,11 @@ impl Engine {
 
     pub fn parse_doc(
         path: &Path,
-        position_encoding: lsp_types::PositionEncodingKind,
+        position_encoding: ls_types::PositionEncodingKind,
     ) -> Option<DocumentState> {
         let content = std::fs::read_to_string(path).ok()?;
         let abs_path = crate::utils::canonicalize_cached(path);
-        let uri = Url::from_file_path(&abs_path).ok()?;
+        let uri = Uri::from_file_path(&abs_path)?;
         let uri = crate::utils::normalize_uri(uri);
         let language = DocumentLanguage::from_uri(&uri);
 

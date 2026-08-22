@@ -1,6 +1,6 @@
 use crate::support::create_doc;
 use graphox::features::diagnostics::DocumentDiagnostics;
-// No direct Url or DocumentLanguage use in this test; rely on support::create_doc
+// No direct Uri or DocumentLanguage use in this test; rely on support::create_doc
 
 #[test]
 #[ntest::timeout(500)]

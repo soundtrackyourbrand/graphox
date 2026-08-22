@@ -2,7 +2,7 @@ use crate::support::{
     create_initialized_lsp_service, lsp_did_open, lsp_request_code_actions,
     make_temp_project_with_schema, write_project_file,
 };
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]
@@ -27,19 +27,19 @@ async fn test_remove_fragment_affects_referencers() {
 
     let fragment_def_text = "fragment UnusedFrag on Query { me }";
     let doc_frag = crate::support::create_doc(frag_uri.as_str(), fragment_def_text);
-    let diagnostic = tower_lsp::lsp_types::Diagnostic {
+    let diagnostic = tower_lsp_server::ls_types::Diagnostic {
         range: crate::support::range_for_token(&doc_frag, fragment_def_text, "UnusedFrag"),
         message: "Unused fragment: UnusedFrag".to_string(),
         code: Some(NumberOrString::String("unused_fragment".to_string())),
         ..Default::default()
     };
 
-    let params = tower_lsp::lsp_types::CodeActionParams {
-        text_document: tower_lsp::lsp_types::TextDocumentIdentifier {
+    let params = tower_lsp_server::ls_types::CodeActionParams {
+        text_document: tower_lsp_server::ls_types::TextDocumentIdentifier {
             uri: frag_uri.clone(),
         },
         range: diagnostic.range,
-        context: tower_lsp::lsp_types::CodeActionContext {
+        context: tower_lsp_server::ls_types::CodeActionContext {
             diagnostics: vec![diagnostic],
             only: None,
             trigger_kind: None,

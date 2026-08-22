@@ -4,7 +4,7 @@ use crate::support::{
 };
 use graphox::Config;
 use std::path::Path;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]
@@ -19,7 +19,7 @@ async fn test_lsp_fragment_scoping() {
 
     // 1. Open Public/Private fragments in pkg_a
     let pkg_a_uri = workspace.uri_for("pkg_a/fragment.graphql");
-    let pkg_a_text = std::fs::read_to_string(pkg_a_uri.to_file_path().unwrap()).unwrap();
+    let pkg_a_text = std::fs::read_to_string(pkg_a_uri.to_file_path().unwrap().into_owned()).unwrap();
 
     lsp_did_open(&mut service, pkg_a_uri.clone(), "graphql", 1, &pkg_a_text).await;
 
@@ -101,7 +101,7 @@ async fn test_lsp_package_isolation() {
     // 1. Open pkg_a/fragment.graphql (defines FragmentA)
     let pkg_a_frag_path =
         std::fs::canonicalize(Path::new("tests/fixtures/scoped/pkg_a/fragment.graphql")).unwrap();
-    let pkg_a_uri = Url::from_file_path(pkg_a_frag_path).unwrap();
+    let pkg_a_uri = Uri::from_file_path(pkg_a_frag_path).unwrap();
     let pkg_a_text = "fragment FragmentA on User { id }";
 
     lsp_did_open(&mut service, pkg_a_uri.clone(), "graphql", 1, pkg_a_text).await;
@@ -109,7 +109,7 @@ async fn test_lsp_package_isolation() {
     // 2. Open pkg_b/fragment.graphql (defines FragmentB)
     let pkg_b_frag_path =
         std::fs::canonicalize(Path::new("tests/fixtures/scoped/pkg_b/fragment.graphql")).unwrap();
-    let pkg_b_uri = Url::from_file_path(pkg_b_frag_path).unwrap();
+    let pkg_b_uri = Uri::from_file_path(pkg_b_frag_path).unwrap();
     let pkg_b_text = "fragment FragmentB on User { id }";
 
     lsp_did_open(&mut service, pkg_b_uri.clone(), "graphql", 1, pkg_b_text).await;
@@ -118,7 +118,7 @@ async fn test_lsp_package_isolation() {
     let (pkg_b_query_text, cursor_pos) = with_cursor("query { users { ...Frag|mentA } }");
     let pkg_b_query_path =
         std::fs::canonicalize(Path::new("tests/fixtures/scoped/pkg_b/query.graphql")).unwrap();
-    let pkg_b_query_uri = Url::from_file_path(pkg_b_query_path).unwrap();
+    let pkg_b_query_uri = Uri::from_file_path(pkg_b_query_path).unwrap();
 
     lsp_did_open(
         &mut service,

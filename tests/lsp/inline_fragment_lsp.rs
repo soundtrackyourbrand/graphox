@@ -4,7 +4,7 @@ use crate::support::{
     write_project_file,
 };
 use std::fs;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]
@@ -274,7 +274,7 @@ async fn test_goto_definition_field_in_schema() {
 
     // Open schema first so it's in documents
     let schema_path = dir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(fs::canonicalize(&schema_path).unwrap()).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, schema_text).await;
 
     let text = r#"

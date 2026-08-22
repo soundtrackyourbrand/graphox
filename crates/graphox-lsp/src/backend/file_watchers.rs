@@ -5,8 +5,8 @@
 
 use ahash::AHashSet;
 use graphox_core::Config;
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 /// Registers file watchers for schema files, workspace files, and config file
 ///

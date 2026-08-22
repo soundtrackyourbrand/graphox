@@ -3,7 +3,7 @@ use crate::support::{
     lsp_send_notification, make_temp_project_with_schema, with_cursor, write_project_file,
 };
 use graphox::config::TimeoutConfig;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]

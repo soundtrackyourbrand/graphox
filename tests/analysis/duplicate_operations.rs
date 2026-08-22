@@ -11,8 +11,8 @@ use graphox::{
 use std::fs;
 use tempfile::TempDir;
 use tempfile::tempdir;
-use tower_lsp::lsp_types::{
-    DocumentDiagnosticReport, DocumentDiagnosticReportResult, NumberOrString, Url,
+use tower_lsp_server::ls_types::{
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, NumberOrString, Uri,
 };
 
 fn get_schema() -> apollo_compiler::validation::Valid<Schema> {
@@ -55,7 +55,7 @@ fn test_duplicate_operation_names_same_file() {
 
     std::fs::write(&file_path, content).unwrap();
 
-    let uri = Url::from_file_path(&file_path).unwrap();
+    let uri = Uri::from_file_path(&file_path).unwrap();
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
@@ -106,7 +106,7 @@ fn test_unique_operation_names_no_error() {
 
     std::fs::write(&file_path, content).unwrap();
 
-    let uri = Url::from_file_path(&file_path).unwrap();
+    let uri = Uri::from_file_path(&file_path).unwrap();
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
@@ -160,7 +160,7 @@ fn test_duplicate_operation_rule_disabled() {
 
     std::fs::write(&file_path, content).unwrap();
 
-    let uri = Url::from_file_path(&file_path).unwrap();
+    let uri = Uri::from_file_path(&file_path).unwrap();
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 
@@ -213,7 +213,7 @@ fn test_duplicate_operation_no_rules_config() {
 
     std::fs::write(&file_path, content).unwrap();
 
-    let uri = Url::from_file_path(&file_path).unwrap();
+    let uri = Uri::from_file_path(&file_path).unwrap();
     let doc = create_doc(uri.as_str(), content);
     let schema = get_schema();
 

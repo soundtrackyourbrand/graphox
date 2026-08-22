@@ -7,13 +7,13 @@ use graphox::{
 use std::fs;
 
 use crate::support::create_doc;
-use tower_lsp::lsp_types::Url;
+use tower_lsp_server::ls_types::Uri;
 
 #[tokio::test]
 #[ntest::timeout(500)]
 async fn test_document_operations_extraction() {
     let query_text = "query GetUser { user(id: \"1\") { id name } }";
-    let uri = Url::parse("file:///test/query.graphql").unwrap();
+    let uri = Uri::from_str("file:///test/query.graphql").unwrap();
 
     let doc = create_doc(uri.as_str(), query_text);
 
@@ -55,7 +55,7 @@ async fn test_check_command_duplicate_operations() {
     // Scan workspace to build operation index
     let workspace_metadata = Engine::scan_workspace(
         &config,
-        tower_lsp::lsp_types::PositionEncodingKind::UTF16,
+        tower_lsp_server::ls_types::PositionEncodingKind::UTF16,
         None,
     );
 
@@ -106,7 +106,7 @@ async fn test_check_command_unique_operations() {
 
     let workspace_metadata = Engine::scan_workspace(
         &config,
-        tower_lsp::lsp_types::PositionEncodingKind::UTF16,
+        tower_lsp_server::ls_types::PositionEncodingKind::UTF16,
         None,
     );
 

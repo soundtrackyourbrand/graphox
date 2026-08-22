@@ -10,13 +10,13 @@ use graphox_core::types::{
 };
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 use crate::backend::helpers::{named_operation_names, update_operation_name_index};
 
 /// Result of processing document changes
 pub struct ChangeResult {
-    pub uris_to_validate: Vec<Url>,
+    pub uris_to_validate: Vec<Uri>,
     pub should_run_codegen: bool,
     /// Whether any fragment definition changed (added, removed, or its source
     /// changed). Only then does the workspace-wide fragment metadata cache (used by
@@ -42,7 +42,7 @@ pub struct DocumentChangeParams<'a> {
 
 /// Processes document content changes and updates indices
 pub fn process_document_change(
-    uri: &Url,
+    uri: &Uri,
     changes: Vec<TextDocumentContentChangeEvent>,
     version: i32,
     params: &DocumentChangeParams<'_>,

@@ -6,7 +6,7 @@ use graphox_core::utils::{
     DIAGNOSTIC_SOURCE, find_operation_range, mask_interpolations,
     push_duplicate_operation_diagnostic,
 };
-use lsp_types::*;
+use ls_types::*;
 use tree_sitter::{Node, QueryCursor, StreamingIterator};
 
 mod fragments;
@@ -262,7 +262,7 @@ impl DocumentDiagnostics for DocumentState {
                 range: self.translate_to_file_range(node, offset),
                 severity: Some(DiagnosticSeverity::WARNING),
                 message,
-                code: Some(lsp_types::NumberOrString::String("deprecated".to_string())),
+                code: Some(ls_types::NumberOrString::String("deprecated".to_string())),
                 source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });
@@ -271,7 +271,7 @@ impl DocumentDiagnostics for DocumentState {
                 range: self.translate_to_file_range(node, offset),
                 severity: Some(DiagnosticSeverity::INFORMATION),
                 message: format!("[Ignored] {}", message),
-                code: Some(lsp_types::NumberOrString::String("deprecated".to_string())),
+                code: Some(ls_types::NumberOrString::String("deprecated".to_string())),
                 source: DIAGNOSTIC_SOURCE.map(String::from),
                 ..Default::default()
             });

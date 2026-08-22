@@ -3,7 +3,7 @@ use crate::support::{
     with_cursor, write_project_file,
 };
 use std::fs;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 // =============================================================================
 // Phase 7: Workspace Features
@@ -19,7 +19,7 @@ async fn test_references_workspace_wide() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -80,7 +80,7 @@ async fn test_references_transitive_fragments() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -128,7 +128,7 @@ async fn test_references_exclude_declaration() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -178,7 +178,7 @@ async fn test_references_partial_result() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -238,7 +238,7 @@ async fn test_references_performance() {
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -335,8 +335,8 @@ async fn test_references_field_scoped_to_project_schema() {
 
     let (mut service, _handle) = create_initialized_lsp_service(config).await;
 
-    let public_uri = Url::from_file_path(base.join("public/schema.graphql")).unwrap();
-    let internal_uri = Url::from_file_path(base.join("internal/schema.graphql")).unwrap();
+    let public_uri = Uri::from_file_path(base.join("public/schema.graphql")).unwrap();
+    let internal_uri = Uri::from_file_path(base.join("internal/schema.graphql")).unwrap();
     lsp_did_open(
         &mut service,
         public_uri.clone(),
@@ -358,7 +358,7 @@ async fn test_references_field_scoped_to_project_schema() {
     let query_text = "query { user { id } }";
     let query_path = base.join("app_a/query.graphql");
     fs::write(&query_path, query_text).unwrap();
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     let params = ReferenceParams {

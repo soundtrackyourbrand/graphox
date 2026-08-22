@@ -3,7 +3,7 @@
 use crate::support::create_doc;
 use crate::support::fixtures::{union_interface_schema, user_schema};
 use graphox::features::diagnostics::DocumentDiagnostics;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[test]
 #[ntest::timeout(300)]

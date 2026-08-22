@@ -2,7 +2,7 @@ use crate::shared::type_resolver::{self, SemanticSymbol};
 use apollo_compiler::Schema;
 use graphox_core::config::{Config, ProjectConfig};
 use graphox_core::document::DocumentState;
-use lsp_types::{Location, Position, Range, Url};
+use ls_types::{Location, Position, Range, Uri};
 use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 
@@ -43,7 +43,7 @@ impl DocumentTypeDefinition for DocumentState {
                             )
                         })?;
 
-                let path = self.uri.to_file_path().ok()?;
+                let path = self.uri.to_file_path()?.into_owned();
                 let project_config = config.get_project_for_path(&path)?;
 
                 // Fields are emitted as inline nested properties of the operation/
@@ -72,7 +72,7 @@ pub fn resolve_codegen_location(
     project_config: &ProjectConfig,
     config: &Config,
 ) -> Option<Location> {
-    let source_path = doc.uri.to_file_path().ok()?;
+    let source_path = doc.uri.to_file_path()?.into_owned();
     let codegen_path = get_codegen_path(&source_path, project_config, config)?;
     let type_name = get_codegen_type_name(&symbol, project_config, config)?;
 
@@ -80,7 +80,7 @@ pub fn resolve_codegen_location(
     let range = find_type_in_content(&content, &type_name)?;
 
     Some(Location {
-        uri: Url::from_file_path(codegen_path).ok()?,
+        uri: Uri::from_file_path(codegen_path)?,
         range,
     })
 }
@@ -205,7 +205,7 @@ fn resolve_field_codegen_location(
     project_config: &ProjectConfig,
     config: &Config,
 ) -> Option<Location> {
-    let source_path = doc.uri.to_file_path().ok()?;
+    let source_path = doc.uri.to_file_path()?.into_owned();
     let codegen_path = get_codegen_path(&source_path, project_config, config)?;
 
     let root_type = enclosing_root_type_name(doc, node, offset, project_config, config)?;
@@ -215,7 +215,7 @@ fn resolve_field_codegen_location(
     let range = find_field_property(&content, &root_type, &field_path)?;
 
     Some(Location {
-        uri: Url::from_file_path(codegen_path).ok()?,
+        uri: Uri::from_file_path(codegen_path)?,
         range,
     })
 }

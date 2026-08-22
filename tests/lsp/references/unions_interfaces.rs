@@ -3,7 +3,7 @@ use crate::support::{
     with_cursor, write_project_file,
 };
 use std::fs;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 /// Find union member type references
 #[tokio::test]
@@ -16,7 +16,7 @@ async fn test_references_union_member() {
 
     // Open schema
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -59,7 +59,7 @@ async fn test_references_interface_type() {
 
     // Open schema
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -101,7 +101,7 @@ async fn test_references_implements() {
 
     // Open schema
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -147,7 +147,7 @@ async fn test_references_union_multiple_members() {
 
     // Open schema
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 
@@ -189,7 +189,7 @@ async fn test_references_interface_field() {
 
     // Open schema
     let schema_path = tmpdir.path().join("schema.graphql");
-    let schema_uri = Url::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
+    let schema_uri = Uri::from_file_path(std::fs::canonicalize(&schema_path).unwrap()).unwrap();
     let schema_text = fs::read_to_string(&schema_path).unwrap();
     lsp_did_open(&mut service, schema_uri.clone(), "graphql", 1, &schema_text).await;
 

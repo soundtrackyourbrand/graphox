@@ -5,7 +5,7 @@ use crate::support::{
 };
 use apollo_compiler::Schema;
 use graphox::features::diagnostics::DocumentDiagnostics;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[test]
 #[ntest::timeout(3000)]

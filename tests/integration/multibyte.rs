@@ -10,7 +10,7 @@ use graphox::features::definition::DocumentDefinition;
 use graphox::features::diagnostics::DocumentDiagnostics;
 // DocumentState not referenced directly; tests use `create_doc` helper
 use crate::support::create_doc;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 fn create_ts_doc(text: &str) -> DocumentState {
     create_doc("file:///test.ts", text)

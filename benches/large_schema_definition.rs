@@ -7,8 +7,8 @@ use graphox::{
 use std::fs;
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService};
+use tower_lsp_server::ls_types::*;
+use tower_lsp_server::{LanguageServer, LspService};
 
 fn generate_complex_workspace(
     base_dir: &std::path::Path,
@@ -92,7 +92,7 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
         for i in 0..project_count {
             for j in 0..files_per_project {
                 let path = base_dir.join(format!("project_{}/file_{}.graphql", i, j));
-                let uri = Url::from_file_path(fs::canonicalize(&path).unwrap()).unwrap();
+                let uri = Uri::from_file_path(fs::canonicalize(&path).unwrap()).unwrap();
                 let content = fs::read_to_string(&path).unwrap();
                 let doc = DocumentState::new_from_thread_local(
                     uri.clone(),
@@ -107,7 +107,7 @@ fn bench_complex_workspace_definition(c: &mut Criterion) {
     // Target a field in the FIRST project to see if it's faster
     let target_project = 0;
     let target_uri =
-        Url::from_file_path(base_dir.join(format!("project_{}/file_0.graphql", target_project)))
+        Uri::from_file_path(base_dir.join(format!("project_{}/file_0.graphql", target_project)))
             .unwrap();
 
     let mut group = c.benchmark_group("Complex Workspace Definition");

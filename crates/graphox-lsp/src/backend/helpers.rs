@@ -4,11 +4,11 @@ use graphox_core::document::OperationDef;
 use graphox_core::types::OperationNamesMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 /// Normalize a file URI by resolving it to canonical path
-pub fn normalize_uri(uri: Url) -> Url {
+pub fn normalize_uri(uri: Uri) -> Uri {
     graphox_core::utils::normalize_uri(uri)
 }
 
@@ -22,7 +22,7 @@ pub fn named_operation_names(operations: &[OperationDef]) -> Arc<[Arc<str>]> {
 pub fn update_operation_name_index(
     operation_names: &OperationNamesMap,
     config: &Config,
-    uri: &Url,
+    uri: &Uri,
     old_operation_names: Option<&[Arc<str>]>,
     new_operations: &[OperationDef],
 ) -> AHashSet<Arc<str>> {
@@ -77,9 +77,9 @@ pub async fn with_tracing<T, Fut>(
     timeout_ms: u64,
     tracing_config: Option<(bool, u64)>,
     fut: Fut,
-) -> tower_lsp::jsonrpc::Result<Option<T>>
+) -> tower_lsp_server::jsonrpc::Result<Option<T>>
 where
-    Fut: std::future::Future<Output = tower_lsp::jsonrpc::Result<Option<T>>>,
+    Fut: std::future::Future<Output = tower_lsp_server::jsonrpc::Result<Option<T>>>,
 {
     let start = Instant::now();
 
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     #[ntest::timeout(3000)]
     fn test_normalize_uri_preserves_valid_uri() {
-        let uri = Url::parse("file:///tmp/test.graphql").unwrap();
+        let uri = Uri::from_str("file:///tmp/test.graphql").unwrap();
         let normalized = normalize_uri(uri.clone());
         assert!(normalized.scheme() == "file");
     }
@@ -168,8 +168,8 @@ mod tests {
             ],
         );
 
-        let uri = Url::from_file_path(base_dir.join("query.graphql")).unwrap();
-        let other_uri = Url::from_file_path(base_dir.join("other.graphql")).unwrap();
+        let uri = Uri::from_file_path(base_dir.join("query.graphql")).unwrap();
+        let other_uri = Uri::from_file_path(base_dir.join("other.graphql")).unwrap();
         let operation_names: OperationNamesMap =
             Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
         operation_names.insert(

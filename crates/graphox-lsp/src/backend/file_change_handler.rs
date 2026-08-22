@@ -11,14 +11,14 @@ use graphox_core::types::{
     OperationNamesMap,
 };
 use std::sync::Arc;
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 use crate::backend::helpers::{named_operation_names, update_operation_name_index};
 
 /// Result of processing a file change
 pub struct FileChangeResult {
-    pub uris_to_validate: Vec<Url>,
+    pub uris_to_validate: Vec<Uri>,
     pub should_reload_schema: bool,
     pub schema_path: Option<String>,
     pub should_run_codegen: bool,
@@ -41,12 +41,12 @@ pub struct FileChangeParams<'a> {
 
 /// Processes a file creation or change
 pub async fn process_file_created_or_changed(
-    change_uri: Url,
+    change_uri: Uri,
     params: &FileChangeParams<'_>,
-    normalize_uri: impl Fn(Url) -> Url,
+    normalize_uri: impl Fn(Uri) -> Uri,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
-    let path = uri.to_file_path().ok()?;
+    let path = uri.to_file_path()?.into_owned();
     let path_str = path.to_string_lossy().to_string();
 
     // Check if this is the config file
@@ -218,12 +218,12 @@ pub async fn process_file_created_or_changed(
 
 /// Processes a file deletion
 pub fn process_file_deleted(
-    change_uri: Url,
+    change_uri: Uri,
     params: &FileChangeParams<'_>,
-    normalize_uri: impl Fn(Url) -> Url,
+    normalize_uri: impl Fn(Uri) -> Uri,
 ) -> Option<FileChangeResult> {
     let uri = normalize_uri(change_uri);
-    let path = uri.to_file_path().ok()?;
+    let path = uri.to_file_path()?.into_owned();
 
     // Check if this is the config file
     if is_config_file(&path, params.config) {

@@ -9,8 +9,8 @@ use dashmap::DashMap;
 use graphox_core::config::{Config, SchemaSource};
 use std::path::Path;
 use std::sync::Arc;
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 /// Reloads schemas that contain the changed file
 pub async fn reload_schema(
@@ -192,15 +192,15 @@ pub fn get_uris_affected_by_schema<F>(
     schema_key: &str,
     config: &Config,
     get_all_uris: F,
-) -> Vec<tower_lsp::lsp_types::Url>
+) -> Vec<tower_lsp_server::ls_types::Uri>
 where
-    F: Fn() -> Vec<tower_lsp::lsp_types::Url>,
+    F: Fn() -> Vec<tower_lsp_server::ls_types::Uri>,
 {
     let all_uris = get_all_uris();
     all_uris
         .into_iter()
         .filter(|uri| {
-            if let Ok(doc_path) = uri.to_file_path() {
+            if let Some(doc_path) = uri.to_file_path() {
                 config
                     .get_schema_for_path(&doc_path)
                     .is_some_and(|p| p.as_str() == schema_key)

@@ -6,8 +6,8 @@ use graphox::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -167,7 +167,7 @@ impl Default for ProjectConfigBuilder {
 use graphox::features::completion::FragmentCompletionInfo;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tower_lsp::lsp_types::Url;
+use tower_lsp_server::ls_types::Uri;
 
 /// Builder for creating FragmentCompletionInfo objects in tests.
 ///
@@ -185,7 +185,7 @@ pub struct FragmentInfoBuilder {
     name: String,
     type_condition: String,
     is_public: bool,
-    uri: Url,
+    uri: Uri,
     package_root: Option<PathBuf>,
 }
 
@@ -196,7 +196,7 @@ impl FragmentInfoBuilder {
             name: name.to_string(),
             type_condition: type_condition.to_string(),
             is_public: false,
-            uri: Url::parse("file:///test.graphql").unwrap(),
+            uri: Uri::from_str("file:///test.graphql").unwrap(),
             package_root: None,
         }
     }
@@ -208,7 +208,7 @@ impl FragmentInfoBuilder {
     }
 
     /// Set the URI for the fragment.
-    pub fn with_uri(mut self, uri: Url) -> Self {
+    pub fn with_uri(mut self, uri: Uri) -> Self {
         self.uri = uri;
         self
     }

@@ -3,7 +3,7 @@ use crate::shared::type_resolver::SemanticSymbol;
 use crate::shared::type_resolver::resolve_symbol_at_node;
 use apollo_compiler::Schema;
 use graphox_core::document::DocumentState;
-use lsp_types::*;
+use ls_types::*;
 
 pub trait DocumentHighlightFeature {
     fn get_document_highlights(

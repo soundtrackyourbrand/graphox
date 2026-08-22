@@ -4,8 +4,8 @@
 //! like workspace scanning, validation, and codegen.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use tower_lsp::Client;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
 
 /// Global counter for generating unique progress tokens
 static PROGRESS_COUNTER: AtomicU64 = AtomicU64::new(0);

@@ -1,6 +1,6 @@
 use apollo_compiler::{Schema, schema};
 use graphox_core::document::DocumentState;
-use lsp_types::{
+use ls_types::{
     CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, MarkupContent,
     MarkupKind,
 };

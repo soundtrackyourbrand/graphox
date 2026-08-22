@@ -1,7 +1,7 @@
 use apollo_compiler::Schema;
 use graphox_core::document::DocumentState;
 use graphox_core::queries::*;
-use lsp_types::*;
+use ls_types::*;
 use tree_sitter::{QueryCursor, StreamingIterator};
 
 pub trait DocumentReferences {

@@ -1,6 +1,6 @@
 use apollo_compiler::{Schema, ast, schema};
 use graphox_core::document::DocumentState;
-use lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, TextEdit};
+use ls_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, TextEdit};
 use tree_sitter::Node;
 
 pub mod constants;
@@ -692,9 +692,9 @@ impl DocumentCompletion for DocumentState {
                                     kind: Some(CompletionItemKind::FIELD),
                                     detail: Some(def.ty.to_string()),
                                     documentation: def.description.as_ref().map(|d| {
-                                        lsp_types::Documentation::MarkupContent(
-                                            lsp_types::MarkupContent {
-                                                kind: lsp_types::MarkupKind::Markdown,
+                                        ls_types::Documentation::MarkupContent(
+                                            ls_types::MarkupContent {
+                                                kind: ls_types::MarkupKind::Markdown,
                                                 value: d.to_string(),
                                             },
                                         )
@@ -729,9 +729,9 @@ impl DocumentCompletion for DocumentState {
                                         kind: Some(CompletionItemKind::FIELD),
                                         detail: Some(arg.ty.to_string()),
                                         documentation: arg.description.as_ref().map(|d| {
-                                            lsp_types::Documentation::MarkupContent(
-                                                lsp_types::MarkupContent {
-                                                    kind: lsp_types::MarkupKind::Markdown,
+                                            ls_types::Documentation::MarkupContent(
+                                                ls_types::MarkupContent {
+                                                    kind: ls_types::MarkupKind::Markdown,
                                                     value: d.to_string(),
                                                 },
                                             )
@@ -790,8 +790,8 @@ impl DocumentCompletion for DocumentState {
                             kind: Some(CompletionItemKind::FIELD),
                             detail: Some(def.ty.to_string()),
                             documentation: def.description.as_ref().map(|d| {
-                                lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
-                                    kind: lsp_types::MarkupKind::Markdown,
+                                ls_types::Documentation::MarkupContent(ls_types::MarkupContent {
+                                    kind: ls_types::MarkupKind::Markdown,
                                     value: d.to_string(),
                                 })
                             }),
@@ -812,8 +812,8 @@ impl DocumentCompletion for DocumentState {
                             label: name.to_string(),
                             kind: Some(CompletionItemKind::ENUM_MEMBER),
                             documentation: def.description.as_ref().map(|d| {
-                                lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
-                                    kind: lsp_types::MarkupKind::Markdown,
+                                ls_types::Documentation::MarkupContent(ls_types::MarkupContent {
+                                    kind: ls_types::MarkupKind::Markdown,
                                     value: d.to_string(),
                                 })
                             }),

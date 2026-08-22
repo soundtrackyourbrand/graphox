@@ -1,6 +1,6 @@
 use crate::support::{create_doc, pos_for_token, with_cursors};
 use graphox::features::selection_range::DocumentSelectionRange;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 fn count_parent_chain(range: &SelectionRange) -> usize {
     let mut count = 0;

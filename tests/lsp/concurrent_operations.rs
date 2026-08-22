@@ -7,7 +7,7 @@ use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 /// Helper to create a test config with a schema
@@ -65,7 +65,7 @@ async fn test_concurrent_document_operations() {
 
     // Create multiple GraphQL files
     let file_count = 20;
-    let mut uris: Vec<(Url, String)> = Vec::new();
+    let mut uris: Vec<(Uri, String)> = Vec::new();
 
     for i in 0..file_count {
         let query_path = dir.path().join(format!("query_{}.graphql", i));
@@ -87,7 +87,7 @@ async fn test_concurrent_document_operations() {
         );
         fs::write(&query_path, &text).unwrap();
         let query_path = std::fs::canonicalize(query_path).unwrap();
-        let uri = Url::from_file_path(&query_path).unwrap();
+        let uri = Uri::from_file_path(&query_path).unwrap();
         uris.push((uri, text));
     }
 
@@ -100,7 +100,7 @@ async fn test_concurrent_document_operations() {
         let task = tokio::spawn(async move {
             let mut svc = service.lock().await;
             lsp_did_open(&mut svc, uri, "graphql", 1, &text).await;
-            Ok::<(), tower_lsp::jsonrpc::Error>(())
+            Ok::<(), tower_lsp_server::jsonrpc::Error>(())
         });
         tasks.push(task);
     }
@@ -135,7 +135,7 @@ async fn test_concurrent_document_operations() {
             let mut svc = service.lock().await;
             let result: Option<Hover> =
                 lsp_request_typed(&mut svc, "textDocument/hover", &params).await;
-            Ok::<Option<Hover>, tower_lsp::jsonrpc::Error>(result)
+            Ok::<Option<Hover>, tower_lsp_server::jsonrpc::Error>(result)
         });
         tasks.push(task);
     }
@@ -189,7 +189,7 @@ async fn test_concurrent_completion_requests() {
                 &params,
             )
             .await;
-            Ok::<CompletionResponse, tower_lsp::jsonrpc::Error>(result)
+            Ok::<CompletionResponse, tower_lsp_server::jsonrpc::Error>(result)
         });
         tasks.push(task);
     }
@@ -218,7 +218,7 @@ async fn test_concurrent_mixed_operations() {
 
     // Create multiple files
     let file_count = 10;
-    let mut uris: Vec<(Url, String)> = Vec::new();
+    let mut uris: Vec<(Uri, String)> = Vec::new();
 
     for i in 0..file_count {
         let text = format!(
@@ -276,7 +276,7 @@ async fn test_concurrent_mixed_operations() {
                 let mut svc = service.lock().await;
                 lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
                     .await;
-                Ok::<(), tower_lsp::jsonrpc::Error>(())
+                Ok::<(), tower_lsp_server::jsonrpc::Error>(())
             }
         }));
 
@@ -301,7 +301,7 @@ async fn test_concurrent_mixed_operations() {
                     &params,
                 )
                 .await;
-                Ok::<(), tower_lsp::jsonrpc::Error>(())
+                Ok::<(), tower_lsp_server::jsonrpc::Error>(())
             }
         }));
 
@@ -325,7 +325,7 @@ async fn test_concurrent_mixed_operations() {
                     &params,
                 )
                 .await;
-                Ok::<(), tower_lsp::jsonrpc::Error>(())
+                Ok::<(), tower_lsp_server::jsonrpc::Error>(())
             }
         }));
 
@@ -352,7 +352,7 @@ async fn test_concurrent_mixed_operations() {
                     &params,
                 )
                 .await;
-                Ok::<(), tower_lsp::jsonrpc::Error>(())
+                Ok::<(), tower_lsp_server::jsonrpc::Error>(())
             }
         }));
 
@@ -374,7 +374,7 @@ async fn test_concurrent_mixed_operations() {
                         &params,
                     )
                     .await;
-                    Ok::<(), tower_lsp::jsonrpc::Error>(())
+                    Ok::<(), tower_lsp_server::jsonrpc::Error>(())
                 }
             }));
         }
@@ -467,7 +467,7 @@ async fn test_concurrent_document_changes() {
                 };
                 let mut svc = service.lock().await;
                 svc.call(
-                    tower_lsp::jsonrpc::Request::build("textDocument/didChange")
+                    tower_lsp_server::jsonrpc::Request::build("textDocument/didChange")
                         .params(serde_json::to_value(&params).unwrap())
                         .finish(),
                 )
@@ -558,7 +558,7 @@ async fn test_concurrent_cross_file_references() {
     .await;
 
     // Create multiple query files that use the fragments
-    let mut query_uris: Vec<(Url, String)> = Vec::new();
+    let mut query_uris: Vec<(Uri, String)> = Vec::new();
     for i in 0..15 {
         let query_text = r#"
             query GetData {
@@ -609,7 +609,7 @@ async fn test_concurrent_cross_file_references() {
                 &params,
             )
             .await;
-            Ok::<(), tower_lsp::jsonrpc::Error>(())
+            Ok::<(), tower_lsp_server::jsonrpc::Error>(())
         }));
 
         // Also request definition
@@ -631,7 +631,7 @@ async fn test_concurrent_cross_file_references() {
                 &params,
             )
             .await;
-            Ok::<(), tower_lsp::jsonrpc::Error>(())
+            Ok::<(), tower_lsp_server::jsonrpc::Error>(())
         }));
     }
 
@@ -755,7 +755,7 @@ async fn test_high_volume_concurrent_requests() {
                     .await;
                 }
             }
-            Ok::<(), tower_lsp::jsonrpc::Error>(())
+            Ok::<(), tower_lsp_server::jsonrpc::Error>(())
         });
         tasks.push(task);
     }
@@ -884,12 +884,12 @@ async fn test_concurrent_100_hover_requests() {
                 };
                 lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params)
                     .await;
-                Ok::<(), tower_lsp::jsonrpc::Error>(())
+                Ok::<(), tower_lsp_server::jsonrpc::Error>(())
             })
         })
         .collect();
 
-    let results: Vec<Result<Result<(), tower_lsp::jsonrpc::Error>, _>> =
+    let results: Vec<Result<Result<(), tower_lsp_server::jsonrpc::Error>, _>> =
         futures_util::future::join_all(futures).await;
     let duration = start.elapsed();
 
@@ -1050,7 +1050,7 @@ async fn test_concurrent_mixed_large() {
                     .await;
                 }
             }
-            Ok::<(), tower_lsp::jsonrpc::Error>(())
+            Ok::<(), tower_lsp_server::jsonrpc::Error>(())
         });
         tasks.push(task);
     }
@@ -1156,7 +1156,7 @@ async fn test_concurrent_document_changes_rapid() {
             };
 
             svc.call(
-                tower_lsp::jsonrpc::Request::build("textDocument/didChange")
+                tower_lsp_server::jsonrpc::Request::build("textDocument/didChange")
                     .params(serde_json::to_value(&change_params).unwrap())
                     .finish(),
             )
@@ -1262,13 +1262,13 @@ async fn test_concurrent_cache_access() {
             };
 
             lsp_request_typed::<Option<Hover>, _>(&mut svc, "textDocument/hover", &params).await;
-            Ok::<(), tower_lsp::jsonrpc::Error>(())
+            Ok::<(), tower_lsp_server::jsonrpc::Error>(())
         });
         tasks.push(task);
     }
 
     let start = std::time::Instant::now();
-    let results: Vec<Result<Result<(), tower_lsp::jsonrpc::Error>, _>> =
+    let results: Vec<Result<Result<(), tower_lsp_server::jsonrpc::Error>, _>> =
         futures_util::future::join_all(tasks).await;
     let elapsed = start.elapsed();
 

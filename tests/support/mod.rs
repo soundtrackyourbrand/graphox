@@ -17,14 +17,14 @@ pub mod fixtures;
 pub mod lsp;
 
 pub use builders::ProjectConfigBuilder;
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::Url;
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range};
+use tower_lsp_server::LspService;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::Uri;
+use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range};
 // serde_json is used via explicit fully-qualified calls in this module.
 use graphox::Config;
 use tokio::time::Duration;
-use tower_lsp::lsp_types::{
+use tower_lsp_server::ls_types::{
     CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReportResult,
     InitializeParams, TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
@@ -65,7 +65,7 @@ pub fn create_service(config: Config) -> (LspService<LspBackend>, tokio::task::J
 /// Variant of `create_initialized_lsp_service` that returns the LSP socket stream
 /// instead of spawning a consumer task. Use this in tests that need to inspect or
 /// consume raw JSON-RPC messages (for example progress notifications or custom
-/// server->client messages). The returned stream yields `tower_lsp::jsonrpc::Incoming`.
+/// server->client messages). The returned stream yields `tower_lsp_server::jsonrpc::Incoming`.
 pub async fn create_initialized_lsp_service_with_socket(
     config: Config,
 ) -> (
@@ -105,7 +105,7 @@ pub fn create_lsp_service_with_socket(
     tokio_stream::wrappers::UnboundedReceiverStream<serde_json::Value>,
 ) {
     // Return a JSON stream instead of the internal `Incoming` type so tests can
-    // inspect messages without referencing non-public tower_lsp types.
+    // inspect messages without referencing non-public tower_lsp_server types.
     use tokio::sync::mpsc::unbounded_channel;
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -127,7 +127,7 @@ pub fn create_lsp_service_with_socket(
 /// Returns the service and backend. Version uses `version = 1` for the opened document.
 pub async fn create_service_and_open(
     config: Config,
-    uri: Url,
+    uri: Uri,
     language_id: &str,
     text: &str,
 ) -> (LspService<LspBackend>, tokio::task::JoinHandle<()>) {
@@ -145,7 +145,7 @@ pub async fn create_service_and_open(
 /// consuming the socket stream (e.g. by iterating `messages.next().await`).
 pub async fn create_service_and_open_with_socket(
     config: Config,
-    uri: Url,
+    uri: Uri,
     language_id: &str,
     text: &str,
 ) -> (
@@ -175,10 +175,10 @@ pub async fn create_service_and_open_with_socket(
 /// Request completion items at `position` and return the parsed `CompletionResponse`.
 pub async fn lsp_request_completion(
     service: &mut LspService<LspBackend>,
-    uri: Url,
+    uri: Uri,
     position: Position,
-) -> Option<tower_lsp::lsp_types::CompletionResponse> {
-    use tower_lsp::lsp_types::{
+) -> Option<tower_lsp_server::ls_types::CompletionResponse> {
+    use tower_lsp_server::ls_types::{
         CompletionParams, TextDocumentIdentifier, TextDocumentPositionParams,
     };
 
@@ -207,10 +207,10 @@ pub async fn lsp_request_completion(
 /// Request hover at `position` and return the parsed `Hover` (if any).
 pub async fn lsp_request_hover(
     service: &mut LspService<LspBackend>,
-    uri: Url,
+    uri: Uri,
     position: Position,
-) -> Option<tower_lsp::lsp_types::Hover> {
-    use tower_lsp::lsp_types::{HoverParams, TextDocumentIdentifier, TextDocumentPositionParams};
+) -> Option<tower_lsp_server::ls_types::Hover> {
+    use tower_lsp_server::ls_types::{HoverParams, TextDocumentIdentifier, TextDocumentPositionParams};
 
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -234,7 +234,7 @@ pub async fn lsp_request_hover(
 
 /// Apply a single LSP `TextEdit` to `original` and return the resulting text.
 /// This mirrors the manual edit application logic used across completion tests.
-pub fn apply_text_edit(original: &str, edit: &tower_lsp::lsp_types::TextEdit) -> String {
+pub fn apply_text_edit(original: &str, edit: &tower_lsp_server::ls_types::TextEdit) -> String {
     let lines: Vec<&str> = original.split('\n').collect();
     let start_line = edit.range.start.line as usize;
     let start_char = edit.range.start.character as usize;
@@ -284,19 +284,19 @@ pub fn apply_text_edit(original: &str, edit: &tower_lsp::lsp_types::TextEdit) ->
 
 /// Find a completion item by label in a completion response array.
 pub fn find_completion_by_label<'a>(
-    items: &'a [tower_lsp::lsp_types::CompletionItem],
+    items: &'a [tower_lsp_server::ls_types::CompletionItem],
     label: &str,
-) -> Option<&'a tower_lsp::lsp_types::CompletionItem> {
+) -> Option<&'a tower_lsp_server::ls_types::CompletionItem> {
     items.iter().find(|i| i.label == label)
 }
 
 /// Find a code action by title in a code action response.
 pub fn find_code_action_by_title<'a>(
-    items: &'a [tower_lsp::lsp_types::CodeActionOrCommand],
+    items: &'a [tower_lsp_server::ls_types::CodeActionOrCommand],
     title: &str,
-) -> Option<&'a tower_lsp::lsp_types::CodeAction> {
+) -> Option<&'a tower_lsp_server::ls_types::CodeAction> {
     for item in items {
-        if let tower_lsp::lsp_types::CodeActionOrCommand::CodeAction(ca) = item
+        if let tower_lsp_server::ls_types::CodeActionOrCommand::CodeAction(ca) = item
             && ca.title == title
         {
             return Some(ca);
@@ -336,9 +336,9 @@ pub fn make_temp_project_with_schema(
 /// Request code actions for given `params` and return the parsed response.
 pub async fn lsp_request_code_actions(
     service: &mut LspService<LspBackend>,
-    params: tower_lsp::lsp_types::CodeActionParams,
+    params: tower_lsp_server::ls_types::CodeActionParams,
     id: i64,
-) -> Option<tower_lsp::lsp_types::CodeActionResponse> {
+) -> Option<tower_lsp_server::ls_types::CodeActionResponse> {
     let request = Request::build("textDocument/codeAction")
         .id(id)
         .params(serde_json::to_value(&params).unwrap())
@@ -359,8 +359,8 @@ pub async fn lsp_request_code_actions(
 /// Normalize a `CompletionResponse` into a flat `Vec<CompletionItem>`.
 /// Accepts an `Option<CompletionResponse>` as returned by `lsp_request_completion`.
 pub fn completion_items_array(
-    response: &Option<tower_lsp::lsp_types::CompletionResponse>,
-) -> Vec<tower_lsp::lsp_types::CompletionItem> {
+    response: &Option<tower_lsp_server::ls_types::CompletionResponse>,
+) -> Vec<tower_lsp_server::ls_types::CompletionItem> {
     match response {
         Some(CompletionResponse::Array(items)) => items.clone(),
         Some(CompletionResponse::List(list)) => list.items.clone(),
@@ -415,10 +415,10 @@ where
 /// Find a code action or command by its title. Returns a cloned `CodeActionOrCommand`
 /// if either a `CodeAction` or `Command` has a matching title.
 pub fn find_code_action_or_command_by_title(
-    items: &[tower_lsp::lsp_types::CodeActionOrCommand],
+    items: &[tower_lsp_server::ls_types::CodeActionOrCommand],
     title: &str,
-) -> Option<tower_lsp::lsp_types::CodeActionOrCommand> {
-    use tower_lsp::lsp_types::CodeActionOrCommand;
+) -> Option<tower_lsp_server::ls_types::CodeActionOrCommand> {
+    use tower_lsp_server::ls_types::CodeActionOrCommand;
 
     for item in items {
         match item {
@@ -430,28 +430,28 @@ pub fn find_code_action_or_command_by_title(
     None
 }
 
-/// Write a file inside `dir` at `rel` and return a `Url` to the file. Convenience
+/// Write a file inside `dir` at `rel` and return a `Uri` to the file. Convenience
 /// wrapper used by tests that build temporary project layouts.
-pub fn write_project_file(dir: &TempDir, rel: &str, contents: &str) -> Url {
+pub fn write_project_file(dir: &TempDir, rel: &str, contents: &str) -> Uri {
     write_project_file_at(dir.path(), rel, contents)
 }
 
 /// Variant of `write_project_file` that takes a `Path` instead of a `TempDir`.
-pub fn write_project_file_at(dir: &Path, rel: &str, contents: &str) -> Url {
+pub fn write_project_file_at(dir: &Path, rel: &str, contents: &str) -> Uri {
     let path = dir.join(rel);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create dirs");
     }
     fs::write(&path, contents).expect("write file");
     let canonical = std::fs::canonicalize(path).expect("canonicalize");
-    Url::from_file_path(canonical).expect("from_file_path")
+    Uri::from_file_path(canonical).expect("from_file_path")
 }
 
 /// Open multiple files via `didOpen` notifications. Accepts a vector of owned
 /// tuples to avoid lifetime complications in tests: (uri, language_id, version, text).
 pub async fn lsp_open_files_owned(
     service: &mut LspService<LspBackend>,
-    files: Vec<(Url, String, i32, String)>,
+    files: Vec<(Uri, String, i32, String)>,
 ) {
     for (uri, language_id, version, text) in files {
         lsp_did_open(service, uri, &language_id, version, &text).await;
@@ -484,9 +484,9 @@ pub fn snippet_cursor_after_insert(insert_text: &str, start: Position) -> Option
 pub fn apply_completion_item(
     original: &str,
     position: Position,
-    item: &tower_lsp::lsp_types::CompletionItem,
+    item: &tower_lsp_server::ls_types::CompletionItem,
 ) -> (String, Option<Position>) {
-    use tower_lsp::lsp_types::CompletionTextEdit;
+    use tower_lsp_server::ls_types::CompletionTextEdit;
 
     let mut new_text = original.to_string();
     let mut snippet_text = None;
@@ -829,9 +829,9 @@ impl TestWorkspace {
         path
     }
 
-    pub fn uri_for(&self, rel: &str) -> Url {
+    pub fn uri_for(&self, rel: &str) -> Uri {
         let path = std::fs::canonicalize(self.tmp.path().join(rel)).expect("canonicalize");
-        Url::from_file_path(path).expect("from_file_path")
+        Uri::from_file_path(path).expect("from_file_path")
     }
 
     /// Copy a directory recursively to the workspace root.
@@ -879,7 +879,7 @@ pub fn get_valid_schema() -> &'static apollo_compiler::validation::Valid<Schema>
 
 /// Create a DocumentState for given uri and text. Mirrors previous helpers used in tests.
 pub fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-    let uri = Url::parse(uri_str).unwrap();
+    let uri = Uri::from_str(uri_str).unwrap();
     let language = DocumentLanguage::from_uri(&uri);
 
     let mut parser = tree_sitter::Parser::new();
@@ -891,7 +891,7 @@ pub fn create_doc(uri_str: &str, text: &str) -> DocumentState {
         uri,
         text,
         &mut parser,
-        tower_lsp::lsp_types::PositionEncodingKind::UTF16,
+        tower_lsp_server::ls_types::PositionEncodingKind::UTF16,
     )
 }
 
@@ -930,7 +930,7 @@ pub async fn lsp_initialize_sequence(service: &mut LspService<LspBackend>) {
 /// Simulate opening a text document via didOpen notification.
 pub async fn lsp_did_open(
     service: &mut LspService<LspBackend>,
-    uri: Url,
+    uri: Uri,
     language_id: &str,
     version: i32,
     text: &str,
@@ -950,7 +950,7 @@ pub async fn lsp_did_open(
 }
 
 /// Simulate closing a text document via didClose notification.
-pub async fn lsp_did_close(service: &mut LspService<LspBackend>, uri: Url) {
+pub async fn lsp_did_close(service: &mut LspService<LspBackend>, uri: Uri) {
     let params = DidCloseTextDocumentParams {
         text_document: TextDocumentIdentifier { uri },
     };
@@ -963,7 +963,7 @@ pub async fn lsp_did_close(service: &mut LspService<LspBackend>, uri: Url) {
 /// Simulate updating a text document via didChange notification.
 pub async fn lsp_did_change(
     service: &mut LspService<LspBackend>,
-    uri: Url,
+    uri: Uri,
     version: i32,
     text: &str,
 ) {
@@ -984,10 +984,10 @@ pub async fn lsp_did_change(
 /// Request diagnostics for a document and return the parsed `DocumentDiagnosticReportResult`.
 pub async fn lsp_request_diagnostics(
     service: &mut LspService<LspBackend>,
-    uri: Url,
+    uri: Uri,
 ) -> DocumentDiagnosticReportResult {
     let params = DocumentDiagnosticParams {
-        text_document: tower_lsp::lsp_types::TextDocumentIdentifier { uri },
+        text_document: tower_lsp_server::ls_types::TextDocumentIdentifier { uri },
         identifier: None,
         previous_result_id: None,
         work_done_progress_params: Default::default(),

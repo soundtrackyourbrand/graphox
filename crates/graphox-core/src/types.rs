@@ -1,18 +1,18 @@
 use ahash::{AHashSet, RandomState};
 use dashmap::DashMap;
-use lsp_types::{Diagnostic, Url};
+use ls_types::{Diagnostic, Uri};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::document::DocumentState;
 
-pub type DocumentsMap = Arc<DashMap<Url, Arc<DocumentState>, RandomState>>;
-pub type MetadataMap = Arc<DashMap<Url, Arc<DocumentMetadata>, RandomState>>;
-pub type FragmentDefinitionsMap = Arc<DashMap<Arc<str>, AHashSet<Url>, RandomState>>;
-pub type FragmentDependentsMap = Arc<DashMap<Arc<str>, AHashSet<Url>, RandomState>>;
-pub type OperationNamesMap = Arc<DashMap<Arc<str>, Vec<(Arc<str>, Url)>, RandomState>>;
+pub type DocumentsMap = Arc<DashMap<Uri, Arc<DocumentState>, RandomState>>;
+pub type MetadataMap = Arc<DashMap<Uri, Arc<DocumentMetadata>, RandomState>>;
+pub type FragmentDefinitionsMap = Arc<DashMap<Arc<str>, AHashSet<Uri>, RandomState>>;
+pub type FragmentDependentsMap = Arc<DashMap<Arc<str>, AHashSet<Uri>, RandomState>>;
+pub type OperationNamesMap = Arc<DashMap<Arc<str>, Vec<(Arc<str>, Uri)>, RandomState>>;
 pub type DiagnosticCacheEntry = (i32, usize, Vec<Diagnostic>);
-pub type DiagnosticCacheMap = Arc<DashMap<Url, DiagnosticCacheEntry, RandomState>>;
+pub type DiagnosticCacheMap = Arc<DashMap<Uri, DiagnosticCacheEntry, RandomState>>;
 
 #[derive(Debug, Clone)]
 pub struct DocumentMetadata {

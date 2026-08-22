@@ -3,8 +3,8 @@ use graphox_features::call_hierarchy::DocumentCallHierarchy;
 use graphox_features::definition::DocumentDefinition;
 use graphox_features::references::DocumentReferences;
 
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::*;
 
 pub async fn handle_prepare_call_hierarchy(
     backend: &Backend,

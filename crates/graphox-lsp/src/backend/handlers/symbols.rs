@@ -3,8 +3,8 @@ use graphox_core::DocumentState;
 use graphox_features::semantic_tokens::DocumentSemanticTokens;
 use graphox_features::symbols::DocumentSymbols;
 
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::*;
 
 /// Finds a symbol by exact name match within a document.
 /// This is more efficient than get_symbols() when we already know the name.
@@ -79,7 +79,7 @@ pub async fn handle_workspace_symbol(
             }
 
             // Phase 2: Query operation_names index for matching operations
-            // operation_names maps: name -> Vec<(schema_key, Url)>
+            // operation_names maps: name -> Vec<(schema_key, Uri)>
             for entry in backend.operation_names.iter() {
                 let op_name = entry.key();
                 if op_name.to_lowercase().contains(&query) {

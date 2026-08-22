@@ -3,8 +3,8 @@ use ahash::AHashMap;
 use std::sync::atomic::Ordering;
 use tokio::time::{Duration, Instant};
 
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::*;
 
 fn compose_diagnostic_result_id(version: i32, workspace_epoch: usize) -> String {
     format!("{version}:{workspace_epoch}")
@@ -258,7 +258,7 @@ pub async fn handle_workspace_diagnostic(
         // they need no recompute here — we only diff their result ids below. This
         // intentionally ignores the workspace epoch; keying revalidation on it would
         // re-validate the entire workspace after any single edit.
-        let uncached_uris: Vec<Url> = all_uris
+        let uncached_uris: Vec<Uri> = all_uris
             .iter()
             .filter(|uri| {
                 let current_doc_version = backend.documents.get(*uri).map(|doc| doc.version);
@@ -278,7 +278,7 @@ pub async fn handle_workspace_diagnostic(
         }
 
         // Convert previous_result_ids to a map for faster O(1) lookup
-        let previous_ids: AHashMap<Url, String> = params
+        let previous_ids: AHashMap<Uri, String> = params
             .previous_result_ids
             .iter()
             .map(|prev| (prev.uri.clone(), prev.value.clone()))

@@ -17,7 +17,7 @@ use ahash::AHashMap;
 use std::sync::Weak;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
-use tower_lsp::lsp_types::{FileChangeType, FileEvent, Url};
+use tower_lsp_server::ls_types::{FileChangeType, FileEvent, Uri};
 
 use crate::backend::handlers::document_sync;
 use crate::backend::state::Backend;
@@ -42,7 +42,7 @@ impl WatchedFilesDebouncer {
                     None => break, // channel closed
                 };
 
-                let mut pending: AHashMap<Url, FileChangeType> = AHashMap::default();
+                let mut pending: AHashMap<Uri, FileChangeType> = AHashMap::default();
                 merge_events(&mut pending, first);
 
                 // Reuse the same "debounce window for watched changes" knob as the
@@ -104,7 +104,7 @@ impl WatchedFilesDebouncer {
 /// for the same file so it is processed once. The latest event type wins, which is
 /// correct because create/change are processed identically and a final delete (or
 /// re-create) reflects the file's end state.
-fn merge_events(pending: &mut AHashMap<Url, FileChangeType>, events: Vec<FileEvent>) {
+fn merge_events(pending: &mut AHashMap<Uri, FileChangeType>, events: Vec<FileEvent>) {
     for event in events {
         pending.insert(event.uri, event.typ);
     }

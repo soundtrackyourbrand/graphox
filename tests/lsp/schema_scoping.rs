@@ -3,7 +3,7 @@ use crate::support::{
 };
 use graphox::CodegenConfig;
 use graphox::config::{Config, GlobPattern, ProjectConfig, SchemaSource};
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(5000)]
@@ -81,7 +81,7 @@ type User {
     );
 
     // Test 2: Go to definition from WITHIN project-a/schema.graphql
-    let schema_a_uri = Url::from_file_path(base_dir.join("project-a/schema.graphql")).unwrap();
+    let schema_a_uri = Uri::from_file_path(base_dir.join("project-a/schema.graphql")).unwrap();
     lsp_did_open(&mut service, schema_a_uri.clone(), "graphql", 1, schema_a).await;
 
     // Click on "User" in "type Query { user: User }" (line 0, col 19)

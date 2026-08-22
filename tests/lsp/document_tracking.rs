@@ -3,8 +3,8 @@ use graphox::Config;
 use std::fs;
 use std::time::Duration;
 use tokio_stream::StreamExt;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -28,7 +28,7 @@ projects:
     let query_text_disk = "query GetUser { user { id } }";
     let query_path = ws.write_file("query.graphql", query_text_disk);
     let query_path = fs::canonicalize(&query_path).unwrap();
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
 
     // 2. Initialize LSP
     let config = Config::load_from_dir(root).unwrap().unwrap();
@@ -98,7 +98,7 @@ projects:
     fs::write(root.join("graphox.yaml"), new_config_text).unwrap();
 
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(root.join("graphox.yaml")).unwrap(),
+        uri: Uri::from_file_path(root.join("graphox.yaml")).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
     let reload_req = Request::build("workspace/didChangeWatchedFiles")
@@ -141,7 +141,7 @@ projects:
     let query_text_disk = "query GetUser { user { id } }";
     let query_path = ws.write_file("query.graphql", query_text_disk);
     let query_path = fs::canonicalize(&query_path).unwrap();
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
 
     // 2. Initialize LSP
     let config = Config::load_from_dir(root).unwrap().unwrap();
@@ -185,7 +185,7 @@ projects:
     fs::write(root.join("graphox.yaml"), new_config_text).unwrap();
 
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(root.join("graphox.yaml")).unwrap(),
+        uri: Uri::from_file_path(root.join("graphox.yaml")).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
     let reload_req = Request::build("workspace/didChangeWatchedFiles")

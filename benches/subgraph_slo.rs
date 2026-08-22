@@ -8,8 +8,8 @@ use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService};
+use tower_lsp_server::ls_types::*;
+use tower_lsp_server::{LanguageServer, LspService};
 
 // SLO classes available in the system
 const SLO_CLASSES: &[&str] = &["CRITICAL", "HIGH_FAST", "HIGH_SLOW", "LOW"];
@@ -258,7 +258,7 @@ fn bench_subgraph_lsp_actions(c: &mut Criterion) {
         for i in 0..10 {
             for j in 0..50 {
                 let path = base_dir.join(format!("project_{}/file_{}.graphql", i, j));
-                let uri = Url::from_file_path(fs::canonicalize(&path).unwrap()).unwrap();
+                let uri = Uri::from_file_path(fs::canonicalize(&path).unwrap()).unwrap();
                 let content = fs::read_to_string(&path).unwrap();
                 let doc = DocumentState::new_from_thread_local(
                     uri.clone(),
@@ -271,10 +271,10 @@ fn bench_subgraph_lsp_actions(c: &mut Criterion) {
     });
 
     // Target: query field in project_0/file_0.graphql
-    let query_uri = Url::from_file_path(base_dir.join("project_0/file_0.graphql")).unwrap();
+    let query_uri = Uri::from_file_path(base_dir.join("project_0/file_0.graphql")).unwrap();
 
     // Target: field in main schema (project_0/schema.graphql)
-    let schema_uri = Url::from_file_path(base_dir.join("project_0/schema.graphql")).unwrap();
+    let schema_uri = Uri::from_file_path(base_dir.join("project_0/schema.graphql")).unwrap();
 
     // Find a stable position for Type0.field_0 in the schema
     let schema_content = fs::read_to_string(base_dir.join("project_0/schema.graphql")).unwrap();

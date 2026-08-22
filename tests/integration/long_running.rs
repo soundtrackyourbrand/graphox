@@ -726,11 +726,11 @@ async fn test_memory_cached_documents_1000() {
 
     let config = create_1000_file_config(&base_dir);
     let (mut service, _) =
-        tower_lsp::LspService::new(|client| graphox::Backend::new(client, config));
+        tower_lsp_server::LspService::new(|client| graphox::Backend::new(client, config));
     crate::support::lsp_initialize_sequence(&mut service).await;
 
     for i in 0..1000 {
-        let uri = tower_lsp::lsp_types::Url::from_file_path(
+        let uri = tower_lsp_server::ls_types::Uri::from_file_path(
             base_dir.join(format!("query_{}.graphql", i)),
         )
         .unwrap();

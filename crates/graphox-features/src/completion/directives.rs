@@ -1,6 +1,6 @@
 use apollo_compiler::{Schema, ast};
 use graphox_core::document::DocumentState;
-use lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
+use ls_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
 use tree_sitter::Node;
 
 use crate::shared::markdown_utils::describe_directive_markdown;

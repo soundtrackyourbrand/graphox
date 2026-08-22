@@ -3,7 +3,7 @@ use super::ValidationContext;
 use apollo_compiler::ast::OperationType;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
-use lsp_types::*;
+use ls_types::*;
 use tree_sitter::Node;
 
 /// Which kind of definition a required/forbidden field check is running inside.

@@ -6,7 +6,7 @@ use graphox_core::DocumentState;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 /// The distinct codegen-enabled project keys that own any of `uris`.
 ///
@@ -20,7 +20,7 @@ use tower_lsp::lsp_types::*;
 /// the LSP performs no automatic codegen when it is off.
 fn codegen_project_keys<'a>(
     config: &graphox_core::Config,
-    uris: impl Iterator<Item = &'a Url>,
+    uris: impl Iterator<Item = &'a Uri>,
 ) -> Vec<String> {
     let mut seen = ahash::AHashSet::default();
     let mut keys = Vec::new();
@@ -263,7 +263,7 @@ pub async fn handle_did_save(backend: &Backend, params: DidSaveTextDocumentParam
     let doc_for_codegen = if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone())
     {
         Some(doc)
-    } else if let Ok(path) = uri.to_file_path()
+    } else if let Some(path) = uri.to_file_path()
         && let Ok(content) = std::fs::read_to_string(&path)
     {
         Some(Arc::new(DocumentState::new_from_thread_local(
@@ -304,7 +304,7 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
     let uri = backend.normalize_uri(params.text_document.uri);
     backend.open_documents.remove(&uri);
 
-    let missing_on_disk = uri.to_file_path().ok().is_some_and(|path| !path.exists());
+    let missing_on_disk = uri.to_file_path().map(|p| p.into_owned()).is_some_and(|path| !path.exists());
     let mut removed_from_workspace = false;
 
     if missing_on_disk {
@@ -422,9 +422,9 @@ pub async fn process_watched_file_batch(backend: &Backend, changes: Vec<FileEven
         position_encoding,
     };
 
-    let mut validate_seen: HashSet<Url> = HashSet::new();
-    let mut validate_union: Vec<Url> = Vec::new();
-    let mut codegen_uris: Vec<Url> = Vec::new();
+    let mut validate_seen: HashSet<Uri> = HashSet::new();
+    let mut validate_union: Vec<Uri> = Vec::new();
+    let mut codegen_uris: Vec<Uri> = Vec::new();
     let mut schema_paths: Vec<String> = Vec::new();
     let mut any_change = false;
 
@@ -550,9 +550,9 @@ mod tests {
             vec![project("a/**/*.graphql"), project("b/**/*.graphql")],
         );
 
-        let a1 = Url::from_file_path(base.join("a/one.graphql")).unwrap();
-        let a2 = Url::from_file_path(base.join("a/two.graphql")).unwrap();
-        let b1 = Url::from_file_path(base.join("b/one.graphql")).unwrap();
+        let a1 = Uri::from_file_path(base.join("a/one.graphql")).unwrap();
+        let a2 = Uri::from_file_path(base.join("a/two.graphql")).unwrap();
+        let b1 = Uri::from_file_path(base.join("b/one.graphql")).unwrap();
 
         // A closure spanning both projects (public fragment in `a` consumed by `b`)
         // yields both project keys.

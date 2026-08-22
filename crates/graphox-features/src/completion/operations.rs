@@ -1,6 +1,6 @@
 use apollo_compiler::Schema;
 use graphox_core::document::DocumentState;
-use lsp_types::{CompletionItem, CompletionItemKind};
+use ls_types::{CompletionItem, CompletionItemKind};
 use tree_sitter::Node;
 
 use crate::completion::fields;

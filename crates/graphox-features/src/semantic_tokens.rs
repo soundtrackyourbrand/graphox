@@ -1,6 +1,6 @@
 use graphox_core::document::DocumentState;
 use graphox_core::utils::SemanticTokenKind;
-use lsp_types::*;
+use ls_types::*;
 use tree_sitter::Node;
 
 pub trait DocumentSemanticTokens {

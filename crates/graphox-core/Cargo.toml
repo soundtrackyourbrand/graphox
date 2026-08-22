@@ -25,7 +25,7 @@ glob = { workspace = true }
 globset = { workspace = true }
 ignore = { workspace = true }
 url = { workspace = true }
-lsp-types = { workspace = true }
+ls-types = { workspace = true }
 colored = { workspace = true }
 dirs = { workspace = true }
 tempfile = "3.24.0"

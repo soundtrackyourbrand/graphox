@@ -10,7 +10,7 @@ use graphox_features::diagnostics::DocumentDiagnostics;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tower_lsp::lsp_types::DiagnosticSeverity;
+use tower_lsp_server::ls_types::DiagnosticSeverity;
 
 use super::{ValidSchema, build_validated_schemas};
 
@@ -26,7 +26,7 @@ pub async fn run_check(config: Config, verbose: bool, reporter: Box<dyn Reporter
     // each unique schema once — in parallel, overlapped with the scan — replaces what
     // was a per-project load+validate of the same large schemas.
     let (workspace_metadata, validated_schemas) = rayon::join(
-        || Engine::scan_workspace(&cfg, tower_lsp::lsp_types::PositionEncodingKind::UTF8, None),
+        || Engine::scan_workspace(&cfg, tower_lsp_server::ls_types::PositionEncodingKind::UTF8, None),
         || build_validated_schemas(&cfg),
     );
 
@@ -208,7 +208,7 @@ async fn execute_project_check(
     };
 
     let mut available_base = project_fragments;
-    let mut seen: ahash::AHashSet<(Arc<str>, tower_lsp::lsp_types::Url)> = available_base
+    let mut seen: ahash::AHashSet<(Arc<str>, tower_lsp_server::ls_types::Uri)> = available_base
         .iter()
         .map(|f| (f.name.clone(), f.uri.clone()))
         .collect();

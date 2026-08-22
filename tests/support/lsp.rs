@@ -8,8 +8,8 @@ use std::sync::Arc;
 pub type LspBackend = Arc<Backend>;
 use std::path::Path;
 use tempfile::TempDir;
-use tower_lsp::LspService;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::LspService;
+use tower_lsp_server::ls_types::*;
 
 // =============================================================================
 // LSP Test Helper
@@ -123,7 +123,7 @@ impl LspTestScenario {
         // Open all files
         for (path, content) in self.files {
             let file_path = base_dir.join(&path);
-            let uri = Url::from_file_path(file_path).unwrap();
+            let uri = Uri::from_file_path(file_path).unwrap();
             lsp_did_open(&mut service, uri.clone(), "graphql", 1, &content).await;
         }
 
@@ -159,9 +159,9 @@ impl LspTestInitialized {
     }
 
     /// Get a URI for a file in the scenario.
-    pub fn uri_for(&self, path: &str) -> Url {
+    pub fn uri_for(&self, path: &str) -> Uri {
         let file_path = self.base_dir.join(path);
-        Url::from_file_path(file_path).unwrap()
+        Uri::from_file_path(file_path).unwrap()
     }
 
     /// Update a file by sending a didChange notification.

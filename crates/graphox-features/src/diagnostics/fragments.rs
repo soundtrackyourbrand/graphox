@@ -3,7 +3,7 @@ use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
 use graphox_core::queries::{GQL_SYMBOL_QUERY, GQL_SYMBOL_QUERY_CACHE};
-use lsp_types::*;
+use ls_types::*;
 use std::sync::Arc;
 use tree_sitter::{Node, StreamingIterator};
 
@@ -150,7 +150,8 @@ pub(super) fn validate_fragment(
                             severity: Some(DiagnosticSeverity::HINT),
                             message: format!(
                                 "Private fragment '{}' shadows a public fragment defined in {}.",
-                                name, other.uri
+                                name,
+                                    other.uri.as_str()
                             ),
                             source: DIAGNOSTIC_SOURCE.map(String::from),
                             ..Default::default()
@@ -474,11 +475,11 @@ fn mark_used_variables_recursive(
                     let mut part = n.clone();
                     if let Some(fmeta) = ctx.all_fragments.iter().find(|f| f.name.as_ref() == *n) {
                         part.push_str(" (");
-                        part.push_str(fmeta.uri.path());
+                        part.push_str(fmeta.uri.path().as_str());
                         part.push(')');
                     } else if this.fragments.iter().any(|f| f.name.as_ref() == *n) {
                         part.push_str(" (");
-                        part.push_str(this.uri.path());
+                        part.push_str(this.uri.path().as_str());
                         part.push(')');
                     }
                     part

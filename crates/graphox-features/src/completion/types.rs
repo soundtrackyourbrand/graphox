@@ -1,5 +1,5 @@
 use graphox_core::document::TransitiveDeps;
-use lsp_types::Url;
+use ls_types::Uri;
 use std::sync::Arc;
 
 pub type FragmentRequirements = std::collections::BTreeMap<Arc<str>, Arc<str>>;
@@ -13,7 +13,7 @@ pub struct FragmentCompletionInfo {
     pub import_path: Option<Arc<str>>,
     pub is_public: bool,
     pub is_type_only: bool,
-    pub uri: Url,
+    pub uri: Uri,
     pub package_root: Option<std::path::PathBuf>,
     pub used_variables: Arc<[Arc<str>]>,
     pub used_fragments: Arc<[Arc<str>]>,

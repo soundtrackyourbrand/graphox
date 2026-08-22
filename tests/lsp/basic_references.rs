@@ -4,7 +4,7 @@ use crate::support::{
 };
 use std::fs;
 use tempfile::tempdir;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]

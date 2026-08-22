@@ -2,7 +2,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use graphox::document::DocumentState;
 use std::sync::Arc;
 use std::time::Duration;
-use tower_lsp::lsp_types::{PositionEncodingKind, Url};
+use tower_lsp_server::ls_types::{PositionEncodingKind, Uri};
 use tree_sitter::Parser;
 
 fn generate_large_document() -> String {
@@ -33,7 +33,7 @@ fn generate_large_document() -> String {
 
 fn bench_arc_operations(c: &mut Criterion) {
     let content = generate_large_document();
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let uri = Uri::from_str("file:///test.graphql").unwrap();
 
     let mut group = c.benchmark_group("Arc Operations (Document Editing Investigation)");
     group.sample_size(50);
@@ -86,7 +86,7 @@ fn bench_arc_operations(c: &mut Criterion) {
 
 fn bench_clone_then_edit(c: &mut Criterion) {
     let content = generate_large_document();
-    let uri = Url::parse("file:///test.graphql").unwrap();
+    let uri = Uri::from_str("file:///test.graphql").unwrap();
 
     let mut group = c.benchmark_group("Clone + Edit (Potential Optimization)");
     group.sample_size(20);

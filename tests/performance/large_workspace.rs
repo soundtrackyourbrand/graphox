@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use tempfile::TempDir;
-use tower_lsp::LspService;
-use tower_lsp::lsp_types::Url;
+use tower_lsp_server::LspService;
+use tower_lsp_server::ls_types::Uri;
 
 use crate::support::{
     create_deep_fragment_chain, create_large_schema, create_many_fragments, lsp_initialize_sequence,
@@ -167,7 +167,7 @@ async fn test_fragment_resolution_chain() {
     let (mut service, _) = LspService::new(|client| graphox::Backend::new(client, config.clone()));
     lsp_initialize_sequence(&mut service).await;
 
-    let uri = Url::from_file_path(base_dir.join("deep_chain.graphql")).unwrap();
+    let uri = Uri::from_file_path(base_dir.join("deep_chain.graphql")).unwrap();
     crate::support::lsp_request_hover(&mut service, uri, crate::support::pos(0, 0)).await;
     let duration = start.elapsed();
 

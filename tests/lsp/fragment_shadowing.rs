@@ -5,7 +5,7 @@ use graphox::Config;
 use graphox::config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource};
 use std::fs;
 use tempfile::TempDir;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 async fn test_fragment_references_respect_shadowing() {

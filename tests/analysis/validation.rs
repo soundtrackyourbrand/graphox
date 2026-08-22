@@ -1,6 +1,6 @@
 use graphox::features::diagnostics::DocumentDiagnostics;
 use std::sync::Arc;
-use tower_lsp::lsp_types::{DiagnosticSeverity, NumberOrString};
+use tower_lsp_server::ls_types::{DiagnosticSeverity, NumberOrString};
 
 use crate::support::assert_diag_range_equals;
 use crate::support::assert_diagnostic_severity;

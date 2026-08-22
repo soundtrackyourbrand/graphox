@@ -1,6 +1,6 @@
 use crate::support::create_doc;
 use graphox::features::diagnostics::DocumentDiagnostics;
-use tower_lsp::lsp_types::DiagnosticSeverity;
+use tower_lsp_server::ls_types::DiagnosticSeverity;
 
 #[test]
 #[ntest::timeout(500)]

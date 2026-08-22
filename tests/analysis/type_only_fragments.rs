@@ -2,7 +2,7 @@ use crate::support::{
     completion_items_array, lsp_did_open, lsp_request_completion, lsp_request_hover,
     make_temp_project_with_schema, with_cursor, write_project_file,
 };
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]

@@ -9,8 +9,8 @@ use graphox_features::shared::type_resolver::{self, SemanticSymbol};
 use graphox_features::type_definition::DocumentTypeDefinition;
 use rayon::prelude::*;
 
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::*;
 
 pub async fn handle_goto_definition(
     backend: &Backend,
@@ -33,7 +33,7 @@ pub async fn handle_goto_definition(
             // 1. Try unified definition lookup using the shared resolver
             let preferred_uris = backend.get_preferred_schema_uris(&uri);
 
-            let project_subgraphs = if let Ok(path) = uri.to_file_path()
+            let project_subgraphs = if let Some(path) = uri.to_file_path()
                 && let Ok(config) = backend.config.read()
             {
                 let schema_key = config.get_schema_for_path(&path);
@@ -483,9 +483,9 @@ fn find_containing_type_and_field_for_arg(
 /// which case callers skip schema-scoping rather than drop results.
 fn relevant_schema_paths(
     config: &graphox_core::config::Config,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<ahash::AHashSet<std::path::PathBuf>> {
-    let path = source_uri.to_file_path().ok()?;
+    let path = source_uri.to_file_path()?.into_owned();
     let canon = |p: std::path::PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
 
     if let Some(project) = config.get_project_for_path(&path) {
@@ -509,7 +509,7 @@ fn relevant_schema_paths(
 /// same-named declarations must be excluded from the reference results.
 fn is_foreign_schema_doc(
     config: &graphox_core::config::Config,
-    doc_uri: &Url,
+    doc_uri: &Uri,
     relevant: &ahash::AHashSet<std::path::PathBuf>,
 ) -> bool {
     let Ok(doc_path) = doc_uri.to_file_path() else {
@@ -528,11 +528,11 @@ fn is_foreign_schema_doc(
 /// `per_doc` produces the raw matches for one document.
 fn collect_schema_symbol_references<F>(
     backend: &Backend,
-    source_uri: &Url,
+    source_uri: &Uri,
     per_doc: F,
 ) -> Option<Vec<Location>>
 where
-    F: Fn(&Url, &graphox_core::document::DocumentState) -> Vec<Location> + Sync + Send,
+    F: Fn(&Uri, &graphox_core::document::DocumentState) -> Vec<Location> + Sync + Send,
 {
     let config = backend.config.read().unwrap().clone();
     let relevant = relevant_schema_paths(&config, source_uri);
@@ -564,7 +564,7 @@ fn find_field_references_across_workspace(
     parent_type_name: &str,
     schema: &Schema,
     include_declaration: bool,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<Vec<Location>> {
     collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
         doc.find_field_references(field_name, parent_type_name, schema, include_declaration)
@@ -575,7 +575,7 @@ fn find_directive_references_across_workspace(
     backend: &Backend,
     directive_name: &str,
     include_declaration: bool,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<Vec<Location>> {
     collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
         doc.find_directive_references(directive_name, include_declaration)
@@ -586,7 +586,7 @@ fn find_type_references_across_workspace(
     backend: &Backend,
     type_name: &str,
     include_declaration: bool,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<Vec<Location>> {
     collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
         doc.find_references_in_tree(type_name, include_declaration)
@@ -595,7 +595,7 @@ fn find_type_references_across_workspace(
 
 fn find_fragment_references_across_workspace(
     backend: &Backend,
-    source_uri: &Url,
+    source_uri: &Uri,
     fragment_name: &str,
     include_declaration: bool,
 ) -> Option<Vec<Location>> {
@@ -643,7 +643,7 @@ fn find_enum_value_references_across_workspace(
     enum_name: &str,
     value_name: &str,
     include_declaration: bool,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<Vec<Location>> {
     collect_schema_symbol_references(backend, source_uri, |uri, doc| {
         let schema = backend.get_schema_for_doc(uri);
@@ -657,7 +657,7 @@ fn find_argument_references_across_workspace(
     _field_name: Option<&str>,
     arg_name: &str,
     include_declaration: bool,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<Vec<Location>> {
     collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
         doc.find_references_in_tree(arg_name, include_declaration)
@@ -669,7 +669,7 @@ fn find_input_field_references_across_workspace(
     _parent_type_name: &str,
     field_name: &str,
     include_declaration: bool,
-    source_uri: &Url,
+    source_uri: &Uri,
 ) -> Option<Vec<Location>> {
     collect_schema_symbol_references(backend, source_uri, |_uri, doc| {
         doc.find_references_in_tree(field_name, include_declaration)

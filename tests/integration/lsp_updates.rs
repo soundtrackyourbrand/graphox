@@ -6,7 +6,7 @@ use graphox::{
 };
 use std::fs;
 use std::sync::{Arc, Mutex};
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(10000)]
@@ -63,7 +63,7 @@ async fn test_lsp_fragment_collisions() {
 
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let received_diags = Arc::new(Mutex::new(
-        std::collections::HashMap::<Url, Vec<Diagnostic>>::new(),
+        std::collections::HashMap::<Uri, Vec<Diagnostic>>::new(),
     ));
     let received_diags_clone = received_diags.clone();
     tokio::spawn(async move {
@@ -95,7 +95,7 @@ async fn test_lsp_fragment_collisions() {
         "pkg_a/pub_collision_2.graphql",
     ] {
         let path = base_dir.join(rel);
-        let uri = Url::from_file_path(&path).unwrap();
+        let uri = Uri::from_file_path(&path).unwrap();
         lsp_did_open(
             &mut service,
             uri,
@@ -111,9 +111,9 @@ async fn test_lsp_fragment_collisions() {
 
     let diags = received_diags.lock().unwrap();
 
-    let uri_a = Url::from_file_path(base_dir.join("pkg_a/frag.graphql")).unwrap();
-    let uri_d = Url::from_file_path(base_dir.join("pkg_a/shadow.graphql")).unwrap();
-    let uri_e = Url::from_file_path(base_dir.join("pkg_b/pub_collision.graphql")).unwrap();
+    let uri_a = Uri::from_file_path(base_dir.join("pkg_a/frag.graphql")).unwrap();
+    let uri_d = Uri::from_file_path(base_dir.join("pkg_a/shadow.graphql")).unwrap();
+    let uri_e = Uri::from_file_path(base_dir.join("pkg_b/pub_collision.graphql")).unwrap();
 
     // Check private collision in pkg_a
     let d_a = diags.get(&uri_a).unwrap();
@@ -216,7 +216,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
     lsp_initialize_sequence(&mut service).await;
 
     let query_path = base_dir.join("query.graphql");
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let query_uri = Uri::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
     let query_text = "query { me { id name } }";
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -255,7 +255,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
     // 5. Notify LSP about the change
     let params = DidChangeWatchedFilesParams {
         changes: vec![FileEvent {
-            uri: Url::from_file_path(fs::canonicalize(&schema_path).unwrap()).unwrap(),
+            uri: Uri::from_file_path(fs::canonicalize(&schema_path).unwrap()).unwrap(),
             typ: FileChangeType::CHANGED,
         }],
     };
@@ -359,8 +359,8 @@ async fn test_lsp_fragment_rename_same_project() {
 
     let frag_path = base_dir.join("frag.graphql");
     let query_path = base_dir.join("query.graphql");
-    let frag_uri = Url::from_file_path(fs::canonicalize(&frag_path).unwrap()).unwrap();
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let frag_uri = Uri::from_file_path(fs::canonicalize(&frag_path).unwrap()).unwrap();
+    let query_uri = Uri::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
 
     lsp_did_open(
         &mut service,
@@ -541,9 +541,9 @@ async fn test_lsp_deleted_private_fragment_falls_back_to_public_fragment() {
     let public_path = base_dir.join("pkg_a/public.graphql");
     let local_path = base_dir.join("pkg_b/local.graphql");
     let query_path = base_dir.join("pkg_b/query.graphql");
-    let public_uri = Url::from_file_path(fs::canonicalize(&public_path).unwrap()).unwrap();
-    let local_uri = Url::from_file_path(fs::canonicalize(&local_path).unwrap()).unwrap();
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let public_uri = Uri::from_file_path(fs::canonicalize(&public_path).unwrap()).unwrap();
+    let local_uri = Uri::from_file_path(fs::canonicalize(&local_path).unwrap()).unwrap();
+    let query_uri = Uri::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
 
     lsp_did_open(
         &mut service,
@@ -708,8 +708,8 @@ async fn test_lsp_fragment_rename_cross_project() {
 
     let frag_path = base_dir.join("pkg_a/frag.graphql");
     let query_path = base_dir.join("pkg_b/query.graphql");
-    let frag_uri = Url::from_file_path(fs::canonicalize(&frag_path).unwrap()).unwrap();
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let frag_uri = Uri::from_file_path(fs::canonicalize(&frag_path).unwrap()).unwrap();
+    let query_uri = Uri::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
 
     lsp_did_open(
         &mut service,
@@ -879,7 +879,7 @@ async fn test_lsp_diagnostics_cleared_after_fix() {
     lsp_initialize_sequence(&mut service).await;
 
     let query_path = base_dir.join("query.graphql");
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let query_uri = Uri::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
     let query_text = "query { me { id id } }";
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -994,7 +994,7 @@ async fn test_lsp_fragment_error_cleared_after_fix() {
     lsp_initialize_sequence(&mut service).await;
 
     let query_path = base_dir.join("query.graphql");
-    let query_uri = Url::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
+    let query_uri = Uri::from_file_path(fs::canonicalize(&query_path).unwrap()).unwrap();
     let query_text = "query { me { ...UserFields } }";
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
@@ -1028,7 +1028,7 @@ async fn test_lsp_fragment_error_cleared_after_fix() {
     let fragment_text = "fragment UserFields on User { id name }";
 
     fs::write(&fragment_path, fragment_text).unwrap();
-    let fragment_uri = Url::from_file_path(fs::canonicalize(&fragment_path).unwrap()).unwrap();
+    let fragment_uri = Uri::from_file_path(fs::canonicalize(&fragment_path).unwrap()).unwrap();
 
     lsp_did_open(
         &mut service,

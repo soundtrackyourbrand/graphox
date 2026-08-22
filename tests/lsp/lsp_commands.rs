@@ -6,8 +6,8 @@ use graphox::{
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::{Duration, sleep};
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -51,7 +51,7 @@ async fn test_lsp_command_clear_cache() {
 
     let query_path = base_dir.join("query.graphql");
     let query_text = "query { me }";
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     lsp_did_open(&mut service, query_uri.clone(), "graphql", 1, query_text).await;
 
     // Initial diagnostics (should be empty)

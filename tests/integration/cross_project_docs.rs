@@ -3,8 +3,8 @@ use graphox::{
     config::{CodegenConfig, GlobPattern, ProjectConfig, SchemaSource},
 };
 use std::fs;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test]
@@ -89,7 +89,7 @@ async fn test_cross_project_docs_and_imports() {
         }
     "#;
     fs::write(&frag_path, fragment_text).unwrap();
-    let fragment_uri = Url::from_file_path(&frag_path).unwrap();
+    let fragment_uri = Uri::from_file_path(&frag_path).unwrap();
 
     service
         .call(
@@ -114,7 +114,7 @@ async fn test_cross_project_docs_and_imports() {
     let query_path = p2_dir.join("query.graphql");
     let query_text = "query { user { ... } }";
     fs::write(&query_path, query_text).unwrap();
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
 
     service
         .call(

@@ -2,8 +2,8 @@
 //!
 //! This module provides utilities for consistent error logging to the LSP client.
 
-use tower_lsp::Client;
-use tower_lsp::lsp_types::MessageType;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::MessageType;
 
 /// Logs an error message to the LSP client
 pub async fn log_error(client: &Client, context: &str, error: impl std::fmt::Display) {

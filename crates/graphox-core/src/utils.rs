@@ -3,7 +3,7 @@ use crate::queries::*;
 use crate::{Config, config::ProjectConfig};
 use ahash::AHashMap;
 use colored::*;
-use lsp_types::*;
+use ls_types::*;
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -1570,15 +1570,15 @@ pub fn to_posix_path(path: &Path) -> String {
     }
 }
 
-pub fn normalize_uri(uri: Url) -> Url {
-    if let Ok(path) = uri.to_file_path() {
+pub fn normalize_uri(uri: Uri) -> Uri {
+    if let Some(path) = uri.to_file_path() {
         let path = canonicalize_cached(&path);
         let path_str = path.to_string_lossy();
 
         #[cfg(windows)]
         let path_str = normalize_windows_path(&path_str);
 
-        return Url::from_file_path(Path::new(&*path_str)).unwrap_or(uri);
+        return Uri::from_file_path(Path::new(&*path_str)).unwrap_or(uri);
     }
     uri
 }

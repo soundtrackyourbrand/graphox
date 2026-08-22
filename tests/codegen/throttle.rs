@@ -4,8 +4,8 @@ use graphox::{Config, config::GlobPattern, config::ProjectConfig, config::Schema
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -87,7 +87,7 @@ async fn test_codegen_throttle() {
         }
     }
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
 
     // Open the document - this should trigger first codegen
     service

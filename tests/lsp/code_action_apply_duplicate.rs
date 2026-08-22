@@ -3,7 +3,7 @@ use crate::support::{
     lsp_did_open, lsp_request_code_actions, make_temp_project_with_schema,
     range_for_token_at_index, write_project_file,
 };
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
 #[ntest::timeout(3000)]

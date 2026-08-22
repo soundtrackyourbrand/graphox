@@ -9,7 +9,7 @@ use graphox::features::diagnostics::DocumentDiagnostics;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 
 #[test]
 #[ntest::timeout(300)]
@@ -44,7 +44,7 @@ fn test_unused_fragment_reported_when_enabled() {
         .validate()
         .unwrap();
 
-    let uri = Url::from_file_path(&frag_path).unwrap();
+    let uri = Uri::from_file_path(&frag_path).unwrap();
     let doc = create_doc(uri.as_str(), frag_text);
     let used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     let diags = doc.get_semantic_diagnostics(
@@ -97,7 +97,7 @@ fn test_unused_fragment_not_reported_when_disabled() {
         .validate()
         .unwrap();
 
-    let uri = Url::from_file_path(&frag_path).unwrap();
+    let uri = Uri::from_file_path(&frag_path).unwrap();
     let doc = create_doc(uri.as_str(), frag_text);
     let used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     let diags = doc.get_semantic_diagnostics(
@@ -144,7 +144,7 @@ fn test_unused_fragment_not_reported_when_not_configured() {
         .validate()
         .unwrap();
 
-    let uri = Url::from_file_path(&frag_path).unwrap();
+    let uri = Uri::from_file_path(&frag_path).unwrap();
     let doc = create_doc(uri.as_str(), frag_text);
     let used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     let diags = doc.get_semantic_diagnostics(
@@ -196,7 +196,7 @@ fn test_used_fragment_not_reported() {
         .validate()
         .unwrap();
 
-    let frag_uri = Url::from_file_path(&frag_path).unwrap();
+    let frag_uri = Uri::from_file_path(&frag_path).unwrap();
     let frag_doc = create_doc(frag_uri.as_str(), frag_text);
     let mut used_fragments: AHashSet<Arc<str>> = AHashSet::new();
     used_fragments.insert("UsedFragment".into());

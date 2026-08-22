@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use tempfile::tempdir;
 use tokio::time::{Duration, sleep};
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::LspService;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 fn snapshot_generated_tree(root: &std::path::Path) -> BTreeMap<String, String> {
@@ -79,7 +79,7 @@ async fn test_lsp_automatic_codegen() {
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     let gen_path = base_dir.join("query.codegen.ts");
 
     // 1. Initial codegen (triggered by didOpen if we wanted, but let's test didChange)
@@ -267,8 +267,8 @@ async fn test_lsp_automatic_codegen_disabled() {
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let enabled_uri = Url::from_file_path(&enabled_query_path).unwrap();
-    let disabled_uri = Url::from_file_path(&disabled_query_path).unwrap();
+    let enabled_uri = Uri::from_file_path(&enabled_query_path).unwrap();
+    let disabled_uri = Uri::from_file_path(&disabled_query_path).unwrap();
     let enabled_gen_path = base_dir.join("enabled.codegen.ts");
     let disabled_gen_path = base_dir.join("disabled.codegen.ts");
 
@@ -511,7 +511,7 @@ async fn test_lsp_automatic_codegen_disabled_project_before_enabled_keeps_entryp
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let enabled_uri = Url::from_file_path(&enabled_path).unwrap();
+    let enabled_uri = Uri::from_file_path(&enabled_path).unwrap();
     service
         .call(
             Request::build("textDocument/didSave")
@@ -590,7 +590,7 @@ async fn test_lsp_automatic_codegen_didsave_uses_disk_state_for_ts_host() {
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let host_uri = Url::from_file_path(&host_path).unwrap();
+    let host_uri = Uri::from_file_path(&host_path).unwrap();
     service
         .call(
             Request::build("textDocument/didSave")
@@ -650,7 +650,7 @@ async fn test_lsp_automatic_codegen_didsave_syncs_in_memory_when_disk_stale() {
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     service
         .call(
             Request::build("textDocument/didOpen")
@@ -769,7 +769,7 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
     let gen_dir = base_dir.join("gen");
     let gen_path = gen_dir.join("query.codegen.ts");
     let manifest_path = gen_dir.join("manifest.json");
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
 
     service
         .call(
@@ -799,7 +799,7 @@ async fn test_lsp_automatic_codegen_no_loop_on_output_files() {
     let output_file_path = gen_dir.join("output.ts");
     fs::write(&output_file_path, "export const foo = 'bar';").unwrap();
 
-    let output_uri = Url::from_file_path(&output_file_path).unwrap();
+    let output_uri = Uri::from_file_path(&output_file_path).unwrap();
 
     let initial_file_count = std::fs::read_dir(&gen_dir)
         .unwrap()
@@ -887,7 +887,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     service
         .call(
             Request::build("workspace/didChangeWatchedFiles")
@@ -913,7 +913,7 @@ async fn test_lsp_automatic_codegen_ignores_non_graphql_host_edits() {
     )
     .unwrap();
 
-    let plain_uri = Url::from_file_path(&plain_path).unwrap();
+    let plain_uri = Uri::from_file_path(&plain_path).unwrap();
     service
         .call(
             Request::build("textDocument/didOpen")
@@ -1011,7 +1011,7 @@ async fn test_lsp_automatic_codegen_regenerates_nested_ts_host_for_directory_inc
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let host_uri = Url::from_file_path(&host_path).unwrap();
+    let host_uri = Uri::from_file_path(&host_path).unwrap();
     service
         .call(
             Request::build("textDocument/didOpen")
@@ -1195,7 +1195,7 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let catalog_uri = Url::from_file_path(&catalog_path).unwrap();
+    let catalog_uri = Uri::from_file_path(&catalog_path).unwrap();
     {
         // This manipulation is intentional for testing the cold-cache scenario (i.e., to simulate files
         // absent from the live cache). It couples the test to internal state (backend.metadata, backend.documents)
@@ -1206,7 +1206,7 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
         backend.documents.remove(&catalog_uri);
     }
 
-    let home_uri = Url::from_file_path(&home_path).unwrap();
+    let home_uri = Uri::from_file_path(&home_path).unwrap();
     service
         .call(
             Request::build("textDocument/didOpen")
@@ -1324,7 +1324,7 @@ async fn test_watched_file_change_regenerates_cross_project_consumers() {
 
     // Generate the consumer initially. While UserFrag only selects `id`, the
     // consumer output imports `UserFragFragment` and nothing else.
-    let b_uri = Url::from_file_path(base_dir.join("consumer.graphql")).unwrap();
+    let b_uri = Uri::from_file_path(base_dir.join("consumer.graphql")).unwrap();
     service
         .call(
             Request::build("textDocument/didOpen")
@@ -1364,7 +1364,7 @@ async fn test_watched_file_change_regenerates_cross_project_consumers() {
     .unwrap();
 
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&frag_path).unwrap(),
+        uri: Uri::from_file_path(&frag_path).unwrap(),
         typ: FileChangeType::CHANGED,
     }];
     service
@@ -1438,7 +1438,7 @@ async fn test_watched_file_deletion_regenerates_cross_project_consumers() {
     let mut service = setup_lsp_with_scan_complete(config).await;
 
     let b_gen = base_dir.join("consumer.codegen.ts");
-    let b_uri = Url::from_file_path(base_dir.join("consumer.graphql")).unwrap();
+    let b_uri = Uri::from_file_path(base_dir.join("consumer.graphql")).unwrap();
 
     // Generate the consumer initially; it references the `UserFrag` fragment type.
     service
@@ -1469,7 +1469,7 @@ async fn test_watched_file_deletion_regenerates_cross_project_consumers() {
     // Delete the fragment file, as a branch switch or pull would.
     fs::remove_file(&frag_path).unwrap();
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&frag_path).unwrap(),
+        uri: Uri::from_file_path(&frag_path).unwrap(),
         typ: FileChangeType::DELETED,
     }];
     service
@@ -1545,7 +1545,7 @@ async fn test_watched_file_deletion_prunes_orphaned_output() {
                 .params(
                     serde_json::to_value(DidOpenTextDocumentParams {
                         text_document: TextDocumentItem {
-                            uri: Url::from_file_path(&kept_path).unwrap(),
+                            uri: Uri::from_file_path(&kept_path).unwrap(),
                             language_id: "graphql".to_string(),
                             version: 1,
                             text: "query Kept { me { id } }".to_string(),
@@ -1567,7 +1567,7 @@ async fn test_watched_file_deletion_prunes_orphaned_output() {
 
     fs::remove_file(&doomed_path).unwrap();
     let changes = vec![FileEvent {
-        uri: Url::from_file_path(&doomed_path).unwrap(),
+        uri: Uri::from_file_path(&doomed_path).unwrap(),
         typ: FileChangeType::DELETED,
     }];
     service
@@ -1626,7 +1626,7 @@ async fn test_codegen_metadata_cache_serves_fresh_operation_body() {
 
     let mut service = setup_lsp_with_scan_complete(config).await;
 
-    let query_uri = Url::from_file_path(&query_path).unwrap();
+    let query_uri = Uri::from_file_path(&query_path).unwrap();
     let gen_path = base_dir.join("query.codegen.ts");
 
     // First run populates the metadata cache.

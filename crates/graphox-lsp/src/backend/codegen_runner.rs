@@ -9,10 +9,10 @@ use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tower_lsp::Client;
-use tower_lsp::lsp_types::{MessageType, Url};
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::{MessageType, Uri};
 
-type RunDocumentCache = HashMap<Url, Arc<graphox_core::DocumentState>>;
+type RunDocumentCache = HashMap<Uri, Arc<graphox_core::DocumentState>>;
 
 /// The workspace-wide codegen inputs that depend only on the set of files and their
 /// fragment definitions: the global fragment metadata (for cross-project fragment
@@ -40,7 +40,7 @@ pub type CodegenMetadataCache = Arc<std::sync::RwLock<Option<(usize, Arc<Codegen
 fn build_run_cache(
     project_files_by_index: &[Vec<PathBuf>],
     documents: &DocumentsMap,
-    position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
+    position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> (RunDocumentCache, UnreadableFiles) {
     let mut run_cache = RunDocumentCache::new();
     let mut unreadable = UnreadableFiles::default();
@@ -68,9 +68,9 @@ fn load_or_parse_document(
     documents: &DocumentsMap,
     run_cache: &mut RunDocumentCache,
     unreadable: &mut UnreadableFiles,
-    position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
+    position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> Option<Arc<graphox_core::DocumentState>> {
-    let uri = Url::from_file_path(path).ok()?;
+    let uri = Uri::from_file_path(path)?;
 
     if let Some(doc) = documents.get(&uri).map(|r| r.value().clone()) {
         return Some(doc);
@@ -121,7 +121,7 @@ fn get_document_for_codegen(
     documents: &DocumentsMap,
     run_cache: &RunDocumentCache,
 ) -> Option<Arc<graphox_core::DocumentState>> {
-    let uri = Url::from_file_path(path).ok()?;
+    let uri = Uri::from_file_path(path)?;
 
     documents
         .get(&uri)
@@ -132,7 +132,7 @@ fn get_document_for_codegen(
 pub fn collect_codegen_metadata(
     config: &Config,
     documents: &DocumentsMap,
-    position_encoding: &tower_lsp::lsp_types::PositionEncodingKind,
+    position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> (
     Vec<graphox_core::engine::FragmentMetadata>,
     Vec<Vec<PathBuf>>,
@@ -205,7 +205,7 @@ pub async fn run_codegen(
     documents: DocumentsMap,
     supports_progress: bool,
     projects_to_run: Option<HashSet<String>>,
-    position_encoding: tower_lsp::lsp_types::PositionEncodingKind,
+    position_encoding: tower_lsp_server::ls_types::PositionEncodingKind,
     metadata_cache: Option<(usize, CodegenMetadataCache)>,
 ) {
     // Create progress reporter

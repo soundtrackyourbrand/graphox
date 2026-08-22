@@ -1,6 +1,6 @@
 use crate::completion::constants::{OPERATION_TYPE_KEYWORDS, SCHEMA_DEFINITION_KEYWORDS};
 use crate::shared::markdown_utils;
-use lsp_types::{CompletionItem, CompletionItemKind};
+use ls_types::{CompletionItem, CompletionItemKind};
 
 /// Filter keywords by prefix for operation types
 fn get_operation_type_completions_for_prefix(prefix: &str) -> Vec<&'static str> {

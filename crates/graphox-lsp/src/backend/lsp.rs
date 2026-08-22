@@ -4,11 +4,11 @@ use crate::backend::handlers::{
 use crate::backend::state::Backend;
 use graphox_core::Config;
 use graphox_features::signature_help::DocumentSignatureHelp;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{LanguageServer, LspService, Server};
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::*;
+use tower_lsp_server::{LanguageServer, LspService, Server};
 
-#[tower_lsp::async_trait]
+#[tower_lsp_server::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         let caps = crate::backend::state::ClientCapabilities::from_params(&params);
@@ -258,7 +258,7 @@ mod tests {
     use graphox_core::config::{GlobPattern as GqlGlobPattern, ProjectConfig, SchemaSource};
     use std::sync::Arc;
     use tokio::time::{Duration, timeout};
-    use tower_lsp::LspService;
+    use tower_lsp_server::LspService;
 
     #[tokio::test]
     #[ntest::timeout(3000)]
@@ -295,7 +295,7 @@ mod tests {
         let backend = service.inner();
 
         // Simulate some data
-        let uri = Url::parse("file:///test.graphql").unwrap();
+        let uri = Uri::from_str("file:///test.graphql").unwrap();
         let metadata = Arc::new(graphox_core::types::DocumentMetadata {
             fragments: Arc::from([]),
             fragment_spreads: Arc::from([]),

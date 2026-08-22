@@ -4,8 +4,8 @@ use graphox_features::hover::DocumentHover;
 use graphox_features::shared::doc_utils;
 
 use ahash::AHashMap;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 
 pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Option<Hover>> {
     let uri = backend.normalize_uri(
@@ -20,7 +20,7 @@ pub async fn handle_hover(backend: &Backend, params: HoverParams) -> Result<Opti
     if let Some(doc) = backend.documents.get(&uri).map(|r| r.value().clone()) {
         let schema = backend.get_schema_for_doc(&uri);
 
-        let project_subgraphs = if let Ok(path) = uri.to_file_path()
+        let project_subgraphs = if let Some(path) = uri.to_file_path()
             && let Ok(config) = backend.config.read()
         {
             let schema_key = config.get_schema_for_path(&path);

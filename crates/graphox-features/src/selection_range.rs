@@ -1,5 +1,6 @@
+use std::str::FromStr;
 use graphox_core::document::DocumentState;
-use lsp_types::*;
+use ls_types::*;
 
 pub trait DocumentSelectionRange {
     fn get_selection_ranges(&self, positions: Vec<Position>) -> Vec<SelectionRange>;
@@ -107,7 +108,7 @@ mod tests {
     use super::*;
 
     fn create_doc(uri_str: &str, text: &str) -> DocumentState {
-        let uri = Url::parse(uri_str).unwrap();
+        let uri = Uri::from_str(uri_str).unwrap();
         DocumentState::new_from_thread_local(uri, text, PositionEncodingKind::UTF8)
     }
 

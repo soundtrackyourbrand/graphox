@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 use graphox::features::folding_range::DocumentFoldingRange;
-use tower_lsp::lsp_types::FoldingRangeKind;
+use tower_lsp_server::ls_types::FoldingRangeKind;
 
 use crate::support::create_doc;
 
@@ -386,7 +386,7 @@ query GetUser {
     let doc = create_doc("file:///test.graphql", text);
     let ranges = doc.get_folding_ranges();
 
-    use tower_lsp::lsp_types::FoldingRangeKind;
+    use tower_lsp_server::ls_types::FoldingRangeKind;
     let has_comment = ranges
         .iter()
         .any(|r| r.kind == Some(FoldingRangeKind::Comment));
@@ -411,7 +411,7 @@ query GetPost {
     let doc = create_doc("file:///test.graphql", text);
     let ranges = doc.get_folding_ranges();
 
-    use tower_lsp::lsp_types::FoldingRangeKind;
+    use tower_lsp_server::ls_types::FoldingRangeKind;
     let ops: Vec<_> = ranges
         .iter()
         .filter(|r| r.kind == Some(FoldingRangeKind::Region))

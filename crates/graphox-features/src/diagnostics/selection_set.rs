@@ -2,7 +2,7 @@ use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
-use lsp_types::*;
+use ls_types::*;
 use tree_sitter::Node;
 
 #[allow(clippy::too_many_arguments)]
@@ -279,7 +279,7 @@ pub(super) fn validate_field(
                             range: this.translate_to_file_range(diagnostic_node, offset),
                             severity: Some(DiagnosticSeverity::ERROR),
                             message: format!("Duplicate field '{}' in selection set", response_key),
-                            code: Some(lsp_types::NumberOrString::String(
+                            code: Some(ls_types::NumberOrString::String(
                                 "no_duplicate_fields".to_string(),
                             )),
                             // Attach contextual data so code action can compute a better removal
@@ -437,7 +437,7 @@ pub(super) fn validate_field(
                 range: this.translate_to_file_range(name_node, offset),
                 severity: Some(DiagnosticSeverity::ERROR),
                 message,
-                code: Some(lsp_types::NumberOrString::String(
+                code: Some(ls_types::NumberOrString::String(
                     "missing_field".to_string(),
                 )),
                 data: Some(serde_json::json!({

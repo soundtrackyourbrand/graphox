@@ -13,7 +13,7 @@ use dashmap::DashMap;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
-use tower_lsp::{Client, jsonrpc::Result, lsp_types::*};
+use tower_lsp_server::{Client, jsonrpc::Result, ls_types::*};
 
 // Re-export ClientCapabilities for backward compatibility
 pub use super::capabilities::ClientCapabilities;
@@ -21,7 +21,7 @@ pub use super::capabilities::ClientCapabilities;
 const WORKSPACE_DIAGNOSTIC_REFRESH_WARNING_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(500);
 
-type ConfiguredDocumentUrisSnapshot = (usize, Arc<Vec<Url>>);
+type ConfiguredDocumentUrisSnapshot = (usize, Arc<Vec<Uri>>);
 type ConfiguredDocumentUrisCache = Arc<std::sync::RwLock<Option<ConfiguredDocumentUrisSnapshot>>>;
 
 pub(crate) fn spawn_workspace_diagnostic_refresh(client: Client) {
@@ -87,7 +87,7 @@ pub struct Backend {
     pub workspace_loaded: Arc<AtomicBool>,
     /// Tracks if codegen was requested during workspace scan (to run after scan completes)
     pub codegen_requested_during_scan: Arc<AtomicBool>,
-    pub open_documents: Arc<dashmap::DashSet<Url, ahash::RandomState>>,
+    pub open_documents: Arc<dashmap::DashSet<Uri, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<std::sync::RwLock<Arc<AtomicBool>>>,
     pub gitignore: Arc<ignore::gitignore::Gitignore>,
     /// Persistent type cache per schema (keyed by schema key)
@@ -276,7 +276,7 @@ impl Backend {
         graphox_core::schema::load_schema_arc(base_dir, source)
     }
 
-    pub fn normalize_uri(&self, uri: Url) -> Url {
+    pub fn normalize_uri(&self, uri: Uri) -> Uri {
         super::helpers::normalize_uri(uri)
     }
 
@@ -293,7 +293,7 @@ impl Backend {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    pub(crate) fn get_configured_document_uris(&self) -> Arc<Vec<Url>> {
+    pub(crate) fn get_configured_document_uris(&self) -> Arc<Vec<Uri>> {
         let workspace_epoch = self.workspace_version.load(Ordering::SeqCst);
         if let Ok(cache) = self.configured_document_uris_cache.read()
             && let Some((cached_epoch, uris)) = &*cache
@@ -303,7 +303,7 @@ impl Backend {
         }
 
         let config = self.config.read().unwrap().clone();
-        let uris: Arc<Vec<Url>> = Arc::new(
+        let uris: Arc<Vec<Uri>> = Arc::new(
             self.documents
                 .iter()
                 .map(|entry| entry.key().clone())
@@ -318,7 +318,7 @@ impl Backend {
         uris
     }
 
-    pub fn get_schema_for_doc(&self, uri: &Url) -> Arc<apollo_compiler::validation::Valid<Schema>> {
+    pub fn get_schema_for_doc(&self, uri: &Uri) -> Arc<apollo_compiler::validation::Valid<Schema>> {
         let config = self.config.read().unwrap();
         super::validation::get_schema_for_doc(
             uri,
@@ -356,12 +356,12 @@ impl Backend {
         metadata
     }
 
-    pub async fn load_doc_from_cache_or_disk(&self, uri: &Url) -> Option<Arc<DocumentState>> {
+    pub async fn load_doc_from_cache_or_disk(&self, uri: &Uri) -> Option<Arc<DocumentState>> {
         if let Some(doc) = self.documents.get(uri).map(|r| r.value().clone()) {
             return Some(doc);
         }
 
-        let path = uri.to_file_path().ok()?;
+        let path = uri.to_file_path()?.into_owned();
         let encoding = self.get_position_encoding();
         let uri_clone = uri.clone();
 
@@ -376,7 +376,7 @@ impl Backend {
         .flatten()
     }
 
-    pub fn clear_operation_names_for_uri(&self, uri: &Url) {
+    pub fn clear_operation_names_for_uri(&self, uri: &Uri) {
         let old_operation_names = self
             .metadata
             .get(uri)
@@ -409,7 +409,7 @@ impl Backend {
         let file_id = name_node.location()?.file_id();
         let source_file = schema.sources.get(&file_id)?;
         let path = source_file.path();
-        let uri = Url::from_file_path(path).ok()?;
+        let uri = Uri::from_file_path(path)?;
 
         let range = graphox_core::utils::apollo_location_to_range(
             &name_node.location(),
@@ -426,7 +426,7 @@ impl Backend {
         }
     }
 
-    pub fn refresh_pull_diagnostics_for(&self, source_uri: &Url, uris_to_validate: &[Url]) {
+    pub fn refresh_pull_diagnostics_for(&self, source_uri: &Uri, uris_to_validate: &[Uri]) {
         let supports_pull_diagnostics = self
             .client_capabilities
             .read()
@@ -497,7 +497,7 @@ impl Backend {
         &self,
         initial_spreads: Vec<Arc<str>>,
         package_root: Option<&std::path::PathBuf>,
-    ) -> AHashSet<Url> {
+    ) -> AHashSet<Uri> {
         let mut visited_names = AHashSet::default();
         let mut fragment_uris = AHashSet::default();
         let mut to_visit = initial_spreads;
@@ -663,7 +663,7 @@ impl Backend {
             .store(true, Ordering::SeqCst);
 
         // Collect currently open documents to restore them after clearing
-        let open_docs: Vec<(Url, Arc<DocumentState>)> = self
+        let open_docs: Vec<(Uri, Arc<DocumentState>)> = self
             .documents
             .iter()
             .filter(|entry| self.open_documents.contains(entry.key()))
@@ -715,7 +715,7 @@ impl Backend {
 
         // Pre-load schemas for open documents to ensure immediate validation is correct
         for (uri, _) in &open_docs {
-            if let Ok(path) = uri.to_file_path()
+            if let Some(path) = uri.to_file_path()
                 && let Some(schema_key) = new_config.get_schema_for_path(&path)
                 && !self.schemas.contains_key(&schema_key)
                 && let Some(project) = new_config
@@ -753,7 +753,7 @@ impl Backend {
             self.metadata.insert(uri.clone(), metadata);
 
             // Re-populate operation names index
-            if let Ok(path) = uri.to_file_path()
+            if let Some(path) = uri.to_file_path()
                 && let Some(schema_key) = new_config.get_schema_for_path(&path)
             {
                 let project_key = new_config
@@ -913,7 +913,7 @@ impl Backend {
         };
 
         // Collect currently open documents to restore them after clearing
-        let open_docs: Vec<(Url, Arc<DocumentState>)> = self
+        let open_docs: Vec<(Uri, Arc<DocumentState>)> = self
             .documents
             .iter()
             .filter(|entry| self.open_documents.contains(entry.key()))
@@ -1008,7 +1008,7 @@ impl Backend {
             self.metadata.insert(uri.clone(), metadata);
 
             // Re-populate operation names index
-            if let Ok(path) = uri.to_file_path()
+            if let Some(path) = uri.to_file_path()
                 && let Some(schema_key) = new_config.get_schema_for_path(&path)
             {
                 let project_key = new_config
@@ -1101,7 +1101,7 @@ impl Backend {
 
     pub fn update_dependency_indices(
         &self,
-        uri: &Url,
+        uri: &Uri,
         old_spreads: Option<Arc<[Arc<str>]>>,
         new_spreads: Arc<[Arc<str>]>,
     ) {
@@ -1115,7 +1115,7 @@ impl Backend {
 
     pub fn update_definition_indices(
         &self,
-        uri: &Url,
+        uri: &Uri,
         old_fragments: Option<Arc<[Arc<str>]>>,
         new_fragments: Arc<[Arc<str>]>,
     ) {
@@ -1127,12 +1127,12 @@ impl Backend {
         );
     }
 
-    pub async fn validate_uris(&self, uris: Vec<Url>) {
+    pub async fn validate_uris(&self, uris: Vec<Uri>) {
         let config = self.config.read().unwrap().clone();
 
         // Ensure schemas for these URIs are loaded
         for uri in &uris {
-            if let Ok(path) = uri.to_file_path()
+            if let Some(path) = uri.to_file_path()
                 && let Some(schema_key) = config.get_schema_for_path(&path)
                 && !self.validated_schemas.contains_key(&schema_key)
                 && let Some(project) = config
@@ -1227,7 +1227,7 @@ impl Backend {
             validation_fragment_cache: Some(&self.validation_fragment_cache),
         };
 
-        let uris: Vec<Url> = self
+        let uris: Vec<Uri> = self
             .documents
             .iter()
             .map(|entry| entry.key().clone())
@@ -1241,11 +1241,11 @@ impl Backend {
 
     pub fn get_affected_uris(
         &self,
-        initial_uri: Url,
+        initial_uri: Uri,
         affected_fragment_names: AHashSet<Arc<str>>,
         affected_spread_names: AHashSet<Arc<str>>,
         affected_operation_names: AHashSet<Arc<str>>,
-    ) -> Vec<Url> {
+    ) -> Vec<Uri> {
         super::validation::get_affected_uris(
             initial_uri,
             affected_fragment_names,
@@ -1258,14 +1258,14 @@ impl Backend {
         )
     }
 
-    pub fn get_preferred_schema_uris(&self, uri: &Url) -> Vec<Url> {
+    pub fn get_preferred_schema_uris(&self, uri: &Uri) -> Vec<Uri> {
         let mut preferred_uris = Vec::new();
-        if let Ok(path) = uri.to_file_path() {
+        if let Some(path) = uri.to_file_path() {
             let config = self.config.read().unwrap();
             if let Some(project) = config.get_project_for_path(&path) {
                 for schema_file in project.schema().files() {
                     let schema_path = config.base_dir().join(schema_file);
-                    if let Ok(schema_uri) = Url::from_file_path(schema_path) {
+                    if let Some(schema_uri) = Uri::from_file_path(schema_path) {
                         preferred_uris.push(schema_uri);
                     }
                 }
@@ -1353,8 +1353,8 @@ impl Backend {
 
     pub fn is_fragment_accessible(
         &self,
-        fragment_doc_uri: &Url,
-        target_doc_uri: &Url,
+        fragment_doc_uri: &Uri,
+        target_doc_uri: &Uri,
         fragment_name: &str,
     ) -> bool {
         let fragment_meta = match self.metadata.get(fragment_doc_uri) {
@@ -1406,7 +1406,7 @@ mod tests {
     use std::fs;
     use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tower_lsp::LspService;
+    use tower_lsp_server::LspService;
 
     #[tokio::test]
     async fn configured_document_uris_cache_reuses_results_until_workspace_changes() {
@@ -1434,8 +1434,8 @@ mod tests {
         let (service, _) = LspService::new(|client| Backend::new(client, config));
         let backend = service.inner();
 
-        let schema_uri = Url::from_file_path(&schema_path).unwrap();
-        let query_uri = Url::from_file_path(&query_path).unwrap();
+        let schema_uri = Uri::from_file_path(&schema_path).unwrap();
+        let query_uri = Uri::from_file_path(&query_path).unwrap();
 
         backend.documents.insert(
             schema_uri.clone(),

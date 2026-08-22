@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use tower_lsp::lsp_types::{Position, Range, SemanticToken, SemanticTokenType};
+use tower_lsp_server::ls_types::{Position, Range, SemanticToken, SemanticTokenType};
 
 use crate::support::create_doc;
 use crate::support::fixtures::{user_schema, user_with_deprecated_field_schema};

@@ -4,7 +4,7 @@ use graphox::Config;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::time::Duration;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -45,19 +45,19 @@ async fn test_lsp_circular_fragment_diagnostic() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Pull diagnostics via document diagnostic request to assert counts and ranges
-    let params = tower_lsp::lsp_types::DocumentDiagnosticParams {
-        text_document: tower_lsp::lsp_types::TextDocumentIdentifier { uri: frag_uri.clone() },
+    let params = tower_lsp_server::ls_types::DocumentDiagnosticParams {
+        text_document: tower_lsp_server::ls_types::TextDocumentIdentifier { uri: frag_uri.clone() },
         identifier: None,
         previous_result_id: None,
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
 
-    let result: tower_lsp::lsp_types::DocumentDiagnosticReportResult =
+    let result: tower_lsp_server::ls_types::DocumentDiagnosticReportResult =
         crate::support::lsp_request_typed(service, "textDocument/diagnostic", &params).await;
 
-    if let tower_lsp::lsp_types::DocumentDiagnosticReportResult::Report(
-        tower_lsp::lsp_types::DocumentDiagnosticReport::Full(full_report),
+    if let tower_lsp_server::ls_types::DocumentDiagnosticReportResult::Report(
+        tower_lsp_server::ls_types::DocumentDiagnosticReport::Full(full_report),
     ) = result
     {
         let diagnostics = &full_report.full_document_diagnostic_report.items;

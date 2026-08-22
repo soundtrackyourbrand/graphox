@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use tempfile::tempdir;
-use tower_lsp::lsp_types::PositionEncodingKind;
+use tower_lsp_server::ls_types::PositionEncodingKind;
 
 fn generate_workspace_with_schemas(
     base_dir: &Path,

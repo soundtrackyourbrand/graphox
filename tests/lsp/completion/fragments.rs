@@ -4,9 +4,9 @@ use graphox::{
 };
 use std::fs;
 use tempfile::tempdir;
-use tower_lsp::LspService;
-use tower_lsp::jsonrpc::Request;
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::LspService;
+use tower_lsp_server::jsonrpc::Request;
+use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 use crate::support::{
@@ -196,7 +196,7 @@ async fn test_completion_fragment_spread_type_filtering() {
     let text = "fragment OnUser on User { id } fragment OnPost on Post { id } query { users { ... } posts { ... } }";
     fs::write(&query_path, text).unwrap();
     let query_path = std::fs::canonicalize(query_path).unwrap();
-    let uri = Url::from_file_path(&query_path).unwrap();
+    let uri = Uri::from_file_path(&query_path).unwrap();
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {

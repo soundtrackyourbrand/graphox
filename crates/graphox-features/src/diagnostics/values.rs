@@ -2,7 +2,7 @@ use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::{ExtendedType, InputValueDefinition};
 use graphox_core::document::DocumentState;
-use lsp_types::*;
+use ls_types::*;
 use tree_sitter::Node;
 
 pub(super) fn validate_arguments(
