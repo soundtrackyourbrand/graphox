@@ -130,8 +130,11 @@ pub fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
 /// a file whose name ends in an encoded character would fail an extension
 /// check that the decoded path passes. Decoding here keeps one meaning of "the
 /// path" across the codebase.
-pub fn uri_path_text(uri: &Uri) -> String {
-    uri.path().decode().to_string_lossy().into_owned()
+pub fn uri_path_text(uri: &Uri) -> std::borrow::Cow<'_, str> {
+    // Borrows when the path holds no escapes, which is the common case; the
+    // owned form was allocating on every call and showed up as an 8% regression
+    // in the is_schema_document_path benchmark.
+    uri.path().decode().to_string_lossy()
 }
 
 pub fn flush_stdio() {

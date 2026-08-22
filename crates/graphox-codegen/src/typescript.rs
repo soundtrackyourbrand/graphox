@@ -628,7 +628,7 @@ pub fn generate_typescript_with_profile(
 
     let mut imports: BTreeMap<Arc<str>, Vec<FragmentId>> = BTreeMap::new();
     let current_path = graphox_core::utils::uri_to_path(&doc.uri)
-        .unwrap_or_else(|| PathBuf::from(graphox_core::utils::uri_path_text(&doc.uri)));
+        .unwrap_or_else(|| PathBuf::from(graphox_core::utils::uri_path_text(&doc.uri).as_ref()));
     let current_canonical = ctx.canonicalize_path(&current_path);
 
     for frag_id in &used_frag_ids {
