@@ -1,0 +1,66 @@
+name: Security Audit
+
+# Advisories are checked on a schedule rather than per pull request. The RustSec
+# database changes independently of this repository, so running it on every pull
+# request means a README change can fail because of a CVE disclosed that
+# morning — which teaches people to ignore a red check. The deterministic
+# cargo-deny checks (bans, licenses, sources) run per pull request in ci.yml.
+on:
+  schedule:
+    # 07:00 UTC daily.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+  # Re-check when the dependency graph or the policy itself changes.
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    name: RustSec Advisories
+    runs-on: ubicloud-standard-2-ubuntu-2404
+    # Needed only to raise the issue below, and only for the scheduled run.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check advisories
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
+
+      # A failed scheduled run is easy to miss, so leave something durable
+      # behind. Comments on the existing issue rather than opening a new one
+      # each day, since an unfixed advisory would otherwise file one every
+      # morning.
+      - name: Report a failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="cargo-deny: advisory check is failing"
+          existing=$(gh issue list --state open --search "$title in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" \
+              --body "Still failing on $(date -u +%Y-%m-%d). Run: $RUN_URL"
+          else
+            gh issue create --title "$title" --label security --body "\
+          \`cargo deny check advisories\` failed. Run: $RUN_URL
+
+          Either update the affected dependency, or record an exception in
+          \`deny.toml\` under \`[advisories] ignore\` with a note explaining why.
+          This issue is commented on daily while the check keeps failing, and is
+          not closed automatically."
+          fi

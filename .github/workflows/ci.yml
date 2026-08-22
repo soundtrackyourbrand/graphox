@@ -63,6 +63,37 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  dependencies:
+    name: Dependencies
+    runs-on: ubicloud-standard-2-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the deterministic cargo-deny checks run here. They depend on the
+      # dependency graph alone, so they cannot fail because of something
+      # published elsewhere today. Advisories run on a schedule instead, in
+      # audit.yml, so a documentation change is never blocked by a CVE
+      # disclosed that morning.
+      - name: Check bans, licenses and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses sources
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+
+      # Parses source rather than compiling, so this needs no build cache.
+      - name: Check for unused dependencies
+        run: cargo machete
+
   check:
     name: Check
     runs-on: ubicloud-standard-4-ubuntu-2404
