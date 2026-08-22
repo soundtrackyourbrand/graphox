@@ -1602,18 +1602,13 @@ mod watch_tests {
         assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
     }
 
-    /// Documents a gap rather than asserting the ideal. `is_path_ignored` calls
-    /// `Gitignore::matched`, which tests the path itself and not its parents, so
-    /// a file inside a gitignored *directory* still reaches codegen. The walk in
-    /// `get_gitignore_matcher` prunes such directories so its callers never see
-    /// them, but the watcher gets raw filesystem events and does. Switching to
-    /// `matched_path_or_any_parents` would close it, at the cost of a stat per
-    /// ancestor on a hot path shared with the LSP.
+    /// The case that matters in practice: a build writing into a gitignored
+    /// directory should not trigger a codegen run per file.
     #[test]
-    fn a_file_inside_a_gitignored_directory_is_not_filtered() {
+    fn a_file_inside_a_gitignored_directory_is_ignored() {
         let w = Workspace::new();
         let ev = w.touch("ignored_dir/query.graphql", "query Q { hello }\n");
-        assert_eq!(w.classify(&[ev]), WatchOutcome::Regenerate);
+        assert_eq!(w.classify(&[ev]), WatchOutcome::Ignore);
     }
 
     /// A host file only matters if it might embed a document, which is decided by

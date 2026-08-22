@@ -1044,8 +1044,30 @@ pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
         .unwrap_or_else(|_| ignore::gitignore::Gitignore::empty())
 }
 
+/// Whether gitignore rules exclude this path, counting rules that ignore a
+/// parent directory.
+///
+/// `Gitignore::matched` tests only the path handed to it, so a `dist/` rule
+/// matches the directory but not `dist/bundle.js`. Every caller here is
+/// event-driven — the codegen watcher and the LSP's watched-files handlers all
+/// receive individual paths rather than walking a tree, so nothing else prunes
+/// the ignored directory for them. Without the parent check, a production build
+/// writing into a gitignored output directory triggers a codegen run per file.
+///
+/// `matched_path_or_any_parents` panics on a path outside the matcher's root,
+/// and these paths come from editors and filesystem events, so out-of-root
+/// input is possible: a schema referenced by absolute path, or an editor
+/// reporting a linked file. Those fall back to the single-path check, which is
+/// what they got before.
 pub fn is_path_ignored(path: &Path, matcher: &ignore::gitignore::Gitignore) -> bool {
-    matcher.matched(path, path.is_dir()).is_ignore()
+    let is_dir = path.is_dir();
+    if path.starts_with(matcher.path()) {
+        matcher
+            .matched_path_or_any_parents(path, is_dir)
+            .is_ignore()
+    } else {
+        matcher.matched(path, is_dir).is_ignore()
+    }
 }
 
 pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
@@ -1698,6 +1720,22 @@ mod tests {
         ));
         // Regular source files are not ignored.
         assert!(!is_path_ignored(&base.join("src/query.graphql"), &matcher));
+
+        // A file *inside* an ignored directory is ignored too. The event-driven
+        // callers get this path directly and nothing prunes the directory for
+        // them, so the parent rule has to be applied here.
+        assert!(is_path_ignored(
+            &base.join("node_modules/dep/index.js"),
+            &matcher
+        ));
+
+        // A path outside the matcher's root must not panic:
+        // matched_path_or_any_parents asserts on those, and editors and
+        // filesystem events can report them.
+        assert!(!is_path_ignored(
+            Path::new("/elsewhere/query.graphql"),
+            &matcher
+        ));
     }
 
     #[test]
