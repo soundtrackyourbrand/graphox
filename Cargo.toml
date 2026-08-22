@@ -44,7 +44,7 @@ tree-sitter-graphql = "0.2"
 tree-sitter-typescript = "0.23.2"
 pathdiff = "0.2"
 notify = "8.0.0"
-notify-debouncer-mini = "0.6"
+notify-debouncer-mini = "0.7"
 ignore = "0.4"
 serde = { version = "1.0.228" }
 glob = "0.3.3"
