@@ -351,7 +351,14 @@ pub(super) fn check_required_fields(
 
                         let anchor_range = match &origin {
                             Some(origin) => {
-                                if nested_selection_ignored(this, node, offset, origin) {
+                                if nested_selection_ignored(
+                                    this,
+                                    node,
+                                    offset,
+                                    ctx,
+                                    origin,
+                                    definition_range,
+                                ) {
                                     continue;
                                 }
                                 origin.anchor
@@ -454,7 +461,14 @@ pub(super) fn check_required_fields(
 
                                 let anchor_range = match &origin {
                                     Some(origin) => {
-                                        if nested_selection_ignored(this, node, offset, origin) {
+                                        if nested_selection_ignored(
+                                            this,
+                                            node,
+                                            offset,
+                                            ctx,
+                                            origin,
+                                            definition_range,
+                                        ) {
                                             continue;
                                         }
                                         origin.anchor
@@ -622,7 +636,14 @@ pub(super) fn check_forbidden_fields(
                         if origin.is_some() || field_node.is_some() {
                             let anchor_range = match &origin {
                                 Some(origin) => {
-                                    if nested_selection_ignored(this, node, offset, origin) {
+                                    if nested_selection_ignored(
+                                        this,
+                                        node,
+                                        offset,
+                                        ctx,
+                                        origin,
+                                        definition_range,
+                                    ) {
                                         continue;
                                     }
                                     origin.anchor
@@ -742,7 +763,14 @@ pub(super) fn check_forbidden_fields(
                         if origin.is_some() || field_node.is_some() {
                             let anchor_range = match &origin {
                                 Some(origin) => {
-                                    if nested_selection_ignored(this, node, offset, origin) {
+                                    if nested_selection_ignored(
+                                        this,
+                                        node,
+                                        offset,
+                                        ctx,
+                                        origin,
+                                        definition_range,
+                                    ) {
                                         continue;
                                     }
                                     origin.anchor
@@ -828,21 +856,37 @@ fn fragment_only_origin<'a>(
     ctx.fragment_origins.get(response_key)
 }
 
-/// Whether a nested selection's diagnostic is suppressed. Either place works:
-/// the spread, where the diagnostic points, or the selection inside the fragment
-/// that owns the path, which covers every document spreading that fragment and
-/// sits where the fix would go.
+/// Whether a nested selection's diagnostic is suppressed. The object has no line
+/// of its own in this document, so any authored selection the walk passed through
+/// to reach it counts: the selection inside the fragment that owns the path
+/// (which travels with the fragment, covering every document that spreads it),
+/// the spread, or the selection the spread sits in.
 fn nested_selection_ignored(
     this: &DocumentState,
     node: Node,
     offset: usize,
+    ctx: &ValidationContext,
     origin: &crate::diagnostics::FragmentOrigin,
+    definition_range: Range,
 ) -> bool {
     if origin.ignored {
         return true;
     }
-    find_node_for_range(this, node, offset, &origin.anchor)
+    if find_node_for_range(this, node, offset, &origin.anchor)
         .is_some_and(|anchor_node| this.has_inline_ignore_comment(anchor_node, offset))
+    {
+        return true;
+    }
+    // None means every anchor for that key carries the comment.
+    resolve_anchor_and_check_ignore(
+        this,
+        node,
+        offset,
+        ctx,
+        &origin.spread_parent,
+        definition_range,
+    )
+    .is_none()
 }
 
 /// ` inside fragment 'X'` when the response key stands for an object nested in a

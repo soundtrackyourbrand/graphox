@@ -161,7 +161,7 @@ fragment ZoneFields on SoundZone {
 }
 ```
 
-Because the operation type decides the rule, the diagnostic lands on the spread rather than inside the fragment, and names the fragment the object lives in. Suppress it with `# graphox-ignore` either on the spread or on the nesting selection inside the fragment — the latter travels with the fragment, so it holds for every operation spreading it, from any file. Rules that hold for every operation type (`id: true`) are reported inside the fragment definition instead.
+Because the operation type decides the rule, the diagnostic lands on the spread rather than inside the fragment, and names the fragment the object lives in. `# graphox-ignore` suppresses it from any selection the check passed through: the nesting selection inside the fragment (which travels with the fragment, so it holds for every operation spreading it, from any file), an inline fragment directly around it, the spread, or the selection the spread sits in. Rules that hold for every operation type (`id: true`) are reported inside the fragment definition instead.
 
 A path a fragment nests and the same path selected inline are one selection set, and are checked merged: `zone { device { permissions } ...ZoneFields }` satisfies the rule even though neither side selects everything on its own.
 
@@ -286,7 +286,7 @@ fragment ZoneFields on SoundZone {
 }
 ```
 
-The diagnostic lands on the spread that reaches the object, since that is where the operation type is known, and names the fragment the selection lives in. Two places suppress it: the spread, and the selection inside the fragment that owns the nesting. The second holds for every operation spreading that fragment, including from other files, so a shared fragment needs the comment only once:
+The diagnostic lands on the spread that reaches the object, since that is where the operation type is known, and names the fragment the selection lives in. The object has no line of its own here, so `# graphox-ignore` is honoured on any selection the check passed through to reach it: the selection inside the fragment that owns the nesting, an inline fragment directly around it, the spread, or the selection the spread sits in. Marking it inside the fragment holds for every operation spreading that fragment, including from other files, so a shared fragment needs the comment only once:
 
 ```graphql
 fragment ZoneFields on SoundZone {
@@ -298,7 +298,19 @@ fragment ZoneFields on SoundZone {
 }
 ```
 
-An ignore covers only the selection it sits on, not the paths below it.
+```graphql
+query GetZone($id: ID!) {
+  soundZone(id: $id) {
+    id
+    permissions
+    device { # graphox-ignore — also exempts what a spread here brings in
+      ...DeviceFields
+    }
+  }
+}
+```
+
+An ignore covers the selection it sits on and what a spread there pulls in, not selections written further down: those have their own lines to mark.
 
 A path a fragment nests and the same path selected inline are one selection set, and the rules see them merged — `zone { device { permissions } ...ZoneFields }` satisfies a rule that either side alone would not. When the document selects the path itself, the diagnostic stays on that selection and does not name a fragment.
 
