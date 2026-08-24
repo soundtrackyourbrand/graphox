@@ -543,6 +543,26 @@ pub(super) fn check_forbidden_fields(
                             )
                         };
 
+                        // The field may have been merged in from a spread
+                        // fragment, in which case the spread is the anchor.
+                        let mut via_fragment = None;
+                        let mut field_node = field_node;
+                        if field_node.is_none()
+                            && let Some((spread_node, fragment_name)) =
+                                find_fragment_spread_selecting_field(
+                                    this,
+                                    node,
+                                    offset,
+                                    ctx.all_fragments,
+                                    response_key,
+                                    field_name_str,
+                                    None,
+                                )
+                        {
+                            field_node = Some(spread_node);
+                            via_fragment = Some(fragment_name);
+                        }
+
                         if let Some(field_node) = field_node {
                             let Some(_anchor_range) = resolve_anchor_and_check_ignore(
                                 this,
@@ -563,10 +583,11 @@ pub(super) fn check_forbidden_fields(
                                     range: diagnostic_range,
                                     severity: Some(DiagnosticSeverity::ERROR),
                                     message: format!(
-                                        "Field '{}' is forbidden on type '{}'{}{}",
+                                        "Field '{}' is forbidden on type '{}'{}{}{}",
                                         field_name_str,
                                         type_name,
                                         operation_suffix(scope),
+                                        via_fragment_suffix(via_fragment.as_deref()),
                                         rule.reason()
                                             .map(|r| format!(": {}", r))
                                             .unwrap_or_default()
@@ -577,7 +598,8 @@ pub(super) fn check_forbidden_fields(
                                     data: Some(serde_json::json!({
                                         "scope": "response_key",
                                         "response_key": response_key.as_ref(),
-                                        "field_name": field_name_str.as_ref()
+                                        "field_name": field_name_str.as_ref(),
+                                        "via_fragment": via_fragment
                                     })),
                                     source: DIAGNOSTIC_SOURCE.map(String::from),
                                     ..Default::default()
@@ -598,14 +620,32 @@ pub(super) fn check_forbidden_fields(
                             continue;
                         }
 
-                        if let Some(field_node) = find_field_node_in_type_condition(
+                        let mut via_fragment = None;
+                        let mut field_node = find_field_node_in_type_condition(
                             this,
                             node,
                             offset,
                             response_key,
                             type_name,
                             field_name_str,
-                        ) {
+                        );
+                        if field_node.is_none()
+                            && let Some((spread_node, fragment_name)) =
+                                find_fragment_spread_selecting_field(
+                                    this,
+                                    node,
+                                    offset,
+                                    ctx.all_fragments,
+                                    response_key,
+                                    field_name_str,
+                                    Some(type_name),
+                                )
+                        {
+                            field_node = Some(spread_node);
+                            via_fragment = Some(fragment_name);
+                        }
+
+                        if let Some(field_node) = field_node {
                             let Some(_anchor_range) = resolve_anchor_and_check_ignore(
                                 this,
                                 node,
@@ -625,10 +665,11 @@ pub(super) fn check_forbidden_fields(
                                     range: diagnostic_range,
                                     severity: Some(DiagnosticSeverity::ERROR),
                                     message: format!(
-                                        "Field '{}' is forbidden on '... on {}'{}{}",
+                                        "Field '{}' is forbidden on '... on {}'{}{}{}",
                                         field_name_str,
                                         type_name,
                                         operation_suffix(scope),
+                                        via_fragment_suffix(via_fragment.as_deref()),
                                         rule.reason()
                                             .map(|r| format!(": {}", r))
                                             .unwrap_or_default()
@@ -639,7 +680,8 @@ pub(super) fn check_forbidden_fields(
                                     data: Some(serde_json::json!({
                                         "scope": "response_key",
                                         "response_key": response_key.as_ref(),
-                                        "field_name": field_name_str.as_ref()
+                                        "field_name": field_name_str.as_ref(),
+                                        "via_fragment": via_fragment
                                     })),
                                     source: DIAGNOSTIC_SOURCE.map(String::from),
                                     ..Default::default()
@@ -650,6 +692,15 @@ pub(super) fn check_forbidden_fields(
                 }
             }
         }
+    }
+}
+
+/// `, selected via fragment 'X'` when the field reached this definition through
+/// a fragment spread rather than an inline selection.
+fn via_fragment_suffix(via_fragment: Option<&str>) -> String {
+    match via_fragment {
+        Some(name) => format!(", selected via fragment '{}'", name),
+        None => String::new(),
     }
 }
 
@@ -846,6 +897,176 @@ fn find_field_node_by_name<'a>(
     let parent = find_field_node_at_path(this, node, offset, &segments)?;
     let selection_set = this.find_child_by_kind(parent, "selection_set")?;
     find_direct_field_child(this, selection_set, offset, field_name)
+}
+
+/// Fields selected inside a spread fragment are merged into the enclosing
+/// response key, so a forbidden field can have no field node in this definition
+/// to point at. Find the spread that pulled the field in and report there
+/// instead, naming the fragment so the source of the field is obvious.
+///
+/// `type_condition` is set when the field was tracked under `... on X` rather
+/// than directly under the response key.
+fn find_fragment_spread_selecting_field<'a>(
+    this: &DocumentState,
+    node: Node<'a>,
+    offset: usize,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    response_key: &str,
+    field_name: &str,
+    type_condition: Option<&str>,
+) -> Option<(Node<'a>, String)> {
+    let segments: Vec<&str> = response_key.split('.').collect();
+    let parent = find_field_node_at_path(this, node, offset, &segments)?;
+    let selection_set = this.find_child_by_kind(parent, "selection_set")?;
+    find_spread_selecting_field(
+        this,
+        selection_set,
+        offset,
+        all_fragments,
+        field_name,
+        type_condition,
+        None,
+    )
+}
+
+/// Walk a selection set looking for a fragment spread that contributes
+/// `field_name` to the enclosing response key. `current_type_condition` tracks
+/// the inline fragment we are inside of, mirroring how the spread's fields were
+/// recorded during validation.
+fn find_spread_selecting_field<'a>(
+    this: &DocumentState,
+    selection_set: Node<'a>,
+    offset: usize,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    field_name: &str,
+    type_condition: Option<&str>,
+    current_type_condition: Option<&str>,
+) -> Option<(Node<'a>, String)> {
+    let mut cursor = selection_set.walk();
+    for selection in selection_set.children(&mut cursor) {
+        let (spread_node, inline_node) = match selection.kind() {
+            "selection" => (
+                this.find_child_by_kind(selection, "fragment_spread"),
+                this.find_child_by_kind(selection, "inline_fragment"),
+            ),
+            "fragment_spread" => (Some(selection), None),
+            "inline_fragment" => (None, Some(selection)),
+            _ => (None, None),
+        };
+
+        if let Some(spread) = spread_node {
+            let Some(name_node) = this
+                .find_child_by_kind(spread, "fragment_name")
+                .and_then(|n| this.find_child_by_kind(n, "name"))
+            else {
+                continue;
+            };
+            let fragment_name = this.get_node_text(name_node, offset);
+
+            // A spread's own selections land under the inline fragment it sits
+            // in, so only consider it when that matches where the field was
+            // tracked.
+            let matches_directly = current_type_condition == type_condition
+                && fragment_selects_field(
+                    this,
+                    all_fragments,
+                    &fragment_name,
+                    field_name,
+                    None,
+                    &mut ahash::AHashSet::default(),
+                );
+
+            // The spread fragment may also carry its own `... on X` block.
+            let matches_via_type_condition = type_condition.is_some_and(|tc| {
+                fragment_selects_field(
+                    this,
+                    all_fragments,
+                    &fragment_name,
+                    field_name,
+                    Some(tc),
+                    &mut ahash::AHashSet::default(),
+                )
+            });
+
+            if matches_directly || matches_via_type_condition {
+                return Some((name_node, fragment_name));
+            }
+        } else if let Some(inline) = inline_node
+            && let Some(inner_set) = this.find_child_by_kind(inline, "selection_set")
+        {
+            let inline_tc = this
+                .find_child_by_kind(inline, "type_condition")
+                .and_then(|tc| this.find_child_by_kind(tc, "named_type"))
+                .map(|nt| this.get_node_text(nt, offset));
+            let next_tc = inline_tc.as_deref().or(current_type_condition);
+
+            if let Some(found) = find_spread_selecting_field(
+                this,
+                inner_set,
+                offset,
+                all_fragments,
+                field_name,
+                type_condition,
+                next_tc,
+            ) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// Whether `fragment_name` selects `field_name`, following nested spreads.
+/// With `type_condition` set, the field must come from a `... on X` block
+/// inside the fragment; otherwise it must be a top-level selection.
+fn fragment_selects_field(
+    this: &DocumentState,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    fragment_name: &str,
+    field_name: &str,
+    type_condition: Option<&str>,
+    visited: &mut ahash::AHashSet<String>,
+) -> bool {
+    if !visited.insert(fragment_name.to_string()) {
+        return false;
+    }
+
+    // Local definitions win over workspace ones, matching how the fields were
+    // collected in the first place.
+    let local = this
+        .fragments()
+        .iter()
+        .find(|f| f.name.as_ref() == fragment_name)
+        .map(|f| (&f.selected_fields, &f.type_fields, &f.used_fragments));
+    let workspace = || {
+        all_fragments
+            .iter()
+            .find(|f| f.name.as_ref() == fragment_name)
+            .map(|f| (&f.selected_fields, &f.type_fields, &f.used_fragments))
+    };
+
+    let Some((selected_fields, type_fields, used_fragments)) = local.or_else(workspace) else {
+        return false;
+    };
+
+    let selected = match type_condition {
+        None => selected_fields.iter().any(|f| f.as_ref() == field_name),
+        Some(tc) => type_fields
+            .iter()
+            .any(|(t, f)| t.as_ref() == tc && f.as_ref() == field_name),
+    };
+
+    selected
+        || used_fragments.iter().any(|nested| {
+            fragment_selects_field(
+                this,
+                all_fragments,
+                nested,
+                field_name,
+                type_condition,
+                visited,
+            )
+        })
 }
 
 /// Find the field node `field_name` selected inside an inline fragment

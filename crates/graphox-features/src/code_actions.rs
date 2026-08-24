@@ -807,6 +807,19 @@ impl DocumentCodeActions for DocumentState {
             actions.push(action);
         }
 
+        // When the field was merged in from a fragment spread the diagnostic sits
+        // on the spread, so removing the node under it would delete the whole
+        // spread instead of the field. The field has to be fixed in the fragment
+        // (which may be shared), so only offer the ignore action here.
+        if diagnostic
+            .data
+            .as_ref()
+            .and_then(|d| d.get("via_fragment"))
+            .is_some_and(|v| v.is_string())
+        {
+            return actions;
+        }
+
         // Extract the field name from the diagnostic message
         // Message format: "Field 'fieldName' is forbidden in <operation> operations"
         // or "Field 'fieldName' is forbidden in 'responseKey'"

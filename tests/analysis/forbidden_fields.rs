@@ -439,3 +439,260 @@ fn test_forbidden_field_operation_scoped_rule_skipped_inside_fragment() {
 
     assert_no_diagnostics(&diagnostics);
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_selected_via_fragment_spread() {
+    // A fragment's top-level fields are merged into the response key it is
+    // spread under, so the rule must fire even though the field itself lives in
+    // another definition. The spread is the anchor.
+    let text = r#"
+        fragment PostFields on Post {
+            id
+            secretField
+        }
+
+        query GetPosts {
+            posts {
+                ...PostFields
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "secretField".to_string(),
+        ForbiddenFieldRule::new_always(true),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'secretField' is forbidden on type 'Post' in query operations, selected via fragment 'PostFields'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "PostFields"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_via_fragment_spread_only_in_matching_operation() {
+    // The same fragment is spread by a query and a subscription. An
+    // operation-scoped rule must fire on the subscription only.
+    let text = r#"
+        fragment UserFields on User {
+            id
+            username
+        }
+
+        query GetUsers {
+            users {
+                ...UserFields
+            }
+        }
+
+        subscription OnUserAdded {
+            userAdded {
+                ...UserFields
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "username".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_subscription_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'username' is forbidden on type 'User' in subscription operations, selected via fragment 'UserFields'",
+    );
+    // The last spread is the one inside the subscription.
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "UserFields"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_via_nested_fragment_spread() {
+    // The field arrives through a chain of spreads; the outermost spread in the
+    // operation is the anchor.
+    let text = r#"
+        fragment PostSecret on Post {
+            secretField
+        }
+
+        fragment PostFields on Post {
+            id
+            ...PostSecret
+        }
+
+        query GetPosts {
+            posts {
+                ...PostFields
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "secretField".to_string(),
+        ForbiddenFieldRule::new_always(true),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'secretField' is forbidden on type 'Post' in query operations, selected via fragment 'PostFields'",
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "PostFields"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_via_fragment_spread_inside_inline_fragment() {
+    let text = r#"
+        fragment AuthorFields on User {
+            id
+            password
+        }
+
+        query GetPosts {
+            posts {
+                author {
+                    ... on User {
+                        ...AuthorFields
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'password' is forbidden on '... on User' in query operations, selected via fragment 'AuthorFields'",
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "AuthorFields"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_via_fragment_spread_ignored_with_inline_comment() {
+    let text = r#"
+        fragment PostFields on Post {
+            id
+            secretField
+        }
+
+        query GetPosts {
+            posts { # graphox-ignore
+                ...PostFields
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "secretField".to_string(),
+        ForbiddenFieldRule::new_always(true),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
