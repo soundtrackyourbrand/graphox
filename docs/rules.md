@@ -219,6 +219,37 @@ query GetUser {
 }
 ```
 
+**Fragments:**
+
+Fields selected by a fragment count as selections of every operation that spreads it, so the rule is evaluated against the operation's type. The diagnostic lands on the spread and names the fragment:
+
+```graphql
+# With rule: forbidden_fields: { permissions: ["subscription"] }
+
+fragment ZoneFields on SoundZone {
+  id
+  permissions
+}
+
+query GetZone($id: ID!) {
+  soundZone(id: $id) {
+    ...ZoneFields  # OK, the rule only covers subscriptions
+  }
+}
+
+subscription OnZoneUpdate($input: SoundZoneUpdateInput!) {
+  soundZoneUpdate(input: $input) {
+    soundZone {
+      ...ZoneFields  # Error: field 'permissions' is forbidden ... selected via fragment 'ZoneFields'
+    }
+  }
+}
+```
+
+Since the fragment may be shared by operations that are allowed to select the field, these diagnostics offer only the ignore action, not the removal one. Suppress them with `# graphox-ignore` on the parent selection field, as above.
+
+Nested selections inside a fragment body (`fragment F on Post { author { password } }`) are checked against the fragment itself, so rules limited to specific operation types do not apply to them.
+
 **Provides code action:** "Remove forbidden field" to automatically delete the field.
 
 ---
