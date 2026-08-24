@@ -398,7 +398,9 @@ fn test_forbidden_field_nested_inside_fragment_definition() {
 
 #[test]
 #[ntest::timeout(300)]
-fn test_forbidden_field_operation_scoped_rule_skipped_inside_fragment() {
+fn test_forbidden_field_operation_scoped_rule_checked_at_the_spread() {
+    // The rule cannot be evaluated inside the fragment, where the operation
+    // type is unknown, so it is evaluated at the spread and reported there.
     let text = r#"
         fragment PostWithAuthor on Post {
             id
@@ -437,7 +439,16 @@ fn test_forbidden_field_operation_scoped_rule_skipped_inside_fragment() {
         true,
     );
 
-    assert_no_diagnostics(&diagnostics);
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'password' is forbidden on type 'User' in query operations, selected via fragment 'PostWithAuthor'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "PostWithAuthor"),
+    );
 }
 
 #[test]
@@ -695,4 +706,231 @@ fn test_forbidden_field_via_fragment_spread_ignored_with_inline_comment() {
     );
 
     assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_nested_inside_spread_fragment_only_where_it_applies() {
+    // One fragment, two consumers. The nested `password` is forbidden in the
+    // subscription and fine in the query, which is why the rule has to be
+    // evaluated per spread rather than inside the fragment.
+    let text = r#"
+        fragment PostWithAuthor on Post {
+            id
+            author {
+                id
+                password
+            }
+        }
+
+        query GetPosts {
+            posts {
+                ...PostWithAuthor
+            }
+        }
+
+        subscription OnPost {
+            postAdded {
+                ...PostWithAuthor
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::post_subscription_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'password' is forbidden on type 'User' in subscription operations, selected via fragment 'PostWithAuthor'",
+    );
+    // The last spread is the one in the subscription.
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "PostWithAuthor"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_via_nested_spread_inside_fragment_body() {
+    // The offending field is two fragments away from the subscription: the
+    // spread fragment nests an object, and that object's selections come from
+    // yet another fragment.
+    let text = r#"
+        fragment AuthorFields on User {
+            id
+            password
+        }
+
+        fragment PostWithAuthor on Post {
+            id
+            author {
+                ...AuthorFields
+            }
+        }
+
+        subscription OnPost {
+            postAdded {
+                ...PostWithAuthor
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::post_subscription_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'password' is forbidden on type 'User' in subscription operations",
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "PostWithAuthor"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_nested_inside_spread_fragment_ignored_at_the_spread() {
+    let text = r#"
+        fragment PostWithAuthor on Post {
+            id
+            author {
+                id
+                password
+            }
+        }
+
+        subscription OnPost {
+            postAdded {
+                ...PostWithAuthor # graphox-ignore
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::post_subscription_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(1000)]
+fn test_field_rules_terminate_on_a_fragment_cycle() {
+    // Invalid GraphQL, but it reaches the LSP on every keystroke while a spread
+    // is being written. The nested-selection walk descends through spreads and
+    // builds a longer path each time, so it needs its own cycle guard: without
+    // one this overflowed the stack instead of reporting the cycle.
+    let text = r#"
+        fragment PostFields on Post {
+            id
+            author {
+                ...AuthorFields
+            }
+        }
+
+        fragment AuthorFields on User {
+            id
+            password
+            posts {
+                ...PostFields
+            }
+        }
+
+        query GetPosts {
+            posts {
+                ...PostFields
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let schema = apollo_compiler::Schema::parse(
+        r#"
+            type Query { posts: [Post] }
+            type Post { id: ID! author: User }
+            type User { id: ID! password: String posts: [Post] }
+        "#,
+        "cycle_schema.graphql",
+    )
+    .unwrap()
+    .validate()
+    .unwrap();
+
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("Circular fragment reference")),
+        "expected the cycle to be reported: {:#?}",
+        diagnostics
+    );
 }

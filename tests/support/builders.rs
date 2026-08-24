@@ -234,6 +234,8 @@ impl FragmentInfoBuilder {
             used_fragments: Arc::from([]),
             transitive_deps: Arc::from([]),
             selected_fields: Arc::from([]),
+            top_level_spreads: Arc::from([]),
+            nested_selections: Arc::from([]),
             type_fields: Arc::from([]),
             requirements: BTreeMap::new(),
             worst_slo: None,

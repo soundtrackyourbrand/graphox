@@ -1471,9 +1471,11 @@ fn test_required_field_missing_at_fragment_type_condition_reported_once() {
 
 #[test]
 #[ntest::timeout(300)]
-fn test_required_field_operation_scoped_rule_skipped_inside_fragment() {
+fn test_required_field_operation_scoped_rule_checked_at_the_spread() {
     // The enclosing operation is unknown inside a fragment, so a rule scoped to
-    // specific operation types cannot be evaluated there.
+    // specific operation types cannot be evaluated there. It is evaluated where
+    // the fragment is spread instead, which is where the operation type is
+    // known, and reported on the spread since the selection lives elsewhere.
     let text = r#"
         fragment AccountBilling on Account {
             billing {
@@ -1503,7 +1505,17 @@ fn test_required_field_operation_scoped_rule_skipped_inside_fragment() {
     let diagnostics =
         doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
 
-    assert_no_diagnostics(&diagnostics);
+    // Both objects nested in the fragment body are missing `id`.
+    assert_diagnostics_count(&diagnostics, 2);
+    let spread_range = crate::support::range_for_token(&doc, text, "AccountBilling");
+    for expected in [
+        "Required field 'id' must be selected in 'billing' inside fragment 'AccountBilling'",
+        "Required field 'id' must be selected in 'subscription' inside fragment 'AccountBilling'",
+    ] {
+        let d = assert_diagnostic_with_message(&diagnostics, expected);
+        assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+        assert_diag_range_equals(d, &spread_range);
+    }
 }
 
 #[test]
@@ -1631,5 +1643,243 @@ fn test_required_field_fragment_state_does_not_leak_into_operation() {
         d.range.start.line > 10,
         "expected the fragment's selection, got {:?}",
         d.range
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_two_levels_deep_inside_spread_fragment() {
+    // `subscription` sits two objects below the fragment's own type, so the
+    // spread site only sees it if the whole path was recorded.
+    let text = r#"
+        fragment AccountBilling on Account {
+            billing {
+                id
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription' inside fragment 'AccountBilling'",
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "AccountBilling"),
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_nested_spread_does_not_satisfy_the_parent() {
+    // `id` is selected on Billing by the inner fragment. That must not count as
+    // a selection on Account, which is what merging every spread in a
+    // fragment's body into one response key used to do.
+    let text = r#"
+        fragment BillingFields on Billing {
+            id
+            subscription {
+                id
+                price
+            }
+        }
+
+        fragment AccountFields on Account {
+            businessName
+            billing {
+                ...BillingFields
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                ...AccountFields
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'account'",
+    );
+    assert_diagnostic_severity(d, DiagnosticSeverity::ERROR);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_aliased_selection_inside_spread_fragment() {
+    let text = r#"
+        fragment AccountBilling on Account {
+            primary: billing {
+                subscription {
+                    id
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    // The alias is the response key, and the type behind it still resolves.
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'primary' inside fragment 'AccountBilling'",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_satisfied_by_merging_spread_and_inline_selections() {
+    // The operation and the fragment both select `subscription`, and between
+    // them every required field is there. GraphQL merges the two into one
+    // selection set, so the rule has to see them merged as well.
+    let text = r#"
+        fragment AccountBilling on Account {
+            billing {
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+                billing {
+                    id
+                    subscription {
+                        id
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_reported_once_for_a_path_both_sides_select() {
+    // Same shape, but neither side selects `id` on the nested object. It is one
+    // object, so it is one diagnostic, reported where the document selects it.
+    let text = r#"
+        fragment AccountBilling on Account {
+            billing {
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+                billing {
+                    id
+                    subscription {
+                        price
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_diagnostics_count(&diagnostics, 1);
+    let d = assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription'",
+    );
+    // The document selects the path itself, so the fragment is not named and the
+    // diagnostic stays on the inline selection.
+    assert!(
+        !d.message.contains("inside fragment"),
+        "should not blame the fragment: {}",
+        d.message
+    );
+    assert_diag_range_equals(
+        d,
+        &crate::support::range_for_token(&doc, text, "subscription"),
     );
 }
