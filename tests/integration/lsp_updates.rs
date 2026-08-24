@@ -8,6 +8,10 @@ use std::fs;
 use std::sync::{Arc, Mutex};
 use tower_lsp_server::ls_types::*;
 
+/// Budget for one phase of a multi-step LSP test. A phase that outruns this is
+/// stuck, and failing here names the phase, which an outer timeout cannot.
+const PHASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(10000)]
 async fn test_lsp_fragment_collisions() {
@@ -184,7 +188,9 @@ async fn test_lsp_fragment_collisions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(10000)]
+// Three phases wait in sequence, so the backstop has to exceed their sum;
+// at 10s it fired before any phase could report what it was waiting for.
+#[ntest::timeout(30000)]
 async fn test_lsp_diagnostics_on_schema_change() {
     // Given: a workspace with a schema and a query that initially matches
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -233,7 +239,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
     // Wait for initial diagnostics
     let _ = support::wait_for_condition_with_timeout(
         || latest_query_diagnostics().is_some(),
-        std::time::Duration::from_secs(10),
+        PHASE_TIMEOUT,
     )
     .await;
     {
@@ -267,7 +273,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
             latest_query_diagnostics()
                 .is_some_and(|msg| !msg["diagnostics"].as_array().unwrap().is_empty())
         },
-        std::time::Duration::from_secs(10),
+        PHASE_TIMEOUT,
     )
     .await;
     {
@@ -302,7 +308,7 @@ async fn test_lsp_diagnostics_on_schema_change() {
             latest_query_diagnostics()
                 .is_some_and(|msg| msg["diagnostics"].as_array().unwrap().is_empty())
         },
-        std::time::Duration::from_secs(10),
+        PHASE_TIMEOUT,
     )
     .await;
     {
@@ -483,7 +489,9 @@ async fn test_lsp_fragment_rename_same_project() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(10000)]
+// Three phases wait in sequence, so the backstop has to exceed their sum;
+// at 10s it fired before any phase could report what it was waiting for.
+#[ntest::timeout(30000)]
 async fn test_lsp_deleted_private_fragment_falls_back_to_public_fragment() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file(
@@ -582,7 +590,7 @@ async fn test_lsp_deleted_private_fragment_falls_back_to_public_fragment() {
 
     let _ = support::wait_for_condition_with_timeout(
         || latest_query_diagnostics().is_some(),
-        std::time::Duration::from_secs(10),
+        PHASE_TIMEOUT,
     )
     .await;
 
@@ -606,7 +614,7 @@ async fn test_lsp_deleted_private_fragment_falls_back_to_public_fragment() {
 
     let _ = support::wait_for_condition_with_timeout(
         || received_diags.lock().unwrap().len() > initial_count,
-        std::time::Duration::from_secs(10),
+        PHASE_TIMEOUT,
     )
     .await;
 
@@ -637,7 +645,7 @@ async fn test_lsp_deleted_private_fragment_falls_back_to_public_fragment() {
                     .is_some_and(|diagnostics| diagnostics.is_empty())
             })
         },
-        std::time::Duration::from_secs(10),
+        PHASE_TIMEOUT,
     )
     .await;
 
