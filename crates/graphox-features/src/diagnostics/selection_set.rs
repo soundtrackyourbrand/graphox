@@ -172,6 +172,10 @@ pub(super) fn validate_field(
             .entry(current_path.clone().into())
             .or_default()
             .push(anchor_range);
+        if ctx.track_selections {
+            ctx.document_response_keys
+                .insert(current_path.clone().into());
+        }
 
         let actual_field_name = this.get_node_text(name_node, offset);
 

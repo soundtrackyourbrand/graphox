@@ -83,6 +83,40 @@ pub type FragmentId = (Arc<str>, Arc<str>, usize);
 /// A collection of transitive fragment dependencies.
 pub type TransitiveDeps = Arc<[FragmentId]>;
 
+/// A selection below a fragment's own top level.
+///
+/// `selected_fields` and `type_fields` describe only what a fragment selects
+/// directly, which is all an operation needs to merge the fragment into the
+/// response key it is spread under. Field rules also apply to the objects
+/// nested inside the fragment, and those are invisible in a flat list of names,
+/// so each one is recorded here with the path that reaches it.
+#[derive(Debug, Clone)]
+pub struct NestedSelection {
+    /// Response-key path from the fragment's top level, e.g. `account.billing`.
+    pub path: Arc<str>,
+    /// The same path in field names, used to resolve types against the schema.
+    /// Differs from `path` only where a selection along it is aliased.
+    pub type_path: Arc<str>,
+    /// Type condition the path descends from, set when the path starts inside
+    /// an inline fragment rather than at the fragment's type condition.
+    pub root_type_condition: Option<Arc<str>>,
+    /// Inline fragment type condition this selection itself sits under.
+    pub type_condition: Option<Arc<str>>,
+    /// Field name, or fragment name when `is_spread`.
+    pub name: Arc<str>,
+    pub is_spread: bool,
+}
+
+/// Join a selection path segment onto a dotted path, matching the response-key
+/// paths the diagnostics bookkeeping builds for operations.
+fn join_selection_path(path: &str, segment: &str) -> String {
+    if path.is_empty() {
+        segment.to_string()
+    } else {
+        format!("{}.{}", path, segment)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FragmentDef {
     pub name: Arc<str>,
@@ -92,10 +126,16 @@ pub struct FragmentDef {
     pub description: Option<Arc<str>>,
     pub source_hash: u64,
     pub used_variables: Arc<[Arc<str>]>,
+    /// Every spread anywhere in the fragment body, for dependency tracking.
     pub used_fragments: Arc<[Arc<str>]>,
     pub transitive_deps: TransitiveDeps,
     pub selected_fields: Arc<[Arc<str>]>,
     pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
+    /// Spreads at the fragment's own top level. A subset of `used_fragments`:
+    /// only these contribute their fields to the response key this fragment is
+    /// spread under, the rest sit below a nested selection.
+    pub top_level_spreads: Arc<[Arc<str>]>,
+    pub nested_selections: Arc<[NestedSelection]>,
 }
 
 #[derive(Debug, Clone)]
@@ -959,10 +999,22 @@ impl DocumentState {
 
                     let mut selected_fields = Vec::new();
                     let mut type_fields = Vec::new();
+                    let mut top_level_spreads = Vec::new();
+                    let mut nested_selections: Vec<NestedSelection> = Vec::new();
 
                     if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
-                        let mut stack = vec![(sel_set, None::<String>)];
-                        while let Some((set, current_tc)) = stack.pop() {
+                        // Selection set, the inline fragment type condition in
+                        // effect, the response-key path from the fragment's top
+                        // level, the same path in field names, and the type
+                        // condition that path descends from.
+                        let mut stack = vec![(
+                            sel_set,
+                            None::<String>,
+                            String::new(),
+                            String::new(),
+                            None::<String>,
+                        )];
+                        while let Some((set, current_tc, path, type_path, root_tc)) = stack.pop() {
                             let mut cur = set.walk();
                             for child in set.children(&mut cur) {
                                 if child.kind() == "selection" {
@@ -970,11 +1022,21 @@ impl DocumentState {
                                     for node in child.children(&mut inner) {
                                         match node.kind() {
                                             "field" => {
-                                                if let Some(name_node) =
-                                                    self.find_child_by_kind(node, "name")
-                                                {
-                                                    let fname =
-                                                        self.get_node_text(name_node, offset);
+                                                let components =
+                                                    self.extract_field_components(node);
+                                                let Some(name_node) = components.name else {
+                                                    continue;
+                                                };
+                                                let fname = self.get_node_text(name_node, offset);
+                                                let response_key = components
+                                                    .alias
+                                                    .and_then(|a| {
+                                                        self.find_child_by_kind(a, "name")
+                                                    })
+                                                    .map(|n| self.get_node_text(n, offset))
+                                                    .unwrap_or_else(|| fname.clone());
+
+                                                if path.is_empty() {
                                                     if let Some(tc) = &current_tc {
                                                         type_fields.push((
                                                             Arc::from(tc.as_str()),
@@ -984,6 +1046,38 @@ impl DocumentState {
                                                         selected_fields
                                                             .push(Arc::from(fname.as_str()));
                                                     }
+                                                } else {
+                                                    nested_selections.push(NestedSelection {
+                                                        path: Arc::from(path.as_str()),
+                                                        type_path: Arc::from(type_path.as_str()),
+                                                        root_type_condition: root_tc
+                                                            .as_deref()
+                                                            .map(Arc::from),
+                                                        type_condition: current_tc
+                                                            .as_deref()
+                                                            .map(Arc::from),
+                                                        name: Arc::from(fname.as_str()),
+                                                        is_spread: false,
+                                                    });
+                                                }
+
+                                                if let Some(inner_set) = components.selection_set {
+                                                    // A field's own type
+                                                    // condition governs the
+                                                    // level it sits on, not the
+                                                    // levels below it.
+                                                    let child_root_tc = if path.is_empty() {
+                                                        current_tc.clone()
+                                                    } else {
+                                                        root_tc.clone()
+                                                    };
+                                                    stack.push((
+                                                        inner_set,
+                                                        None,
+                                                        join_selection_path(&path, &response_key),
+                                                        join_selection_path(&type_path, &fname),
+                                                        child_root_tc,
+                                                    ));
                                                 }
                                             }
                                             "inline_fragment" => {
@@ -995,7 +1089,39 @@ impl DocumentState {
                                                     stack.push((
                                                         inner_set,
                                                         tc.or_else(|| current_tc.clone()),
+                                                        path.clone(),
+                                                        type_path.clone(),
+                                                        root_tc.clone(),
                                                     ));
+                                                }
+                                            }
+                                            "fragment_spread" => {
+                                                if let Some(spread_name) = self
+                                                    .find_child_by_kind(node, "fragment_name")
+                                                    .and_then(|n| {
+                                                        self.find_child_by_kind(n, "name")
+                                                    })
+                                                    .map(|n| self.get_node_text(n, offset))
+                                                {
+                                                    if path.is_empty() && current_tc.is_none() {
+                                                        top_level_spreads
+                                                            .push(Arc::from(spread_name.as_str()));
+                                                    } else {
+                                                        nested_selections.push(NestedSelection {
+                                                            path: Arc::from(path.as_str()),
+                                                            type_path: Arc::from(
+                                                                type_path.as_str(),
+                                                            ),
+                                                            root_type_condition: root_tc
+                                                                .as_deref()
+                                                                .map(Arc::from),
+                                                            type_condition: current_tc
+                                                                .as_deref()
+                                                                .map(Arc::from),
+                                                            name: Arc::from(spread_name.as_str()),
+                                                            is_spread: true,
+                                                        });
+                                                    }
                                                 }
                                             }
                                             _ => {}
@@ -1019,6 +1145,8 @@ impl DocumentState {
                             transitive_deps: Arc::from([]),
                             selected_fields: Arc::from(selected_fields),
                             type_fields: Arc::from(type_fields),
+                            top_level_spreads: Arc::from(top_level_spreads),
+                            nested_selections: Arc::from(nested_selections),
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,

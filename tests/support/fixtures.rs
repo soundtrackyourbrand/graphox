@@ -212,6 +212,43 @@ pub fn user_subscription_schema() -> &'static Schema {
     })
 }
 
+static POST_SUBSCRIPTION_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Schema where a subscription and a query reach the same nested object, for
+/// rules that depend on the operation type.
+///
+/// Contains:
+/// - `type Query { posts: [Post] }`
+/// - `type Subscription { postAdded: Post }`
+/// - `type Post { id: ID! title: String author: User }`
+/// - `type User { id: ID! name: String password: String }`
+pub fn post_subscription_schema() -> &'static Schema {
+    POST_SUBSCRIPTION_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    posts: [Post]
+                }
+                type Subscription {
+                    postAdded: Post
+                }
+                type Post {
+                    id: ID!
+                    title: String
+                    author: User
+                }
+                type User {
+                    id: ID!
+                    name: String
+                    password: String
+                }
+            "#,
+            "post_subscription_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
 static COLLIDING_RESPONSE_KEY_SCHEMA: OnceCell<Schema> = OnceCell::new();
 
 /// Schema where the response key `subscription` is reachable via two different

@@ -81,6 +81,8 @@ pub fn bench_cross_project_resolution(c: &mut Criterion) {
                         transitive_deps: Arc::from([]),
                         selected_fields: Arc::from([]),
                         type_fields: Arc::from([]),
+                        top_level_spreads: Arc::from([]),
+                        nested_selections: Arc::from([]),
                     }]),
                     fragment_spreads: Arc::from([format!("UserFields{}_{}", i, j).into()]),
                     package_root: None,

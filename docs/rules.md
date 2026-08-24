@@ -146,6 +146,25 @@ query GetUser {
 }
 ```
 
+**Fragments:**
+
+The rule applies to every object a fragment reaches, at every depth, evaluated per operation that spreads it:
+
+```graphql
+# With rule: required_fields: { permissions: ["query"] }
+
+fragment ZoneFields on SoundZone {
+  id
+  device {
+    id            # Error in the query below: missing required field 'permissions'
+  }
+}
+```
+
+Because the operation type decides the rule, the diagnostic lands on the spread rather than inside the fragment, and names the fragment the object lives in. Suppress it with `# graphox-ignore` on the spread. Rules that hold for every operation type (`id: true`) are reported inside the fragment definition instead.
+
+A path a fragment nests and the same path selected inline are one selection set, and are checked merged: `zone { device { permissions } ...ZoneFields }` satisfies the rule even though neither side selects everything on its own.
+
 **Disallows:**
 ```graphql
 # With rule: required_fields: { id: true, requestId: true }
@@ -248,7 +267,23 @@ subscription OnZoneUpdate($input: SoundZoneUpdateInput!) {
 
 Since the fragment may be shared by operations that are allowed to select the field, these diagnostics offer only the ignore action, not the removal one. Suppress them with `# graphox-ignore` on the parent selection field, as above.
 
-Nested selections inside a fragment body (`fragment F on Post { author { password } }`) are checked against the fragment itself, so rules limited to specific operation types do not apply to them.
+Objects nested inside a fragment body are checked the same way, at every depth and through chains of spreads:
+
+```graphql
+fragment ZoneFields on SoundZone {
+  id
+  device {
+    id
+    permissions   # forbidden in the subscription below, required in the query
+  }
+}
+```
+
+The diagnostic lands on the spread that reaches the object, since that is where the operation type is known, and names the fragment the selection lives in. Suppress these with `# graphox-ignore` on the spread itself, which is where they point.
+
+A path a fragment nests and the same path selected inline are one selection set, and the rules see them merged — `zone { device { permissions } ...ZoneFields }` satisfies a rule that either side alone would not. When the document selects the path itself, the diagnostic stays on that selection and does not name a fragment.
+
+Rules that hold for every operation type (`password: true`) are reported inside the fragment definition instead, where the selection is, rather than once per spread.
 
 **Provides code action:** "Remove forbidden field" to automatically delete the field.
 

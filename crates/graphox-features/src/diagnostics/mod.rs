@@ -16,6 +16,13 @@ mod values;
 
 use std::sync::Arc;
 
+/// The spread that brought a nested selection into this document.
+#[derive(Clone)]
+pub struct FragmentOrigin {
+    pub fragment: Arc<str>,
+    pub anchor: Range,
+}
+
 #[allow(clippy::type_complexity)]
 pub struct ValidationContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
@@ -39,6 +46,14 @@ pub struct ValidationContext<'a> {
         ahash::AHashMap<Arc<str>, ahash::AHashMap<Arc<str>, ahash::AHashSet<Arc<str>>>>,
     pub root_response_keys: ahash::AHashSet<Arc<str>>,
     pub response_key_anchor_ranges: ahash::AHashMap<Arc<str>, Vec<Range>>,
+    /// Response keys the document's own selections created. A key that is
+    /// absent here exists only because a spread fragment nests it, and its
+    /// diagnostics belong on the spread rather than in this document.
+    pub document_response_keys: ahash::AHashSet<Arc<str>>,
+    /// Where a response key's selections came from when a spread fragment
+    /// contributed them, so a diagnostic can anchor on the spread and name the
+    /// fragment the selection actually lives in.
+    pub fragment_origins: ahash::AHashMap<Arc<str>, FragmentOrigin>,
     pub documents: Option<&'a graphox_core::types::DocumentsMap>,
     pub response_key_types: ahash::AHashMap<Arc<str>, apollo_compiler::schema::ExtendedType>,
 }
@@ -116,6 +131,8 @@ impl DocumentDiagnostics for DocumentState {
                 type_condition_fields: ahash::AHashMap::default(),
                 root_response_keys: ahash::AHashSet::default(),
                 response_key_anchor_ranges: ahash::AHashMap::default(),
+                document_response_keys: ahash::AHashSet::default(),
+                fragment_origins: ahash::AHashMap::default(),
                 response_key_types: ahash::AHashMap::default(),
                 documents: None,
             };

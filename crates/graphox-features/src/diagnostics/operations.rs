@@ -88,6 +88,8 @@ pub(super) fn validate_operation(
     ctx.type_condition_fields.clear();
     ctx.root_response_keys.clear();
     ctx.response_key_anchor_ranges.clear();
+    ctx.document_response_keys.clear();
+    ctx.fragment_origins.clear();
     ctx.response_key_types.clear();
 
     let mut operation_type_string = String::from("query");
@@ -315,6 +317,14 @@ pub(super) fn check_required_fields(
                         continue;
                     }
 
+                    // A key that only a fragment declares carries just the
+                    // rules the fragment's own pass cannot evaluate; see
+                    // check_forbidden_fields.
+                    let origin = fragment_only_origin(ctx, response_key).cloned();
+                    if origin.is_some() && rule.applies_to_any_operation() {
+                        continue;
+                    }
+
                     let empty_set = ahash::AHashSet::default();
                     let selected_fields = ctx
                         .response_key_selected_fields
@@ -339,15 +349,26 @@ pub(super) fn check_required_fields(
                             continue;
                         }
 
-                        let Some(anchor_range) = resolve_anchor_and_check_ignore(
-                            this,
-                            node,
-                            offset,
-                            ctx,
-                            response_key,
-                            definition_range,
-                        ) else {
-                            continue;
+                        let anchor_range = match &origin {
+                            Some(origin) => {
+                                if spread_anchor_ignored(this, node, offset, &origin.anchor) {
+                                    continue;
+                                }
+                                origin.anchor
+                            }
+                            None => {
+                                let Some(anchor_range) = resolve_anchor_and_check_ignore(
+                                    this,
+                                    node,
+                                    offset,
+                                    ctx,
+                                    response_key,
+                                    definition_range,
+                                ) else {
+                                    continue;
+                                };
+                                anchor_range
+                            }
                         };
 
                         push_required_field_diagnostic(
@@ -356,9 +377,12 @@ pub(super) fn check_required_fields(
                                 range: anchor_range,
                                 severity: Some(DiagnosticSeverity::ERROR),
                                 message: format!(
-                                    "Required field '{}' must be selected in '{}'{}",
+                                    "Required field '{}' must be selected in '{}'{}{}",
                                     field_name_str,
                                     display_key,
+                                    nested_in_fragment_suffix(
+                                        origin.as_ref().map(|o| o.fragment.as_ref())
+                                    ),
                                     rule.reason()
                                         .map(|r| format!(": {}", r))
                                         .unwrap_or_default()
@@ -399,6 +423,11 @@ pub(super) fn check_required_fields(
                                 continue;
                             }
 
+                            let origin = fragment_only_origin(ctx, response_key).cloned();
+                            if origin.is_some() && rule.applies_to_any_operation() {
+                                continue;
+                            }
+
                             let type_fields = ctx
                                 .type_condition_fields
                                 .get(response_key)
@@ -423,15 +452,27 @@ pub(super) fn check_required_fields(
                                     continue;
                                 }
 
-                                let Some(anchor_range) = resolve_anchor_and_check_ignore(
-                                    this,
-                                    node,
-                                    offset,
-                                    ctx,
-                                    response_key,
-                                    definition_range,
-                                ) else {
-                                    continue;
+                                let anchor_range = match &origin {
+                                    Some(origin) => {
+                                        if spread_anchor_ignored(this, node, offset, &origin.anchor)
+                                        {
+                                            continue;
+                                        }
+                                        origin.anchor
+                                    }
+                                    None => {
+                                        let Some(anchor_range) = resolve_anchor_and_check_ignore(
+                                            this,
+                                            node,
+                                            offset,
+                                            ctx,
+                                            response_key,
+                                            definition_range,
+                                        ) else {
+                                            continue;
+                                        };
+                                        anchor_range
+                                    }
                                 };
 
                                 push_required_field_diagnostic(
@@ -440,9 +481,12 @@ pub(super) fn check_required_fields(
                                         range: anchor_range,
                                         severity: Some(DiagnosticSeverity::ERROR),
                                         message: format!(
-                                            "Required field '{}' must be selected in '... on {}'{}",
+                                            "Required field '{}' must be selected in '... on {}'{}{}",
                                             field_name_str,
                                             type_name,
+                                            nested_in_fragment_suffix(
+                                                origin.as_ref().map(|o| o.fragment.as_ref())
+                                            ),
                                             rule.reason()
                                                 .map(|r| format!(": {}", r))
                                                 .unwrap_or_default()
@@ -543,11 +587,24 @@ pub(super) fn check_forbidden_fields(
                             )
                         };
 
-                        // The field may have been merged in from a spread
-                        // fragment, in which case the spread is the anchor.
-                        let mut via_fragment = None;
+                        // A key only a fragment declares stands for an object
+                        // nested in its body: nothing here to point at, so the
+                        // spread carries the diagnostic. The fragment's own pass
+                        // already covers rules that hold in every operation, so
+                        // only operation-scoped ones are evaluated here.
+                        let origin = fragment_only_origin(ctx, response_key).cloned();
+                        if origin.is_some() && rule.applies_to_any_operation() {
+                            continue;
+                        }
+
+                        let mut via_fragment =
+                            origin.as_ref().map(|o| o.fragment.as_ref().to_string());
+
+                        // Otherwise the field may still have been merged in
+                        // from a spread at this response key.
                         let mut field_node = field_node;
-                        if field_node.is_none()
+                        if origin.is_none()
+                            && field_node.is_none()
                             && let Some((spread_node, fragment_name)) =
                                 find_fragment_spread_selecting_field(
                                     this,
@@ -563,19 +620,35 @@ pub(super) fn check_forbidden_fields(
                             via_fragment = Some(fragment_name);
                         }
 
-                        if let Some(field_node) = field_node {
-                            let Some(_anchor_range) = resolve_anchor_and_check_ignore(
-                                this,
-                                node,
-                                offset,
-                                ctx,
-                                response_key,
-                                definition_range,
-                            ) else {
-                                continue;
+                        if origin.is_some() || field_node.is_some() {
+                            let anchor_range = match &origin {
+                                Some(origin) => {
+                                    if spread_anchor_ignored(this, node, offset, &origin.anchor) {
+                                        continue;
+                                    }
+                                    origin.anchor
+                                }
+                                None => {
+                                    let Some(anchor_range) = resolve_anchor_and_check_ignore(
+                                        this,
+                                        node,
+                                        offset,
+                                        ctx,
+                                        response_key,
+                                        definition_range,
+                                    ) else {
+                                        continue;
+                                    };
+                                    anchor_range
+                                }
                             };
 
-                            let diagnostic_range = this.translate_to_file_range(field_node, offset);
+                            let diagnostic_range = match field_node {
+                                Some(field_node) => {
+                                    this.translate_to_file_range(field_node, offset)
+                                }
+                                None => anchor_range,
+                            };
 
                             push_forbidden_field_diagnostic(
                                 ctx.diagnostics,
@@ -620,16 +693,28 @@ pub(super) fn check_forbidden_fields(
                             continue;
                         }
 
-                        let mut via_fragment = None;
-                        let mut field_node = find_field_node_in_type_condition(
-                            this,
-                            node,
-                            offset,
-                            response_key,
-                            type_name,
-                            field_name_str,
-                        );
-                        if field_node.is_none()
+                        let origin = fragment_only_origin(ctx, response_key).cloned();
+                        if origin.is_some() && rule.applies_to_any_operation() {
+                            continue;
+                        }
+
+                        let mut via_fragment =
+                            origin.as_ref().map(|o| o.fragment.as_ref().to_string());
+
+                        let mut field_node = if origin.is_some() {
+                            None
+                        } else {
+                            find_field_node_in_type_condition(
+                                this,
+                                node,
+                                offset,
+                                response_key,
+                                type_name,
+                                field_name_str,
+                            )
+                        };
+                        if origin.is_none()
+                            && field_node.is_none()
                             && let Some((spread_node, fragment_name)) =
                                 find_fragment_spread_selecting_field(
                                     this,
@@ -645,19 +730,35 @@ pub(super) fn check_forbidden_fields(
                             via_fragment = Some(fragment_name);
                         }
 
-                        if let Some(field_node) = field_node {
-                            let Some(_anchor_range) = resolve_anchor_and_check_ignore(
-                                this,
-                                node,
-                                offset,
-                                ctx,
-                                response_key,
-                                definition_range,
-                            ) else {
-                                continue;
+                        if origin.is_some() || field_node.is_some() {
+                            let anchor_range = match &origin {
+                                Some(origin) => {
+                                    if spread_anchor_ignored(this, node, offset, &origin.anchor) {
+                                        continue;
+                                    }
+                                    origin.anchor
+                                }
+                                None => {
+                                    let Some(anchor_range) = resolve_anchor_and_check_ignore(
+                                        this,
+                                        node,
+                                        offset,
+                                        ctx,
+                                        response_key,
+                                        definition_range,
+                                    ) else {
+                                        continue;
+                                    };
+                                    anchor_range
+                                }
                             };
 
-                            let diagnostic_range = this.translate_to_file_range(field_node, offset);
+                            let diagnostic_range = match field_node {
+                                Some(field_node) => {
+                                    this.translate_to_file_range(field_node, offset)
+                                }
+                                None => anchor_range,
+                            };
 
                             push_forbidden_field_diagnostic(
                                 ctx.diagnostics,
@@ -692,6 +793,40 @@ pub(super) fn check_forbidden_fields(
                 }
             }
         }
+    }
+}
+
+/// The spread a response key's selections came in through, when the key exists
+/// only because a fragment nests it. A key the document declares itself is
+/// checked as usual: the fragment's fields merge into that one selection set.
+fn fragment_only_origin<'a>(
+    ctx: &'a ValidationContext,
+    response_key: &str,
+) -> Option<&'a crate::diagnostics::FragmentOrigin> {
+    if ctx.document_response_keys.contains(response_key) {
+        return None;
+    }
+    ctx.fragment_origins.get(response_key)
+}
+
+/// Whether the spread carrying a nested selection has an inline ignore comment.
+/// Suppression goes where the diagnostic points, which for these is the spread.
+fn spread_anchor_ignored(this: &DocumentState, node: Node, offset: usize, anchor: &Range) -> bool {
+    find_node_for_range(this, node, offset, anchor).is_some_and(|anchor_node| {
+        crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
+            this,
+            anchor_node,
+            offset,
+        )
+    })
+}
+
+/// ` inside fragment 'X'` when the response key stands for an object nested in a
+/// spread fragment, where the missing field has to be added.
+fn nested_in_fragment_suffix(fragment: Option<&str>) -> String {
+    match fragment {
+        Some(name) => format!(" inside fragment '{}'", name),
+        None => String::new(),
     }
 }
 

@@ -20,6 +20,8 @@ pub struct FragmentCompletionInfo {
     pub transitive_deps: TransitiveDeps,
     pub selected_fields: Arc<[Arc<str>]>,
     pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
+    pub top_level_spreads: Arc<[Arc<str>]>,
+    pub nested_selections: Arc<[graphox_core::document::NestedSelection]>,
     pub requirements: FragmentRequirements,
     pub worst_slo: Option<graphox_core::schema::SloClass>,
 }

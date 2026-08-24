@@ -27,6 +27,8 @@ pub(super) fn validate_fragment(
     ctx.type_condition_fields.clear();
     ctx.root_response_keys.clear();
     ctx.response_key_anchor_ranges.clear();
+    ctx.document_response_keys.clear();
+    ctx.fragment_origins.clear();
     ctx.response_key_types.clear();
 
     let mut cursor = node.walk();
@@ -306,6 +308,14 @@ pub(super) fn validate_fragment_spread(
                             &mut visited_fields,
                             rk,
                             type_name,
+                        );
+
+                        mark_nested_selections(
+                            this,
+                            &name,
+                            ctx,
+                            rk,
+                            this.translate_to_file_range(name_child, offset),
                         );
                     }
 
@@ -665,7 +675,7 @@ pub(super) fn mark_selected_fields_recursive(
                 .or_default()
                 .insert(field.clone());
         }
-        for spread in frag.used_fragments.iter() {
+        for spread in frag.top_level_spreads.iter() {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }
     }
@@ -702,9 +712,194 @@ pub(super) fn mark_selected_fields_recursive(
                 .insert(field.clone());
         }
 
-        // Original loop was here, now redundant but keeping structure for safety
-        for spread in frag.used_fragments.iter() {
+        for spread in frag.top_level_spreads.iter() {
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }
     }
+}
+
+/// Record the objects nested inside a spread fragment as selections of the
+/// document that spreads it.
+///
+/// A fragment's top-level fields merge into the response key it is spread under,
+/// which `mark_selected_fields_recursive` handles. Anything below that has no
+/// response key here at all, so each nested path gets a synthetic one carrying
+/// the type resolved from the schema and an anchor on the spread. Both field
+/// rules are driven by that bookkeeping, so recording it is all they need in
+/// order to see nested selections.
+pub(super) fn mark_nested_selections(
+    this: &DocumentState,
+    name: &str,
+    ctx: &mut ValidationContext,
+    base_key: &str,
+    spread_range: Range,
+) {
+    let mut walk = NestedWalk {
+        chain: ahash::AHashSet::default(),
+        budget: 4096,
+    };
+    mark_nested_selections_inner(this, name, ctx, base_key, spread_range, &mut walk, 0);
+}
+
+/// Bookkeeping for one nested-selection walk. Fragment cycles are invalid
+/// GraphQL but reach us while a document is being edited, and the paths this
+/// walk builds grow as it descends, so a visited set keyed on the path would
+/// never see a repeat and the walk would not terminate. The chain below is
+/// keyed on the fragment instead.
+struct NestedWalk {
+    /// Fragments on the current spread chain. A fragment can be expanded at
+    /// several paths, but never inside its own expansion.
+    chain: ahash::AHashSet<Arc<str>>,
+    /// Remaining expansions, so a fragment graph that fans out sharply cannot
+    /// make the walk explode. Each one is a metadata lookup and a few map
+    /// inserts, so this is a backstop rather than a working limit.
+    budget: usize,
+}
+
+/// Spread nesting this walk follows. The chain guard alone bounds recursion by
+/// the number of distinct fragments, which on a large workspace is deeper than a
+/// worker thread's stack; nothing legitimate nests anywhere near this far.
+const MAX_NESTED_SPREAD_DEPTH: usize = 64;
+
+fn mark_nested_selections_inner(
+    this: &DocumentState,
+    name: &str,
+    ctx: &mut ValidationContext,
+    base_key: &str,
+    spread_range: Range,
+    walk: &mut NestedWalk,
+    depth: usize,
+) {
+    if walk.budget == 0 || depth > MAX_NESTED_SPREAD_DEPTH {
+        return;
+    }
+    walk.budget -= 1;
+
+    let chain_key: Arc<str> = Arc::from(name);
+    if !walk.chain.insert(chain_key.clone()) {
+        return;
+    }
+
+    // Arc clones, so the fragment metadata is not borrowed while ctx is written.
+    let all_fragments = ctx.all_fragments;
+    let local = this
+        .fragments()
+        .iter()
+        .find(|f| f.name.as_ref() == name)
+        .map(|f| {
+            (
+                f.type_condition.clone(),
+                f.nested_selections.clone(),
+                f.top_level_spreads.clone(),
+            )
+        });
+    let Some((type_condition, nested_selections, top_level_spreads)) = local.or_else(|| {
+        all_fragments
+            .iter()
+            .find(|f| f.name.as_ref() == name)
+            .map(|f| {
+                (
+                    f.type_condition.clone(),
+                    f.nested_selections.clone(),
+                    f.top_level_spreads.clone(),
+                )
+            })
+    }) else {
+        walk.chain.remove(&chain_key);
+        return;
+    };
+
+    for entry in nested_selections.iter() {
+        let start_type = entry
+            .root_type_condition
+            .as_deref()
+            .unwrap_or(type_condition.as_ref());
+        let Some(type_def) = resolve_path_type(ctx.schema, start_type, &entry.type_path) else {
+            continue;
+        };
+
+        // The path the fragment nests is a response key of the consuming
+        // document like any other, so selections merge with the same path
+        // selected inline: `zone { account { id } ...F }` is one object.
+        let nested_key: Arc<str> = format!("{}.{}", base_key, entry.path)
+            .into_boxed_str()
+            .into();
+
+        ctx.response_key_types
+            .entry(nested_key.clone())
+            .or_insert(type_def);
+        ctx.fragment_origins
+            .entry(nested_key.clone())
+            .or_insert_with(|| crate::diagnostics::FragmentOrigin {
+                fragment: Arc::from(name),
+                anchor: spread_range,
+            });
+
+        if entry.is_spread {
+            let mut visited_fields = ahash::AHashSet::default();
+            mark_selected_fields_recursive(
+                this,
+                &entry.name,
+                ctx,
+                &mut visited_fields,
+                &nested_key,
+                entry.type_condition.as_deref(),
+            );
+            mark_nested_selections_inner(
+                this,
+                &entry.name,
+                ctx,
+                &nested_key,
+                spread_range,
+                walk,
+                depth + 1,
+            );
+        } else if let Some(tc) = &entry.type_condition {
+            ctx.response_key_type_conditions
+                .entry(nested_key.clone())
+                .or_default()
+                .insert(tc.clone());
+            ctx.type_condition_fields
+                .entry(nested_key)
+                .or_default()
+                .entry(tc.clone())
+                .or_default()
+                .insert(entry.name.clone());
+        } else {
+            ctx.response_key_selected_fields
+                .entry(nested_key)
+                .or_default()
+                .insert(entry.name.clone());
+        }
+    }
+
+    // A top-level spread's own nested objects sit at the same base key.
+    for spread in top_level_spreads.iter() {
+        mark_nested_selections_inner(this, spread, ctx, base_key, spread_range, walk, depth + 1);
+    }
+
+    walk.chain.remove(&chain_key);
+}
+
+/// Walk `type_path`, a dot-joined chain of field names, from `start_type` and
+/// return the type it lands on. None if the schema does not have that path,
+/// which happens while a document is mid-edit.
+fn resolve_path_type(
+    schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
+    start_type: &str,
+    type_path: &str,
+) -> Option<ExtendedType> {
+    let mut current = schema.types.get(start_type)?.clone();
+    for segment in type_path.split('.') {
+        let field_def = match &current {
+            ExtendedType::Object(obj) => obj.fields.get(segment)?,
+            ExtendedType::Interface(iface) => iface.fields.get(segment)?,
+            _ => return None,
+        };
+        current = schema
+            .types
+            .get(field_def.ty.inner_named_type().as_str())?
+            .clone();
+    }
+    Some(current)
 }
