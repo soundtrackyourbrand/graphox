@@ -21,6 +21,9 @@ use std::sync::Arc;
 pub struct FragmentOrigin {
     pub fragment: Arc<str>,
     pub anchor: Range,
+    /// The selection inside the fragment carries `# graphox-ignore`, which
+    /// suppresses the path for every document that spreads it.
+    pub ignored: bool,
 }
 
 #[allow(clippy::type_complexity)]
@@ -296,21 +299,7 @@ impl DocumentDiagnostics for DocumentState {
     }
 
     fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
-        let start_byte = node.start_byte() + offset;
-        let line_idx = self.rope.byte_to_line(start_byte);
-        if line_idx >= self.rope.len_lines() {
-            return false;
-        }
-
-        let line = self.rope.line(line_idx).to_string();
-        let line_start_byte = self.rope.line_to_byte(line_idx);
-        let relative_end_byte = node.end_byte() + offset - line_start_byte;
-        if relative_end_byte >= line.len() {
-            return false;
-        }
-
-        line.get(relative_end_byte..)
-            .is_some_and(|after_text| after_text.contains("# graphox-ignore"))
+        DocumentState::has_inline_ignore_comment(self, node, offset)
     }
 
     fn collect_gql_errors(

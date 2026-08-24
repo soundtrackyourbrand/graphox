@@ -1883,3 +1883,124 @@ fn test_required_field_reported_once_for_a_path_both_sides_select() {
         &crate::support::range_for_token(&doc, text, "subscription"),
     );
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_nested_in_fragment_ignored_inside_the_fragment() {
+    // The comment sits on the selection that would have to gain the field, so it
+    // holds for every operation that spreads the fragment.
+    let text = r#"
+        fragment AccountBilling on Account {
+            billing {
+                id
+                subscription { # graphox-ignore
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_nested_in_fragment_ignored_at_the_spread() {
+    let text = r#"
+        fragment AccountBilling on Account {
+            billing {
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling # graphox-ignore
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_ignore_inside_fragment_is_per_selection() {
+    // Only the selection carrying the comment is exempt; its sibling path is
+    // still reported, so an ignore cannot quietly cover a whole subtree.
+    let text = r#"
+        fragment AccountBilling on Account {
+            onboardingSoundZone { # graphox-ignore
+                name
+            }
+            billing {
+                subscription {
+                    price
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...AccountBilling
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_diagnostics_count(&diagnostics, 2);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'billing' inside fragment 'AccountBilling'",
+    );
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription' inside fragment 'AccountBilling'",
+    );
+}

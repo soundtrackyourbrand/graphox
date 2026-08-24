@@ -833,6 +833,7 @@ fn mark_nested_selections_inner(
             .or_insert_with(|| crate::diagnostics::FragmentOrigin {
                 fragment: Arc::from(name),
                 anchor: spread_range,
+                ignored: entry.path_ignored,
             });
 
         if entry.is_spread {

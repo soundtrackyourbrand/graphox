@@ -934,3 +934,85 @@ fn test_field_rules_terminate_on_a_fragment_cycle() {
         diagnostics
     );
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_nested_in_fragment_ignored_inside_the_fragment() {
+    // Suppression written next to the offending selection, which is where the
+    // field would be removed, holds for every operation spreading the fragment.
+    let text = r#"
+        fragment PostWithAuthor on Post {
+            id
+            author { # graphox-ignore
+                id
+                password
+            }
+        }
+
+        subscription OnPost {
+            postAdded {
+                ...PostWithAuthor
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::post_subscription_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_ignored_on_its_own_line() {
+    // The diagnostic points at the field, so the comment works there too. This
+    // is where the "Ignore forbidden field" code action writes it.
+    let text = r#"
+        query GetUsers {
+            users {
+                id
+                password # graphox-ignore
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}

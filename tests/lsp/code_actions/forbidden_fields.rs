@@ -278,3 +278,84 @@ async fn test_forbidden_field_via_fragment_spread_offers_no_removal() {
         actions
     );
 }
+
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_nested_in_fragment_suppression_travels_across_files() {
+    // The fragment and the operation live in different files. Suppression
+    // written where the selection is has to reach the file that spreads it,
+    // otherwise a shared fragment needs the same comment at every spread.
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "password".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let schema = "type User { id: ID! password: String! } \
+                  type Post { id: ID! author: User } \
+                  type Query { posts: [Post] } \
+                  type Subscription { postAdded: Post }";
+    let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config = config.with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let (mut service, _handle) = create_initialized_lsp_service(config).await;
+
+    let fragment_text =
+        "fragment PostFields on Post {\n  id\n  author {\n    id\n    password\n  }\n}";
+    let fragment_uri = write_project_file(&dir, "fragment.graphql", fragment_text);
+    lsp_did_open(
+        &mut service,
+        fragment_uri.clone(),
+        "graphql",
+        1,
+        fragment_text,
+    )
+    .await;
+
+    let sub_text = "subscription OnPost {\n  postAdded {\n    ...PostFields\n  }\n}";
+    let sub_uri = write_project_file(&dir, "subscription.graphql", sub_text);
+    lsp_did_open(&mut service, sub_uri.clone(), "graphql", 1, sub_text).await;
+
+    let forbidden_count = |diags: Vec<Diagnostic>| {
+        diags
+            .into_iter()
+            .filter(|d| {
+                d.code
+                    == Some(NumberOrString::String(
+                        "forbidden_field_selected".to_string(),
+                    ))
+            })
+            .count()
+    };
+    macro_rules! fetch {
+        ($uri:expr) => {{
+            let result = lsp_request_diagnostics(&mut service, $uri).await;
+            if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full)) =
+                result
+            {
+                full.full_document_diagnostic_report.items
+            } else {
+                panic!("Expected full diagnostic report");
+            }
+        }};
+    }
+
+    let before = fetch!(sub_uri.clone());
+    assert_eq!(
+        forbidden_count(before),
+        1,
+        "the nested selection should be reported in the subscription's file"
+    );
+
+    // Add the ignore comment in the fragment's file only.
+    let ignored_text = "fragment PostFields on Post {\n  id\n  author { # graphox-ignore\n    id\n    password\n  }\n}";
+    write_project_file(&dir, "fragment.graphql", ignored_text);
+    lsp_did_open(&mut service, fragment_uri, "graphql", 2, ignored_text).await;
+
+    let after = fetch!(sub_uri);
+    assert_eq!(
+        forbidden_count(after),
+        0,
+        "suppression in the fragment's file should reach the spreading file"
+    );
+}
