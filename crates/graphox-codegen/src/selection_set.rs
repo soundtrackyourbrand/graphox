@@ -108,6 +108,13 @@ fn generate_object_or_intersection(
     expected_type: &ExtendedType,
     used_fragments: &mut HashSet<Arc<str>>,
 ) -> SelectionSetType {
+    let merged_keys = collect_list_collisions(
+        &categorized.fields,
+        &categorized.fragment_spreads,
+        parent_type,
+        ctx,
+    );
+
     let local_fields_list = generate_field_list(
         &categorized.fields,
         parent_type,
@@ -116,6 +123,7 @@ fn generate_object_or_intersection(
         categorized.has_explicit_typename,
         expected_type,
         used_fragments,
+        &merged_keys,
     );
 
     if categorized.fragment_spreads.is_empty() {
@@ -125,7 +133,12 @@ fn generate_object_or_intersection(
             needs_type_declaration: false,
         }
     } else {
-        let type_str = format_intersection(&local_fields_list, &categorized.fragment_spreads, ctx);
+        let type_str = format_intersection(
+            &local_fields_list,
+            &categorized.fragment_spreads,
+            ctx,
+            &merged_keys,
+        );
         SelectionSetType {
             type_str,
             needs_type_declaration: true,
@@ -133,7 +146,154 @@ fn generate_object_or_intersection(
     }
 }
 
+/// A response key this selection set and a spread fragment both select.
+///
+/// TypeScript intersects the two property types. For an object that is what we
+/// want — `{ a } & { b }` has both members — but a list becomes
+/// `Array<A> & Array<B>`, and `.map` binds only the first constituent, so the
+/// other's fields silently disappear from the callback parameter. Colliding list
+/// keys are therefore generated as one merged property and omitted from the
+/// fragment types they also came from.
+struct MergedKey {
+    key: String,
+    /// The field to take the name, schema type and JSDoc from.
+    field: Node<executable::Field>,
+    /// Every contributor's sub-selections, generated as one selection set.
+    selections: Vec<Selection>,
+    /// Fragments whose type must no longer carry the key.
+    omit_from: Vec<Arc<str>>,
+    /// Whether this selection set selects the key itself, or only fragments do.
+    selected_locally: bool,
+}
+
+/// Collect a fragment's top-level response keys, following its own spreads and
+/// inline fragments, since all of them land in the same generated type.
+fn collect_fragment_fields<'a>(
+    selection_set: &'a SelectionSet,
+    ctx: &'a CodegenContext,
+    visited: &mut HashSet<Arc<str>>,
+    out: &mut Vec<&'a Node<executable::Field>>,
+) {
+    for selection in &selection_set.selections {
+        match selection {
+            Selection::Field(field) => out.push(field),
+            Selection::InlineFragment(inline) => {
+                collect_fragment_fields(&inline.selection_set, ctx, visited, out)
+            }
+            Selection::FragmentSpread(spread) => {
+                let name: Arc<str> = spread.fragment_name.as_str().into();
+                if !visited.insert(name.clone()) {
+                    continue;
+                }
+                if let Some(frag) = ctx.all_fragments.get(spread.fragment_name.as_str()) {
+                    collect_fragment_fields(&frag.selection_set, ctx, visited, out);
+                }
+            }
+        }
+    }
+}
+
+fn response_key(field: &Node<executable::Field>) -> &str {
+    field.alias.as_ref().unwrap_or(&field.name).as_str()
+}
+
+fn field_is_list(parent_type: &ExtendedType, field: &Node<executable::Field>) -> bool {
+    let field_def = match parent_type {
+        ExtendedType::Object(obj) => obj.fields.get(field.name.as_str()),
+        ExtendedType::Interface(iface) => iface.fields.get(field.name.as_str()),
+        _ => None,
+    };
+    field_def.is_some_and(|fd| fd.ty.is_list())
+}
+
+fn collect_list_collisions(
+    fields: &[&Node<executable::Field>],
+    fragment_spreads: &[&Node<executable::FragmentSpread>],
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+) -> Vec<MergedKey> {
+    if fragment_spreads.is_empty() {
+        return Vec::new();
+    }
+
+    // key -> (contributing fields, fragments to omit it from, selected here)
+    let mut contributors: Vec<MergedKey> = Vec::new();
+    let mut index: ahash::AHashMap<String, usize> = ahash::AHashMap::default();
+
+    let record = |key: &str,
+                  field: &Node<executable::Field>,
+                  from_fragment: Option<&Arc<str>>,
+                  contributors: &mut Vec<MergedKey>,
+                  index: &mut ahash::AHashMap<String, usize>| {
+        let slot = *index.entry(key.to_string()).or_insert_with(|| {
+            contributors.push(MergedKey {
+                key: key.to_string(),
+                field: field.clone(),
+                selections: Vec::new(),
+                omit_from: Vec::new(),
+                selected_locally: from_fragment.is_none(),
+            });
+            contributors.len() - 1
+        });
+        let entry = &mut contributors[slot];
+        entry
+            .selections
+            .extend(field.selection_set.selections.iter().cloned());
+        match from_fragment {
+            Some(name) => {
+                if !entry.omit_from.contains(name) {
+                    entry.omit_from.push(name.clone());
+                }
+            }
+            None => entry.selected_locally = true,
+        }
+    };
+
+    for field in fields {
+        if field.selection_set.selections.is_empty() {
+            continue;
+        }
+        record(
+            response_key(field),
+            field,
+            None,
+            &mut contributors,
+            &mut index,
+        );
+    }
+
+    for spread in fragment_spreads {
+        let Some(frag) = ctx.all_fragments.get(spread.fragment_name.as_str()) else {
+            continue;
+        };
+        let spread_name: Arc<str> = spread.fragment_name.as_str().into();
+        let mut fields = Vec::new();
+        let mut visited = HashSet::default();
+        visited.insert(spread_name.clone());
+        collect_fragment_fields(&frag.selection_set, ctx, &mut visited, &mut fields);
+        for field in fields {
+            if field.selection_set.selections.is_empty() {
+                continue;
+            }
+            record(
+                response_key(field),
+                field,
+                Some(&spread_name),
+                &mut contributors,
+                &mut index,
+            );
+        }
+    }
+
+    contributors.retain(|c| {
+        let contributor_count = c.omit_from.len() + if c.selected_locally { 1 } else { 0 };
+        contributor_count > 1 && field_is_list(parent_type, &c.field)
+    });
+    contributors
+}
+
 /// Generate list of TypeScript field definitions
+#[allow(clippy::too_many_arguments)]
 fn generate_field_list(
     fields: &[&Node<executable::Field>],
     parent_type: &ExtendedType,
@@ -142,6 +302,7 @@ fn generate_field_list(
     has_explicit_typename: bool,
     expected_type: &ExtendedType,
     used_fragments: &mut HashSet<Arc<str>>,
+    merged_keys: &[MergedKey],
 ) -> Vec<String> {
     let mut local_fields_list = Vec::with_capacity(fields.len() + 1);
     let mut seen_fields: HashSet<&str> = HashSet::with_capacity(fields.len() + 1);
@@ -191,6 +352,8 @@ fn generate_field_list(
             let deprecation = local_deprecation.or(schema_deprecation);
             let jsdoc = format_jsdoc(fd.description.as_deref(), deprecation, indent + 1);
 
+            let merged = merged_keys.iter().find(|m| m.key == name.as_str());
+
             let ts_type = if field.selection_set.selections.is_empty() {
                 gql_type_to_ts(&fd.ty, ctx.schema, ctx.scalars, ctx)
             } else {
@@ -200,8 +363,14 @@ fn generate_field_list(
                     .types
                     .get(inner_type_name.as_str())
                     .expect("Field type must exist");
+                // A colliding list key is generated from every contributor at
+                // once, so the element type has all their fields.
+                let merged_set = merged.map(|m| SelectionSet {
+                    ty: field.selection_set.ty.clone(),
+                    selections: m.selections.clone(),
+                });
                 let result = generate_selection_set(
-                    &field.selection_set,
+                    merged_set.as_ref().unwrap_or(&field.selection_set),
                     inner_type,
                     ctx,
                     indent + 1,
@@ -239,7 +408,58 @@ fn generate_field_list(
         }
     }
 
+    // Keys only the fragments selected have no field here to hang the merged
+    // property on, so they are appended.
+    for merged in merged_keys {
+        if merged.selected_locally || seen_fields.contains(merged.key.as_str()) {
+            continue;
+        }
+        if let Some(line) = render_merged_field(merged, parent_type, ctx, indent, used_fragments) {
+            local_fields_list.push(line);
+        }
+    }
+
     local_fields_list
+}
+
+/// Render one merged property for a key this selection set does not select
+/// itself, generated from the contributing fragments' selections.
+fn render_merged_field(
+    merged: &MergedKey,
+    parent_type: &ExtendedType,
+    ctx: &CodegenContext,
+    indent: usize,
+    used_fragments: &mut HashSet<Arc<str>>,
+) -> Option<String> {
+    let field_def = match parent_type {
+        ExtendedType::Object(obj) => obj.fields.get(merged.field.name.as_str()),
+        ExtendedType::Interface(iface) => iface.fields.get(merged.field.name.as_str()),
+        _ => None,
+    }?;
+
+    let inner_type = ctx
+        .schema
+        .types
+        .get(field_def.ty.inner_named_type().as_str())?;
+    let selection_set = SelectionSet {
+        ty: merged.field.selection_set.ty.clone(),
+        selections: merged.selections.clone(),
+    };
+    let generated =
+        generate_selection_set(&selection_set, inner_type, ctx, indent + 1, used_fragments);
+    let wrapped = wrap_in_list_and_nullability(&generated.type_str, &field_def.ty);
+
+    let optional_marker = if matches!(
+        &field_def.ty,
+        apollo_compiler::schema::Type::Named(_) | apollo_compiler::schema::Type::List(_)
+    ) && ctx.nullable_fields_as_optional()
+    {
+        "?"
+    } else {
+        ""
+    };
+
+    Some(format!("{}{}: {}", merged.key, optional_marker, wrapped))
 }
 
 /// Format fields as a multi-line TypeScript object
@@ -273,6 +493,7 @@ fn format_intersection(
     fields: &[String],
     fragment_spreads: &[&Node<executable::FragmentSpread>],
     ctx: &CodegenContext,
+    merged_keys: &[MergedKey],
 ) -> String {
     if fragment_spreads.is_empty() {
         return format!("{{ {} }}", fields.join(", "));
@@ -304,11 +525,32 @@ fn format_intersection(
         let mut plain_spreads: Vec<_> = fragment_spreads
             .iter()
             .map(|s| {
-                format!(
+                let type_name = format!(
                     "{}{}",
                     apply_naming_convention(s.fragment_name.as_str(), &ctx.naming_convention()),
                     ctx.fragment_suffix()
-                )
+                );
+                // Keys generated as one merged property must not also arrive
+                // through the fragment, or the intersection is back.
+                let mut omitted: Vec<&str> = merged_keys
+                    .iter()
+                    .filter(|m| {
+                        m.omit_from
+                            .iter()
+                            .any(|f| f.as_ref() == s.fragment_name.as_str())
+                    })
+                    .map(|m| m.key.as_str())
+                    .collect();
+                if omitted.is_empty() {
+                    return type_name;
+                }
+                omitted.sort();
+                let keys = omitted
+                    .iter()
+                    .map(|k| format!("'{}'", k))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                format!("Omit<{}, {}>", type_name, keys)
             })
             .collect();
         plain_spreads.sort();
@@ -413,6 +655,9 @@ fn generate_union_type(
         // 3. Generate field list for this member
         // We pass has_explicit_typename: true to skip automatic __typename generation
         // for individual members, we'll add the combined one for the group below.
+        let member_merged =
+            collect_list_collisions(&member_fields, &member_spreads, member_type, ctx);
+
         let fields_list = generate_field_list(
             &member_fields,
             member_type,
@@ -421,12 +666,13 @@ fn generate_union_type(
             true, // Skip auto __typename
             parent_type,
             used_fragments,
+            &member_merged,
         );
 
         let spreads_str = if member_spreads.is_empty() {
             String::new()
         } else {
-            format_intersection(&[], &member_spreads, ctx)
+            format_intersection(&[], &member_spreads, ctx, &member_merged)
         };
 
         // 4. Collect all selections applicable to this specific member for structural key generation
