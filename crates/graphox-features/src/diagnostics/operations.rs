@@ -351,7 +351,7 @@ pub(super) fn check_required_fields(
 
                         let anchor_range = match &origin {
                             Some(origin) => {
-                                if spread_anchor_ignored(this, node, offset, &origin.anchor) {
+                                if nested_selection_ignored(this, node, offset, origin) {
                                     continue;
                                 }
                                 origin.anchor
@@ -454,8 +454,7 @@ pub(super) fn check_required_fields(
 
                                 let anchor_range = match &origin {
                                     Some(origin) => {
-                                        if spread_anchor_ignored(this, node, offset, &origin.anchor)
-                                        {
+                                        if nested_selection_ignored(this, node, offset, origin) {
                                             continue;
                                         }
                                         origin.anchor
@@ -623,7 +622,7 @@ pub(super) fn check_forbidden_fields(
                         if origin.is_some() || field_node.is_some() {
                             let anchor_range = match &origin {
                                 Some(origin) => {
-                                    if spread_anchor_ignored(this, node, offset, &origin.anchor) {
+                                    if nested_selection_ignored(this, node, offset, origin) {
                                         continue;
                                     }
                                     origin.anchor
@@ -642,6 +641,16 @@ pub(super) fn check_forbidden_fields(
                                     anchor_range
                                 }
                             };
+
+                            // The diagnostic points at the selection itself, so
+                            // a comment on that line suppresses it as well as one
+                            // on the parent. This is what the ignore code action
+                            // writes.
+                            if let Some(field_node) = field_node
+                                && this.has_inline_ignore_comment(field_node, offset)
+                            {
+                                continue;
+                            }
 
                             let diagnostic_range = match field_node {
                                 Some(field_node) => {
@@ -733,7 +742,7 @@ pub(super) fn check_forbidden_fields(
                         if origin.is_some() || field_node.is_some() {
                             let anchor_range = match &origin {
                                 Some(origin) => {
-                                    if spread_anchor_ignored(this, node, offset, &origin.anchor) {
+                                    if nested_selection_ignored(this, node, offset, origin) {
                                         continue;
                                     }
                                     origin.anchor
@@ -752,6 +761,16 @@ pub(super) fn check_forbidden_fields(
                                     anchor_range
                                 }
                             };
+
+                            // The diagnostic points at the selection itself, so
+                            // a comment on that line suppresses it as well as one
+                            // on the parent. This is what the ignore code action
+                            // writes.
+                            if let Some(field_node) = field_node
+                                && this.has_inline_ignore_comment(field_node, offset)
+                            {
+                                continue;
+                            }
 
                             let diagnostic_range = match field_node {
                                 Some(field_node) => {
@@ -809,16 +828,21 @@ fn fragment_only_origin<'a>(
     ctx.fragment_origins.get(response_key)
 }
 
-/// Whether the spread carrying a nested selection has an inline ignore comment.
-/// Suppression goes where the diagnostic points, which for these is the spread.
-fn spread_anchor_ignored(this: &DocumentState, node: Node, offset: usize, anchor: &Range) -> bool {
-    find_node_for_range(this, node, offset, anchor).is_some_and(|anchor_node| {
-        crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-            this,
-            anchor_node,
-            offset,
-        )
-    })
+/// Whether a nested selection's diagnostic is suppressed. Either place works:
+/// the spread, where the diagnostic points, or the selection inside the fragment
+/// that owns the path, which covers every document spreading that fragment and
+/// sits where the fix would go.
+fn nested_selection_ignored(
+    this: &DocumentState,
+    node: Node,
+    offset: usize,
+    origin: &crate::diagnostics::FragmentOrigin,
+) -> bool {
+    if origin.ignored {
+        return true;
+    }
+    find_node_for_range(this, node, offset, &origin.anchor)
+        .is_some_and(|anchor_node| this.has_inline_ignore_comment(anchor_node, offset))
 }
 
 /// ` inside fragment 'X'` when the response key stands for an object nested in a

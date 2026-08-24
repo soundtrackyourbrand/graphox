@@ -105,6 +105,10 @@ pub struct NestedSelection {
     /// Field name, or fragment name when `is_spread`.
     pub name: Arc<str>,
     pub is_spread: bool,
+    /// Whether the selection that opens `path` carries `# graphox-ignore`.
+    /// Suppression written inside the fragment has to travel with the metadata,
+    /// since the rule is evaluated in the documents that spread it.
+    pub path_ignored: bool,
 }
 
 /// Join a selection path segment onto a dotted path, matching the response-key
@@ -873,6 +877,27 @@ impl DocumentState {
         components
     }
 
+    /// Whether `node`'s line carries a `# graphox-ignore` comment after it.
+    /// Suppression is line-based and always attaches to a selection, so this is
+    /// the one place that decides what "ignored" means.
+    pub fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
+        let start_byte = node.start_byte() + offset;
+        let line_idx = self.rope.byte_to_line(start_byte);
+        if line_idx >= self.rope.len_lines() {
+            return false;
+        }
+
+        let line = self.rope.line(line_idx).to_string();
+        let line_start_byte = self.rope.line_to_byte(line_idx);
+        let relative_end_byte = node.end_byte() + offset - line_start_byte;
+        if relative_end_byte >= line.len() {
+            return false;
+        }
+
+        line.get(relative_end_byte..)
+            .is_some_and(|after_text| after_text.contains("# graphox-ignore"))
+    }
+
     pub fn fragments(&self) -> &[FragmentDef] {
         &self.fragments
     }
@@ -1013,8 +1038,11 @@ impl DocumentState {
                             String::new(),
                             String::new(),
                             None::<String>,
+                            false,
                         )];
-                        while let Some((set, current_tc, path, type_path, root_tc)) = stack.pop() {
+                        while let Some((set, current_tc, path, type_path, root_tc, path_ignored)) =
+                            stack.pop()
+                        {
                             let mut cur = set.walk();
                             for child in set.children(&mut cur) {
                                 if child.kind() == "selection" {
@@ -1028,13 +1056,18 @@ impl DocumentState {
                                                     continue;
                                                 };
                                                 let fname = self.get_node_text(name_node, offset);
-                                                let response_key = components
+                                                // The alias, when there is one, is
+                                                // both the response key and the
+                                                // node an ignore comment attaches
+                                                // to, exactly as in an operation.
+                                                let key_node = components
                                                     .alias
                                                     .and_then(|a| {
                                                         self.find_child_by_kind(a, "name")
                                                     })
-                                                    .map(|n| self.get_node_text(n, offset))
-                                                    .unwrap_or_else(|| fname.clone());
+                                                    .unwrap_or(name_node);
+                                                let response_key =
+                                                    self.get_node_text(key_node, offset);
 
                                                 if path.is_empty() {
                                                     if let Some(tc) = &current_tc {
@@ -1058,6 +1091,7 @@ impl DocumentState {
                                                             .map(Arc::from),
                                                         name: Arc::from(fname.as_str()),
                                                         is_spread: false,
+                                                        path_ignored,
                                                     });
                                                 }
 
@@ -1077,6 +1111,9 @@ impl DocumentState {
                                                         join_selection_path(&path, &response_key),
                                                         join_selection_path(&type_path, &fname),
                                                         child_root_tc,
+                                                        self.has_inline_ignore_comment(
+                                                            key_node, offset,
+                                                        ),
                                                     ));
                                                 }
                                             }
@@ -1086,12 +1123,20 @@ impl DocumentState {
                                                 if let Some(inner_set) =
                                                     self.find_child_by_kind(node, "selection_set")
                                                 {
+                                                    let tc_ignored = self
+                                                        .find_child_by_kind(node, "type_condition")
+                                                        .is_some_and(|tc_node| {
+                                                            self.has_inline_ignore_comment(
+                                                                tc_node, offset,
+                                                            )
+                                                        });
                                                     stack.push((
                                                         inner_set,
                                                         tc.or_else(|| current_tc.clone()),
                                                         path.clone(),
                                                         type_path.clone(),
                                                         root_tc.clone(),
+                                                        path_ignored || tc_ignored,
                                                     ));
                                                 }
                                             }
@@ -1120,6 +1165,7 @@ impl DocumentState {
                                                                 .map(Arc::from),
                                                             name: Arc::from(spread_name.as_str()),
                                                             is_spread: true,
+                                                            path_ignored,
                                                         });
                                                     }
                                                 }
