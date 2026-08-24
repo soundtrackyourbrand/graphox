@@ -1,7 +1,7 @@
 {
   "name": "@graphox/swc-plugin",
   "description": "SWC plugin for Graphox: rewrites graphql() calls to direct generated-document imports so unused documents are tree-shaken",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
