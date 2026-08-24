@@ -737,6 +737,7 @@ pub(super) fn mark_nested_selections(
     let mut walk = NestedWalk {
         chain: ahash::AHashSet::default(),
         budget: 4096,
+        spread_parent: Arc::from(base_key),
     };
     mark_nested_selections_inner(this, name, ctx, base_key, spread_range, &mut walk, 0);
 }
@@ -754,6 +755,9 @@ struct NestedWalk {
     /// make the walk explode. Each one is a metadata lookup and a few map
     /// inserts, so this is a backstop rather than a working limit.
     budget: usize,
+    /// The document's own response key that holds the spread this walk started
+    /// from. Constant for the walk, however deep it goes.
+    spread_parent: Arc<str>,
 }
 
 /// Spread nesting this walk follows. The chain guard alone bounds recursion by
@@ -833,6 +837,7 @@ fn mark_nested_selections_inner(
             .or_insert_with(|| crate::diagnostics::FragmentOrigin {
                 fragment: Arc::from(name),
                 anchor: spread_range,
+                spread_parent: walk.spread_parent.clone(),
                 ignored: entry.path_ignored,
             });
 

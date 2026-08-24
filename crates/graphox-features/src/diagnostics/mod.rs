@@ -21,6 +21,9 @@ use std::sync::Arc;
 pub struct FragmentOrigin {
     pub fragment: Arc<str>,
     pub anchor: Range,
+    /// Response key of the selection the spread sits in. An ignore comment there
+    /// exempts what the spread brings in, since the walk descends through it.
+    pub spread_parent: Arc<str>,
     /// The selection inside the fragment carries `# graphox-ignore`, which
     /// suppresses the path for every document that spreads it.
     pub ignored: bool,

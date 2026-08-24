@@ -2004,3 +2004,130 @@ fn test_required_field_ignore_inside_fragment_is_per_selection() {
         "Required field 'id' must be selected in 'subscription' inside fragment 'AccountBilling'",
     );
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_nested_in_fragment_ignored_at_the_containing_selection() {
+    // The walk descends through `billing` to reach objects the fragment nests,
+    // so a comment there exempts what the spread brings in. Anything the
+    // document selects itself still has its own line to mark.
+    let text = r#"
+        fragment BillingFields on Billing {
+            subscription {
+                price
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                billing { # graphox-ignore
+                    id
+                    ...BillingFields
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_ignore_does_not_reach_further_ancestors() {
+    // Two levels up is not the selection the spread sits in, and an ignore has
+    // never covered a whole subtree.
+    let text = r#"
+        fragment BillingFields on Billing {
+            subscription {
+                price
+            }
+        }
+
+        query AccountSubscription {
+            account { # graphox-ignore
+                id
+                billing {
+                    id
+                    ...BillingFields
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription' inside fragment 'BillingFields'",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_nested_in_fragment_ignored_at_an_inline_fragment() {
+    // An inline fragment in the fragment body exempts the objects directly
+    // inside it. Selections further down are written on their own lines, so
+    // they are marked there, exactly as in an operation.
+    let text = r#"
+        fragment SourceInfo on Account {
+            ... on Account { # graphox-ignore
+                billing {
+                    subscription {
+                        price
+                    }
+                }
+            }
+        }
+
+        query AccountSubscription {
+            account {
+                id
+                ...SourceInfo
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "id".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics =
+        doc.get_semantic_diagnostics(&account_schema(), &[], None, Some(&config), false, true);
+
+    // `billing` sits directly inside the ignored inline fragment; the
+    // `subscription` below it does not.
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in 'subscription' inside fragment 'SourceInfo'",
+    );
+}

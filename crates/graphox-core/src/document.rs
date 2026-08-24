@@ -1039,9 +1039,17 @@ impl DocumentState {
                             String::new(),
                             None::<String>,
                             false,
+                            false,
                         )];
-                        while let Some((set, current_tc, path, type_path, root_tc, path_ignored)) =
-                            stack.pop()
+                        while let Some((
+                            set,
+                            current_tc,
+                            path,
+                            type_path,
+                            root_tc,
+                            path_ignored,
+                            tc_ignored,
+                        )) = stack.pop()
                         {
                             let mut cur = set.walk();
                             for child in set.children(&mut cur) {
@@ -1111,9 +1119,17 @@ impl DocumentState {
                                                         join_selection_path(&path, &response_key),
                                                         join_selection_path(&type_path, &fname),
                                                         child_root_tc,
-                                                        self.has_inline_ignore_comment(
-                                                            key_node, offset,
-                                                        ),
+                                                        // An inline fragment around
+                                                        // this selection exempts
+                                                        // what is inside it. The
+                                                        // enclosing path does not,
+                                                        // matching how suppression
+                                                        // works in an operation.
+                                                        tc_ignored
+                                                            || self.has_inline_ignore_comment(
+                                                                key_node, offset,
+                                                            ),
+                                                        false,
                                                     ));
                                                 }
                                             }
@@ -1123,7 +1139,7 @@ impl DocumentState {
                                                 if let Some(inner_set) =
                                                     self.find_child_by_kind(node, "selection_set")
                                                 {
-                                                    let tc_ignored = self
+                                                    let inline_ignored = self
                                                         .find_child_by_kind(node, "type_condition")
                                                         .is_some_and(|tc_node| {
                                                             self.has_inline_ignore_comment(
@@ -1136,7 +1152,8 @@ impl DocumentState {
                                                         path.clone(),
                                                         type_path.clone(),
                                                         root_tc.clone(),
-                                                        path_ignored || tc_ignored,
+                                                        path_ignored,
+                                                        tc_ignored || inline_ignored,
                                                     ));
                                                 }
                                             }
