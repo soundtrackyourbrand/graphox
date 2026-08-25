@@ -167,8 +167,6 @@ pub trait DocumentDiagnostics {
         reason: &str,
     );
 
-    fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool;
-
     fn collect_gql_errors(
         &self,
         root: tree_sitter::Node,
@@ -379,10 +377,6 @@ impl DocumentDiagnostics for DocumentState {
                 ..Default::default()
             });
         }
-    }
-
-    fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
-        DocumentState::has_inline_ignore_comment(self, node, offset)
     }
 
     fn collect_gql_errors(

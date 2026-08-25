@@ -1070,27 +1070,6 @@ impl DocumentState {
         components
     }
 
-    /// Whether `node`'s line carries a `# graphox-ignore` comment after it.
-    /// Suppression is line-based and always attaches to a selection, so this is
-    /// the one place that decides what "ignored" means.
-    pub fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
-        let start_byte = node.start_byte() + offset;
-        let line_idx = self.rope.byte_to_line(start_byte);
-        if line_idx >= self.rope.len_lines() {
-            return false;
-        }
-
-        let line = self.rope.line(line_idx).to_string();
-        let line_start_byte = self.rope.line_to_byte(line_idx);
-        let relative_end_byte = node.end_byte() + offset - line_start_byte;
-        if relative_end_byte >= line.len() {
-            return false;
-        }
-
-        line.get(relative_end_byte..)
-            .is_some_and(|after_text| after_text.contains("# graphox-ignore"))
-    }
-
     /// The rules the ignore comment on `node`'s line covers, if there is one.
     pub fn ignore_scope(&self, node: Node, offset: usize) -> IgnoreScope {
         let start_byte = node.start_byte() + offset;
