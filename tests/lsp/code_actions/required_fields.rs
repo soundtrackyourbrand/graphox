@@ -147,7 +147,7 @@ async fn test_ignore_nested_required() {
         .iter()
         .find(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Ignore required field with # graphox-ignore"
+                ca.title == "Ignore required field with # graphox-ignore required_fields"
             } else {
                 false
             }
@@ -156,7 +156,7 @@ async fn test_ignore_nested_required() {
 
     assert!(matches!(
         ignore_action,
-        CodeActionOrCommand::CodeAction(ca) if ca.title == "Ignore required field with # graphox-ignore"
+        CodeActionOrCommand::CodeAction(ca) if ca.title == "Ignore required field with # graphox-ignore required_fields"
     ));
 }
 

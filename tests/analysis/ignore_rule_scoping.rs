@@ -149,8 +149,8 @@ fragment M on Manual {
 
 /// Everything before the explanation marker is a rule list, so a word there
 /// that names no rule is either a misspelling or prose missing its marker.
-/// Both warn: the comment still covers every rule, so from the outside nothing
-/// looks wrong while the narrowing its author wrote never happened.
+/// Both warn, because from the outside nothing looks wrong while the narrowing
+/// its author wrote never happened.
 fn warnings(comment: &str) -> Vec<String> {
     let schema = fixtures::playable_source_schema()
         .clone()
@@ -160,7 +160,13 @@ fn warnings(comment: &str) -> Vec<String> {
     let doc = create_doc("file:///scoping.graphql", &text);
     doc.get_semantic_diagnostics(&schema, &[], None, None, false, true)
         .iter()
-        .filter(|d| d.message.contains("graphox-ignore does not know"))
+        .filter(|d| {
+            matches!(
+                &d.code,
+                Some(tower_lsp_server::ls_types::NumberOrString::String(c))
+                    if c == "unknown_ignore_rule"
+            )
+        })
         .map(|d| d.message.clone())
         .collect()
 }
@@ -234,4 +240,59 @@ fn an_explanation_does_not_change_the_scope() {
 fn an_unknown_name_still_suppresses_everything() {
     assert_eq!(counts(" # graphox-ignore deprecatd"), (0, 0));
     assert_eq!(counts(" # graphox-ignore legacy zones"), (0, 0));
+}
+
+/// The warning has to describe what the comment actually does. A list of
+/// nothing but unknown words falls back to covering everything; one unknown
+/// word beside a correctly spelled rule narrows to that rule, which is the
+/// opposite mistake and needs saying so.
+#[test]
+#[ntest::timeout(300)]
+fn the_warning_states_the_real_scope() {
+    let all = warnings(" # graphox-ignore legacy zones");
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert!(
+        all[0].contains("covers every rule"),
+        "an all-unknown list covers everything: {all:?}"
+    );
+
+    let mixed = warnings(" # graphox-ignore required_fields we need this");
+    assert_eq!(mixed.len(), 1, "{mixed:?}");
+    assert!(
+        mixed[0].contains("covers only required_fields"),
+        "a known name beside an unknown word narrows: {mixed:?}"
+    );
+    // And the narrowing really did happen, so the message is not lying.
+    assert_eq!(
+        counts(" # graphox-ignore required_fields we need this"),
+        (1, 0)
+    );
+}
+
+/// A rule name written where the explanation goes narrows nothing, and the
+/// comment silently covers everything. Both spellings are plausible enough to
+/// be worth catching.
+#[test]
+#[ntest::timeout(300)]
+fn a_rule_name_in_the_explanation_warns() {
+    for comment in [
+        " # graphox-ignore: deprecated",
+        " # graphox-ignore (deprecated)",
+        " # graphox-ignore - required_fields",
+    ] {
+        let w = warnings(comment);
+        assert_eq!(w.len(), 1, "{comment:?} -> {w:?}");
+        assert!(w[0].contains("narrows nothing"), "{comment:?} -> {w:?}");
+        // It still suppresses everything, so nothing starts firing unasked.
+        assert_eq!(counts(comment), (0, 0), "{comment:?}");
+    }
+}
+
+/// An explanation that merely mentions a rule name later on is not the same
+/// mistake and must stay quiet.
+#[test]
+#[ntest::timeout(300)]
+fn an_explanation_mentioning_a_rule_later_is_quiet() {
+    assert!(warnings(" # graphox-ignore: we cannot satisfy required_fields yet").is_empty());
+    assert!(warnings(" # graphox-ignore deprecated: also required_fields, later").is_empty());
 }

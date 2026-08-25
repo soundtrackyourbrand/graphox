@@ -45,21 +45,53 @@ fn check_ignore_comment_rule_names(
     while let Some(node) = stack.pop() {
         if node.kind() == "comment" {
             let text = doc.get_node_text(node, offset);
-            let unknown = graphox_core::document::unrecognised_ignore_rule_names(&text);
-            if !unknown.is_empty() {
+            let known = graphox_core::document::IgnoreRule::ALL
+                .iter()
+                .map(|r| r.comment_name())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            // A rule named after the marker is in the explanation, where it
+            // narrows nothing.
+            if let Some(rule) = graphox_core::document::rule_name_in_explanation(&text) {
                 ctx.diagnostics.push(Diagnostic {
                     range: doc.translate_to_file_range(node, offset),
                     severity: Some(DiagnosticSeverity::WARNING),
                     message: format!(
-                        "graphox-ignore does not know the rule {}. Name one of {}, or start an explanation with ':', '-' or '(' \u{2014} as written, the comment covers every rule.",
+                        "'{rule}' is in the explanation here, so it narrows nothing and this comment covers every rule. Write `# graphox-ignore {rule}` to mean only that rule."
+                    ),
+                    code: Some(NumberOrString::String("unknown_ignore_rule".to_string())),
+                    source: DIAGNOSTIC_SOURCE.map(String::from),
+                    ..Default::default()
+                });
+                continue;
+            }
+
+            let unknown = graphox_core::document::unrecognised_ignore_rule_names(&text);
+            if !unknown.is_empty() {
+                // Say what the comment actually covers. A list of nothing but
+                // unknown words falls back to covering everything; one unknown
+                // word beside a real rule name narrows to the rule that was
+                // spelled correctly, which is the opposite mistake.
+                let scope = graphox_core::document::parse_ignore_scope(&text);
+                let covered: Vec<&str> = graphox_core::document::IgnoreRule::ALL
+                    .iter()
+                    .filter(|r| scope.covers(**r))
+                    .map(|r| r.comment_name())
+                    .collect();
+                let effect = if covered.len() == graphox_core::document::IgnoreRule::ALL.len() {
+                    "as written, it covers every rule".to_string()
+                } else {
+                    format!("as written, it covers only {}", covered.join(", "))
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    range: doc.translate_to_file_range(node, offset),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!(
+                        "graphox-ignore does not know the rule {}. Name one of {known}, or start an explanation with ':', '-' or '(' \u{2014} {effect}.",
                         unknown
                             .iter()
                             .map(|n| format!("'{}'", n))
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        graphox_core::document::IgnoreRule::ALL
-                            .iter()
-                            .map(|r| r.comment_name())
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),

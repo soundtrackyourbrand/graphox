@@ -224,6 +224,27 @@ pub fn parse_ignore_scope(after_selection: &str) -> IgnoreScope {
     }
 }
 
+/// A rule name written in the explanation position, where it names no rule and
+/// the comment silently covers everything. `# graphox-ignore: deprecated` and
+/// `# graphox-ignore (deprecated)` are both plausible spellings of an intent the
+/// grammar does not read that way, so they are worth reporting rather than
+/// quietly over-suppressing.
+pub fn rule_name_in_explanation(after_selection: &str) -> Option<String> {
+    let (rules, explanation) = split_ignore_comment(after_selection)?;
+    if !rules.trim().is_empty() {
+        return None;
+    }
+    let first = explanation
+        .trim_start_matches([':', '-', '(', ' ', '\t'])
+        .split([',', ' ', '\t', ')'])
+        .next()?
+        .trim();
+    IgnoreRule::ALL
+        .iter()
+        .find(|r| r.comment_name() == first)
+        .map(|r| r.comment_name().to_string())
+}
+
 /// Words before the explanation marker that name no rule graphox knows.
 ///
 /// Everything up to the marker is meant to be a rule list, so anything here is

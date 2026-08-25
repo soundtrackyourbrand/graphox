@@ -156,15 +156,20 @@ async fn test_ignore_deprecation_tsx() {
         .await
         .expect("Expected actions");
 
-    let ca = find_code_action_by_title(&actions, "Ignore deprecation with # graphox-ignore")
-        .expect("Should find 'Ignore deprecation with # graphox-ignore' action");
+    let ca = find_code_action_by_title(
+        &actions,
+        "Ignore deprecation with # graphox-ignore deprecated",
+    )
+    .expect("Should find 'Ignore deprecation with # graphox-ignore deprecated' action");
 
     let edit = ca.edit.as_ref().unwrap();
     let changes = edit.changes.as_ref().unwrap();
     assert!(changes.contains_key(&tsx_uri));
     let edits = &changes[&tsx_uri];
     assert!(
-        edits.iter().any(|e| e.new_text == " # graphox-ignore"),
+        edits
+            .iter()
+            .any(|e| e.new_text == " # graphox-ignore deprecated"),
         "Should find an edit with the expected ignore text"
     );
 }

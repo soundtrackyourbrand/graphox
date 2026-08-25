@@ -157,7 +157,7 @@ async fn test_ignore_forbidden_field() {
         .iter()
         .find(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Ignore forbidden field with # graphox-ignore"
+                ca.title == "Ignore forbidden field with # graphox-ignore forbidden_fields"
             } else {
                 false
             }
@@ -269,7 +269,7 @@ async fn test_forbidden_field_via_fragment_spread_offers_no_removal() {
     assert!(
         actions.iter().any(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Ignore forbidden field with # graphox-ignore"
+                ca.title == "Ignore forbidden field with # graphox-ignore forbidden_fields"
             } else {
                 false
             }

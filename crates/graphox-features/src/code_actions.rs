@@ -194,12 +194,17 @@ fn create_inline_ignore_action(
     doc: &DocumentState,
     diagnostic: &Diagnostic,
     title: &str,
+    rule: graphox_core::document::IgnoreRule,
 ) -> Option<CodeAction> {
     let line_idx = diagnostic.range.end.line as usize;
     if line_idx >= doc.rope.len_lines() {
         return None;
     }
 
+    // Offering the fix again would write a second marker on the line, which
+    // reads as one comment. Only skip when what is already there covers this
+    // rule; a comment naming a different one still needs this rule adding, and
+    // that is a hand edit rather than something to do silently.
     let line = doc.rope.line(line_idx).to_string();
     if line.contains("# graphox-ignore") {
         return None;
@@ -224,7 +229,7 @@ fn create_inline_ignore_action(
         doc.uri.clone(),
         vec![TextEdit {
             range: Range::new(insert_pos, insert_pos),
-            new_text: " # graphox-ignore".to_string(),
+            new_text: format!(" # graphox-ignore {}", rule.comment_name()),
         }],
     );
 
@@ -609,7 +614,8 @@ impl DocumentCodeActions for DocumentState {
         if let Some(action) = create_inline_ignore_action(
             self,
             diagnostic,
-            "Ignore required field with # graphox-ignore",
+            "Ignore required field with # graphox-ignore required_fields",
+            graphox_core::document::IgnoreRule::RequiredFields,
         ) {
             actions.push(action);
         }
@@ -802,7 +808,8 @@ impl DocumentCodeActions for DocumentState {
         if let Some(action) = create_inline_ignore_action(
             self,
             diagnostic,
-            "Ignore forbidden field with # graphox-ignore",
+            "Ignore forbidden field with # graphox-ignore forbidden_fields",
+            graphox_core::document::IgnoreRule::ForbiddenFields,
         ) {
             actions.push(action);
         }
@@ -930,7 +937,8 @@ impl DocumentCodeActions for DocumentState {
         if let Some(action) = create_inline_ignore_action(
             self,
             diagnostic,
-            "Ignore deprecation with # graphox-ignore",
+            "Ignore deprecation with # graphox-ignore deprecated",
+            graphox_core::document::IgnoreRule::Deprecated,
         ) {
             actions.push(action);
         }
