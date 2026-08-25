@@ -1241,6 +1241,7 @@ fn find_spread_selecting_field<'a>(
                 current_type_condition,
                 key_type,
                 &mut ahash::AHashSet::default(),
+                0,
             ) {
                 return Some((name_node, fragment_name));
             }

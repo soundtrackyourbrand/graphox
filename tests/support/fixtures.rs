@@ -507,6 +507,44 @@ pub fn displayable_schema() -> &'static Schema {
     })
 }
 
+static SUPERTYPE_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Interface hierarchy where a fragment can be written on a *supertype* of the
+/// type in effect, and a union whose members share a common interface. Both are
+/// shapes where a spread does not narrow.
+pub fn supertype_schema() -> &'static Schema {
+    SUPERTYPE_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    pets: [Pet]
+                    search: [Result]
+                }
+                interface Node {
+                    id: ID!
+                }
+                interface Pet implements Node {
+                    id: ID!
+                    name: String
+                }
+                type Dog implements Pet & Node {
+                    id: ID!
+                    name: String
+                    barks: Boolean
+                }
+                type Cat implements Pet & Node {
+                    id: ID!
+                    name: String
+                    meows: Boolean
+                }
+                union Result = Dog | Cat
+            "#,
+            "supertype_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
 // =============================================================================
 // Query Strings
 // =============================================================================
