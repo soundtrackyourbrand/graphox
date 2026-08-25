@@ -656,21 +656,27 @@ pub(super) fn fragment_type_condition(
         })
 }
 
-/// A fragment spread where an abstract type is in effect narrows it exactly as
-/// `... on X` would. The abstract type has no fields of its own for a field rule
-/// to be about, so the condition has to travel with the fields or the selection
-/// is never checked against anything.
+/// A fragment spread whose own type condition is a subtype of what is in
+/// effect narrows it exactly as `... on X` would. The abstract type has no
+/// fields of its own for a field rule to be about, so the condition has to
+/// travel with the fields or the selection is never checked against anything.
 ///
 /// `in_effect` is the type condition already in force, or the response key's own
 /// type when there is none. A spread narrows relative to that rather than to the
 /// key: a fragment on an interface spread at a union key narrows to the
 /// interface, and a fragment on a member spread inside *that* narrows again to
-/// the member. Stopping at the first narrowing files the member's fields under
-/// the interface, where no rule about the member ever looks for them.
+/// the member. Stopping after the first step files the member's fields under the
+/// interface, where no rule about the member ever looks for them.
+///
+/// Direction matters. A fragment written on a *supertype* — `on Node` spread
+/// where a `Pet` is in effect — selects for every possible type of what is in
+/// effect, so its fields belong to the key itself, not to a narrower condition.
+/// Recording them under the supertype hides them from every rule about the
+/// type actually being selected, and the field looks unselected when it is not.
 ///
 /// None when the spread narrows nothing: what is in effect is a concrete type,
-/// or the fragment is written on that very type and only its own `... on X`
-/// blocks narrow further.
+/// the fragment is written on that very type, or its condition is not a subtype
+/// of it.
 fn narrowing_type_condition(
     schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
     in_effect: &str,
@@ -679,13 +685,22 @@ fn narrowing_type_condition(
     if in_effect == fragment_type_condition {
         return None;
     }
-    if !matches!(
-        schema.types.get(in_effect)?,
-        ExtendedType::Union(_) | ExtendedType::Interface(_)
-    ) {
+    // Covers an object implementing an interface, an interface refining
+    // another, and a member of a union — and rules out the reverse of each.
+    if !schema.is_subtype(in_effect, fragment_type_condition) {
         return None;
     }
     Some(Arc::from(fragment_type_condition))
+}
+
+/// Key for the guard against walking one fragment twice. A fragment reached
+/// under two different type conditions contributes to both, so the condition is
+/// part of its identity here. The separator cannot occur in a GraphQL name.
+fn visit_key(name: &str, type_name: Option<&str>) -> String {
+    match type_name {
+        Some(tn) => format!("{name}\u{1f}{tn}"),
+        None => name.to_string(),
+    }
 }
 
 pub(super) fn mark_selected_fields_recursive(
@@ -696,11 +711,6 @@ pub(super) fn mark_selected_fields_recursive(
     response_key: &str,
     type_name: Option<&str>,
 ) {
-    if visited.contains(name) {
-        return;
-    }
-    visited.insert(name.to_string());
-
     // Whatever is in effect here — an enclosing `... on X`, or the key's own
     // type — this spread's own condition may narrow it further.
     let in_effect: Option<String> = type_name.map(str::to_string).or_else(|| {
@@ -714,6 +724,14 @@ pub(super) fn mark_selected_fields_recursive(
     });
     // The narrower condition wins: it is the one the fields belong to.
     let type_name = narrowed.as_deref().or(type_name);
+
+    // One fragment can be reached under two different conditions — two members
+    // of a union both spreading the same `on Node` fragment, say. Its fields
+    // belong under each, so the guard has to key on the pair or the second
+    // arrival is dropped and that member looks unsatisfied.
+    if !visited.insert(visit_key(name, type_name)) {
+        return;
+    }
 
     // The required check discovers which conditions exist at a key from this
     // set, so a narrowing spread has to register itself the way `... on X`
@@ -818,8 +836,12 @@ pub(super) fn spread_contributes_field_under(
     enclosing: Option<&str>,
     key_type: Option<&ExtendedType>,
     visited: &mut ahash::AHashSet<String>,
+    depth: usize,
 ) -> bool {
-    if !visited.insert(name.to_string()) {
+    // The visited guard bounds this by the number of distinct fragments, which
+    // on a large workspace is deeper than a worker thread's stack. Same limit
+    // and same reasoning as the nested-selection walk below.
+    if depth > MAX_NESTED_SPREAD_DEPTH {
         return false;
     }
 
@@ -831,6 +853,12 @@ pub(super) fn spread_contributes_field_under(
             .and_then(|tc| narrowing_type_condition(schema, in_effect, &tc))
     });
     let effective: Option<&str> = narrowed.as_deref().or(enclosing);
+
+    // Keyed on the pair for the same reason as the recorder: one fragment can
+    // legitimately be reached under two conditions.
+    if !visited.insert(visit_key(name, effective)) {
+        return false;
+    }
 
     let local = this
         .fragments()
@@ -887,6 +915,7 @@ pub(super) fn spread_contributes_field_under(
             effective,
             key_type,
             visited,
+            depth + 1,
         )
     }) {
         return true;
@@ -910,6 +939,7 @@ pub(super) fn spread_contributes_field_under(
                 entry.type_condition.as_deref().or(effective),
                 key_type,
                 visited,
+                depth + 1,
             )
         })
 }

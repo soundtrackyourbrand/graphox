@@ -431,21 +431,58 @@ fn forbidden_field_can_be_suppressed_on_every_shape() {
     let config = forbidden_secret_in_subscriptions();
     let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
 
-    let mut unsuppressed = Vec::new();
+    let mut problems = Vec::new();
     for (label, text) in SUPPRESSED {
         let doc = create_doc("file:///matrix.graphql", text);
-        let diagnostics =
-            doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
-        let (found, _) = split_diagnostics(&diagnostics);
+        let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
+            &schema,
+            &[],
+            None,
+            Some(&config),
+            false,
+            true,
+        ));
+        if !noise.is_empty() {
+            problems.push(format!("  {label}: bad document: {noise:?}"));
+            continue;
+        }
         if found != 0 {
-            unsuppressed.push(*label);
+            problems.push(format!("  {label}: not suppressed"));
+        }
+
+        // Without its comment the same document has to report, or the case
+        // proves nothing about suppression.
+        let bare = without_the_comment(text);
+        let doc = create_doc("file:///matrix.graphql", &bare);
+        let (found_bare, noise_bare) = split_diagnostics(&doc.get_semantic_diagnostics(
+            &schema,
+            &[],
+            None,
+            Some(&config),
+            false,
+            true,
+        ));
+        if !noise_bare.is_empty() {
+            problems.push(format!("  {label}: bad once stripped: {noise_bare:?}"));
+        } else if found_bare == 0 {
+            problems.push(format!(
+                "  {label}: reports nothing even without the comment, so it tests nothing"
+            ));
         }
     }
-    assert!(
-        unsuppressed.is_empty(),
-        "graphox-ignore did not suppress:\n  {}",
-        unsuppressed.join("\n  ")
-    );
+    assert!(problems.is_empty(), "suppression:\n{}", problems.join("\n"));
+}
+
+/// Strip the ignore comment from a case document, leaving the rest byte for
+/// byte, so a suppression case can be run both ways.
+fn without_the_comment(text: &str) -> String {
+    text.lines()
+        .map(|line| match line.find("# graphox-ignore") {
+            Some(i) => line[..i].trim_end().to_string(),
+            None => line.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Suppression placements that do *not* work today, recorded so the gap is
@@ -758,9 +795,11 @@ fn ignore_on_a_field_does_not_reach_below_it() {
         let doc = create_doc("file:///matrix.graphql", text);
         let diagnostics =
             doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
-        let (found, _) = split_diagnostics(&diagnostics);
-        if found == 0 {
-            over_suppressed.push(*label);
+        let (found, noise) = split_diagnostics(&diagnostics);
+        if !noise.is_empty() {
+            over_suppressed.push(format!("{label}: bad document: {noise:?}"));
+        } else if found == 0 {
+            over_suppressed.push(label.to_string());
         }
     }
     assert!(
@@ -780,11 +819,30 @@ fn ignore_on_a_field_covers_a_member_narrowed_at_its_level() {
     let config = forbidden_secret_in_subscriptions();
     let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
     let doc = create_doc("file:///matrix.graphql", text);
-    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
-    let (found, _) = split_diagnostics(&diagnostics);
+    let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
+        &schema,
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    ));
+    assert!(noise.is_empty(), "bad document: {noise:?}");
+    assert_eq!(found, 0, "expected the member to be covered");
+
+    let bare = without_the_comment(text);
+    let doc = create_doc("file:///matrix.graphql", &bare);
+    let (found_bare, _) = split_diagnostics(&doc.get_semantic_diagnostics(
+        &schema,
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    ));
     assert_eq!(
-        found, 0,
-        "expected the member to be covered: {diagnostics:?}"
+        found_bare, 1,
+        "without the comment this must report, or the case is vacuous"
     );
 }
 
@@ -971,4 +1029,110 @@ fn selections_on_one_member_merge_across_routes() {
         let msgs: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
         assert!(msgs.is_empty(), "{label}: routes did not merge: {msgs:?}");
     }
+}
+
+/// Narrowing has a direction, and the matrix above only ever narrows downward.
+/// A fragment written on a *supertype* of what is in effect selects for every
+/// possible type of it, so its fields belong to the response key itself. Filing
+/// them under the supertype hides them from every rule about the type actually
+/// selected, and a field that is plainly there reads as missing.
+///
+/// `fragment X on Node` spread at an interface-typed field is one of the most
+/// ordinary things in a GraphQL codebase, so this is a cheap way to be badly
+/// wrong.
+const NARROWING_DIRECTION: &[(&str, &str, &str, bool)] = &[
+    (
+        "direction/fragment-on-a-supertype",
+        "required_fields:\n  Pet:\n    id: true\n",
+        r#"query Q { pets { name ...NodeBits } }
+           fragment NodeBits on Node { id }"#,
+        false,
+    ),
+    (
+        "direction/fragment-on-the-same-type",
+        "required_fields:\n  Pet:\n    id: true\n",
+        r#"query Q { pets { name ...PetBits } }
+           fragment PetBits on Pet { id }"#,
+        false,
+    ),
+    // A rule scoped to a member nothing selects has nothing to attach to, which
+    // is deliberate: narrowing to one member is not a claim about the others.
+    (
+        "direction/rule-on-a-member-that-is-never-selected",
+        "required_fields:\n  Cat:\n    id: true\n",
+        r#"query Q { pets { name ...DogBits } }
+           fragment DogBits on Dog { id }"#,
+        false,
+    ),
+    (
+        "direction/rule-on-the-member-that-is-selected",
+        "required_fields:\n  Dog:\n    barks: true\n",
+        r#"query Q { pets { name ...DogBits } }
+           fragment DogBits on Dog { id }"#,
+        true,
+    ),
+    (
+        "direction/nothing-supplies-it",
+        "required_fields:\n  Pet:\n    id: true\n",
+        r#"query Q { pets { name } }"#,
+        true,
+    ),
+    // One fragment reached under two different conditions belongs under both.
+    (
+        "direction/shared-supertype-fragment-under-two-members",
+        "required_fields:\n  Cat:\n    id: true\n  Dog:\n    id: true\n",
+        r#"query Q { search { ...Both } }
+           fragment Both on Result { ...FDog ...FCat }
+           fragment FDog on Dog { barks ...NodeBits }
+           fragment FCat on Cat { meows ...NodeBits }
+           fragment NodeBits on Node { id }"#,
+        false,
+    ),
+    (
+        "direction/shared-fragment-one-member-still-missing",
+        "required_fields:\n  Cat:\n    id: true\n  Dog:\n    id: true\n",
+        r#"query Q { search { ...Both } }
+           fragment Both on Result { ...FDog ...FCat }
+           fragment FDog on Dog { barks id }
+           fragment FCat on Cat { meows }"#,
+        true,
+    ),
+];
+
+#[test]
+#[ntest::timeout(5000)]
+fn narrowing_only_happens_toward_a_subtype() {
+    let schema = fixtures::supertype_schema().clone().validate().unwrap();
+
+    let mut wrong = Vec::new();
+    for (label, yaml, text, should_report) in NARROWING_DIRECTION {
+        let docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+        let rules = graphox::config::RulesConfig::from_yaml(&docs[0]).unwrap();
+        let config = Config::default().with_rules(rules);
+        let doc = create_doc("file:///matrix.graphql", text);
+        let diagnostics =
+            doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+        let required: Vec<&str> = diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .filter(|m| m.starts_with("Required"))
+            .collect();
+        let noise: Vec<&str> = diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .filter(|m| !m.starts_with("Required"))
+            .collect();
+        if !noise.is_empty() {
+            wrong.push(format!("  {label}: bad document: {noise:?}"));
+        } else if required.is_empty() == *should_report {
+            wrong.push(format!(
+                "  {label}: reported {required:?}, want reported={should_report}"
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "narrowing direction:\n{}",
+        wrong.join("\n")
+    );
 }
