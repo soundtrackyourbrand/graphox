@@ -1016,3 +1016,160 @@ fn test_forbidden_field_ignored_on_its_own_line() {
 
     assert_no_diagnostics(&diagnostics);
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_under_inline_fragment_nested_in_fragment_body() {
+    // The inline fragment narrows a union partway down the path the fragment
+    // nests, so the type walk has to follow the type condition to reach
+    // `schedule` at all.
+    let text = r#"
+        subscription OnZone {
+            zoneUpdate {
+                id
+                ...ZoneSrc
+            }
+        }
+
+        fragment ZoneSrc on Zone {
+            source {
+                ... on ScheduleSource {
+                    schedule {
+                        id
+                        permissions
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "permissions".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'permissions' is forbidden on type 'Schedule' in subscription operations",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_under_inline_interface_fragment_nested_in_fragment_body() {
+    let text = r#"
+        subscription OnZone {
+            zoneUpdate {
+                id
+                ...ZoneItem
+            }
+        }
+
+        fragment ZoneItem on Zone {
+            item {
+                ... on SchedItem {
+                    schedule {
+                        id
+                        permissions
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "permissions".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Field 'permissions' is forbidden on type 'Schedule' in subscription operations",
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_forbidden_field_under_inline_fragment_in_fragment_body_ignored_inside_the_fragment() {
+    // Suppression on the object that opens the nested path holds through the
+    // type condition above it, the same as for a path with no condition on it.
+    let text = r#"
+        subscription OnZone {
+            zoneUpdate {
+                id
+                ...ZoneSrc
+            }
+        }
+
+        fragment ZoneSrc on Zone {
+            source {
+                ... on ScheduleSource {
+                    schedule { # graphox-ignore
+                        id
+                        permissions
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut forbidden_fields = AHashMap::default();
+    forbidden_fields.insert(
+        "permissions".to_string(),
+        ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+    );
+
+    let config = Config::default()
+        .with_rules(RulesConfig::default().with_forbidden_fields(forbidden_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}

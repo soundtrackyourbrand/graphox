@@ -83,6 +83,17 @@ pub type FragmentId = (Arc<str>, Arc<str>, usize);
 /// A collection of transitive fragment dependencies.
 pub type TransitiveDeps = Arc<[FragmentId]>;
 
+/// One step along a `NestedSelection::type_path`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathStep {
+    /// Descend through a field of the current type.
+    Field(Arc<str>),
+    /// Narrow the current type to an inline fragment's type condition. A path
+    /// through a union has to carry these: the union itself has no fields, so
+    /// the step below it only resolves against the member the condition picks.
+    TypeCondition(Arc<str>),
+}
+
 /// A selection below a fragment's own top level.
 ///
 /// `selected_fields` and `type_fields` describe only what a fragment selects
@@ -94,12 +105,10 @@ pub type TransitiveDeps = Arc<[FragmentId]>;
 pub struct NestedSelection {
     /// Response-key path from the fragment's top level, e.g. `account.billing`.
     pub path: Arc<str>,
-    /// The same path in field names, used to resolve types against the schema.
-    /// Differs from `path` only where a selection along it is aliased.
-    pub type_path: Arc<str>,
-    /// Type condition the path descends from, set when the path starts inside
-    /// an inline fragment rather than at the fragment's type condition.
-    pub root_type_condition: Option<Arc<str>>,
+    /// The same path as schema steps, used to resolve the type that holds this
+    /// selection. Differs from `path` where a selection along it is aliased,
+    /// and where a type condition narrows the path without adding a key.
+    pub type_path: Arc<[PathStep]>,
     /// Inline fragment type condition this selection itself sits under.
     pub type_condition: Option<Arc<str>>,
     /// Field name, or fragment name when `is_spread`.
@@ -1030,14 +1039,12 @@ impl DocumentState {
                     if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
                         // Selection set, the inline fragment type condition in
                         // effect, the response-key path from the fragment's top
-                        // level, the same path in field names, and the type
-                        // condition that path descends from.
+                        // level, and the same path as schema steps.
                         let mut stack = vec![(
                             sel_set,
                             None::<String>,
                             String::new(),
-                            String::new(),
-                            None::<String>,
+                            Vec::<PathStep>::new(),
                             false,
                             false,
                         )];
@@ -1046,7 +1053,6 @@ impl DocumentState {
                             current_tc,
                             path,
                             type_path,
-                            root_tc,
                             path_ignored,
                             tc_ignored,
                         )) = stack.pop()
@@ -1090,10 +1096,7 @@ impl DocumentState {
                                                 } else {
                                                     nested_selections.push(NestedSelection {
                                                         path: Arc::from(path.as_str()),
-                                                        type_path: Arc::from(type_path.as_str()),
-                                                        root_type_condition: root_tc
-                                                            .as_deref()
-                                                            .map(Arc::from),
+                                                        type_path: Arc::from(type_path.as_slice()),
                                                         type_condition: current_tc
                                                             .as_deref()
                                                             .map(Arc::from),
@@ -1104,21 +1107,29 @@ impl DocumentState {
                                                 }
 
                                                 if let Some(inner_set) = components.selection_set {
-                                                    // A field's own type
-                                                    // condition governs the
-                                                    // level it sits on, not the
-                                                    // levels below it.
-                                                    let child_root_tc = if path.is_empty() {
-                                                        current_tc.clone()
-                                                    } else {
-                                                        root_tc.clone()
-                                                    };
+                                                    // A type condition in
+                                                    // effect here narrows the
+                                                    // type this field is
+                                                    // reached through, so it
+                                                    // becomes a step of its
+                                                    // own. The field's own
+                                                    // selections sit below both.
+                                                    let mut child_type_path = type_path.clone();
+                                                    if let Some(tc) = &current_tc {
+                                                        child_type_path.push(
+                                                            PathStep::TypeCondition(Arc::from(
+                                                                tc.as_str(),
+                                                            )),
+                                                        );
+                                                    }
+                                                    child_type_path.push(PathStep::Field(
+                                                        Arc::from(fname.as_str()),
+                                                    ));
                                                     stack.push((
                                                         inner_set,
                                                         None,
                                                         join_selection_path(&path, &response_key),
-                                                        join_selection_path(&type_path, &fname),
-                                                        child_root_tc,
+                                                        child_type_path,
                                                         // An inline fragment around
                                                         // this selection exempts
                                                         // what is inside it. The
@@ -1151,7 +1162,6 @@ impl DocumentState {
                                                         tc.or_else(|| current_tc.clone()),
                                                         path.clone(),
                                                         type_path.clone(),
-                                                        root_tc.clone(),
                                                         path_ignored,
                                                         tc_ignored || inline_ignored,
                                                     ));
@@ -1172,11 +1182,8 @@ impl DocumentState {
                                                         nested_selections.push(NestedSelection {
                                                             path: Arc::from(path.as_str()),
                                                             type_path: Arc::from(
-                                                                type_path.as_str(),
+                                                                type_path.as_slice(),
                                                             ),
-                                                            root_type_condition: root_tc
-                                                                .as_deref()
-                                                                .map(Arc::from),
                                                             type_condition: current_tc
                                                                 .as_deref()
                                                                 .map(Arc::from),

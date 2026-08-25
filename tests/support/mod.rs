@@ -885,6 +885,36 @@ pub fn get_valid_schema() -> &'static apollo_compiler::validation::Valid<Schema>
 }
 
 /// Create a DocumentState for given uri and text. Mirrors previous helpers used in tests.
+/// Present a document's fragments the way the checker sees definitions that
+/// live in another file, so tests can exercise the workspace-fragment branches
+/// without standing up a whole workspace.
+pub fn workspace_fragments(
+    doc: &DocumentState,
+) -> Vec<graphox::features::completion::FragmentCompletionInfo> {
+    doc.fragments()
+        .iter()
+        .map(|f| graphox::features::completion::FragmentCompletionInfo {
+            name: f.name.clone(),
+            type_condition: f.type_condition.clone(),
+            description: f.description.clone(),
+            import_path: None,
+            is_public: true,
+            is_type_only: false,
+            uri: doc.uri.clone(),
+            package_root: None,
+            used_variables: f.used_variables.clone(),
+            used_fragments: f.used_fragments.clone(),
+            transitive_deps: f.transitive_deps.clone(),
+            selected_fields: f.selected_fields.clone(),
+            top_level_spreads: f.top_level_spreads.clone(),
+            nested_selections: f.nested_selections.clone(),
+            type_fields: f.type_fields.clone(),
+            requirements: std::collections::BTreeMap::new(),
+            worst_slo: None,
+        })
+        .collect()
+}
+
 pub fn create_doc(uri_str: &str, text: &str) -> DocumentState {
     let uri = uri_str.parse::<Uri>().unwrap();
     let language = DocumentLanguage::from_uri(&uri);

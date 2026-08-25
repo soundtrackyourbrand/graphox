@@ -2131,3 +2131,461 @@ fn test_required_field_nested_in_fragment_ignored_at_an_inline_fragment() {
         "Required field 'id' must be selected in 'subscription' inside fragment 'SourceInfo'",
     );
 }
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_supplied_under_inline_fragment_nested_in_fragment_body() {
+    // The two fragments select the same path through the union, so what one
+    // omits the other supplies. The sibling's selections sit under an inline
+    // fragment nested in its body, which the merge has to reach.
+    let text = r#"
+        query GetZone {
+            zone {
+                id
+                permissions
+                ...ZoneInfo
+                ...ZonePerms
+            }
+        }
+
+        fragment ZoneInfo on Zone {
+            source {
+                ...SourceInfo
+            }
+        }
+
+        fragment SourceInfo on PlayableSource {
+            ... on ScheduleSource {
+                schedule {
+                    id
+                    name
+                }
+            }
+        }
+
+        fragment ZonePerms on Zone {
+            source {
+                ... on ScheduleSource {
+                    schedule {
+                        id
+                        permissions
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_missing_under_inline_fragment_nested_in_fragment_body() {
+    // Nothing supplies `permissions` under `source.schedule`, so the sibling
+    // merge above must not be silencing a real miss.
+    let text = r#"
+        query GetZone {
+            zone {
+                id
+                permissions
+                ...ZoneInfo
+            }
+        }
+
+        fragment ZoneInfo on Zone {
+            source {
+                ... on ScheduleSource {
+                    schedule {
+                        id
+                        name
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(&diagnostics, "Required field 'permissions'");
+}
+
+/// A `# graphox-ignore` written to silence a deprecation warning sits on the
+/// field, which is also where suppression for the field rules is read from. It
+/// must not reach past its own level: the objects the union members nest below
+/// it still have to be checked, or one comment quietly turns off two rules.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_under_ignored_deprecated_union_field() {
+    let text = r#"
+        query GetPlayback {
+            playback {
+                ...PlaybackSourcePermissions
+            }
+        }
+
+        fragment PlaybackSourcePermissions on Playback {
+            current {
+                id
+                source { # graphox-ignore
+                    ... on ScheduleSource {
+                        schedule { id permissions }
+                    }
+                    ... on PlaylistSource {
+                        playlist { id }
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::deprecated_union_field_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // The deprecation is suppressed and the schedule branch supplies the field,
+    // so the playlist branch is the only thing left to report.
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'permissions' must be selected in 'playlist'",
+    );
+}
+
+/// Each union member is checked on its own: one member supplying the field does
+/// not stand in for another.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_checked_per_union_member() {
+    let text = r#"
+        query GetPlayback {
+            playback {
+                ...PlaybackSourcePermissions
+            }
+        }
+
+        fragment PlaybackSourcePermissions on Playback {
+            current {
+                id
+                source {
+                    ... on ScheduleSource {
+                        schedule { id }
+                    }
+                    ... on PlaylistSource {
+                        playlist { id }
+                    }
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::deprecated_union_field_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // Both branches are missing it, plus the deprecation warning on `source`.
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'permissions' must be selected in 'schedule'",
+    );
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'permissions' must be selected in 'playlist'",
+    );
+}
+
+/// A fragment written on a union member narrows the union by its own type
+/// condition, with no `... on X` in sight. Its fields belong to the member, not
+/// to the union — which has no fields at all, so recording them against the
+/// union means the requirement is never evaluated and the gap is invisible.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_via_spread_narrowing_a_union_member() {
+    let text = r#"
+        query GetPlayback {
+            playback {
+                ...PlaybackInfo
+            }
+        }
+
+        fragment PlaylistInfo on Playlist {
+            __typename
+            id
+            name
+        }
+
+        fragment PlayableSourceInfo on PlayableSource {
+            __typename
+            ...PlaylistInfo
+            ... on ScheduleSource {
+                schedule { id permissions }
+            }
+        }
+
+        fragment PlaybackInfo on Playback {
+            id
+            current {
+                id
+                source {
+                    ...PlayableSourceInfo
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::playable_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // The schedule member supplies it; the playlist member does not.
+    let required: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d.message.starts_with("Required"))
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(
+        required.len(),
+        1,
+        "expected one requirement, got {required:?}"
+    );
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'permissions' must be selected in '... on Playlist'",
+    );
+}
+
+/// The same shape with the member's requirement met by a sibling fragment, the
+/// way a query supplies permissions that a shared fragment deliberately leaves
+/// out. Nothing to report.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_supplied_by_sibling_fragment_on_a_union_member() {
+    let text = r#"
+        query GetPlayback {
+            playback {
+                ...PlaybackInfo
+                ...PlaybackSourcePermissions
+            }
+        }
+
+        fragment PlaylistInfo on Playlist {
+            __typename
+            id
+            name
+        }
+
+        fragment PlayableSourceInfo on PlayableSource {
+            __typename
+            ...PlaylistInfo
+        }
+
+        fragment PlaybackInfo on Playback {
+            id
+            current {
+                id
+                source {
+                    ...PlayableSourceInfo
+                }
+            }
+        }
+
+        fragment PlaylistPermissions on Playlist {
+            id
+            permissions
+        }
+
+        fragment PlaybackSourcePermissions on Playback {
+            current {
+                id
+                source {
+                    ...PlaylistPermissions
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::playable_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    let required: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d.message.starts_with("Required"))
+        .map(|d| d.message.as_str())
+        .collect();
+    assert!(required.is_empty(), "unexpected requirements: {required:?}");
+}
+
+/// `# graphox-ignore` is one comment shared by every rule that reads it, and it
+/// exempts the selection it sits on. A union member narrowed by a spread is a
+/// selection *at* that field's level, not below it, so an ignore written on the
+/// field — to silence its deprecation, say — takes the member's field rules with
+/// it. Pinned because it is a collision worth noticing, not an obvious right
+/// answer: changing it should be a deliberate choice.
+#[test]
+#[ntest::timeout(300)]
+fn test_ignore_on_a_field_also_covers_members_narrowed_at_that_level() {
+    let text = r#"
+        query GetPlayback {
+            playback {
+                ...PlaybackInfo
+            }
+        }
+
+        fragment PlaylistInfo on Playlist {
+            id
+            name
+        }
+
+        fragment PlaybackInfo on Playback {
+            id
+            current {
+                id
+                source { # graphox-ignore
+                    ...PlaylistInfo
+                }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::playable_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // The deprecation warning on `source` is silenced, and so is the
+    // requirement on the narrowed member.
+    assert_no_diagnostics(&diagnostics);
+}

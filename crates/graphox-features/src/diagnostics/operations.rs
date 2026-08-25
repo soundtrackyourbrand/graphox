@@ -627,6 +627,7 @@ pub(super) fn check_forbidden_fields(
                                     response_key,
                                     field_name_str,
                                     None,
+                                    ctx.response_key_types.get(response_key),
                                 )
                         {
                             field_node = Some(spread_node);
@@ -754,6 +755,7 @@ pub(super) fn check_forbidden_fields(
                                     response_key,
                                     field_name_str,
                                     Some(type_name),
+                                    ctx.response_key_types.get(response_key),
                                 )
                         {
                             field_node = Some(spread_node);
@@ -1055,32 +1057,81 @@ fn find_segment_in_selection_set<'a>(
     None
 }
 
-/// Find a direct field child named `field_name` within `selection_set`.
+/// An inline fragment with no type condition (`... { }`, or one carrying only
+/// directives) selects on the enclosing type, so validation records its fields
+/// against the enclosing response key exactly as if the braces were not there.
+/// The lookups that go back for a node to point at have to see through it the
+/// same way.
+///
+/// Returns the selections of `selection_set` with every such inline fragment
+/// flattened away. Inline fragments that do carry a type condition are returned
+/// as they are: their fields are tracked separately, under the condition.
+fn transparent_selections<'a>(this: &DocumentState, selection_set: Node<'a>) -> Vec<Node<'a>> {
+    let mut out = Vec::new();
+    collect_transparent_selections(this, selection_set, &mut out, 0);
+    out
+}
+
+/// Nesting of condition-less inline fragments this flattening follows. Nothing
+/// legitimate stacks them, so the limit only keeps a pathological document from
+/// reaching the recursion for every level of it.
+const MAX_TRANSPARENT_DEPTH: usize = 64;
+
+fn collect_transparent_selections<'a>(
+    this: &DocumentState,
+    selection_set: Node<'a>,
+    out: &mut Vec<Node<'a>>,
+    depth: usize,
+) {
+    if depth > MAX_TRANSPARENT_DEPTH {
+        return;
+    }
+    let mut cursor = selection_set.walk();
+    for selection in selection_set.children(&mut cursor) {
+        for kind in ["field", "inline_fragment", "fragment_spread"] {
+            let payload = if selection.kind() == "selection" {
+                this.find_child_by_kind(selection, kind)
+            } else if selection.kind() == kind {
+                Some(selection)
+            } else {
+                None
+            };
+            let Some(payload) = payload else {
+                continue;
+            };
+
+            if payload.kind() == "inline_fragment"
+                && this.find_child_by_kind(payload, "type_condition").is_none()
+            {
+                if let Some(inner) = this.find_child_by_kind(payload, "selection_set") {
+                    collect_transparent_selections(this, inner, out, depth + 1);
+                }
+            } else {
+                out.push(payload);
+            }
+        }
+    }
+}
+
+/// Find a field named `field_name` selected directly under `selection_set`,
+/// looking through any condition-less inline fragment in the way.
 fn find_direct_field_child<'a>(
     this: &DocumentState,
     selection_set: Node<'a>,
     offset: usize,
     field_name: &str,
 ) -> Option<Node<'a>> {
-    let mut cursor = selection_set.walk();
-    for selection in selection_set.children(&mut cursor) {
-        let field_node = if selection.kind() == "selection" {
-            this.find_child_by_kind(selection, "field")
-        } else if selection.kind() == "field" {
-            Some(selection)
-        } else {
-            None
-        };
-
-        if let Some(field) = field_node {
-            let name = this
-                .extract_field_components(field)
-                .name
-                .map(|n| this.get_node_text(n, offset))
-                .unwrap_or_default();
-            if name == field_name {
-                return Some(field);
-            }
+    for field in transparent_selections(this, selection_set) {
+        if field.kind() != "field" {
+            continue;
+        }
+        let name = this
+            .extract_field_components(field)
+            .name
+            .map(|n| this.get_node_text(n, offset))
+            .unwrap_or_default();
+        if name == field_name {
+            return Some(field);
         }
     }
     None
@@ -1109,6 +1160,7 @@ fn find_field_node_by_name<'a>(
 ///
 /// `type_condition` is set when the field was tracked under `... on X` rather
 /// than directly under the response key.
+#[allow(clippy::too_many_arguments)]
 fn find_fragment_spread_selecting_field<'a>(
     this: &DocumentState,
     node: Node<'a>,
@@ -1117,6 +1169,7 @@ fn find_fragment_spread_selecting_field<'a>(
     response_key: &str,
     field_name: &str,
     type_condition: Option<&str>,
+    key_type: Option<&ExtendedType>,
 ) -> Option<(Node<'a>, String)> {
     let segments: Vec<&str> = response_key.split('.').collect();
     let parent = find_field_node_at_path(this, node, offset, &segments)?;
@@ -1129,6 +1182,7 @@ fn find_fragment_spread_selecting_field<'a>(
         field_name,
         type_condition,
         None,
+        key_type,
     )
 }
 
@@ -1136,6 +1190,7 @@ fn find_fragment_spread_selecting_field<'a>(
 /// `field_name` to the enclosing response key. `current_type_condition` tracks
 /// the inline fragment we are inside of, mirroring how the spread's fields were
 /// recorded during validation.
+#[allow(clippy::too_many_arguments)]
 fn find_spread_selecting_field<'a>(
     this: &DocumentState,
     selection_set: Node<'a>,
@@ -1144,6 +1199,7 @@ fn find_spread_selecting_field<'a>(
     field_name: &str,
     type_condition: Option<&str>,
     current_type_condition: Option<&str>,
+    key_type: Option<&ExtendedType>,
 ) -> Option<(Node<'a>, String)> {
     let mut cursor = selection_set.walk();
     for selection in selection_set.children(&mut cursor) {
@@ -1166,32 +1222,20 @@ fn find_spread_selecting_field<'a>(
             };
             let fragment_name = this.get_node_text(name_node, offset);
 
-            // A spread's own selections land under the inline fragment it sits
-            // in, so only consider it when that matches where the field was
-            // tracked.
-            let matches_directly = current_type_condition == type_condition
-                && fragment_selects_field(
-                    this,
-                    all_fragments,
-                    &fragment_name,
-                    field_name,
-                    None,
-                    &mut ahash::AHashSet::default(),
-                );
-
-            // The spread fragment may also carry its own `... on X` block.
-            let matches_via_type_condition = type_condition.is_some_and(|tc| {
-                fragment_selects_field(
-                    this,
-                    all_fragments,
-                    &fragment_name,
-                    field_name,
-                    Some(tc),
-                    &mut ahash::AHashSet::default(),
-                )
-            });
-
-            if matches_directly || matches_via_type_condition {
+            // Where a spread's fields land depends on the inline fragment it
+            // sits in and on its own type condition, which narrows an abstract
+            // response key exactly as `... on X` would. Ask the same routine
+            // that recorded them.
+            if crate::diagnostics::fragments::spread_contributes_field_under(
+                this,
+                all_fragments,
+                &fragment_name,
+                field_name,
+                type_condition,
+                current_type_condition,
+                key_type,
+                &mut ahash::AHashSet::default(),
+            ) {
                 return Some((name_node, fragment_name));
             }
         } else if let Some(inline) = inline_node
@@ -1211,65 +1255,13 @@ fn find_spread_selecting_field<'a>(
                 field_name,
                 type_condition,
                 next_tc,
+                key_type,
             ) {
                 return Some(found);
             }
         }
     }
     None
-}
-
-/// Whether `fragment_name` selects `field_name`, following nested spreads.
-/// With `type_condition` set, the field must come from a `... on X` block
-/// inside the fragment; otherwise it must be a top-level selection.
-fn fragment_selects_field(
-    this: &DocumentState,
-    all_fragments: &[crate::completion::FragmentCompletionInfo],
-    fragment_name: &str,
-    field_name: &str,
-    type_condition: Option<&str>,
-    visited: &mut ahash::AHashSet<String>,
-) -> bool {
-    if !visited.insert(fragment_name.to_string()) {
-        return false;
-    }
-
-    // Local definitions win over workspace ones, matching how the fields were
-    // collected in the first place.
-    let local = this
-        .fragments()
-        .iter()
-        .find(|f| f.name.as_ref() == fragment_name)
-        .map(|f| (&f.selected_fields, &f.type_fields, &f.used_fragments));
-    let workspace = || {
-        all_fragments
-            .iter()
-            .find(|f| f.name.as_ref() == fragment_name)
-            .map(|f| (&f.selected_fields, &f.type_fields, &f.used_fragments))
-    };
-
-    let Some((selected_fields, type_fields, used_fragments)) = local.or_else(workspace) else {
-        return false;
-    };
-
-    let selected = match type_condition {
-        None => selected_fields.iter().any(|f| f.as_ref() == field_name),
-        Some(tc) => type_fields
-            .iter()
-            .any(|(t, f)| t.as_ref() == tc && f.as_ref() == field_name),
-    };
-
-    selected
-        || used_fragments.iter().any(|nested| {
-            fragment_selects_field(
-                this,
-                all_fragments,
-                nested,
-                field_name,
-                type_condition,
-                visited,
-            )
-        })
 }
 
 /// Find the field node `field_name` selected inside an inline fragment
@@ -1286,18 +1278,11 @@ fn find_field_node_in_type_condition<'a>(
     let parent = find_field_node_at_path(this, node, offset, &segments)?;
     let selection_set = this.find_child_by_kind(parent, "selection_set")?;
 
-    let mut cursor = selection_set.walk();
-    for selection in selection_set.children(&mut cursor) {
-        let inline = if selection.kind() == "selection" {
-            this.find_child_by_kind(selection, "inline_fragment")
-        } else if selection.kind() == "inline_fragment" {
-            Some(selection)
-        } else {
-            None
-        };
-
-        if let Some(inline) = inline
-            && let Some(tc) = this.find_child_by_kind(inline, "type_condition")
+    for inline in transparent_selections(this, selection_set) {
+        if inline.kind() != "inline_fragment" {
+            continue;
+        }
+        if let Some(tc) = this.find_child_by_kind(inline, "type_condition")
             && let Some(name_node) = this.find_child_by_kind(tc, "named_type")
             && this.get_node_text(name_node, offset) == type_name
             && let Some(frag_selection_set) = this.find_child_by_kind(inline, "selection_set")
