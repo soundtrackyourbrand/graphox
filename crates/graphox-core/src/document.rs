@@ -83,6 +83,196 @@ pub type FragmentId = (Arc<str>, Arc<str>, usize);
 /// A collection of transitive fragment dependencies.
 pub type TransitiveDeps = Arc<[FragmentId]>;
 
+/// A rule an inline `# graphox-ignore` comment can be scoped to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IgnoreRule {
+    /// The deprecated-field warning.
+    Deprecated,
+    /// The `required_fields` rule.
+    RequiredFields,
+    /// The `forbidden_fields` rule.
+    ForbiddenFields,
+}
+
+impl IgnoreRule {
+    pub const ALL: [IgnoreRule; 3] = [
+        IgnoreRule::Deprecated,
+        IgnoreRule::RequiredFields,
+        IgnoreRule::ForbiddenFields,
+    ];
+
+    /// The name this rule is written as in an ignore comment, matching the key
+    /// it is configured under.
+    pub fn comment_name(self) -> &'static str {
+        match self {
+            IgnoreRule::Deprecated => "deprecated",
+            IgnoreRule::RequiredFields => "required_fields",
+            IgnoreRule::ForbiddenFields => "forbidden_fields",
+        }
+    }
+}
+
+/// The rules an ignore comment covers. `IgnoreScope::NONE` means there is no
+/// comment at all, so an absent comment and one covering nothing are the same
+/// thing to every caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct IgnoreScope {
+    deprecated: bool,
+    required_fields: bool,
+    forbidden_fields: bool,
+}
+
+impl IgnoreScope {
+    pub const NONE: Self = Self {
+        deprecated: false,
+        required_fields: false,
+        forbidden_fields: false,
+    };
+
+    pub const ALL: Self = Self {
+        deprecated: true,
+        required_fields: true,
+        forbidden_fields: true,
+    };
+
+    pub fn only(rule: IgnoreRule) -> Self {
+        let mut scope = Self::NONE;
+        scope.add(rule);
+        scope
+    }
+
+    fn add(&mut self, rule: IgnoreRule) {
+        match rule {
+            IgnoreRule::Deprecated => self.deprecated = true,
+            IgnoreRule::RequiredFields => self.required_fields = true,
+            IgnoreRule::ForbiddenFields => self.forbidden_fields = true,
+        }
+    }
+
+    pub fn covers(self, rule: IgnoreRule) -> bool {
+        match rule {
+            IgnoreRule::Deprecated => self.deprecated,
+            IgnoreRule::RequiredFields => self.required_fields,
+            IgnoreRule::ForbiddenFields => self.forbidden_fields,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self == Self::NONE
+    }
+
+    /// Everything either scope covers, for the places suppression accumulates
+    /// as a walk descends.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            deprecated: self.deprecated || other.deprecated,
+            required_fields: self.required_fields || other.required_fields,
+            forbidden_fields: self.forbidden_fields || other.forbidden_fields,
+        }
+    }
+}
+
+/// Read the scope of an ignore comment out of the text following a selection.
+///
+/// A bare `# graphox-ignore` covers every rule, which is what it has always
+/// meant. Naming rules after it — one, or several separated by commas or
+/// spaces — narrows it to those, so a comment can silence a deprecation
+/// warning on a field while leaving the field rules in force on what that
+/// field selects.
+///
+/// Text naming no rule at all is read as bare rather than as naming nothing.
+/// An explanatory `# graphox-ignore legacy zones` has always suppressed, and a
+/// parser that quietly stopped honouring it would turn prose into a silent
+/// change of behaviour. The cost is that a misspelled rule name also reads as
+/// bare, which over-suppresses rather than under-suppresses;
+/// `unrecognised_ignore_rule_names` exists so that can be reported instead of
+/// discovered.
+pub fn parse_ignore_scope(after_selection: &str) -> IgnoreScope {
+    let Some((_, rest)) = after_selection.split_once("# graphox-ignore") else {
+        return IgnoreScope::NONE;
+    };
+
+    let mut scope = IgnoreScope::NONE;
+    for token in rest.split([',', ' ', '\t']) {
+        if let Some(rule) = IgnoreRule::ALL
+            .iter()
+            .find(|r| r.comment_name() == token.trim())
+        {
+            scope.add(*rule);
+        }
+    }
+
+    if scope.is_empty() {
+        IgnoreScope::ALL
+    } else {
+        scope
+    }
+}
+
+/// Words in an ignore comment that look like a misspelled rule name.
+///
+/// A name graphox does not recognise names no rule, so the comment reads as
+/// bare and suppresses everything — the author's narrowing silently did not
+/// happen. Reporting the word is the only way they find out.
+///
+/// Prose is not a typo, so a word only counts when it is close to a real rule
+/// name: within two edits of one, or a plausible truncation of one. That keeps
+/// `# graphox-ignore legacy zones` silent while catching `deprecatd` and
+/// `required`.
+pub fn unrecognised_ignore_rule_names(after_selection: &str) -> Vec<String> {
+    let Some((_, rest)) = after_selection.split_once("# graphox-ignore") else {
+        return Vec::new();
+    };
+
+    rest.split([',', ' ', '\t'])
+        .map(str::trim)
+        .filter(|token| {
+            !token.is_empty()
+                && token.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                && !IgnoreRule::ALL.iter().any(|r| r.comment_name() == *token)
+                && IgnoreRule::ALL
+                    .iter()
+                    .any(|r| looks_like(token, r.comment_name()))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether `token` is close enough to `name` to be a fumbled attempt at it.
+fn looks_like(token: &str, name: &str) -> bool {
+    // A truncation: `required` for `required_fields`. Short prefixes match too
+    // many ordinary words to be worth acting on.
+    if token.len() >= 4 && name.starts_with(token) {
+        return true;
+    }
+    edit_distance_within(token, name, 2)
+}
+
+/// Levenshtein distance, answering only whether it is at most `max`. Bailing
+/// out keeps a long prose word from being compared in full against every rule
+/// name.
+fn edit_distance_within(a: &str, b: &str, max: usize) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a.len().abs_diff(b.len()) > max {
+        return false;
+    }
+
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let substitution = prev[j] + usize::from(ca != cb);
+            curr[j + 1] = substitution.min(prev[j + 1] + 1).min(curr[j] + 1);
+        }
+        if curr.iter().min().copied().unwrap_or(usize::MAX) > max {
+            return false;
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()] <= max
+}
+
 /// One step along a `NestedSelection::type_path`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathStep {
@@ -114,10 +304,10 @@ pub struct NestedSelection {
     /// Field name, or fragment name when `is_spread`.
     pub name: Arc<str>,
     pub is_spread: bool,
-    /// Whether the selection that opens `path` carries `# graphox-ignore`.
+    /// The rules an ignore comment on the selection that opens `path` covers.
     /// Suppression written inside the fragment has to travel with the metadata,
     /// since the rule is evaluated in the documents that spread it.
-    pub path_ignored: bool,
+    pub path_ignored: IgnoreScope,
 }
 
 /// Join a selection path segment onto a dotted path, matching the response-key
@@ -907,6 +1097,31 @@ impl DocumentState {
             .is_some_and(|after_text| after_text.contains("# graphox-ignore"))
     }
 
+    /// The rules the ignore comment on `node`'s line covers, if there is one.
+    pub fn ignore_scope(&self, node: Node, offset: usize) -> IgnoreScope {
+        let start_byte = node.start_byte() + offset;
+        let line_idx = self.rope.byte_to_line(start_byte);
+        if line_idx >= self.rope.len_lines() {
+            return IgnoreScope::NONE;
+        }
+
+        let line = self.rope.line(line_idx).to_string();
+        let line_start_byte = self.rope.line_to_byte(line_idx);
+        let relative_end_byte = node.end_byte() + offset - line_start_byte;
+        if relative_end_byte >= line.len() {
+            return IgnoreScope::NONE;
+        }
+
+        line.get(relative_end_byte..)
+            .map(parse_ignore_scope)
+            .unwrap_or(IgnoreScope::NONE)
+    }
+
+    /// Whether the ignore comment on `node`'s line covers `rule`.
+    pub fn ignore_covers(&self, node: Node, offset: usize, rule: IgnoreRule) -> bool {
+        self.ignore_scope(node, offset).covers(rule)
+    }
+
     pub fn fragments(&self) -> &[FragmentDef] {
         &self.fragments
     }
@@ -1045,8 +1260,8 @@ impl DocumentState {
                             None::<String>,
                             String::new(),
                             Vec::<PathStep>::new(),
-                            false,
-                            false,
+                            IgnoreScope::NONE,
+                            IgnoreScope::NONE,
                         )];
                         while let Some((
                             set,
@@ -1136,11 +1351,10 @@ impl DocumentState {
                                                         // enclosing path does not,
                                                         // matching how suppression
                                                         // works in an operation.
-                                                        tc_ignored
-                                                            || self.has_inline_ignore_comment(
-                                                                key_node, offset,
-                                                            ),
-                                                        false,
+                                                        tc_ignored.union(
+                                                            self.ignore_scope(key_node, offset),
+                                                        ),
+                                                        IgnoreScope::NONE,
                                                     ));
                                                 }
                                             }
@@ -1152,18 +1366,17 @@ impl DocumentState {
                                                 {
                                                     let inline_ignored = self
                                                         .find_child_by_kind(node, "type_condition")
-                                                        .is_some_and(|tc_node| {
-                                                            self.has_inline_ignore_comment(
-                                                                tc_node, offset,
-                                                            )
-                                                        });
+                                                        .map(|tc_node| {
+                                                            self.ignore_scope(tc_node, offset)
+                                                        })
+                                                        .unwrap_or(IgnoreScope::NONE);
                                                     stack.push((
                                                         inner_set,
                                                         tc.or_else(|| current_tc.clone()),
                                                         path.clone(),
                                                         type_path.clone(),
                                                         path_ignored,
-                                                        tc_ignored || inline_ignored,
+                                                        tc_ignored.union(inline_ignored),
                                                     ));
                                                 }
                                             }

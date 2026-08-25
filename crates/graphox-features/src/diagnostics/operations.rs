@@ -3,6 +3,7 @@ use super::ValidationContext;
 use apollo_compiler::ast::OperationType;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
+use graphox_core::document::IgnoreRule;
 use ls_types::*;
 use tree_sitter::Node;
 
@@ -256,9 +257,7 @@ pub(super) fn check_required_fields(
                         let anchor_node =
                             find_root_selection_anchor_for_response_key(this, node, offset, None);
                         if let Some(anchor) = anchor_node
-                            && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                                this, anchor, offset,
-                            )
+                            && this.ignore_covers(anchor, offset, IgnoreRule::RequiredFields)
                         {
                             continue;
                         }
@@ -358,6 +357,7 @@ pub(super) fn check_required_fields(
                                     ctx,
                                     origin,
                                     definition_range,
+                                    IgnoreRule::RequiredFields,
                                 ) {
                                     continue;
                                 }
@@ -371,6 +371,7 @@ pub(super) fn check_required_fields(
                                     ctx,
                                     response_key,
                                     definition_range,
+                                    IgnoreRule::RequiredFields,
                                 ) else {
                                     continue;
                                 };
@@ -468,6 +469,7 @@ pub(super) fn check_required_fields(
                                             ctx,
                                             origin,
                                             definition_range,
+                                            IgnoreRule::RequiredFields,
                                         ) {
                                             continue;
                                         }
@@ -481,6 +483,7 @@ pub(super) fn check_required_fields(
                                             ctx,
                                             response_key,
                                             definition_range,
+                                            IgnoreRule::RequiredFields,
                                         ) else {
                                             continue;
                                         };
@@ -645,6 +648,7 @@ pub(super) fn check_forbidden_fields(
                                         ctx,
                                         origin,
                                         definition_range,
+                                        IgnoreRule::ForbiddenFields,
                                     ) {
                                         continue;
                                     }
@@ -658,6 +662,7 @@ pub(super) fn check_forbidden_fields(
                                         ctx,
                                         response_key,
                                         definition_range,
+                                        IgnoreRule::ForbiddenFields,
                                     ) else {
                                         continue;
                                     };
@@ -670,7 +675,11 @@ pub(super) fn check_forbidden_fields(
                             // on the parent. This is what the ignore code action
                             // writes.
                             if let Some(field_node) = field_node
-                                && this.has_inline_ignore_comment(field_node, offset)
+                                && this.ignore_covers(
+                                    field_node,
+                                    offset,
+                                    IgnoreRule::ForbiddenFields,
+                                )
                             {
                                 continue;
                             }
@@ -774,6 +783,7 @@ pub(super) fn check_forbidden_fields(
                                         ctx,
                                         origin,
                                         definition_range,
+                                        IgnoreRule::ForbiddenFields,
                                     ) {
                                         continue;
                                     }
@@ -787,6 +797,7 @@ pub(super) fn check_forbidden_fields(
                                         ctx,
                                         response_key,
                                         definition_range,
+                                        IgnoreRule::ForbiddenFields,
                                     ) else {
                                         continue;
                                     };
@@ -799,7 +810,11 @@ pub(super) fn check_forbidden_fields(
                             // on the parent. This is what the ignore code action
                             // writes.
                             if let Some(field_node) = field_node
-                                && this.has_inline_ignore_comment(field_node, offset)
+                                && this.ignore_covers(
+                                    field_node,
+                                    offset,
+                                    IgnoreRule::ForbiddenFields,
+                                )
                             {
                                 continue;
                             }
@@ -872,12 +887,13 @@ fn nested_selection_ignored(
     ctx: &ValidationContext,
     origin: &crate::diagnostics::FragmentOrigin,
     definition_range: Range,
+    rule: IgnoreRule,
 ) -> bool {
-    if origin.ignored {
+    if origin.ignored.covers(rule) {
         return true;
     }
     if find_node_for_range(this, node, offset, &origin.anchor)
-        .is_some_and(|anchor_node| this.has_inline_ignore_comment(anchor_node, offset))
+        .is_some_and(|anchor_node| this.ignore_covers(anchor_node, offset, rule))
     {
         return true;
     }
@@ -889,6 +905,7 @@ fn nested_selection_ignored(
         ctx,
         &origin.spread_parent,
         definition_range,
+        rule,
     )
     .is_none()
 }
@@ -1359,6 +1376,7 @@ fn resolve_anchor_and_check_ignore(
     ctx: &ValidationContext,
     response_key: &str,
     definition_range: Range,
+    rule: IgnoreRule,
 ) -> Option<Range> {
     if let Some(ranges) = ctx.response_key_anchor_ranges.get(response_key) {
         let mut first_non_ignored = None;
@@ -1366,11 +1384,7 @@ fn resolve_anchor_and_check_ignore(
 
         for anchor_range in ranges {
             if let Some(anchor_node) = find_node_for_range(this, node, offset, anchor_range)
-                && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-                    this,
-                    anchor_node,
-                    offset,
-                )
+                && this.ignore_covers(anchor_node, offset, rule)
             {
                 continue;
             }
@@ -1389,11 +1403,7 @@ fn resolve_anchor_and_check_ignore(
 
     // Fallback to the enclosing definition
     if let Some(anchor_node) = find_node_for_range(this, node, offset, &definition_range)
-        && crate::diagnostics::DocumentDiagnostics::has_inline_ignore_comment(
-            this,
-            anchor_node,
-            offset,
-        )
+        && this.ignore_covers(anchor_node, offset, rule)
     {
         return None;
     }

@@ -24,9 +24,9 @@ pub struct FragmentOrigin {
     /// Response key of the selection the spread sits in. An ignore comment there
     /// exempts what the spread brings in, since the walk descends through it.
     pub spread_parent: Arc<str>,
-    /// The selection inside the fragment carries `# graphox-ignore`, which
-    /// suppresses the path for every document that spreads it.
-    pub ignored: bool,
+    /// The rules an ignore comment on the selection inside the fragment covers.
+    /// Suppression written there travels to every document that spreads it.
+    pub ignored: graphox_core::document::IgnoreScope,
 }
 
 #[allow(clippy::type_complexity)]
@@ -277,8 +277,8 @@ impl DocumentDiagnostics for DocumentState {
         reason: &str,
     ) {
         let is_ignored_in_config = self.is_deprecation_ignored(reason, ctx.config);
-        let is_ignored_by_comment =
-            !is_ignored_in_config && self.has_inline_ignore_comment(node, offset);
+        let is_ignored_by_comment = !is_ignored_in_config
+            && self.ignore_covers(node, offset, graphox_core::document::IgnoreRule::Deprecated);
 
         if !is_ignored_in_config && !is_ignored_by_comment {
             ctx.diagnostics.push(Diagnostic {
