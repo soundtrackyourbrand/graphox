@@ -141,6 +141,13 @@ pub struct ValidationContext<'a> {
     pub fragment_origins: ahash::AHashMap<Arc<str>, FragmentOrigin>,
     pub documents: Option<&'a graphox_core::types::DocumentsMap>,
     pub response_key_types: ahash::AHashMap<Arc<str>, apollo_compiler::schema::ExtendedType>,
+    /// Ignore comments written on the selections themselves, keyed by
+    /// (response key, field name). A rule about a field that is present is
+    /// silenced on that field, and the field may live in a spread fragment, so
+    /// the two sources — this document's own selections and the metadata a
+    /// fragment carries — are collected here and consulted in one place.
+    pub selection_ignores:
+        ahash::AHashMap<(Arc<str>, Arc<str>), graphox_core::document::IgnoreScope>,
 }
 
 pub trait DocumentDiagnostics {
@@ -217,6 +224,7 @@ impl DocumentDiagnostics for DocumentState {
                 document_response_keys: ahash::AHashSet::default(),
                 fragment_origins: ahash::AHashMap::default(),
                 response_key_types: ahash::AHashMap::default(),
+                selection_ignores: ahash::AHashMap::default(),
                 documents: None,
             };
 

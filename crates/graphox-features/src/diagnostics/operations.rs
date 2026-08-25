@@ -92,6 +92,7 @@ pub(super) fn validate_operation(
     ctx.document_response_keys.clear();
     ctx.fragment_origins.clear();
     ctx.response_key_types.clear();
+    ctx.selection_ignores.clear();
 
     let mut operation_type_string = String::from("query");
     let mut cursor = node.walk();
@@ -371,7 +372,7 @@ pub(super) fn check_required_fields(
                                     ctx,
                                     response_key,
                                     definition_range,
-                                    IgnoreRule::RequiredFields,
+                                    Some(IgnoreRule::RequiredFields),
                                 ) else {
                                     continue;
                                 };
@@ -483,7 +484,7 @@ pub(super) fn check_required_fields(
                                             ctx,
                                             response_key,
                                             definition_range,
-                                            IgnoreRule::RequiredFields,
+                                            Some(IgnoreRule::RequiredFields),
                                         ) else {
                                             continue;
                                         };
@@ -662,7 +663,7 @@ pub(super) fn check_forbidden_fields(
                                         ctx,
                                         response_key,
                                         definition_range,
-                                        IgnoreRule::ForbiddenFields,
+                                        None,
                                     ) else {
                                         continue;
                                     };
@@ -670,10 +671,27 @@ pub(super) fn check_forbidden_fields(
                                 }
                             };
 
-                            // The diagnostic points at the selection itself, so
-                            // a comment on that line suppresses it as well as one
-                            // on the parent. This is what the ignore code action
-                            // writes.
+                            // A forbidden field is present, so it is silenced
+                            // on itself — the narrowest thing there is, and the
+                            // line the diagnostic points at. That holds whether
+                            // the field is written here or in the body of a
+                            // fragment spread here, which is why the answer
+                            // comes from the collected scopes rather than from
+                            // a node in this document.
+                            if selection_ignored(
+                                ctx,
+                                response_key,
+                                field_name_str,
+                                IgnoreRule::ForbiddenFields,
+                            ) {
+                                continue;
+                            }
+
+                            // `field_node` is the field itself when it is
+                            // written here, and the spread that merged it in
+                            // when it is not. Either is a placement that
+                            // covers this finding: the field is the narrowest
+                            // thing there is, and a spread is a leaf.
                             if let Some(field_node) = field_node
                                 && this.ignore_covers(
                                     field_node,
@@ -797,7 +815,7 @@ pub(super) fn check_forbidden_fields(
                                         ctx,
                                         response_key,
                                         definition_range,
-                                        IgnoreRule::ForbiddenFields,
+                                        None,
                                     ) else {
                                         continue;
                                     };
@@ -805,10 +823,27 @@ pub(super) fn check_forbidden_fields(
                                 }
                             };
 
-                            // The diagnostic points at the selection itself, so
-                            // a comment on that line suppresses it as well as one
-                            // on the parent. This is what the ignore code action
-                            // writes.
+                            // A forbidden field is present, so it is silenced
+                            // on itself — the narrowest thing there is, and the
+                            // line the diagnostic points at. That holds whether
+                            // the field is written here or in the body of a
+                            // fragment spread here, which is why the answer
+                            // comes from the collected scopes rather than from
+                            // a node in this document.
+                            if selection_ignored(
+                                ctx,
+                                response_key,
+                                field_name_str,
+                                IgnoreRule::ForbiddenFields,
+                            ) {
+                                continue;
+                            }
+
+                            // `field_node` is the field itself when it is
+                            // written here, and the spread that merged it in
+                            // when it is not. Either is a placement that
+                            // covers this finding: the field is the narrowest
+                            // thing there is, and a spread is a leaf.
                             if let Some(field_node) = field_node
                                 && this.ignore_covers(
                                     field_node,
@@ -880,6 +915,22 @@ fn fragment_only_origin<'a>(
 /// to reach it counts: the selection inside the fragment that owns the path
 /// (which travels with the fragment, covering every document that spreads it),
 /// the spread, or the selection the spread sits in.
+/// Whether the selection itself carries an ignore covering `rule`, wherever it
+/// was written — in this document, or in the body of a fragment spread here.
+fn selection_ignored(
+    ctx: &ValidationContext,
+    response_key: &str,
+    field_name: &str,
+    rule: IgnoreRule,
+) -> bool {
+    ctx.selection_ignores
+        .get(&(
+            std::sync::Arc::from(response_key),
+            std::sync::Arc::from(field_name),
+        ))
+        .is_some_and(|scope| scope.covers(rule))
+}
+
 fn nested_selection_ignored(
     this: &DocumentState,
     node: Node,
@@ -889,12 +940,26 @@ fn nested_selection_ignored(
     definition_range: Range,
     rule: IgnoreRule,
 ) -> bool {
-    if origin.ignored.covers(rule) {
-        return true;
-    }
+    // The spread applies wide, whichever rule is asking. It is a leaf in this
+    // document — there is nothing inside it to annotate — and silencing there
+    // covers this operation only, rather than every operation that spreads the
+    // fragment.
     if find_node_for_range(this, node, offset, &origin.anchor)
         .is_some_and(|anchor_node| this.ignore_covers(anchor_node, offset, rule))
     {
+        return true;
+    }
+
+    // The remaining two placements are both a *parent* of the selection: the
+    // object that opens the path inside the fragment, and the selection in this
+    // document that holds the spread. They speak for a rule about a field that
+    // is not there to annotate, which is required_fields and nothing else. A
+    // forbidden field is present, so it is silenced on itself.
+    if rule != IgnoreRule::RequiredFields {
+        return false;
+    }
+
+    if origin.ignored.covers(rule) {
         return true;
     }
     // None means every anchor for that key carries the comment.
@@ -905,7 +970,7 @@ fn nested_selection_ignored(
         ctx,
         &origin.spread_parent,
         definition_range,
-        rule,
+        Some(rule),
     )
     .is_none()
 }
@@ -1376,14 +1441,18 @@ fn resolve_anchor_and_check_ignore(
     ctx: &ValidationContext,
     response_key: &str,
     definition_range: Range,
-    rule: IgnoreRule,
+    // Which rule an ignore comment on the anchor may silence, if any. None asks
+    // only for a range to point at: a forbidden field is silenced on itself,
+    // never from the object holding it.
+    suppress_on: Option<IgnoreRule>,
 ) -> Option<Range> {
     if let Some(ranges) = ctx.response_key_anchor_ranges.get(response_key) {
         let mut first_non_ignored = None;
         let mut all_ignored = true;
 
         for anchor_range in ranges {
-            if let Some(anchor_node) = find_node_for_range(this, node, offset, anchor_range)
+            if let Some(rule) = suppress_on
+                && let Some(anchor_node) = find_node_for_range(this, node, offset, anchor_range)
                 && this.ignore_covers(anchor_node, offset, rule)
             {
                 continue;
@@ -1402,7 +1471,8 @@ fn resolve_anchor_and_check_ignore(
     }
 
     // Fallback to the enclosing definition
-    if let Some(anchor_node) = find_node_for_range(this, node, offset, &definition_range)
+    if let Some(rule) = suppress_on
+        && let Some(anchor_node) = find_node_for_range(this, node, offset, &definition_range)
         && this.ignore_covers(anchor_node, offset, rule)
     {
         return None;

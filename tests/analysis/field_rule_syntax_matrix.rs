@@ -392,38 +392,62 @@ fn forbidden_field_stays_silent_where_it_should() {
     );
 }
 
-/// A rule that cannot be silenced is a defect of its own, so every shape the
-/// rule reaches has to accept suppression somewhere.
+/// Where a `forbidden_fields` finding can be silenced.
 ///
-/// Written with each construct on its own line: a comment after `source {` is
-/// read as suppressing that field, so a single-line document silently tests the
-/// parent placement no matter where the comment looks like it sits.
+/// The field is *there*, so it is annotated on itself — the narrowest placement,
+/// and the line the diagnostic points at. A spread is the one exception: it is a
+/// leaf in this document, there is nothing inside it to annotate, and silencing
+/// at the spread covers this operation rather than every operation that spreads
+/// the fragment.
+///
+/// Written with each construct on its own line. A comment after `source {` is
+/// read as attached to that field, so a single-line document silently tests the
+/// parent placement no matter where the comment appears to sit — that mistake
+/// made two of these pass for the wrong reason once already.
 const SUPPRESSED: &[(&str, &str)] = &[
     (
         "ignore/on-the-field-in-an-operation",
-        "subscription S {\n zoneUpdate {\n meta {\n ... {\n secret # graphox-ignore\n }\n }\n }\n}",
+        "subscription S {\n zoneUpdate {\n meta {\n secret # graphox-ignore\n }\n }\n}",
     ),
     (
-        "ignore/on-the-enclosing-field",
-        "subscription S {\n zoneUpdate {\n meta { # graphox-ignore\n ... {\n secret\n }\n }\n }\n}",
-    ),
-    (
-        "ignore/on-a-type-conditioned-field-in-an-operation",
+        "ignore/on-the-field-under-a-type-condition",
         "subscription S {\n zoneUpdate {\n source {\n ... on Manual {\n secret # graphox-ignore\n }\n }\n }\n}",
     ),
     (
-        "ignore/on-the-field-holding-a-type-condition",
-        "subscription S {\n zoneUpdate {\n source { # graphox-ignore\n ... on Manual {\n secret\n }\n }\n }\n}",
+        "ignore/on-the-field-inside-a-condition-less-inline-fragment",
+        "subscription S {\n zoneUpdate {\n meta {\n ... {\n secret # graphox-ignore\n }\n }\n }\n}",
+    ),
+    // The field lives in the fragment, and the diagnostic is reported at the
+    // spread in another definition; the comment still travels with it.
+    (
+        "ignore/on-the-field-inside-a-fragment",
+        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source {\n ... on ScheduleSource {\n schedule {\n id\n secret # graphox-ignore\n }\n }\n }\n}",
     ),
     (
-        "ignore/on-the-object-a-fragment-nests",
-        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source {\n ... on ScheduleSource {\n schedule { # graphox-ignore\n id\n secret\n }\n }\n }\n}",
+        "ignore/on-a-top-level-field-of-a-spread-fragment",
+        "subscription S {\n zoneUpdate {\n meta {\n ...M\n }\n }\n}\nfragment M on Meta {\n id\n secret # graphox-ignore\n}",
     ),
     (
-        "ignore/at-the-spread-that-narrows",
+        "ignore/at-the-spread-that-brings-it-in",
+        "subscription S {\n zoneUpdate {\n ...F # graphox-ignore\n }\n}\nfragment F on Zone {\n source {\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n }\n}",
+    ),
+    (
+        "ignore/at-a-spread-that-narrows",
         "subscription S {\n zoneUpdate {\n source {\n ...M # graphox-ignore\n }\n }\n}\nfragment M on Manual {\n id\n secret\n}",
     ),
 ];
+
+/// Strip the ignore comment from a case document, leaving the rest byte for
+/// byte, so a suppression case can be run both ways.
+fn without_the_comment(text: &str) -> String {
+    text.lines()
+        .map(|line| match line.find("# graphox-ignore") {
+            Some(i) => line[..i].trim_end().to_string(),
+            None => line.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 #[test]
 #[ntest::timeout(5000)]
@@ -473,66 +497,111 @@ fn forbidden_field_can_be_suppressed_on_every_shape() {
     assert!(problems.is_empty(), "suppression:\n{}", problems.join("\n"));
 }
 
-/// Strip the ignore comment from a case document, leaving the rest byte for
-/// byte, so a suppression case can be run both ways.
-fn without_the_comment(text: &str) -> String {
-    text.lines()
-        .map(|line| match line.find("# graphox-ignore") {
-            Some(i) => line[..i].trim_end().to_string(),
-            None => line.to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Suppression placements that do *not* work today, recorded so the gap is
-/// visible and so a change to it is a decision rather than an accident.
+/// Placements that deliberately do *not* cover a forbidden finding. Every one
+/// is a parent of the offending selection — an enclosing object, the field a
+/// type condition hangs off, the inline fragment itself. A parent speaks for a
+/// rule about a field that is not there to annotate, which is `required_fields`
+/// and nothing else.
 ///
-/// A comment on an `... on X {` line reads as covering what is inside the
-/// condition — the fragment walk even computes that flag — but it only reaches
-/// selections below a further field, never the fields written directly inside.
-/// Both spellings below have somewhere else that works: the offending field's
-/// own line in an operation, the enclosing field or the spread for a fragment.
-const SUPPRESSION_GAPS: &[(&str, &str)] = &[
+/// Silencing forbidden from a parent would take the whole subtree with it,
+/// which is how one comment written for a deprecation warning used to switch
+/// off the field rules on everything a union field selected.
+const PARENTS_DO_NOT_COVER_FORBIDDEN: &[(&str, &str)] = &[
     (
-        "gap/type-condition-line-in-an-operation",
+        "parent/enclosing-object-in-an-operation",
+        "subscription S {\n zoneUpdate {\n meta { # graphox-ignore\n secret\n }\n }\n}",
+    ),
+    (
+        "parent/enclosing-object-inside-a-fragment",
+        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source {\n ... on ScheduleSource {\n schedule { # graphox-ignore\n id\n secret\n }\n }\n }\n}",
+    ),
+    (
+        "parent/the-field-a-type-condition-hangs-off",
+        "subscription S {\n zoneUpdate {\n source { # graphox-ignore\n ... on Manual {\n secret\n }\n }\n }\n}",
+    ),
+    (
+        "parent/the-inline-fragment-itself",
         "subscription S {\n zoneUpdate {\n source {\n ... on Manual { # graphox-ignore\n secret\n }\n }\n }\n}",
     ),
     (
-        "gap/type-condition-line-in-a-fragment",
-        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source {\n ... on Manual { # graphox-ignore\n secret\n }\n }\n}",
-    ),
-    (
-        "gap/condition-less-inline-fragment-line",
+        "parent/a-condition-less-inline-fragment",
         "subscription S {\n zoneUpdate {\n meta {\n ... { # graphox-ignore\n secret\n }\n }\n }\n}",
     ),
     (
-        "gap/offending-field-line-inside-a-fragment",
-        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source {\n ... on Manual {\n secret # graphox-ignore\n }\n }\n}",
+        "parent/one-level-further-out",
+        "subscription S {\n zoneUpdate { # graphox-ignore\n meta {\n secret\n }\n }\n}",
+    ),
+    (
+        "parent/a-member-narrowed-at-an-ignored-field",
+        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source { # graphox-ignore\n ...M\n }\n}\nfragment M on Manual {\n id\n secret\n}",
     ),
 ];
 
 #[test]
 #[ntest::timeout(5000)]
-fn suppression_gaps_are_still_gaps() {
+fn a_parent_does_not_silence_a_forbidden_field() {
     let config = forbidden_secret_in_subscriptions();
     let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
 
-    let mut now_suppressed = Vec::new();
-    for (label, text) in SUPPRESSION_GAPS {
+    let mut over_suppressed = Vec::new();
+    for (label, text) in PARENTS_DO_NOT_COVER_FORBIDDEN {
         let doc = create_doc("file:///matrix.graphql", text);
-        let diagnostics =
-            doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
-        let (found, _) = split_diagnostics(&diagnostics);
-        if found == 0 {
-            now_suppressed.push(*label);
+        let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
+            &schema,
+            &[],
+            None,
+            Some(&config),
+            false,
+            true,
+        ));
+        if !noise.is_empty() {
+            over_suppressed.push(format!("  {label}: bad document: {noise:?}"));
+        } else if found == 0 {
+            over_suppressed.push(format!("  {label}: silenced from a parent"));
         }
     }
     assert!(
-        now_suppressed.is_empty(),
-        "these placements now suppress — if that was the intent, move them into \
-         SUPPRESSED and say so:\n  {}",
-        now_suppressed.join("\n  ")
+        over_suppressed.is_empty(),
+        "a parent placement covered a forbidden field:\n{}",
+        over_suppressed.join("\n")
+    );
+}
+
+/// The mirror of the above for `required_fields`, which is the rule the parent
+/// placement exists for: the field is absent, so there is nothing else to
+/// annotate. The two rules reading the same comment differently is the point,
+/// so both halves are pinned together.
+#[test]
+#[ntest::timeout(5000)]
+fn a_parent_does_silence_a_required_field() {
+    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
+    let mut required_fields = AHashMap::default();
+    required_fields.insert(
+        "secret".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    // `meta` selects no `secret`, which is the requirement; the comment on
+    // `meta` is the only place that could carry the suppression.
+    let text = "query Q {\n zone {\n secret\n meta { # graphox-ignore\n id\n }\n }\n}";
+    let doc = create_doc("file:///matrix.graphql", text);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+    let msgs: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+    assert!(
+        msgs.is_empty(),
+        "the parent placement must still work: {msgs:?}"
+    );
+
+    let bare = without_the_comment(text);
+    let doc = create_doc("file:///matrix.graphql", &bare);
+    let diagnostics = doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.starts_with("Required")),
+        "without the comment this must report, or the case is vacuous"
     );
 }
 
@@ -765,84 +834,6 @@ fn field_rules_reach_shapes_inside_template_literals() {
         wrong.is_empty(),
         "template literal shapes:\n{}",
         wrong.join("\n")
-    );
-}
-
-/// An ignore on a field covers that field's own level and stops there — each
-/// nested field opens a level the comment no longer reaches. This is what lets
-/// a comment written for a deprecation warning on an abstract field still leave
-/// the rules on objects further down in force, and it is the whole reason a
-/// union member behaves differently from an object reached through one.
-const NOT_COVERED_BY_DESIGN: &[(&str, &str)] = &[
-    (
-        "design/one-level-below-the-ignored-field",
-        "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source { # graphox-ignore\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n }\n}",
-    ),
-    (
-        "design/one-level-below-in-an-operation",
-        "subscription S {\n zoneUpdate {\n source { # graphox-ignore\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n }\n }\n}",
-    ),
-];
-
-#[test]
-#[ntest::timeout(5000)]
-fn ignore_on_a_field_does_not_reach_below_it() {
-    let config = forbidden_secret_in_subscriptions();
-    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
-
-    let mut over_suppressed = Vec::new();
-    for (label, text) in NOT_COVERED_BY_DESIGN {
-        let doc = create_doc("file:///matrix.graphql", text);
-        let diagnostics =
-            doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
-        let (found, noise) = split_diagnostics(&diagnostics);
-        if !noise.is_empty() {
-            over_suppressed.push(format!("{label}: bad document: {noise:?}"));
-        } else if found == 0 {
-            over_suppressed.push(label.to_string());
-        }
-    }
-    assert!(
-        over_suppressed.is_empty(),
-        "an ignore reached a level below the field it sits on:\n  {}",
-        over_suppressed.join("\n  ")
-    );
-}
-
-/// The counterpart: a member narrowed by a spread *is* at the ignored field's
-/// own level, so the same comment does cover it. This pairing is the one that
-/// surprises people, so both halves are pinned together.
-#[test]
-#[ntest::timeout(5000)]
-fn ignore_on_a_field_covers_a_member_narrowed_at_its_level() {
-    let text = "subscription S {\n zoneUpdate {\n ...F\n }\n}\nfragment F on Zone {\n source { # graphox-ignore\n ...M\n }\n}\nfragment M on Manual {\n id\n secret\n}";
-    let config = forbidden_secret_in_subscriptions();
-    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
-    let doc = create_doc("file:///matrix.graphql", text);
-    let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
-        &schema,
-        &[],
-        None,
-        Some(&config),
-        false,
-        true,
-    ));
-    assert!(noise.is_empty(), "bad document: {noise:?}");
-    assert_eq!(found, 0, "expected the member to be covered");
-
-    let bare = without_the_comment(text);
-    let doc = create_doc("file:///matrix.graphql", &bare);
-    let (found_bare, _) = split_diagnostics(&doc.get_semantic_diagnostics(
-        &schema,
-        &[],
-        None,
-        Some(&config),
-        false,
-        true,
-    ));
-    assert_eq!(
-        found_bare, 1,
-        "without the comment this must report, or the case is vacuous"
     );
 }
 

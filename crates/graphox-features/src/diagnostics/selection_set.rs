@@ -3,6 +3,7 @@ use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
 use graphox_core::document::DocumentState;
 use ls_types::*;
+use std::sync::Arc;
 use tree_sitter::Node;
 
 #[allow(clippy::too_many_arguments)]
@@ -305,6 +306,18 @@ pub(super) fn validate_field(
         // Track selected field for required fields validation
         // Fields are tracked by response key (alias or field name)
         if ctx.track_selections {
+            // The field's own line, for the rules that are about a field there
+            // is something to annotate.
+            let own = this.ignore_scope(name_node, offset);
+            if !own.is_empty() {
+                let key: Arc<str> = match parent_response_key {
+                    Some(rk) => rk.to_string().into(),
+                    None => current_path.clone().into(),
+                };
+                ctx.selection_ignores
+                    .insert((key, actual_field_name.clone().into()), own);
+            }
+
             if let Some(rk) = parent_response_key {
                 if type_name.is_none() {
                     // Track field under parent response key (for nested fields)

@@ -83,6 +83,11 @@ pub type FragmentId = (Arc<str>, Arc<str>, usize);
 /// A collection of transitive fragment dependencies.
 pub type TransitiveDeps = Arc<[FragmentId]>;
 
+/// A selection whose own line carries an ignore comment: its path from the
+/// fragment's top level (empty at the top level), the field name, and what the
+/// comment covers.
+pub type SelectionIgnore = (Arc<str>, Arc<str>, IgnoreScope);
+
 /// A rule an inline `# graphox-ignore` comment can be scoped to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IgnoreRule {
@@ -358,6 +363,15 @@ pub struct FragmentDef {
     /// spread under, the rest sit below a nested selection.
     pub top_level_spreads: Arc<[Arc<str>]>,
     pub nested_selections: Arc<[NestedSelection]>,
+    /// Selections in this body whose own line carries an ignore comment, as
+    /// (path from the fragment's top level, field name, scope).
+    ///
+    /// A rule about a field that is *present* — forbidden, deprecated — is
+    /// silenced on that field, and the field lives here rather than in the
+    /// document being checked, so the comment has to travel with the metadata
+    /// like the path-level one does. Sparse: almost every fragment contributes
+    /// nothing.
+    pub selection_ignores: Arc<[SelectionIgnore]>,
 }
 
 #[derive(Debug, Clone)]
@@ -1266,6 +1280,7 @@ impl DocumentState {
                     let mut type_fields = Vec::new();
                     let mut top_level_spreads = Vec::new();
                     let mut nested_selections: Vec<NestedSelection> = Vec::new();
+                    let mut selection_ignores: Vec<SelectionIgnore> = Vec::new();
 
                     if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
                         // Selection set, the inline fragment type condition in
@@ -1313,6 +1328,18 @@ impl DocumentState {
                                                     .unwrap_or(name_node);
                                                 let response_key =
                                                     self.get_node_text(key_node, offset);
+
+                                                // The field's own line, for the
+                                                // rules that are about a field
+                                                // that is there to annotate.
+                                                let own = self.ignore_scope(key_node, offset);
+                                                if !own.is_empty() {
+                                                    selection_ignores.push((
+                                                        Arc::from(path.as_str()),
+                                                        Arc::from(fname.as_str()),
+                                                        own,
+                                                    ));
+                                                }
 
                                                 if path.is_empty() {
                                                     if let Some(tc) = &current_tc {
@@ -1446,6 +1473,7 @@ impl DocumentState {
                             type_fields: Arc::from(type_fields),
                             top_level_spreads: Arc::from(top_level_spreads),
                             nested_selections: Arc::from(nested_selections),
+                            selection_ignores: Arc::from(selection_ignores),
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,

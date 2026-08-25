@@ -30,6 +30,7 @@ pub(super) fn validate_fragment(
     ctx.document_response_keys.clear();
     ctx.fragment_origins.clear();
     ctx.response_key_types.clear();
+    ctx.selection_ignores.clear();
 
     let mut cursor = node.walk();
     let mut type_condition_node = None;
@@ -693,6 +694,26 @@ fn narrowing_type_condition(
     Some(Arc::from(fragment_type_condition))
 }
 
+/// The per-selection ignore list a fragment carries, from wherever it is
+/// defined. Empty for almost every fragment, so callers can skip cheaply.
+fn selection_ignores_of(
+    this: &DocumentState,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    name: &str,
+) -> Vec<graphox_core::document::SelectionIgnore> {
+    this.fragments()
+        .iter()
+        .find(|f| f.name.as_ref() == name)
+        .map(|f| f.selection_ignores.to_vec())
+        .or_else(|| {
+            all_fragments
+                .iter()
+                .find(|f| f.name.as_ref() == name)
+                .map(|f| f.selection_ignores.to_vec())
+        })
+        .unwrap_or_default()
+}
+
 /// Key for the guard against walking one fragment twice. A fragment reached
 /// under two different type conditions contributes to both, so the condition is
 /// part of its identity here. The separator cannot occur in a GraphQL name.
@@ -731,6 +752,16 @@ pub(super) fn mark_selected_fields_recursive(
     // arrival is dropped and that member looks unsatisfied.
     if !visited.insert(visit_key(name, type_name)) {
         return;
+    }
+
+    // Suppression written on a selection at this fragment's own top level
+    // belongs to the key it is spread under, which is where the rule about that
+    // field is evaluated.
+    for (path, field, scope) in selection_ignores_of(this, ctx.all_fragments, name) {
+        if path.is_empty() {
+            ctx.selection_ignores
+                .insert((response_key.to_string().into(), field), scope);
+        }
     }
 
     // The required check discovers which conditions exist at a key from this
@@ -1038,6 +1069,18 @@ fn mark_nested_selections_inner(
         walk.chain.remove(&chain_key);
         return;
     };
+
+    // Suppression on the nested selections themselves, at the keys they land on.
+    let own_ignores = selection_ignores_of(this, all_fragments, name);
+    if !own_ignores.is_empty() {
+        for (path, field, scope) in &own_ignores {
+            if path.is_empty() {
+                continue;
+            }
+            let key: Arc<str> = format!("{}.{}", base_key, path).into_boxed_str().into();
+            ctx.selection_ignores.insert((key, field.clone()), *scope);
+        }
+    }
 
     for entry in nested_selections.iter() {
         let Some(type_def) =

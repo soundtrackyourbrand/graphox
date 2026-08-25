@@ -1,7 +1,9 @@
 use crate::support::{
     create_doc, create_initialized_lsp_service, lsp_did_open, lsp_request_code_actions,
-    make_temp_project_with_schema, write_project_file,
+    lsp_request_diagnostics, make_temp_project_with_schema, write_project_file,
 };
+use ahash::AHashMap;
+use graphox::config::RulesConfig;
 use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
@@ -223,4 +225,72 @@ async fn test_no_ignore_action_when_the_rule_is_already_covered() {
         let found = ignore_actions_for_deprecation(&text).await;
         assert!(found.is_empty(), "{line:?} offered {found:?}");
     }
+}
+
+/// Each ignore quick fix has to write on the placement that actually silences
+/// its rule: the offending field for a rule about a field that is present, the
+/// object for a rule about one that is absent. The diagnostic's own range is
+/// what the fix writes on, so this pins that the two agree.
+#[tokio::test]
+#[ntest::timeout(3000)]
+async fn test_ignore_actions_write_where_the_rule_reads_them() {
+    use graphox::config::{ForbiddenFieldRule, RequiredFieldRule};
+
+    let schema = "type User { id: ID! password: String } type Query { me: User }";
+
+    // forbidden: the field is there, so the comment goes on it.
+    let mut forbidden = AHashMap::default();
+    forbidden.insert("password".to_string(), ForbiddenFieldRule::new_always(true));
+    let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config = config.with_rules(RulesConfig::default().with_forbidden_fields(forbidden));
+    let (mut service, _h) = create_initialized_lsp_service(config).await;
+
+    let text = "query GetUser {\n  me {\n    id\n    password\n  }\n}";
+    let uri = write_project_file(&dir, "q.graphql", text);
+    lsp_did_open(&mut service, uri.clone(), "graphql", 1, text).await;
+
+    let diags = match lsp_request_diagnostics(&mut service, uri.clone()).await {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full)) => {
+            full.full_document_diagnostic_report.items
+        }
+        _ => panic!("expected a full report"),
+    };
+    let forbidden_diag = diags
+        .iter()
+        .find(|d| d.message.contains("forbidden"))
+        .expect("expected a forbidden diagnostic");
+    // Line 3 is `password`; the fix writes on the diagnostic's line.
+    assert_eq!(
+        forbidden_diag.range.end.line, 3,
+        "a forbidden diagnostic must point at the field, since that is the only \
+         placement that silences it: {forbidden_diag:?}"
+    );
+
+    // required: the field is absent, so the comment goes on the object.
+    let mut required = AHashMap::default();
+    required.insert("password".to_string(), RequiredFieldRule::new_always(true));
+    let (dir2, mut config2) = make_temp_project_with_schema(schema, "**/*.graphql");
+    config2 = config2.with_rules(RulesConfig::default().with_required_fields(required));
+    let (mut service2, _h2) = create_initialized_lsp_service(config2).await;
+
+    let text2 = "query GetUser {\n  me {\n    id\n  }\n}";
+    let uri2 = write_project_file(&dir2, "q.graphql", text2);
+    lsp_did_open(&mut service2, uri2.clone(), "graphql", 1, text2).await;
+
+    let diags2 = match lsp_request_diagnostics(&mut service2, uri2.clone()).await {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(full)) => {
+            full.full_document_diagnostic_report.items
+        }
+        _ => panic!("expected a full report"),
+    };
+    let required_diag = diags2
+        .iter()
+        .find(|d| d.message.starts_with("Required"))
+        .expect("expected a required diagnostic");
+    // Line 1 is `me {`, the object the field is missing from.
+    assert_eq!(
+        required_diag.range.end.line, 1,
+        "a required diagnostic must point at the object, the only placement \
+         that can carry its suppression: {required_diag:?}"
+    );
 }

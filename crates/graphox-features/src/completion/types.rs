@@ -22,6 +22,10 @@ pub struct FragmentCompletionInfo {
     pub type_fields: Arc<[(Arc<str>, Arc<str>)]>,
     pub top_level_spreads: Arc<[Arc<str>]>,
     pub nested_selections: Arc<[graphox_core::document::NestedSelection]>,
+    /// See `FragmentDef::selection_ignores`. Suppression written on a selection
+    /// inside the fragment has to reach the documents that spread it, including
+    /// those in other files.
+    pub selection_ignores: Arc<[graphox_core::document::SelectionIgnore]>,
     pub requirements: FragmentRequirements,
     pub worst_slo: Option<graphox_core::schema::SloClass>,
 }
