@@ -372,6 +372,14 @@ pub struct FragmentDef {
     /// like the path-level one does. Sparse: almost every fragment contributes
     /// nothing.
     pub selection_ignores: Arc<[SelectionIgnore]>,
+    /// Spreads in this body whose own line carries an ignore comment, as (path
+    /// from the fragment's top level, fragment name, scope).
+    ///
+    /// A spread is a leaf: there is nothing inside it to annotate, so a comment
+    /// there covers everything it brings in. Kept apart from
+    /// `selection_ignores` so a fragment sharing a name with a field cannot be
+    /// mistaken for one.
+    pub spread_ignores: Arc<[SelectionIgnore]>,
 }
 
 #[derive(Debug, Clone)]
@@ -1281,6 +1289,7 @@ impl DocumentState {
                     let mut top_level_spreads = Vec::new();
                     let mut nested_selections: Vec<NestedSelection> = Vec::new();
                     let mut selection_ignores: Vec<SelectionIgnore> = Vec::new();
+                    let mut spread_ignores: Vec<SelectionIgnore> = Vec::new();
 
                     if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
                         // Selection set, the inline fragment type condition in
@@ -1424,13 +1433,29 @@ impl DocumentState {
                                                 }
                                             }
                                             "fragment_spread" => {
-                                                if let Some(spread_name) = self
+                                                let spread_name_node = self
                                                     .find_child_by_kind(node, "fragment_name")
                                                     .and_then(|n| {
                                                         self.find_child_by_kind(n, "name")
-                                                    })
+                                                    });
+                                                if let Some(spread_name) = spread_name_node
                                                     .map(|n| self.get_node_text(n, offset))
                                                 {
+                                                    // A comment on the spread
+                                                    // covers everything it
+                                                    // brings in, at whatever
+                                                    // depth.
+                                                    if let Some(name_node) = spread_name_node {
+                                                        let own =
+                                                            self.ignore_scope(name_node, offset);
+                                                        if !own.is_empty() {
+                                                            spread_ignores.push((
+                                                                Arc::from(path.as_str()),
+                                                                Arc::from(spread_name.as_str()),
+                                                                own,
+                                                            ));
+                                                        }
+                                                    }
                                                     if path.is_empty() && current_tc.is_none() {
                                                         top_level_spreads
                                                             .push(Arc::from(spread_name.as_str()));
@@ -1474,6 +1499,7 @@ impl DocumentState {
                             top_level_spreads: Arc::from(top_level_spreads),
                             nested_selections: Arc::from(nested_selections),
                             selection_ignores: Arc::from(selection_ignores),
+                            spread_ignores: Arc::from(spread_ignores),
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,

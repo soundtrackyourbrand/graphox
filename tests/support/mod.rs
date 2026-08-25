@@ -909,6 +909,7 @@ pub fn workspace_fragments(
             top_level_spreads: f.top_level_spreads.clone(),
             nested_selections: f.nested_selections.clone(),
             selection_ignores: f.selection_ignores.clone(),
+            spread_ignores: f.spread_ignores.clone(),
             type_fields: f.type_fields.clone(),
             requirements: std::collections::BTreeMap::new(),
             worst_slo: None,

@@ -497,6 +497,130 @@ fn forbidden_field_can_be_suppressed_on_every_shape() {
     assert!(problems.is_empty(), "suppression:\n{}", problems.join("\n"));
 }
 
+/// A spread is a leaf: nothing inside it to annotate, so a comment on one
+/// covers everything it brings in, at whatever depth and wherever the spread is
+/// written. That is what lets a shared fragment be silenced for one operation
+/// instead of for every operation that spreads it.
+const SPREAD_COVERS_WHAT_IT_BRINGS: &[(&str, &str)] = &[
+    (
+        "spread/in-the-operation",
+        "subscription S {\n zoneUpdate {\n ...A # graphox-ignore\n }\n}\nfragment A on Zone {\n source {\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n }\n}",
+    ),
+    (
+        "spread/under-a-field-inside-a-fragment",
+        "subscription S {\n zoneUpdate {\n ...A\n }\n}\nfragment A on Zone {\n source {\n ...B # graphox-ignore\n }\n}\nfragment B on PlayableSource {\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n}",
+    ),
+    (
+        "spread/at-a-fragments-top-level",
+        "subscription S {\n zoneUpdate {\n ...A\n }\n}\nfragment A on Zone {\n ...B # graphox-ignore\n}\nfragment B on Zone {\n source {\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n }\n}",
+    ),
+    (
+        "spread/contributing-a-field-at-the-key",
+        "subscription S {\n zoneUpdate {\n meta {\n ...A\n }\n }\n}\nfragment A on Meta {\n ...B # graphox-ignore\n}\nfragment B on Meta {\n id\n secret\n}",
+    ),
+    (
+        "spread/two-hops-deep",
+        "subscription S {\n zoneUpdate {\n ...A\n }\n}\nfragment A on Zone {\n source {\n ...B # graphox-ignore\n }\n}\nfragment B on PlayableSource {\n ... on ScheduleSource {\n schedule {\n ...C\n }\n }\n}\nfragment C on Schedule {\n id\n secret\n}",
+    ),
+];
+
+#[test]
+#[ntest::timeout(5000)]
+fn an_ignored_spread_covers_everything_it_brings_in() {
+    let config = forbidden_secret_in_subscriptions();
+    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
+
+    let mut problems = Vec::new();
+    for (label, text) in SPREAD_COVERS_WHAT_IT_BRINGS {
+        let doc = create_doc("file:///matrix.graphql", text);
+        let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
+            &schema,
+            &[],
+            None,
+            Some(&config),
+            false,
+            true,
+        ));
+        if !noise.is_empty() {
+            problems.push(format!("  {label}: bad document: {noise:?}"));
+            continue;
+        }
+        if found != 0 {
+            problems.push(format!("  {label}: not covered"));
+        }
+
+        let bare = without_the_comment(text);
+        let doc = create_doc("file:///matrix.graphql", &bare);
+        let (found_bare, _) = split_diagnostics(&doc.get_semantic_diagnostics(
+            &schema,
+            &[],
+            None,
+            Some(&config),
+            false,
+            true,
+        ));
+        if found_bare == 0 {
+            problems.push(format!(
+                "  {label}: reports nothing without the comment either, so it tests nothing"
+            ));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "ignored spread:\n{}",
+        problems.join("\n")
+    );
+}
+
+/// Two spreads can feed one response key. A comment on one must not speak for
+/// the other — the suppression is recorded per selection rather than per key
+/// precisely so it cannot.
+#[test]
+#[ntest::timeout(5000)]
+fn an_ignored_spread_does_not_cover_its_siblings() {
+    let config = forbidden_secret_in_subscriptions();
+    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
+
+    // B carries the comment and selects nothing forbidden; C selects `secret`
+    // at the same key and carries none.
+    let text = "subscription S {\n zoneUpdate {\n ...A\n }\n}\nfragment A on Zone {\n ...B # graphox-ignore\n ...C\n}\nfragment B on Zone {\n source {\n ... on ScheduleSource {\n schedule {\n id\n }\n }\n }\n}\nfragment C on Zone {\n source {\n ... on ScheduleSource {\n schedule {\n secret\n }\n }\n }\n}";
+    let doc = create_doc("file:///matrix.graphql", text);
+    let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
+        &schema,
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    ));
+    assert!(noise.is_empty(), "bad document: {noise:?}");
+    assert_eq!(
+        found, 1,
+        "the comment on B silenced a finding that came from C"
+    );
+}
+
+/// A scoped comment on a spread narrows what it covers, like anywhere else.
+#[test]
+#[ntest::timeout(5000)]
+fn an_ignored_spread_respects_its_scope() {
+    let config = forbidden_secret_in_subscriptions();
+    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
+
+    let text = "subscription S {\n zoneUpdate {\n ...A\n }\n}\nfragment A on Zone {\n source {\n ...B # graphox-ignore required_fields\n }\n}\nfragment B on PlayableSource {\n ... on ScheduleSource {\n schedule {\n id\n secret\n }\n }\n}";
+    let doc = create_doc("file:///matrix.graphql", text);
+    let (found, noise) = split_diagnostics(&doc.get_semantic_diagnostics(
+        &schema,
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    ));
+    assert!(noise.is_empty(), "bad document: {noise:?}");
+    assert_eq!(found, 1, "a required_fields-only comment must leave this");
+}
+
 /// Placements that deliberately do *not* cover a forbidden finding. Every one
 /// is a parent of the offending selection — an enclosing object, the field a
 /// type condition hangs off, the inline fragment itself. A parent speaks for a

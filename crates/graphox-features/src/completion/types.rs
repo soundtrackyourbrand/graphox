@@ -26,6 +26,8 @@ pub struct FragmentCompletionInfo {
     /// inside the fragment has to reach the documents that spread it, including
     /// those in other files.
     pub selection_ignores: Arc<[graphox_core::document::SelectionIgnore]>,
+    /// See `FragmentDef::spread_ignores`.
+    pub spread_ignores: Arc<[graphox_core::document::SelectionIgnore]>,
     pub requirements: FragmentRequirements,
     pub worst_slo: Option<graphox_core::schema::SloClass>,
 }

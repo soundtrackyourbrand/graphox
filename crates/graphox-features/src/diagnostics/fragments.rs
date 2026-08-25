@@ -1,7 +1,7 @@
 use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
-use graphox_core::document::{DocumentState, PathStep};
+use graphox_core::document::{DocumentState, IgnoreScope, PathStep};
 use graphox_core::queries::{GQL_SYMBOL_QUERY, GQL_SYMBOL_QUERY_CACHE};
 use ls_types::*;
 use std::sync::Arc;
@@ -315,6 +315,7 @@ pub(super) fn validate_fragment_spread(
                             &mut visited_fields,
                             rk,
                             type_name,
+                            IgnoreScope::NONE,
                         );
 
                         mark_nested_selections(
@@ -714,6 +715,63 @@ fn selection_ignores_of(
         .unwrap_or_default()
 }
 
+/// Merge suppression carried by a spread into the record for one selection.
+/// Keyed by key *and* field: two spreads can contribute to one response key
+/// with different comments on them, and neither may speak for the other.
+fn note_spread_ignore(
+    ctx: &mut ValidationContext,
+    key: &Arc<str>,
+    field: &Arc<str>,
+    scope: IgnoreScope,
+) {
+    if scope.is_empty() {
+        return;
+    }
+    let entry = (key.clone(), field.clone());
+    let merged = ctx
+        .selection_ignores
+        .get(&entry)
+        .copied()
+        .unwrap_or(IgnoreScope::NONE)
+        .union(scope);
+    ctx.selection_ignores.insert(entry, merged);
+}
+
+/// The per-spread ignore list a fragment carries, from wherever it is defined.
+fn spread_ignores_of(
+    this: &DocumentState,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    name: &str,
+) -> Vec<graphox_core::document::SelectionIgnore> {
+    this.fragments()
+        .iter()
+        .find(|f| f.name.as_ref() == name)
+        .map(|f| f.spread_ignores.to_vec())
+        .or_else(|| {
+            all_fragments
+                .iter()
+                .find(|f| f.name.as_ref() == name)
+                .map(|f| f.spread_ignores.to_vec())
+        })
+        .unwrap_or_default()
+}
+
+/// The scope an ignore on the spread of `spread_name` at `path` covers, as
+/// recorded inside `fragment`.
+fn spread_ignore_at(
+    this: &DocumentState,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    fragment: &str,
+    path: &str,
+    spread_name: &str,
+) -> IgnoreScope {
+    spread_ignores_of(this, all_fragments, fragment)
+        .into_iter()
+        .find(|(p, n, _)| p.as_ref() == path && n.as_ref() == spread_name)
+        .map(|(_, _, scope)| scope)
+        .unwrap_or(IgnoreScope::NONE)
+}
+
 /// Key for the guard against walking one fragment twice. A fragment reached
 /// under two different type conditions contributes to both, so the condition is
 /// part of its identity here. The separator cannot occur in a GraphQL name.
@@ -731,6 +789,9 @@ pub(super) fn mark_selected_fields_recursive(
     visited: &mut ahash::AHashSet<String>,
     response_key: &str,
     type_name: Option<&str>,
+    // Suppression from a spread the walk came through. A spread covers
+    // everything it brings in, so it has to reach the fields themselves.
+    inherited: IgnoreScope,
 ) {
     // Whatever is in effect here — an enclosing `... on X`, or the key's own
     // type — this spread's own condition may narrow it further.
@@ -761,6 +822,34 @@ pub(super) fn mark_selected_fields_recursive(
         if path.is_empty() {
             ctx.selection_ignores
                 .insert((response_key.to_string().into(), field), scope);
+        }
+    }
+
+    // Everything this fragment contributes at this key is covered when the walk
+    // reached it through an ignored spread.
+    if !inherited.is_empty() {
+        let fields = this
+            .fragments()
+            .iter()
+            .find(|f| f.name.as_ref() == name)
+            .map(|f| (f.selected_fields.clone(), f.type_fields.clone()))
+            .or_else(|| {
+                ctx.all_fragments
+                    .iter()
+                    .find(|f| f.name.as_ref() == name)
+                    .map(|f| (f.selected_fields.clone(), f.type_fields.clone()))
+            });
+        if let Some((selected, typed)) = fields {
+            for field in selected.iter().chain(typed.iter().map(|(_, f)| f)) {
+                let key = (Arc::from(response_key), field.clone());
+                let merged = ctx
+                    .selection_ignores
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(IgnoreScope::NONE)
+                    .union(inherited);
+                ctx.selection_ignores.insert(key, merged);
+            }
         }
     }
 
@@ -807,7 +896,16 @@ pub(super) fn mark_selected_fields_recursive(
                 .insert(field.clone());
         }
         for spread in frag.top_level_spreads.iter() {
-            mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
+            let via = inherited.union(spread_ignore_at(this, ctx.all_fragments, name, "", spread));
+            mark_selected_fields_recursive(
+                this,
+                spread,
+                ctx,
+                visited,
+                response_key,
+                type_name,
+                via,
+            );
         }
     }
     // 2. Try workspace fragments
@@ -844,7 +942,16 @@ pub(super) fn mark_selected_fields_recursive(
         }
 
         for spread in frag.top_level_spreads.iter() {
-            mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
+            let via = inherited.union(spread_ignore_at(this, ctx.all_fragments, name, "", spread));
+            mark_selected_fields_recursive(
+                this,
+                spread,
+                ctx,
+                visited,
+                response_key,
+                type_name,
+                via,
+            );
         }
     }
 }
@@ -995,6 +1102,7 @@ pub(super) fn mark_nested_selections(
         chain: ahash::AHashSet::default(),
         budget: 4096,
         spread_parent: Arc::from(base_key),
+        spread_ignored: IgnoreScope::NONE,
     };
     mark_nested_selections_inner(this, name, ctx, base_key, spread_range, &mut walk, 0);
 }
@@ -1015,6 +1123,9 @@ struct NestedWalk {
     /// The document's own response key that holds the spread this walk started
     /// from. Constant for the walk, however deep it goes.
     spread_parent: Arc<str>,
+    /// What ignore comments on the spreads this walk has descended through
+    /// cover. A spread is a leaf, so it speaks for everything below it.
+    spread_ignored: IgnoreScope,
 }
 
 /// Spread nesting this walk follows. The chain guard alone bounds recursion by
@@ -1110,6 +1221,19 @@ fn mark_nested_selections_inner(
         ctx.response_key_types
             .entry(nested_key.clone())
             .or_insert(type_def);
+        // A comment on this spread, plus any the walk already came through.
+        let spread_scope = if entry.is_spread {
+            walk.spread_ignored.union(spread_ignore_at(
+                this,
+                all_fragments,
+                name,
+                &entry.path,
+                &entry.name,
+            ))
+        } else {
+            walk.spread_ignored
+        };
+
         ctx.fragment_origins
             .entry(nested_key.clone())
             .or_insert_with(|| crate::diagnostics::FragmentOrigin {
@@ -1128,7 +1252,12 @@ fn mark_nested_selections_inner(
                 &mut visited_fields,
                 &nested_key,
                 entry.type_condition.as_deref(),
+                spread_scope,
             );
+            // Everything below this spread is covered too, so the scope travels
+            // with the walk rather than stopping at this key.
+            let outer = walk.spread_ignored;
+            walk.spread_ignored = spread_scope;
             mark_nested_selections_inner(
                 this,
                 &entry.name,
@@ -1138,7 +1267,9 @@ fn mark_nested_selections_inner(
                 walk,
                 depth + 1,
             );
+            walk.spread_ignored = outer;
         } else if let Some(tc) = &entry.type_condition {
+            note_spread_ignore(ctx, &nested_key, &entry.name, spread_scope);
             ctx.response_key_type_conditions
                 .entry(nested_key.clone())
                 .or_default()
@@ -1150,6 +1281,7 @@ fn mark_nested_selections_inner(
                 .or_default()
                 .insert(entry.name.clone());
         } else {
+            note_spread_ignore(ctx, &nested_key, &entry.name, spread_scope);
             ctx.response_key_selected_fields
                 .entry(nested_key)
                 .or_default()
@@ -1157,9 +1289,13 @@ fn mark_nested_selections_inner(
         }
     }
 
-    // A top-level spread's own nested objects sit at the same base key.
+    // A top-level spread's own nested objects sit at the same base key, and a
+    // comment on that spread covers them the same as one deeper in.
     for spread in top_level_spreads.iter() {
+        let outer = walk.spread_ignored;
+        walk.spread_ignored = outer.union(spread_ignore_at(this, all_fragments, name, "", spread));
         mark_nested_selections_inner(this, spread, ctx, base_key, spread_range, walk, depth + 1);
+        walk.spread_ignored = outer;
     }
 
     walk.chain.remove(&chain_key);

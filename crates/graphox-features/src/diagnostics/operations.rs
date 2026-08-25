@@ -940,10 +940,11 @@ fn nested_selection_ignored(
     definition_range: Range,
     rule: IgnoreRule,
 ) -> bool {
-    // The spread applies wide, whichever rule is asking. It is a leaf in this
-    // document — there is nothing inside it to annotate — and silencing there
-    // covers this operation only, rather than every operation that spreads the
-    // fragment.
+    // A spread applies wide, whichever rule is asking. It is a leaf — there is
+    // nothing inside it to annotate — and silencing there covers the operation
+    // doing the spreading rather than every operation that spreads the
+    // fragment. Spreads inside a fragment are recorded per selection as the
+    // walk passes them, since two can feed one key.
     if find_node_for_range(this, node, offset, &origin.anchor)
         .is_some_and(|anchor_node| this.ignore_covers(anchor_node, offset, rule))
     {
