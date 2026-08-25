@@ -460,6 +460,53 @@ pub fn playable_source_schema() -> &'static Schema {
     })
 }
 
+static DISPLAYABLE_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Interface with several implementors, one of which recurses back into the
+/// interface, reached through a field whose type is a *union* of those
+/// implementors. A fragment on the interface spread at that field narrows the
+/// union, and a fragment on a member spread inside it narrows again — the shape
+/// where a single level of narrowing is not enough.
+pub fn displayable_schema() -> &'static Schema {
+    DISPLAYABLE_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    edge: DisplayableEdge
+                }
+                type DisplayableEdge {
+                    cursor: String
+                    node: CardOrAlbum
+                }
+                union CardOrAlbum = EditorialCard | Album
+                interface Displayable {
+                    display: Display
+                }
+                type Display {
+                    title: String
+                }
+                type EditorialCard implements Displayable {
+                    id: ID!
+                    description: String
+                    display: Display
+                    link: EditorialLink
+                    item: Displayable
+                }
+                type EditorialLink implements Displayable {
+                    id: ID!
+                    display: Display
+                }
+                type Album implements Displayable {
+                    id: ID!
+                    display: Display
+                }
+            "#,
+            "displayable_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
 // =============================================================================
 // Query Strings
 // =============================================================================

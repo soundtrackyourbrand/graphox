@@ -2589,3 +2589,206 @@ fn test_ignore_on_a_field_also_covers_members_narrowed_at_that_level() {
     // requirement on the narrowed member.
     assert_no_diagnostics(&diagnostics);
 }
+
+/// A spread inside `... on X` at a fragment's own top level opens no response
+/// key of its own, so it belongs to the key the fragment is spread under. It
+/// used to be filed against a key with an empty path segment joined onto it —
+/// one nothing else ever names — so the field it supplies was invisible and the
+/// member looked unsatisfied.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_supplied_by_spread_inside_a_top_level_inline_fragment() {
+    let text = r#"
+        query GetZone {
+            zone {
+                id
+                permissions
+                item {
+                    ...ItemInfo
+                }
+            }
+        }
+
+        fragment ItemInfo on Item {
+            __typename
+            ... on SchedItem {
+                ...SchedIdOnly
+                schedule { id permissions }
+            }
+        }
+
+        fragment SchedIdOnly on SchedItem {
+            id
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+    required_fields.insert(
+        "permissions".to_string(),
+        RequiredFieldRule::new_operations(vec!["query".to_string()]),
+    );
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    // `Item` itself declares `id` and the interface level does not select it,
+    // which is a separate and real finding. The point here is the member: what
+    // the spread inside `... on SchedItem` supplies has to count.
+    let member: Vec<&str> = diagnostics
+        .iter()
+        .map(|d| d.message.as_str())
+        .filter(|m| m.contains("on SchedItem"))
+        .collect();
+    assert!(
+        member.is_empty(),
+        "the spread's `id` was not seen: {member:?}"
+    );
+}
+
+/// The same shape with nothing supplying the field, so the fix above cannot be
+/// silencing a real gap.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_missing_inside_a_top_level_inline_fragment() {
+    let text = r#"
+        query GetZone {
+            zone {
+                id
+                permissions
+                item {
+                    ...ItemInfo
+                }
+            }
+        }
+
+        fragment ItemInfo on Item {
+            __typename
+            ... on SchedItem {
+                schedule { id permissions }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::abstract_source_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in '... on SchedItem'",
+    );
+}
+
+/// Narrowing happens more than once down a chain: a fragment on an interface
+/// spread where the type is a union of that interface's implementors narrows to
+/// the interface, and a fragment on one implementor spread inside it narrows
+/// again to that implementor. Stopping after the first step files the member's
+/// fields under the interface, where the rule about the member never looks.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_supplied_through_two_levels_of_narrowing() {
+    let text = r#"
+        fragment Edge on DisplayableEdge {
+            cursor
+            node { ...Item }
+        }
+
+        fragment Item on Displayable {
+            ...Card_List
+            ... on EditorialCard {
+                link { id }
+            }
+        }
+
+        fragment Card_List on EditorialCard {
+            id
+            description
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::displayable_schema().clone().validate().unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+/// Two levels of narrowing, with nothing supplying the member's field.
+#[test]
+#[ntest::timeout(300)]
+fn test_required_field_missing_through_two_levels_of_narrowing() {
+    let text = r#"
+        fragment Edge on DisplayableEdge {
+            cursor
+            node { ...Item }
+        }
+
+        fragment Item on Displayable {
+            ... on EditorialCard {
+                link { id }
+            }
+        }
+    "#;
+    let doc = create_doc("file:///test.graphql", text);
+
+    let mut required_fields = AHashMap::default();
+    required_fields.insert("id".to_string(), RequiredFieldRule::new_always(true));
+
+    let config =
+        Config::default().with_rules(RulesConfig::default().with_required_fields(required_fields));
+
+    let diagnostics = doc.get_semantic_diagnostics(
+        &fixtures::displayable_schema().clone().validate().unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    );
+
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'id' must be selected in '... on EditorialCard'",
+    );
+}
