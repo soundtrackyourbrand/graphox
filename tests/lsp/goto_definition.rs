@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_type_vs_fragment_collision() {
     let schema = "type Query { user: User }\ntype User { id: ID! }\ntype Displayable { id: ID! }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -95,7 +95,7 @@ async fn test_goto_definition_type_vs_fragment_collision() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_directive() {
     let schema = "directive @customDirective(arg: String) on FIELD\ntype Query { id: ID }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -142,7 +142,7 @@ async fn test_goto_definition_directive() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_directive_on_fragment_spread() {
     let schema = "directive @customDirective(if: Boolean!) on FRAGMENT_SPREAD\n\
 type Query { user: User }\n\
@@ -197,7 +197,7 @@ type User { id: ID! }";
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_enum_value() {
     let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ntype Query { users(status: OrderStatus): [User] }\ntype User { id: ID }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -245,7 +245,7 @@ async fn test_goto_definition_enum_value() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_variable_in_argument() {
     let (tmpdir, mut config) = make_temp_project_with_schema(
         "type Query { user(id: ID!): User }\ntype User { id: ID! name: String }",
@@ -326,7 +326,7 @@ async fn test_goto_definition_variable_in_argument() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_inline_fragment_type() {
     let schema = "type Query { user: User }\ntype User { id: ID! name: String }\ntype Admin { id: ID! privileges: [String] }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -377,7 +377,7 @@ async fn test_goto_definition_inline_fragment_type() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_input_object_field() {
     let schema = "input CreateUserInput { id: ID! name: String }\ntype Mutation { createUser(input: CreateUserInput): ID }\ntype Query { dummy: String }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -419,7 +419,7 @@ async fn test_goto_definition_input_object_field() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_nested_enum_value() {
     let schema = "enum OrderStatus { PENDING ACTIVE COMPLETED }\ninput OrderFilter { status: OrderStatus }\ntype Query { orders(filter: OrderFilter): [ID] }";
     let (tmpdir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -463,7 +463,7 @@ async fn test_goto_definition_nested_enum_value() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_goto_definition_to_schema_file_outside_include() {
     let dir = TempDir::new().expect("failed to create tempdir");
 

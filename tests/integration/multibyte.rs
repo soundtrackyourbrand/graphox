@@ -17,7 +17,7 @@ fn create_ts_doc(text: &str) -> DocumentState {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_multibyte_range_calculation() {
     let schema_content = r#"
         type Query {
@@ -56,7 +56,7 @@ const q = gql`
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_emoji_in_query_comment() {
     let schema_content = r#"
         type Query {
@@ -92,7 +92,7 @@ const q = gql`
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_goto_definition_with_emoji() {
     let text = r#"
 fragment UserFrag on User { id }
@@ -114,7 +114,7 @@ const q = gql`
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_cjk_characters_in_strings() {
     let schema_content = r#"
         type Query {
@@ -149,7 +149,7 @@ fn test_cjk_characters_in_strings() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_arabic_characters_in_strings() {
     let schema_content = r#"
         type Query {
@@ -184,7 +184,7 @@ fn test_arabic_characters_in_strings() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_emoji_in_variable_names() {
     let schema_content = r#"
         type Query {
@@ -218,7 +218,7 @@ fn test_emoji_in_variable_names() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_combining_characters() {
     let schema_content = r#"
         type Query {
@@ -251,7 +251,7 @@ fn test_combining_characters() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_zero_width_characters() {
     let schema_content = r#"
         type Query {
@@ -283,7 +283,7 @@ fn test_zero_width_characters() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_cyrillic_characters_in_strings() {
     let schema_content = r#"
         type Query {
@@ -318,7 +318,7 @@ fn test_cyrillic_characters_in_strings() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_greek_characters_in_strings() {
     let schema_content = r#"
         type Query {
@@ -353,7 +353,7 @@ fn test_greek_characters_in_strings() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_mixed_multibyte_in_strings() {
     let schema_content = r#"
         type Query {

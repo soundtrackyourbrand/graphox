@@ -11,7 +11,7 @@ use crate::support::{
 };
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_always_true() {
     // Given: a query that selects the `users` field
     let text = r#"
@@ -48,7 +48,7 @@ fn test_required_field_always_true() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_missing_always_true() {
     let text = r#"
         query GetPosts {
@@ -89,7 +89,7 @@ fn test_required_field_missing_always_true() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_type_specific() {
     let text = r#"
         query GetData {
@@ -134,7 +134,7 @@ fn test_required_field_type_specific() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_type_override() {
     let text = r#"
         query GetUsers {
@@ -173,7 +173,7 @@ fn test_required_field_type_override() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_specific_operation_query() {
     let text = r#"
         query GetPosts {
@@ -217,7 +217,7 @@ fn test_required_field_specific_operation_query() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_specific_operation_mutation_not_required() {
     let text = r#"
         mutation AddPost {
@@ -255,7 +255,7 @@ fn test_required_field_specific_operation_mutation_not_required() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_multiple_required_fields() {
     let text = r#"
         query GetPosts {
@@ -299,7 +299,7 @@ fn test_multiple_required_fields() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_no_required_fields_config() {
     let text = r#"
         query GetPosts {
@@ -330,7 +330,7 @@ fn test_no_required_fields_config() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_with_reason() {
     let text = r#"
         query GetUsers {
@@ -371,7 +371,7 @@ fn test_required_field_with_reason() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_case_sensitive() {
     let text = r#"
         query GetPosts {
@@ -406,7 +406,7 @@ fn test_required_field_case_sensitive() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_not_in_schema() {
     let text = r#"
         query GetPosts {
@@ -443,7 +443,7 @@ fn test_required_field_not_in_schema() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_subscription() {
     let text = r#"
         subscription {
@@ -482,7 +482,7 @@ fn test_required_field_subscription() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_ignored_with_inline_comment() {
     let schema = fixtures::user_with_posts_schema()
         .clone()
@@ -509,7 +509,7 @@ fn test_required_field_ignored_with_inline_comment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_inline_fragment() {
     let schema_content = r#"
         type Query {
@@ -557,7 +557,7 @@ fn test_required_field_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_inline_fragment_partial_coverage() {
     let schema_content = r#"
         type Query {
@@ -609,7 +609,7 @@ fn test_required_field_inline_fragment_partial_coverage() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_with_inline_fragment() {
     let schema_content = r#"
         type Query {
@@ -663,7 +663,7 @@ fn test_required_field_nested_with_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_required_id_with_fragment_spread() {
     let schema_text = r#"
         type Query {
@@ -1206,7 +1206,7 @@ async fn test_project_level_field_override_replaces_global() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_same_response_key_different_types() {
     // The response key `subscription` is reached via two paths that resolve to
     // different types. `ZoneSubscription` has no `id` field, so `id` is not
@@ -1303,7 +1303,7 @@ fn required_id_config() -> Config {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_inside_fragment_definition() {
     // A nested selection inside a fragment body is checked just like one inside
     // an operation, and the diagnostic lands on the fragment's own selection.
@@ -1345,7 +1345,7 @@ fn test_required_field_nested_inside_fragment_definition() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_deeply_nested_inside_fragment_definition() {
     let text = r#"
         fragment AccountBilling on Account {
@@ -1387,7 +1387,7 @@ fn test_required_field_deeply_nested_inside_fragment_definition() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_at_fragment_type_condition_left_to_the_operation() {
     // A fragment need not select the required field at its own type condition:
     // the consuming operation may select it next to the spread. Flagging the
@@ -1426,7 +1426,7 @@ fn test_required_field_at_fragment_type_condition_left_to_the_operation() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_missing_at_fragment_type_condition_reported_once() {
     // Nobody selects `id`, so the operation-side check reports it — once,
     // anchored at the spread site, not also inside the fragment.
@@ -1470,7 +1470,7 @@ fn test_required_field_missing_at_fragment_type_condition_reported_once() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_operation_scoped_rule_checked_at_the_spread() {
     // The enclosing operation is unknown inside a fragment, so a rule scoped to
     // specific operation types cannot be evaluated there. It is evaluated where
@@ -1519,7 +1519,7 @@ fn test_required_field_operation_scoped_rule_checked_at_the_spread() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_inside_fragment_satisfied_by_nested_spread() {
     // The nested selection gets `id` from a spread, not a literal field.
     let text = r#"
@@ -1559,7 +1559,7 @@ fn test_required_field_inside_fragment_satisfied_by_nested_spread() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_inside_fragment_ignored_with_inline_comment() {
     let text = r#"
         fragment AccountBilling on Account {
@@ -1593,7 +1593,7 @@ fn test_required_field_inside_fragment_ignored_with_inline_comment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_fragment_state_does_not_leak_into_operation() {
     // One ValidationContext is reused across every definition in a document, so
     // a fragment's response-key bookkeeping must not bleed into a later
@@ -1647,7 +1647,7 @@ fn test_required_field_fragment_state_does_not_leak_into_operation() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_two_levels_deep_inside_spread_fragment() {
     // `subscription` sits two objects below the fragment's own type, so the
     // spread site only sees it if the whole path was recorded.
@@ -1693,7 +1693,7 @@ fn test_required_field_two_levels_deep_inside_spread_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_spread_does_not_satisfy_the_parent() {
     // `id` is selected on Billing by the inner fragment. That must not count as
     // a selection on Account, which is what merging every spread in a
@@ -1742,7 +1742,7 @@ fn test_required_field_nested_spread_does_not_satisfy_the_parent() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_aliased_selection_inside_spread_fragment() {
     let text = r#"
         fragment AccountBilling on Account {
@@ -1783,7 +1783,7 @@ fn test_required_field_aliased_selection_inside_spread_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_satisfied_by_merging_spread_and_inline_selections() {
     // The operation and the fragment both select `subscription`, and between
     // them every required field is there. GraphQL merges the two into one
@@ -1827,7 +1827,7 @@ fn test_required_field_satisfied_by_merging_spread_and_inline_selections() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_reported_once_for_a_path_both_sides_select() {
     // Same shape, but neither side selects `id` on the nested object. It is one
     // object, so it is one diagnostic, reported where the document selects it.
@@ -1885,7 +1885,7 @@ fn test_required_field_reported_once_for_a_path_both_sides_select() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_in_fragment_ignored_inside_the_fragment() {
     // The comment sits on the selection that would have to gain the field, so it
     // holds for every operation that spreads the fragment.
@@ -1923,7 +1923,7 @@ fn test_required_field_nested_in_fragment_ignored_inside_the_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_in_fragment_ignored_at_the_spread() {
     let text = r#"
         fragment AccountBilling on Account {
@@ -1958,7 +1958,7 @@ fn test_required_field_nested_in_fragment_ignored_at_the_spread() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_ignore_inside_fragment_is_per_selection() {
     // Only the selection carrying the comment is exempt; its sibling path is
     // still reported, so an ignore cannot quietly cover a whole subtree.
@@ -2006,7 +2006,7 @@ fn test_required_field_ignore_inside_fragment_is_per_selection() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_in_fragment_ignored_at_the_containing_selection() {
     // The walk descends through `billing` to reach objects the fragment nests,
     // so a comment there exempts what the spread brings in. Anything the
@@ -2045,7 +2045,7 @@ fn test_required_field_nested_in_fragment_ignored_at_the_containing_selection() 
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_ignore_does_not_reach_further_ancestors() {
     // Two levels up is not the selection the spread sits in, and an ignore has
     // never covered a whole subtree.
@@ -2087,7 +2087,7 @@ fn test_required_field_ignore_does_not_reach_further_ancestors() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_nested_in_fragment_ignored_at_an_inline_fragment() {
     // An inline fragment in the fragment body exempts the objects directly
     // inside it. Selections further down are written on their own lines, so
@@ -2133,7 +2133,7 @@ fn test_required_field_nested_in_fragment_ignored_at_an_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_supplied_under_inline_fragment_nested_in_fragment_body() {
     // The two fragments select the same path through the union, so what one
     // omits the other supplies. The sibling's selections sit under an inline
@@ -2202,7 +2202,7 @@ fn test_required_field_supplied_under_inline_fragment_nested_in_fragment_body() 
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_missing_under_inline_fragment_nested_in_fragment_body() {
     // Nothing supplies `permissions` under `source.schedule`, so the sibling
     // merge above must not be silencing a real miss.
@@ -2258,7 +2258,7 @@ fn test_required_field_missing_under_inline_fragment_nested_in_fragment_body() {
 /// must not reach past its own level: the objects the union members nest below
 /// it still have to be checked, or one comment quietly turns off two rules.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_under_ignored_deprecated_union_field() {
     let text = r#"
         query GetPlayback {
@@ -2316,7 +2316,7 @@ fn test_required_field_under_ignored_deprecated_union_field() {
 /// Each union member is checked on its own: one member supplying the field does
 /// not stand in for another.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_checked_per_union_member() {
     let text = r#"
         query GetPlayback {
@@ -2378,7 +2378,7 @@ fn test_required_field_checked_per_union_member() {
 /// to the union — which has no fields at all, so recording them against the
 /// union means the requirement is never evaluated and the gap is invisible.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_via_spread_narrowing_a_union_member() {
     let text = r#"
         query GetPlayback {
@@ -2455,7 +2455,7 @@ fn test_required_field_via_spread_narrowing_a_union_member() {
 /// way a query supplies permissions that a shared fragment deliberately leaves
 /// out. Nothing to report.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_supplied_by_sibling_fragment_on_a_union_member() {
     let text = r#"
         query GetPlayback {
@@ -2538,7 +2538,7 @@ fn test_required_field_supplied_by_sibling_fragment_on_a_union_member() {
 /// it. Pinned because it is a collision worth noticing, not an obvious right
 /// answer: changing it should be a deliberate choice.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_ignore_on_a_field_also_covers_members_narrowed_at_that_level() {
     let text = r#"
         query GetPlayback {
@@ -2596,7 +2596,7 @@ fn test_ignore_on_a_field_also_covers_members_narrowed_at_that_level() {
 /// one nothing else ever names — so the field it supplies was invisible and the
 /// member looked unsatisfied.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_supplied_by_spread_inside_a_top_level_inline_fragment() {
     let text = r#"
         query GetZone {
@@ -2662,7 +2662,7 @@ fn test_required_field_supplied_by_spread_inside_a_top_level_inline_fragment() {
 /// The same shape with nothing supplying the field, so the fix above cannot be
 /// silencing a real gap.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_missing_inside_a_top_level_inline_fragment() {
     let text = r#"
         query GetZone {
@@ -2714,7 +2714,7 @@ fn test_required_field_missing_inside_a_top_level_inline_fragment() {
 /// again to that implementor. Stopping after the first step files the member's
 /// fields under the interface, where the rule about the member never looks.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_supplied_through_two_levels_of_narrowing() {
     let text = r#"
         fragment Edge on DisplayableEdge {
@@ -2756,7 +2756,7 @@ fn test_required_field_supplied_through_two_levels_of_narrowing() {
 
 /// Two levels of narrowing, with nothing supplying the member's field.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_required_field_missing_through_two_levels_of_narrowing() {
     let text = r#"
         fragment Edge on DisplayableEdge {

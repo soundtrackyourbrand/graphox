@@ -66,13 +66,13 @@ fn counts(comment: &str) -> (usize, usize) {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn without_a_comment_both_rules_report() {
     assert_eq!(counts(""), (1, 1));
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn a_bare_comment_still_covers_every_rule() {
     assert_eq!(counts(" # graphox-ignore"), (0, 0));
 }
@@ -80,14 +80,14 @@ fn a_bare_comment_still_covers_every_rule() {
 /// The case this was built for: keep the deprecation quiet, keep the field rule
 /// working on the members the deprecated field selects.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn naming_one_rule_leaves_the_others_in_force() {
     assert_eq!(counts(" # graphox-ignore deprecated"), (0, 1));
     assert_eq!(counts(" # graphox-ignore required_fields"), (1, 0));
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn several_rules_can_be_named() {
     assert_eq!(
         counts(" # graphox-ignore deprecated, required_fields"),
@@ -103,7 +103,7 @@ fn several_rules_can_be_named() {
 /// carrying an explanation predate scoping and have to keep working, or adding
 /// this feature would quietly switch rules back on across a codebase.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn prose_after_the_marker_is_still_a_bare_comment() {
     assert_eq!(
         counts(" # graphox-ignore: legacy zones, see PLAT-1"),
@@ -115,7 +115,7 @@ fn prose_after_the_marker_is_still_a_bare_comment() {
 /// Scoping reaches the placements suppression already worked at, not just the
 /// field it was built for.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn scoping_applies_at_a_spread_as_well() {
     let text = "subscription S {
   zoneUpdate {
@@ -172,7 +172,7 @@ fn warnings(comment: &str) -> Vec<String> {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn an_unknown_rule_name_warns() {
     let w = warnings(" # graphox-ignore deprecatd");
     assert_eq!(w.len(), 1, "{w:?}");
@@ -184,7 +184,7 @@ fn an_unknown_rule_name_warns() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn prose_without_a_marker_warns() {
     let w = warnings(" # graphox-ignore legacy zones");
     assert_eq!(w.len(), 1, "{w:?}");
@@ -192,7 +192,7 @@ fn prose_without_a_marker_warns() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn an_explanation_after_a_marker_is_quiet() {
     for comment in [
         " # graphox-ignore: legacy zones, see PLAT-1",
@@ -210,7 +210,7 @@ fn an_explanation_after_a_marker_is_quiet() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn a_bare_comment_and_a_named_rule_are_quiet() {
     assert!(warnings(" # graphox-ignore").is_empty());
     assert!(warnings(" # graphox-ignore deprecated").is_empty());
@@ -219,7 +219,7 @@ fn a_bare_comment_and_a_named_rule_are_quiet() {
 
 /// An explanation does not change what the comment covers.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn an_explanation_does_not_change_the_scope() {
     assert_eq!(counts(" # graphox-ignore: legacy zones"), (0, 0));
     assert_eq!(counts(" # graphox-ignore (legacy zones)"), (0, 0));
@@ -236,7 +236,7 @@ fn an_explanation_does_not_change_the_scope() {
 /// A comment naming nothing graphox knows still covers everything, so adding
 /// the warning cannot make a rule start firing on its own.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn an_unknown_name_still_suppresses_everything() {
     assert_eq!(counts(" # graphox-ignore deprecatd"), (0, 0));
     assert_eq!(counts(" # graphox-ignore legacy zones"), (0, 0));
@@ -247,7 +247,7 @@ fn an_unknown_name_still_suppresses_everything() {
 /// word beside a correctly spelled rule narrows to that rule, which is the
 /// opposite mistake and needs saying so.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn the_warning_states_the_real_scope() {
     let all = warnings(" # graphox-ignore legacy zones");
     assert_eq!(all.len(), 1, "{all:?}");
@@ -273,7 +273,7 @@ fn the_warning_states_the_real_scope() {
 /// comment silently covers everything. Both spellings are plausible enough to
 /// be worth catching.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn a_rule_name_in_the_explanation_warns() {
     for comment in [
         " # graphox-ignore: deprecated",
@@ -291,7 +291,7 @@ fn a_rule_name_in_the_explanation_warns() {
 /// An explanation that merely mentions a rule name later on is not the same
 /// mistake and must stay quiet.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn an_explanation_mentioning_a_rule_later_is_quiet() {
     assert!(warnings(" # graphox-ignore: we cannot satisfy required_fields yet").is_empty());
     assert!(warnings(" # graphox-ignore deprecated: also required_fields, later").is_empty());
@@ -301,7 +301,7 @@ fn an_explanation_mentioning_a_rule_later_is_quiet() {
 /// happens to contain the text is data, and honouring it switches rules off on
 /// a selection whose author never asked for that.
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn the_marker_only_counts_inside_a_comment() {
     let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
     let config = {

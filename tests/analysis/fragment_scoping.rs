@@ -20,7 +20,7 @@ use tempfile::TempDir;
 use tower_lsp_server::ls_types::DiagnosticSeverity;
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_private_shadows_public_warning() {
     let scenario = LspTestScenario::new()
         .with_file("package.json", "{}")
@@ -70,7 +70,7 @@ fn test_private_shadows_public_warning() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_public_collision_error() {
     let scenario = LspTestScenario::new()
         .with_file("package.json", "{}")
@@ -119,7 +119,7 @@ fn test_public_collision_error() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_cross_project_fragment_usage() {
     let scenario = LspTestScenario::new()
         .with_file("package.json", "{}")

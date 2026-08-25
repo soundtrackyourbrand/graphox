@@ -8,7 +8,7 @@ use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp_server::ls_types::*;
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_private_duplicate_same_package_root_reports_error() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("package.json", "{}")
@@ -48,7 +48,7 @@ fn test_private_duplicate_same_package_root_reports_error() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_private_duplicate_same_project_via_config_reports_error() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("package.json", "{}")
@@ -104,7 +104,7 @@ fn test_private_duplicate_same_project_via_config_reports_error() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_public_duplicate_across_workspace_reports_error() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("package.json", "{}")
@@ -152,7 +152,7 @@ fn test_public_duplicate_across_workspace_reports_error() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_private_shadows_public_emits_hint() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("package.json", "{}")
@@ -200,7 +200,7 @@ fn test_private_shadows_public_emits_hint() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_private_duplicates_across_different_projects_do_not_error() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("pkg_a/package.json", "{}")

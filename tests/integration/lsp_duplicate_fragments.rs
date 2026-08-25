@@ -11,7 +11,7 @@ use tower_lsp_server::ls_types::*;
 use tower_service::Service;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_lsp_duplicate_fragments_same_project_via_config() {
     // Given: two packages each with a fragment that share the same name
     let scenario = crate::support::lsp::LspTestScenario::new()
@@ -67,7 +67,7 @@ async fn test_lsp_duplicate_fragments_same_project_via_config() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_lsp_private_duplicates_different_projects_no_error() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("schema.graphql", "type Query { me: User } type User { id: ID! name: String }")

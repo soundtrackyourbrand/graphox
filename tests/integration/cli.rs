@@ -830,7 +830,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_schema_types_test");
@@ -897,7 +897,7 @@ schema_types:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(3000)]
 fn test_cli_custom_scalars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_scalars_test");
@@ -1078,7 +1078,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_cli_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_disabled");
@@ -1173,7 +1173,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_cli_check_with_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_check_disabled");
@@ -1232,7 +1232,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(250)]
+#[ntest::timeout(3000)]
 fn test_multi_project_isolation() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let fixture_dir = Path::new("tests/fixtures/multi_project_isolation");

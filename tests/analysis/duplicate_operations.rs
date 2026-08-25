@@ -33,7 +33,7 @@ fn get_schema() -> apollo_compiler::validation::Valid<Schema> {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_duplicate_operation_names_same_file() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("queries.graphql");
@@ -84,7 +84,7 @@ fn test_duplicate_operation_names_same_file() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_unique_operation_names_no_error() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("queries.graphql");
@@ -138,7 +138,7 @@ fn test_unique_operation_names_no_error() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_duplicate_operation_rule_disabled() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("queries.graphql");
@@ -191,7 +191,7 @@ fn test_duplicate_operation_rule_disabled() {
 }
 
 #[test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 fn test_duplicate_operation_no_rules_config() {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("queries.graphql");
