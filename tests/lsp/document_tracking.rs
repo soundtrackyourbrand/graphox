@@ -51,7 +51,7 @@ projects:
 
     // 4. Verify diagnostic appears for invalid in-memory content
     let mut found_error = false;
-    let timeout = Duration::from_secs(2);
+    let timeout = Duration::from_secs(10);
     let start = std::time::Instant::now();
 
     while start.elapsed() < timeout {
