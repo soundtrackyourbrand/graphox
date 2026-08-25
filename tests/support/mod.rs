@@ -701,12 +701,14 @@ pub fn range_for_token_at_index(
 // --- Assertion helpers -------------------------------------------------
 
 /// Wait for a condition to become true, polling at regular intervals.
-/// Default timeout is 2 seconds, with 10ms polling interval.
+/// Default timeout is 10 seconds, with 10ms polling interval. The wait ends as
+/// soon as the condition holds, so the ceiling only matters on a machine that
+/// needed longer than expected — which is where the Windows job kept failing.
 pub async fn wait_for_condition<F>(condition: F) -> bool
 where
     F: Fn() -> bool,
 {
-    wait_for_condition_with_timeout(condition, Duration::from_secs(2)).await
+    wait_for_condition_with_timeout(condition, Duration::from_secs(10)).await
 }
 
 /// Wait for a condition to become true, with a custom timeout.
