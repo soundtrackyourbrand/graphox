@@ -1,7 +1,7 @@
 use super::DIAGNOSTIC_SOURCE;
 use super::ValidationContext;
 use apollo_compiler::schema::ExtendedType;
-use graphox_core::document::DocumentState;
+use graphox_core::document::{DocumentState, PathStep};
 use graphox_core::queries::{GQL_SYMBOL_QUERY, GQL_SYMBOL_QUERY_CACHE};
 use ls_types::*;
 use std::sync::Arc;
@@ -201,6 +201,7 @@ pub(super) fn validate_fragment(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn validate_inline_fragment(
     this: &DocumentState,
     node: Node,
@@ -209,6 +210,7 @@ pub(super) fn validate_inline_fragment(
     ctx: &mut ValidationContext,
     depth: usize,
     parent_response_key: Option<&str>,
+    parent_type_condition: Option<&str>,
 ) {
     if depth > 100 {
         return;
@@ -253,6 +255,10 @@ pub(super) fn validate_inline_fragment(
         }
         found_type
     } else {
+        // No type condition of its own: `... { }` selects on the enclosing
+        // type, so it inherits whatever condition is already in effect. Its
+        // fields belong wherever a field written in its place would go.
+        type_name = parent_type_condition.map(str::to_string);
         Some(parent_type)
     };
 
@@ -630,6 +636,51 @@ fn mark_used_variables_recursive(
     )
 }
 
+/// The type condition a fragment definition carries, wherever it is defined.
+/// Local definitions win over workspace ones, matching how their fields are
+/// collected everywhere else.
+pub(super) fn fragment_type_condition(
+    this: &DocumentState,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    name: &str,
+) -> Option<Arc<str>> {
+    this.fragments()
+        .iter()
+        .find(|f| f.name.as_ref() == name)
+        .map(|f| f.type_condition.clone())
+        .or_else(|| {
+            all_fragments
+                .iter()
+                .find(|f| f.name.as_ref() == name)
+                .map(|f| f.type_condition.clone())
+        })
+}
+
+/// A fragment spread into a union or interface response key narrows it exactly
+/// as `... on X` would. The abstract type has no fields of its own for a field
+/// rule to be about, so the condition has to travel with the fields or the
+/// selection is never checked against anything.
+///
+/// None when the spread narrows nothing: the response key holds a concrete
+/// type, or the fragment is written on the abstract type itself and only its
+/// own `... on X` blocks narrow further.
+fn narrowing_type_condition(
+    key_type: Option<&ExtendedType>,
+    fragment_type_condition: &str,
+) -> Option<Arc<str>> {
+    let key_type = key_type?;
+    if !matches!(
+        key_type,
+        ExtendedType::Union(_) | ExtendedType::Interface(_)
+    ) {
+        return None;
+    }
+    if key_type.name().as_str() == fragment_type_condition {
+        return None;
+    }
+    Some(Arc::from(fragment_type_condition))
+}
+
 pub(super) fn mark_selected_fields_recursive(
     this: &DocumentState,
     name: &str,
@@ -642,6 +693,25 @@ pub(super) fn mark_selected_fields_recursive(
         return;
     }
     visited.insert(name.to_string());
+
+    // Without an enclosing `... on X`, the spread's own type condition may
+    // still be narrowing one.
+    let narrowed = match type_name {
+        Some(_) => None,
+        None => fragment_type_condition(this, ctx.all_fragments, name)
+            .and_then(|tc| narrowing_type_condition(ctx.response_key_types.get(response_key), &tc)),
+    };
+    let type_name = type_name.or(narrowed.as_deref());
+
+    // The required check discovers which conditions exist at a key from this
+    // set, so a narrowing spread has to register itself the way `... on X`
+    // does or its fields are recorded and never looked at.
+    if let Some(tc) = &narrowed {
+        ctx.response_key_type_conditions
+            .entry(response_key.to_string().into())
+            .or_default()
+            .insert(tc.clone());
+    }
 
     // 1. Try local fragments
     if let Some(frag) = this.fragments().iter().find(|f| f.name.as_ref() == name) {
@@ -716,6 +786,77 @@ pub(super) fn mark_selected_fields_recursive(
             mark_selected_fields_recursive(this, spread, ctx, visited, response_key, type_name);
         }
     }
+}
+
+/// Whether spreading `name` contributes `field_name` under the type condition
+/// `target`, where `enclosing` is the condition already in effect at the spread
+/// and `key_type` is the type of the response key it sits under.
+///
+/// This mirrors `mark_selected_fields_recursive`, which is what recorded the
+/// field: the two have to agree, or a field is tracked under a condition and
+/// then has no node the diagnostic can point at.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spread_contributes_field_under(
+    this: &DocumentState,
+    all_fragments: &[crate::completion::FragmentCompletionInfo],
+    name: &str,
+    field_name: &str,
+    target: Option<&str>,
+    enclosing: Option<&str>,
+    key_type: Option<&ExtendedType>,
+    visited: &mut ahash::AHashSet<String>,
+) -> bool {
+    if !visited.insert(name.to_string()) {
+        return false;
+    }
+
+    let narrowed = match enclosing {
+        Some(_) => None,
+        None => fragment_type_condition(this, all_fragments, name)
+            .and_then(|tc| narrowing_type_condition(key_type, &tc)),
+    };
+    let effective: Option<&str> = enclosing.or(narrowed.as_deref());
+
+    let local = this
+        .fragments()
+        .iter()
+        .find(|f| f.name.as_ref() == name)
+        .map(|f| (&f.selected_fields, &f.type_fields, &f.top_level_spreads));
+    let Some((selected_fields, type_fields, top_level_spreads)) = local.or_else(|| {
+        all_fragments
+            .iter()
+            .find(|f| f.name.as_ref() == name)
+            .map(|f| (&f.selected_fields, &f.type_fields, &f.top_level_spreads))
+    }) else {
+        return false;
+    };
+
+    // Top-level fields land wherever the condition in effect puts them.
+    if effective == target && selected_fields.iter().any(|f| f.as_ref() == field_name) {
+        return true;
+    }
+
+    // An `... on X` block inside the fragment records under X regardless.
+    if let Some(t) = target
+        && type_fields
+            .iter()
+            .any(|(tc, f)| tc.as_ref() == t && f.as_ref() == field_name)
+    {
+        return true;
+    }
+
+    top_level_spreads.iter().any(|spread| {
+        spread_contributes_field_under(
+            this,
+            all_fragments,
+            spread,
+            field_name,
+            target,
+            effective,
+            key_type,
+            visited,
+        )
+    })
 }
 
 /// Record the objects nested inside a spread fragment as selections of the
@@ -814,11 +955,9 @@ fn mark_nested_selections_inner(
     };
 
     for entry in nested_selections.iter() {
-        let start_type = entry
-            .root_type_condition
-            .as_deref()
-            .unwrap_or(type_condition.as_ref());
-        let Some(type_def) = resolve_path_type(ctx.schema, start_type, &entry.type_path) else {
+        let Some(type_def) =
+            resolve_path_type(ctx.schema, type_condition.as_ref(), &entry.type_path)
+        else {
             continue;
         };
 
@@ -887,25 +1026,30 @@ fn mark_nested_selections_inner(
     walk.chain.remove(&chain_key);
 }
 
-/// Walk `type_path`, a dot-joined chain of field names, from `start_type` and
-/// return the type it lands on. None if the schema does not have that path,
-/// which happens while a document is mid-edit.
+/// Walk `type_path` from `start_type` and return the type it lands on. None if
+/// the schema does not have that path, which happens while a document is
+/// mid-edit.
 fn resolve_path_type(
     schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
     start_type: &str,
-    type_path: &str,
+    type_path: &[PathStep],
 ) -> Option<ExtendedType> {
     let mut current = schema.types.get(start_type)?.clone();
-    for segment in type_path.split('.') {
-        let field_def = match &current {
-            ExtendedType::Object(obj) => obj.fields.get(segment)?,
-            ExtendedType::Interface(iface) => iface.fields.get(segment)?,
-            _ => return None,
+    for step in type_path {
+        current = match step {
+            PathStep::TypeCondition(name) => schema.types.get(&**name)?.clone(),
+            PathStep::Field(name) => {
+                let field_def = match &current {
+                    ExtendedType::Object(obj) => obj.fields.get(&**name)?,
+                    ExtendedType::Interface(iface) => iface.fields.get(&**name)?,
+                    _ => return None,
+                };
+                schema
+                    .types
+                    .get(field_def.ty.inner_named_type().as_str())?
+                    .clone()
+            }
         };
-        current = schema
-            .types
-            .get(field_def.ty.inner_named_type().as_str())?
-            .clone();
     }
     Some(current)
 }

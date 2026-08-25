@@ -47,6 +47,7 @@ pub(super) fn validate_selection_set(
                         ctx,
                         depth + 1,
                         parent_response_key,
+                        type_name,
                     );
                 } else if k == "fragment_spread" {
                     crate::diagnostics::fragments::validate_fragment_spread(
@@ -88,6 +89,7 @@ pub(super) fn validate_selection_set(
                 ctx,
                 depth + 1,
                 parent_response_key,
+                type_name,
             );
         }
     }

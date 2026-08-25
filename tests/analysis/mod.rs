@@ -4,6 +4,7 @@ mod duplicate_fragments;
 mod duplicate_operations;
 mod error_recovery;
 mod field_definition;
+mod field_rule_syntax_matrix;
 mod forbidden_fields;
 mod fragment_scoping;
 mod no_duplicate_fields;

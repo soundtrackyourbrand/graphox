@@ -297,6 +297,169 @@ pub fn colliding_response_key_schema() -> &'static Schema {
     })
 }
 
+static ABSTRACT_SOURCE_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Schema where an object field resolves to a union and to an interface, each
+/// of whose members nests a further object. Exercises field rules reaching
+/// selections that sit behind a type condition partway down a path.
+///
+/// Contains:
+/// - `type Query { zone: Zone }`, `type Subscription { zoneUpdate: Zone }`
+/// - `type Zone { id: ID! permissions: [String!] source: PlayableSource item: Item }`
+/// - `union PlayableSource = ScheduleSource | Manual`
+/// - `type ScheduleSource { schedule: Schedule! }`
+/// - `interface Item { id: ID! }`, `type SchedItem implements Item { schedule: Schedule! }`
+/// - `type Schedule { id: ID! name: String permissions: [String!] }`
+pub fn abstract_source_schema() -> &'static Schema {
+    ABSTRACT_SOURCE_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    zone: Zone
+                }
+                type Subscription {
+                    zoneUpdate: Zone
+                }
+                type Zone {
+                    id: ID!
+                    permissions: [String!]
+                    source: PlayableSource
+                    item: Item
+                }
+                type Schedule {
+                    id: ID!
+                    name: String
+                    permissions: [String!]
+                }
+                union PlayableSource = ScheduleSource | Manual
+                type ScheduleSource {
+                    schedule: Schedule!
+                }
+                type Manual {
+                    id: ID!
+                }
+                interface Item {
+                    id: ID!
+                }
+                type SchedItem implements Item {
+                    id: ID!
+                    schedule: Schedule!
+                }
+                type OtherItem implements Item {
+                    id: ID!
+                }
+            "#,
+            "abstract_source_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
+static DEPRECATED_UNION_FIELD_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Schema where a deprecated field resolves to a union whose members each nest
+/// an object carrying the same rule-relevant field. Exercises a
+/// `# graphox-ignore` placed for the deprecation warning sitting directly above
+/// selections the field rules still have to see.
+///
+/// Contains:
+/// - `type Query { playback: Playback }`
+/// - `type Playback { current: PlaybackItem }`
+/// - `type PlaybackItem { id: ID! source: PlaybackSource @deprecated }`
+/// - `union PlaybackSource = ScheduleSource | PlaylistSource`
+/// - `type Schedule { id: ID! permissions: [String!] }` and the same on Playlist
+pub fn deprecated_union_field_schema() -> &'static Schema {
+    DEPRECATED_UNION_FIELD_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    playback: Playback
+                }
+                type Playback {
+                    current: PlaybackItem
+                }
+                type PlaybackItem {
+                    id: ID!
+                    source: PlaybackSource @deprecated(reason: "use sources")
+                }
+                union PlaybackSource = ScheduleSource | PlaylistSource
+                type ScheduleSource {
+                    schedule: Schedule!
+                }
+                type PlaylistSource {
+                    playlist: Playlist!
+                }
+                type Schedule {
+                    id: ID!
+                    permissions: [String!]
+                }
+                type Playlist {
+                    id: ID!
+                    permissions: [String!]
+                }
+            "#,
+            "deprecated_union_field_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
+static PLAYABLE_SOURCE_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Schema shaped like a real union of playable sources: one member is a plain
+/// object carrying the rule-relevant field directly, another reaches it through
+/// a nested object. A fragment written on a member narrows the union by its own
+/// type condition, with no `... on X` anywhere.
+///
+/// Contains:
+/// - `type Query { playback: Playback }`, `type Subscription { playbackUpdate: Playback }`
+/// - `type PlaybackItem { id: ID! source: PlayableSource @deprecated }`
+/// - `union PlayableSource = ManuallyQueued | Playlist | ScheduleSource`
+/// - `type Playlist { id: ID! name: String permissions: [String!] }`
+/// - `type ScheduleSource { schedule: Schedule! }`
+/// - `type Schedule { id: ID! name: String permissions: [String!] }`
+pub fn playable_source_schema() -> &'static Schema {
+    PLAYABLE_SOURCE_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    playback: Playback
+                }
+                type Subscription {
+                    playbackUpdate: Playback
+                }
+                type Playback {
+                    id: ID!
+                    current: PlaybackItem
+                }
+                type PlaybackItem {
+                    id: ID!
+                    source: PlayableSource @deprecated(reason: "use sources")
+                }
+                union PlayableSource = ManuallyQueued | Playlist | ScheduleSource
+                type Playlist {
+                    id: ID!
+                    name: String
+                    permissions: [String!]
+                }
+                type ScheduleSource {
+                    schedule: Schedule!
+                }
+                type Schedule {
+                    id: ID!
+                    name: String
+                    permissions: [String!]
+                }
+                type ManuallyQueued {
+                    id: ID!
+                }
+            "#,
+            "playable_source_schema.graphql",
+        )
+        .unwrap()
+    })
+}
+
 // =============================================================================
 // Query Strings
 // =============================================================================
@@ -484,4 +647,77 @@ pub fn valid_interface_query() -> &'static str {
             }
         }
     "#
+}
+
+static SYNTAX_MATRIX_SCHEMA: OnceCell<Schema> = OnceCell::new();
+
+/// Wide schema for exercising every syntactic route a selection can take to a
+/// field. `secret` appears on several types at several depths, reachable
+/// through plain objects, a union, two interfaces, an interface that
+/// implements another, lists, and recursion.
+pub fn syntax_matrix_schema() -> &'static Schema {
+    SYNTAX_MATRIX_SCHEMA.get_or_init(|| {
+        Schema::parse(
+            r#"
+                type Query {
+                    zone: Zone
+                    zones: [Zone!]
+                }
+                type Subscription {
+                    zoneUpdate: Zone
+                }
+                type Zone {
+                    id: ID!
+                    secret: String
+                    source: PlayableSource
+                    sources: [PlayableSource!]
+                    item: Item
+                    node: Node
+                    meta: Meta
+                    child: Zone
+                }
+                type Meta {
+                    id: ID!
+                    secret: String
+                    schedule: Schedule
+                }
+                union PlayableSource = ScheduleSource | Manual
+                type ScheduleSource {
+                    schedule: Schedule!
+                    inner: Item
+                    alt: PlayableSource
+                }
+                type Manual {
+                    id: ID!
+                    secret: String
+                }
+                interface Node {
+                    id: ID!
+                }
+                interface Item implements Node {
+                    id: ID!
+                }
+                type SchedItem implements Item & Node {
+                    id: ID!
+                    schedule: Schedule!
+                }
+                type OtherItem implements Item & Node {
+                    id: ID!
+                    secret: String
+                }
+                type Schedule {
+                    id: ID!
+                    name: String
+                    secret: String
+                    deep: Deep
+                }
+                type Deep {
+                    id: ID!
+                    secret: String
+                }
+            "#,
+            "syntax_matrix_schema.graphql",
+        )
+        .unwrap()
+    })
 }
