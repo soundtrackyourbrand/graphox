@@ -656,26 +656,33 @@ pub(super) fn fragment_type_condition(
         })
 }
 
-/// A fragment spread into a union or interface response key narrows it exactly
-/// as `... on X` would. The abstract type has no fields of its own for a field
-/// rule to be about, so the condition has to travel with the fields or the
-/// selection is never checked against anything.
+/// A fragment spread where an abstract type is in effect narrows it exactly as
+/// `... on X` would. The abstract type has no fields of its own for a field rule
+/// to be about, so the condition has to travel with the fields or the selection
+/// is never checked against anything.
 ///
-/// None when the spread narrows nothing: the response key holds a concrete
-/// type, or the fragment is written on the abstract type itself and only its
-/// own `... on X` blocks narrow further.
+/// `in_effect` is the type condition already in force, or the response key's own
+/// type when there is none. A spread narrows relative to that rather than to the
+/// key: a fragment on an interface spread at a union key narrows to the
+/// interface, and a fragment on a member spread inside *that* narrows again to
+/// the member. Stopping at the first narrowing files the member's fields under
+/// the interface, where no rule about the member ever looks for them.
+///
+/// None when the spread narrows nothing: what is in effect is a concrete type,
+/// or the fragment is written on that very type and only its own `... on X`
+/// blocks narrow further.
 fn narrowing_type_condition(
-    key_type: Option<&ExtendedType>,
+    schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
+    in_effect: &str,
     fragment_type_condition: &str,
 ) -> Option<Arc<str>> {
-    let key_type = key_type?;
-    if !matches!(
-        key_type,
-        ExtendedType::Union(_) | ExtendedType::Interface(_)
-    ) {
+    if in_effect == fragment_type_condition {
         return None;
     }
-    if key_type.name().as_str() == fragment_type_condition {
+    if !matches!(
+        schema.types.get(in_effect)?,
+        ExtendedType::Union(_) | ExtendedType::Interface(_)
+    ) {
         return None;
     }
     Some(Arc::from(fragment_type_condition))
@@ -694,14 +701,19 @@ pub(super) fn mark_selected_fields_recursive(
     }
     visited.insert(name.to_string());
 
-    // Without an enclosing `... on X`, the spread's own type condition may
-    // still be narrowing one.
-    let narrowed = match type_name {
-        Some(_) => None,
-        None => fragment_type_condition(this, ctx.all_fragments, name)
-            .and_then(|tc| narrowing_type_condition(ctx.response_key_types.get(response_key), &tc)),
-    };
-    let type_name = type_name.or(narrowed.as_deref());
+    // Whatever is in effect here — an enclosing `... on X`, or the key's own
+    // type — this spread's own condition may narrow it further.
+    let in_effect: Option<String> = type_name.map(str::to_string).or_else(|| {
+        ctx.response_key_types
+            .get(response_key)
+            .map(|t| t.name().to_string())
+    });
+    let narrowed = in_effect.as_deref().and_then(|in_effect| {
+        fragment_type_condition(this, ctx.all_fragments, name)
+            .and_then(|tc| narrowing_type_condition(ctx.schema, in_effect, &tc))
+    });
+    // The narrower condition wins: it is the one the fields belong to.
+    let type_name = narrowed.as_deref().or(type_name);
 
     // The required check discovers which conditions exist at a key from this
     // set, so a narrowing spread has to register itself the way `... on X`
@@ -798,6 +810,7 @@ pub(super) fn mark_selected_fields_recursive(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spread_contributes_field_under(
     this: &DocumentState,
+    schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
     all_fragments: &[crate::completion::FragmentCompletionInfo],
     name: &str,
     field_name: &str,
@@ -810,24 +823,42 @@ pub(super) fn spread_contributes_field_under(
         return false;
     }
 
-    let narrowed = match enclosing {
-        Some(_) => None,
-        None => fragment_type_condition(this, all_fragments, name)
-            .and_then(|tc| narrowing_type_condition(key_type, &tc)),
-    };
-    let effective: Option<&str> = enclosing.or(narrowed.as_deref());
+    let in_effect: Option<String> = enclosing
+        .map(str::to_string)
+        .or_else(|| key_type.map(|t| t.name().to_string()));
+    let narrowed = in_effect.as_deref().and_then(|in_effect| {
+        fragment_type_condition(this, all_fragments, name)
+            .and_then(|tc| narrowing_type_condition(schema, in_effect, &tc))
+    });
+    let effective: Option<&str> = narrowed.as_deref().or(enclosing);
 
     let local = this
         .fragments()
         .iter()
         .find(|f| f.name.as_ref() == name)
-        .map(|f| (&f.selected_fields, &f.type_fields, &f.top_level_spreads));
-    let Some((selected_fields, type_fields, top_level_spreads)) = local.or_else(|| {
-        all_fragments
-            .iter()
-            .find(|f| f.name.as_ref() == name)
-            .map(|f| (&f.selected_fields, &f.type_fields, &f.top_level_spreads))
-    }) else {
+        .map(|f| {
+            (
+                &f.selected_fields,
+                &f.type_fields,
+                &f.top_level_spreads,
+                &f.nested_selections,
+            )
+        });
+    let Some((selected_fields, type_fields, top_level_spreads, nested_selections)) =
+        local.or_else(|| {
+            all_fragments
+                .iter()
+                .find(|f| f.name.as_ref() == name)
+                .map(|f| {
+                    (
+                        &f.selected_fields,
+                        &f.type_fields,
+                        &f.top_level_spreads,
+                        &f.nested_selections,
+                    )
+                })
+        })
+    else {
         return false;
     };
 
@@ -845,9 +876,10 @@ pub(super) fn spread_contributes_field_under(
         return true;
     }
 
-    top_level_spreads.iter().any(|spread| {
+    if top_level_spreads.iter().any(|spread| {
         spread_contributes_field_under(
             this,
+            schema,
             all_fragments,
             spread,
             field_name,
@@ -856,7 +888,30 @@ pub(super) fn spread_contributes_field_under(
             key_type,
             visited,
         )
-    })
+    }) {
+        return true;
+    }
+
+    // A spread inside `... on X` at the fragment's own top level opens no
+    // response key, so it is not a top-level spread and has no path either. It
+    // sits in the nested metadata with an empty path, and what it contributes
+    // belongs to X.
+    nested_selections
+        .iter()
+        .filter(|entry| entry.is_spread && entry.path.is_empty())
+        .any(|entry| {
+            spread_contributes_field_under(
+                this,
+                schema,
+                all_fragments,
+                &entry.name,
+                field_name,
+                target,
+                entry.type_condition.as_deref().or(effective),
+                key_type,
+                visited,
+            )
+        })
 }
 
 /// Record the objects nested inside a spread fragment as selections of the
@@ -964,9 +1019,20 @@ fn mark_nested_selections_inner(
         // The path the fragment nests is a response key of the consuming
         // document like any other, so selections merge with the same path
         // selected inline: `zone { account { id } ...F }` is one object.
-        let nested_key: Arc<str> = format!("{}.{}", base_key, entry.path)
-            .into_boxed_str()
-            .into();
+        //
+        // An empty path means the selection sits at the fragment's own top
+        // level, under a type condition rather than below a field — a spread
+        // inside `... on X` opens no key of its own. It belongs to the key the
+        // fragment is spread under, so joining a path onto it would invent a
+        // key (`item.`) that nothing else ever names, and the selection would
+        // be recorded somewhere no rule looks.
+        let nested_key: Arc<str> = if entry.path.is_empty() {
+            Arc::from(base_key)
+        } else {
+            format!("{}.{}", base_key, entry.path)
+                .into_boxed_str()
+                .into()
+        };
 
         ctx.response_key_types
             .entry(nested_key.clone())

@@ -628,6 +628,7 @@ pub(super) fn check_forbidden_fields(
                                     field_name_str,
                                     None,
                                     ctx.response_key_types.get(response_key),
+                                    ctx.schema,
                                 )
                         {
                             field_node = Some(spread_node);
@@ -756,6 +757,7 @@ pub(super) fn check_forbidden_fields(
                                     field_name_str,
                                     Some(type_name),
                                     ctx.response_key_types.get(response_key),
+                                    ctx.schema,
                                 )
                         {
                             field_node = Some(spread_node);
@@ -1170,6 +1172,7 @@ fn find_fragment_spread_selecting_field<'a>(
     field_name: &str,
     type_condition: Option<&str>,
     key_type: Option<&ExtendedType>,
+    schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
 ) -> Option<(Node<'a>, String)> {
     let segments: Vec<&str> = response_key.split('.').collect();
     let parent = find_field_node_at_path(this, node, offset, &segments)?;
@@ -1183,6 +1186,7 @@ fn find_fragment_spread_selecting_field<'a>(
         type_condition,
         None,
         key_type,
+        schema,
     )
 }
 
@@ -1200,6 +1204,7 @@ fn find_spread_selecting_field<'a>(
     type_condition: Option<&str>,
     current_type_condition: Option<&str>,
     key_type: Option<&ExtendedType>,
+    schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
 ) -> Option<(Node<'a>, String)> {
     let mut cursor = selection_set.walk();
     for selection in selection_set.children(&mut cursor) {
@@ -1228,6 +1233,7 @@ fn find_spread_selecting_field<'a>(
             // that recorded them.
             if crate::diagnostics::fragments::spread_contributes_field_under(
                 this,
+                schema,
                 all_fragments,
                 &fragment_name,
                 field_name,
@@ -1256,6 +1262,7 @@ fn find_spread_selecting_field<'a>(
                 type_condition,
                 next_tc,
                 key_type,
+                schema,
             ) {
                 return Some(found);
             }
