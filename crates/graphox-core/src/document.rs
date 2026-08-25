@@ -83,6 +83,220 @@ pub type FragmentId = (Arc<str>, Arc<str>, usize);
 /// A collection of transitive fragment dependencies.
 pub type TransitiveDeps = Arc<[FragmentId]>;
 
+/// A selection whose own line carries an ignore comment: its path from the
+/// fragment's top level (empty at the top level), the field name, and what the
+/// comment covers.
+pub type SelectionIgnore = (Arc<str>, Arc<str>, IgnoreScope);
+
+/// A rule an inline `# graphox-ignore` comment can be scoped to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IgnoreRule {
+    /// The deprecated-field warning.
+    Deprecated,
+    /// The `required_fields` rule.
+    RequiredFields,
+    /// The `forbidden_fields` rule.
+    ForbiddenFields,
+}
+
+impl IgnoreRule {
+    pub const ALL: [IgnoreRule; 3] = [
+        IgnoreRule::Deprecated,
+        IgnoreRule::RequiredFields,
+        IgnoreRule::ForbiddenFields,
+    ];
+
+    /// The name this rule is written as in an ignore comment, matching the key
+    /// it is configured under.
+    pub fn comment_name(self) -> &'static str {
+        match self {
+            IgnoreRule::Deprecated => "deprecated",
+            IgnoreRule::RequiredFields => "required_fields",
+            IgnoreRule::ForbiddenFields => "forbidden_fields",
+        }
+    }
+}
+
+/// The rules an ignore comment covers. `IgnoreScope::NONE` means there is no
+/// comment at all, so an absent comment and one covering nothing are the same
+/// thing to every caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct IgnoreScope {
+    deprecated: bool,
+    required_fields: bool,
+    forbidden_fields: bool,
+}
+
+impl IgnoreScope {
+    pub const NONE: Self = Self {
+        deprecated: false,
+        required_fields: false,
+        forbidden_fields: false,
+    };
+
+    pub const ALL: Self = Self {
+        deprecated: true,
+        required_fields: true,
+        forbidden_fields: true,
+    };
+
+    pub fn only(rule: IgnoreRule) -> Self {
+        let mut scope = Self::NONE;
+        scope.add(rule);
+        scope
+    }
+
+    fn add(&mut self, rule: IgnoreRule) {
+        match rule {
+            IgnoreRule::Deprecated => self.deprecated = true,
+            IgnoreRule::RequiredFields => self.required_fields = true,
+            IgnoreRule::ForbiddenFields => self.forbidden_fields = true,
+        }
+    }
+
+    pub fn covers(self, rule: IgnoreRule) -> bool {
+        match rule {
+            IgnoreRule::Deprecated => self.deprecated,
+            IgnoreRule::RequiredFields => self.required_fields,
+            IgnoreRule::ForbiddenFields => self.forbidden_fields,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self == Self::NONE
+    }
+
+    /// Everything either scope covers, for the places suppression accumulates
+    /// as a walk descends.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            deprecated: self.deprecated || other.deprecated,
+            required_fields: self.required_fields || other.required_fields,
+            forbidden_fields: self.forbidden_fields || other.forbidden_fields,
+        }
+    }
+}
+
+/// The text that introduces an ignore directive.
+pub const IGNORE_MARKER: &str = "# graphox-ignore";
+
+/// Whether the byte at `block_byte` — an offset into the same tree `node`
+/// belongs to — sits inside a comment.
+///
+/// Comments are extras in the grammar, so they are in the tree but off the main
+/// path; looking the position up and walking back out to the root is the way to
+/// tell a comment from a string that reads like one.
+fn node_at_byte_is_comment(node: Node, block_byte: usize) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+
+    let mut current = root.descendant_for_byte_range(block_byte, block_byte + 1);
+    while let Some(found) = current {
+        if found.kind() == "comment" {
+            return true;
+        }
+        current = found.parent();
+    }
+    false
+}
+
+/// Characters that end the rule list and begin free text. A rule name can
+/// never start with one, so an explanation introduced this way is never
+/// mistaken for a rule and a bare word is never mistaken for prose.
+const EXPLANATION_MARKERS: [char; 3] = [':', '-', '('];
+
+/// Split an ignore comment into the rule names it lists and the explanation
+/// that follows. None if the text carries no ignore comment at all.
+fn split_ignore_comment(after_selection: &str) -> Option<(&str, &str)> {
+    let (_, rest) = after_selection.split_once(IGNORE_MARKER)?;
+    let end = rest
+        .find(|c| EXPLANATION_MARKERS.contains(&c))
+        .unwrap_or(rest.len());
+    Some(rest.split_at(end))
+}
+
+/// Read the scope of an ignore comment out of the text following a selection.
+///
+/// A bare `# graphox-ignore` covers every rule, which is what it has always
+/// meant. Naming rules after it — one, or several separated by commas or
+/// spaces — narrows it to those, so a comment can silence a deprecation
+/// warning on a field while leaving the field rules in force on what that
+/// field selects.
+///
+/// An explanation goes after `:`, `-` or `(`. Only that marker separates prose
+/// from a rule name, so a misspelling is not mistaken for prose and vice
+/// versa; `unrecognised_ignore_rule_names` reports what was not understood.
+/// A comment that names no rule graphox knows still covers everything, so the
+/// suppression an author already relies on never quietly stops working — the
+/// warning tells them to fix the comment rather than a rule firing again
+/// without explanation.
+pub fn parse_ignore_scope(after_selection: &str) -> IgnoreScope {
+    let Some((rules, _)) = split_ignore_comment(after_selection) else {
+        return IgnoreScope::NONE;
+    };
+
+    let mut scope = IgnoreScope::NONE;
+    for token in rules.split([',', ' ', '\t']) {
+        if let Some(rule) = IgnoreRule::ALL
+            .iter()
+            .find(|r| r.comment_name() == token.trim())
+        {
+            scope.add(*rule);
+        }
+    }
+
+    if scope.is_empty() {
+        IgnoreScope::ALL
+    } else {
+        scope
+    }
+}
+
+/// A rule name written in the explanation position, where it names no rule and
+/// the comment silently covers everything. `# graphox-ignore: deprecated` and
+/// `# graphox-ignore (deprecated)` are both plausible spellings of an intent the
+/// grammar does not read that way, so they are worth reporting rather than
+/// quietly over-suppressing.
+pub fn rule_name_in_explanation(after_selection: &str) -> Option<String> {
+    let (rules, explanation) = split_ignore_comment(after_selection)?;
+    if !rules.trim().is_empty() {
+        return None;
+    }
+    let first = explanation
+        .trim_start_matches([':', '-', '(', ' ', '\t'])
+        .split([',', ' ', '\t', ')'])
+        .next()?
+        .trim();
+    IgnoreRule::ALL
+        .iter()
+        .find(|r| r.comment_name() == first)
+        .map(|r| r.comment_name().to_string())
+}
+
+/// Words before the explanation marker that name no rule graphox knows.
+///
+/// Everything up to the marker is meant to be a rule list, so anything here is
+/// either a misspelling or an explanation missing its marker. Both are worth
+/// reporting: the comment still suppresses everything, so nothing about it
+/// looks wrong from the outside, and the narrowing its author wrote did not
+/// happen.
+pub fn unrecognised_ignore_rule_names(after_selection: &str) -> Vec<String> {
+    let Some((rules, _)) = split_ignore_comment(after_selection) else {
+        return Vec::new();
+    };
+
+    rules
+        .split([',', ' ', '\t'])
+        .map(str::trim)
+        .filter(|token| {
+            !token.is_empty() && !IgnoreRule::ALL.iter().any(|r| r.comment_name() == *token)
+        })
+        .map(str::to_string)
+        .collect()
+}
+
 /// One step along a `NestedSelection::type_path`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathStep {
@@ -114,10 +328,10 @@ pub struct NestedSelection {
     /// Field name, or fragment name when `is_spread`.
     pub name: Arc<str>,
     pub is_spread: bool,
-    /// Whether the selection that opens `path` carries `# graphox-ignore`.
+    /// The rules an ignore comment on the selection that opens `path` covers.
     /// Suppression written inside the fragment has to travel with the metadata,
     /// since the rule is evaluated in the documents that spread it.
-    pub path_ignored: bool,
+    pub path_ignored: IgnoreScope,
 }
 
 /// Join a selection path segment onto a dotted path, matching the response-key
@@ -149,6 +363,23 @@ pub struct FragmentDef {
     /// spread under, the rest sit below a nested selection.
     pub top_level_spreads: Arc<[Arc<str>]>,
     pub nested_selections: Arc<[NestedSelection]>,
+    /// Selections in this body whose own line carries an ignore comment, as
+    /// (path from the fragment's top level, field name, scope).
+    ///
+    /// A rule about a field that is *present* — forbidden, deprecated — is
+    /// silenced on that field, and the field lives here rather than in the
+    /// document being checked, so the comment has to travel with the metadata
+    /// like the path-level one does. Sparse: almost every fragment contributes
+    /// nothing.
+    pub selection_ignores: Arc<[SelectionIgnore]>,
+    /// Spreads in this body whose own line carries an ignore comment, as (path
+    /// from the fragment's top level, fragment name, scope).
+    ///
+    /// A spread is a leaf: there is nothing inside it to annotate, so a comment
+    /// there covers everything it brings in. Kept apart from
+    /// `selection_ignores` so a fragment sharing a name with a field cannot be
+    /// mistaken for one.
+    pub spread_ignores: Arc<[SelectionIgnore]>,
 }
 
 #[derive(Debug, Clone)]
@@ -886,25 +1117,47 @@ impl DocumentState {
         components
     }
 
-    /// Whether `node`'s line carries a `# graphox-ignore` comment after it.
-    /// Suppression is line-based and always attaches to a selection, so this is
-    /// the one place that decides what "ignored" means.
-    pub fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
+    /// The rules the ignore comment on `node`'s line covers, if there is one.
+    pub fn ignore_scope(&self, node: Node, offset: usize) -> IgnoreScope {
         let start_byte = node.start_byte() + offset;
         let line_idx = self.rope.byte_to_line(start_byte);
         if line_idx >= self.rope.len_lines() {
-            return false;
+            return IgnoreScope::NONE;
         }
 
         let line = self.rope.line(line_idx).to_string();
         let line_start_byte = self.rope.line_to_byte(line_idx);
         let relative_end_byte = node.end_byte() + offset - line_start_byte;
         if relative_end_byte >= line.len() {
-            return false;
+            return IgnoreScope::NONE;
         }
 
-        line.get(relative_end_byte..)
-            .is_some_and(|after_text| after_text.contains("# graphox-ignore"))
+        let Some(after) = line.get(relative_end_byte..) else {
+            return IgnoreScope::NONE;
+        };
+
+        // The marker only counts inside a comment. A string argument that
+        // happens to contain the text is not a directive, and treating it as
+        // one silently switches rules off — `name(eq: "# graphox-ignore")`
+        // would suppress the very selection it appears in. There can be more
+        // than one occurrence on a line, so take the first that is really a
+        // comment and parse from there.
+        let mut searched = 0;
+        while let Some(found) = after[searched..].find(IGNORE_MARKER) {
+            let in_after = searched + found;
+            let block_byte = line_start_byte + relative_end_byte + in_after - offset;
+            if node_at_byte_is_comment(node, block_byte) {
+                return parse_ignore_scope(&after[in_after..]);
+            }
+            searched = in_after + IGNORE_MARKER.len();
+        }
+
+        IgnoreScope::NONE
+    }
+
+    /// Whether the ignore comment on `node`'s line covers `rule`.
+    pub fn ignore_covers(&self, node: Node, offset: usize, rule: IgnoreRule) -> bool {
+        self.ignore_scope(node, offset).covers(rule)
     }
 
     pub fn fragments(&self) -> &[FragmentDef] {
@@ -1035,6 +1288,8 @@ impl DocumentState {
                     let mut type_fields = Vec::new();
                     let mut top_level_spreads = Vec::new();
                     let mut nested_selections: Vec<NestedSelection> = Vec::new();
+                    let mut selection_ignores: Vec<SelectionIgnore> = Vec::new();
+                    let mut spread_ignores: Vec<SelectionIgnore> = Vec::new();
 
                     if let Some(sel_set) = self.find_child_by_kind(container, "selection_set") {
                         // Selection set, the inline fragment type condition in
@@ -1045,8 +1300,8 @@ impl DocumentState {
                             None::<String>,
                             String::new(),
                             Vec::<PathStep>::new(),
-                            false,
-                            false,
+                            IgnoreScope::NONE,
+                            IgnoreScope::NONE,
                         )];
                         while let Some((
                             set,
@@ -1082,6 +1337,18 @@ impl DocumentState {
                                                     .unwrap_or(name_node);
                                                 let response_key =
                                                     self.get_node_text(key_node, offset);
+
+                                                // The field's own line, for the
+                                                // rules that are about a field
+                                                // that is there to annotate.
+                                                let own = self.ignore_scope(key_node, offset);
+                                                if !own.is_empty() {
+                                                    selection_ignores.push((
+                                                        Arc::from(path.as_str()),
+                                                        Arc::from(fname.as_str()),
+                                                        own,
+                                                    ));
+                                                }
 
                                                 if path.is_empty() {
                                                     if let Some(tc) = &current_tc {
@@ -1136,11 +1403,10 @@ impl DocumentState {
                                                         // enclosing path does not,
                                                         // matching how suppression
                                                         // works in an operation.
-                                                        tc_ignored
-                                                            || self.has_inline_ignore_comment(
-                                                                key_node, offset,
-                                                            ),
-                                                        false,
+                                                        tc_ignored.union(
+                                                            self.ignore_scope(key_node, offset),
+                                                        ),
+                                                        IgnoreScope::NONE,
                                                     ));
                                                 }
                                             }
@@ -1152,29 +1418,44 @@ impl DocumentState {
                                                 {
                                                     let inline_ignored = self
                                                         .find_child_by_kind(node, "type_condition")
-                                                        .is_some_and(|tc_node| {
-                                                            self.has_inline_ignore_comment(
-                                                                tc_node, offset,
-                                                            )
-                                                        });
+                                                        .map(|tc_node| {
+                                                            self.ignore_scope(tc_node, offset)
+                                                        })
+                                                        .unwrap_or(IgnoreScope::NONE);
                                                     stack.push((
                                                         inner_set,
                                                         tc.or_else(|| current_tc.clone()),
                                                         path.clone(),
                                                         type_path.clone(),
                                                         path_ignored,
-                                                        tc_ignored || inline_ignored,
+                                                        tc_ignored.union(inline_ignored),
                                                     ));
                                                 }
                                             }
                                             "fragment_spread" => {
-                                                if let Some(spread_name) = self
+                                                let spread_name_node = self
                                                     .find_child_by_kind(node, "fragment_name")
                                                     .and_then(|n| {
                                                         self.find_child_by_kind(n, "name")
-                                                    })
+                                                    });
+                                                if let Some(spread_name) = spread_name_node
                                                     .map(|n| self.get_node_text(n, offset))
                                                 {
+                                                    // A comment on the spread
+                                                    // covers everything it
+                                                    // brings in, at whatever
+                                                    // depth.
+                                                    if let Some(name_node) = spread_name_node {
+                                                        let own =
+                                                            self.ignore_scope(name_node, offset);
+                                                        if !own.is_empty() {
+                                                            spread_ignores.push((
+                                                                Arc::from(path.as_str()),
+                                                                Arc::from(spread_name.as_str()),
+                                                                own,
+                                                            ));
+                                                        }
+                                                    }
                                                     if path.is_empty() && current_tc.is_none() {
                                                         top_level_spreads
                                                             .push(Arc::from(spread_name.as_str()));
@@ -1217,6 +1498,8 @@ impl DocumentState {
                             type_fields: Arc::from(type_fields),
                             top_level_spreads: Arc::from(top_level_spreads),
                             nested_selections: Arc::from(nested_selections),
+                            selection_ignores: Arc::from(selection_ignores),
+                            spread_ignores: Arc::from(spread_ignores),
                         },
                         start: container.start_byte() + offset,
                         end: container.end_byte() + offset,

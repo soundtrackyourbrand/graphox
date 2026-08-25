@@ -190,10 +190,22 @@ pub trait DocumentCodeActions {
     fn get_deprecation_actions(&self, diagnostic: &Diagnostic) -> Vec<CodeAction>;
 }
 
+/// Byte offset within `line` where a rule can be added to an ignore comment's
+/// rule list: just past the last name already there, before any explanation.
+/// None if the line carries no ignore comment.
+fn rule_list_end(line: &str) -> Option<usize> {
+    const MARKER: &str = "# graphox-ignore";
+    let after_marker = line.find(MARKER)? + MARKER.len();
+    let rest = &line[after_marker..];
+    let rules_end = rest.find([':', '-', '(']).unwrap_or(rest.len());
+    Some(after_marker + rest[..rules_end].trim_end().len())
+}
+
 fn create_inline_ignore_action(
     doc: &DocumentState,
     diagnostic: &Diagnostic,
     title: &str,
+    rule: graphox_core::document::IgnoreRule,
 ) -> Option<CodeAction> {
     let line_idx = diagnostic.range.end.line as usize;
     if line_idx >= doc.rope.len_lines() {
@@ -201,8 +213,39 @@ fn create_inline_ignore_action(
     }
 
     let line = doc.rope.line(line_idx).to_string();
+
+    // A comment already here covers some set of rules. If this rule is in it
+    // there is nothing to do; if it is not, add the rule to that comment rather
+    // than writing a second marker on the line — two markers read as one
+    // comment, and only the first would be parsed.
     if line.contains("# graphox-ignore") {
-        return None;
+        if graphox_core::document::parse_ignore_scope(&line).covers(rule) {
+            return None;
+        }
+        let insert_at = rule_list_end(&line)?;
+        let byte = doc.rope.line_to_byte(line_idx) + insert_at;
+        let pos = doc.byte_to_position(byte);
+        let mut changes = std::collections::HashMap::new();
+        changes.insert(
+            doc.uri.clone(),
+            vec![TextEdit {
+                range: Range::new(pos, pos),
+                new_text: format!(", {}", rule.comment_name()),
+            }],
+        );
+        return Some(CodeAction {
+            title: format!(
+                "Add {} to the # graphox-ignore comment",
+                rule.comment_name()
+            ),
+            kind: Some(CodeActionKind::QUICKFIX),
+            diagnostics: Some(vec![diagnostic.clone()]),
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
     }
 
     let line_len_chars = doc.rope.line(line_idx).len_chars();
@@ -224,7 +267,7 @@ fn create_inline_ignore_action(
         doc.uri.clone(),
         vec![TextEdit {
             range: Range::new(insert_pos, insert_pos),
-            new_text: " # graphox-ignore".to_string(),
+            new_text: format!(" # graphox-ignore {}", rule.comment_name()),
         }],
     );
 
@@ -609,7 +652,8 @@ impl DocumentCodeActions for DocumentState {
         if let Some(action) = create_inline_ignore_action(
             self,
             diagnostic,
-            "Ignore required field with # graphox-ignore",
+            "Ignore required field with # graphox-ignore required_fields",
+            graphox_core::document::IgnoreRule::RequiredFields,
         ) {
             actions.push(action);
         }
@@ -802,7 +846,8 @@ impl DocumentCodeActions for DocumentState {
         if let Some(action) = create_inline_ignore_action(
             self,
             diagnostic,
-            "Ignore forbidden field with # graphox-ignore",
+            "Ignore forbidden field with # graphox-ignore forbidden_fields",
+            graphox_core::document::IgnoreRule::ForbiddenFields,
         ) {
             actions.push(action);
         }
@@ -930,7 +975,8 @@ impl DocumentCodeActions for DocumentState {
         if let Some(action) = create_inline_ignore_action(
             self,
             diagnostic,
-            "Ignore deprecation with # graphox-ignore",
+            "Ignore deprecation with # graphox-ignore deprecated",
+            graphox_core::document::IgnoreRule::Deprecated,
         ) {
             actions.push(action);
         }

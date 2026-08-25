@@ -157,7 +157,7 @@ async fn test_ignore_forbidden_field() {
         .iter()
         .find(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Ignore forbidden field with # graphox-ignore"
+                ca.title == "Ignore forbidden field with # graphox-ignore forbidden_fields"
             } else {
                 false
             }
@@ -269,7 +269,7 @@ async fn test_forbidden_field_via_fragment_spread_offers_no_removal() {
     assert!(
         actions.iter().any(|a| {
             if let CodeActionOrCommand::CodeAction(ca) = a {
-                ca.title == "Ignore forbidden field with # graphox-ignore"
+                ca.title == "Ignore forbidden field with # graphox-ignore forbidden_fields"
             } else {
                 false
             }
@@ -347,8 +347,10 @@ async fn test_nested_in_fragment_suppression_travels_across_files() {
         "the nested selection should be reported in the subscription's file"
     );
 
-    // Add the ignore comment in the fragment's file only.
-    let ignored_text = "fragment PostFields on Post {\n  id\n  author { # graphox-ignore\n    id\n    password\n  }\n}";
+    // Add the ignore comment in the fragment's file only, on the offending
+    // field: it is present, so it is what there is to annotate, and the object
+    // holding it speaks only for a field that is absent.
+    let ignored_text = "fragment PostFields on Post {\n  id\n  author {\n    id\n    password # graphox-ignore\n  }\n}";
     write_project_file(&dir, "fragment.graphql", ignored_text);
     lsp_did_open(&mut service, fragment_uri, "graphql", 2, ignored_text).await;
 

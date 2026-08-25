@@ -446,14 +446,17 @@ async fn test_code_action_ignore_deprecation() {
         .await
         .expect("Expected actions");
 
-    let ca = find_code_action_by_title(&actions, "Ignore deprecation with # graphox-ignore")
-        .expect("Should find 'Ignore deprecation with # graphox-ignore' action");
+    let ca = find_code_action_by_title(
+        &actions,
+        "Ignore deprecation with # graphox-ignore deprecated",
+    )
+    .expect("Should find 'Ignore deprecation with # graphox-ignore deprecated' action");
 
     let edit = ca.edit.as_ref().unwrap();
     let changes = edit.changes.as_ref().unwrap();
     assert!(changes.contains_key(&query_uri));
     let edits = &changes[&query_uri];
-    assert_eq!(edits[0].new_text, " # graphox-ignore");
+    assert_eq!(edits[0].new_text, " # graphox-ignore deprecated");
 
     // Check range: it should be at the end of the line containing oldField
     let expected_pos = Position::new(2, 12); // "    oldField" is line 2 (0-indexed), 12 chars

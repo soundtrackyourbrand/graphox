@@ -24,9 +24,88 @@ pub struct FragmentOrigin {
     /// Response key of the selection the spread sits in. An ignore comment there
     /// exempts what the spread brings in, since the walk descends through it.
     pub spread_parent: Arc<str>,
-    /// The selection inside the fragment carries `# graphox-ignore`, which
-    /// suppresses the path for every document that spreads it.
-    pub ignored: bool,
+    /// The rules an ignore comment on the selection inside the fragment covers.
+    /// Suppression written there travels to every document that spreads it.
+    pub ignored: graphox_core::document::IgnoreScope,
+}
+
+/// Report ignore comments whose rule list graphox does not understand.
+///
+/// The comment still suppresses everything, so nothing downstream looks wrong;
+/// without this, a misspelled rule name or an explanation written without its
+/// marker silently covers every rule instead of the one the author named.
+fn check_ignore_comment_rule_names(
+    doc: &DocumentState,
+    root: Node,
+    offset: usize,
+    ctx: &mut ValidationContext,
+) {
+    let mut cursor = root.walk();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "comment" {
+            let text = doc.get_node_text(node, offset);
+            let known = graphox_core::document::IgnoreRule::ALL
+                .iter()
+                .map(|r| r.comment_name())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            // A rule named after the marker is in the explanation, where it
+            // narrows nothing.
+            if let Some(rule) = graphox_core::document::rule_name_in_explanation(&text) {
+                ctx.diagnostics.push(Diagnostic {
+                    range: doc.translate_to_file_range(node, offset),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!(
+                        "'{rule}' is in the explanation here, so it narrows nothing and this comment covers every rule. Write `# graphox-ignore {rule}` to mean only that rule."
+                    ),
+                    code: Some(NumberOrString::String("unknown_ignore_rule".to_string())),
+                    source: DIAGNOSTIC_SOURCE.map(String::from),
+                    ..Default::default()
+                });
+                continue;
+            }
+
+            let unknown = graphox_core::document::unrecognised_ignore_rule_names(&text);
+            if !unknown.is_empty() {
+                // Say what the comment actually covers. A list of nothing but
+                // unknown words falls back to covering everything; one unknown
+                // word beside a real rule name narrows to the rule that was
+                // spelled correctly, which is the opposite mistake.
+                let scope = graphox_core::document::parse_ignore_scope(&text);
+                let covered: Vec<&str> = graphox_core::document::IgnoreRule::ALL
+                    .iter()
+                    .filter(|r| scope.covers(**r))
+                    .map(|r| r.comment_name())
+                    .collect();
+                let effect = if covered.len() == graphox_core::document::IgnoreRule::ALL.len() {
+                    "as written, it covers every rule".to_string()
+                } else {
+                    format!("as written, it covers only {}", covered.join(", "))
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    range: doc.translate_to_file_range(node, offset),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!(
+                        "graphox-ignore does not know the rule {}. Name one of {known}, or start an explanation with ':', '-' or '(' \u{2014} {effect}.",
+                        unknown
+                            .iter()
+                            .map(|n| format!("'{}'", n))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    code: Some(NumberOrString::String("unknown_ignore_rule".to_string())),
+                    source: DIAGNOSTIC_SOURCE.map(String::from),
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -62,6 +141,13 @@ pub struct ValidationContext<'a> {
     pub fragment_origins: ahash::AHashMap<Arc<str>, FragmentOrigin>,
     pub documents: Option<&'a graphox_core::types::DocumentsMap>,
     pub response_key_types: ahash::AHashMap<Arc<str>, apollo_compiler::schema::ExtendedType>,
+    /// Ignore comments written on the selections themselves, keyed by
+    /// (response key, field name). A rule about a field that is present is
+    /// silenced on that field, and the field may live in a spread fragment, so
+    /// the two sources — this document's own selections and the metadata a
+    /// fragment carries — are collected here and consulted in one place.
+    pub selection_ignores:
+        ahash::AHashMap<(Arc<str>, Arc<str>), graphox_core::document::IgnoreScope>,
 }
 
 pub trait DocumentDiagnostics {
@@ -87,8 +173,6 @@ pub trait DocumentDiagnostics {
         message: String,
         reason: &str,
     );
-
-    fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool;
 
     fn collect_gql_errors(
         &self,
@@ -140,10 +224,12 @@ impl DocumentDiagnostics for DocumentState {
                 document_response_keys: ahash::AHashSet::default(),
                 fragment_origins: ahash::AHashMap::default(),
                 response_key_types: ahash::AHashMap::default(),
+                selection_ignores: ahash::AHashMap::default(),
                 documents: None,
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);
+            check_ignore_comment_rule_names(self, block.tree.root_node(), offset, &mut ctx);
 
             // 3. Validation diagnostics from apollo-compiler
             let block_text = self.get_node_text(block.tree.root_node(), offset);
@@ -277,8 +363,8 @@ impl DocumentDiagnostics for DocumentState {
         reason: &str,
     ) {
         let is_ignored_in_config = self.is_deprecation_ignored(reason, ctx.config);
-        let is_ignored_by_comment =
-            !is_ignored_in_config && self.has_inline_ignore_comment(node, offset);
+        let is_ignored_by_comment = !is_ignored_in_config
+            && self.ignore_covers(node, offset, graphox_core::document::IgnoreRule::Deprecated);
 
         if !is_ignored_in_config && !is_ignored_by_comment {
             ctx.diagnostics.push(Diagnostic {
@@ -299,10 +385,6 @@ impl DocumentDiagnostics for DocumentState {
                 ..Default::default()
             });
         }
-    }
-
-    fn has_inline_ignore_comment(&self, node: Node, offset: usize) -> bool {
-        DocumentState::has_inline_ignore_comment(self, node, offset)
     }
 
     fn collect_gql_errors(

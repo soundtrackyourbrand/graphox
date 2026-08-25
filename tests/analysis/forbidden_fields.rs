@@ -133,9 +133,9 @@ fn test_forbidden_field_specific_operation_mutation() {
 fn test_forbidden_field_ignored_with_inline_comment() {
     let text = r#"
         query GetUsers {
-            users { # graphox-ignore
+            users {
                 id
-                password
+                password # graphox-ignore
             }
         }
     "#;
@@ -677,8 +677,8 @@ fn test_forbidden_field_via_fragment_spread_ignored_with_inline_comment() {
         }
 
         query GetPosts {
-            posts { # graphox-ignore
-                ...PostFields
+            posts {
+                ...PostFields # graphox-ignore
             }
         }
     "#;
@@ -940,12 +940,15 @@ fn test_field_rules_terminate_on_a_fragment_cycle() {
 fn test_forbidden_field_nested_in_fragment_ignored_inside_the_fragment() {
     // Suppression written next to the offending selection, which is where the
     // field would be removed, holds for every operation spreading the fragment.
+    // The selection is the field itself: it is present, so it is what there is
+    // to annotate, and the object holding it speaks only for a field that is
+    // absent.
     let text = r#"
         fragment PostWithAuthor on Post {
             id
-            author { # graphox-ignore
+            author {
                 id
-                password
+                password # graphox-ignore
             }
         }
 
@@ -1140,9 +1143,9 @@ fn test_forbidden_field_under_inline_fragment_in_fragment_body_ignored_inside_th
         fragment ZoneSrc on Zone {
             source {
                 ... on ScheduleSource {
-                    schedule { # graphox-ignore
+                    schedule {
                         id
-                        permissions
+                        permissions # graphox-ignore
                     }
                 }
             }

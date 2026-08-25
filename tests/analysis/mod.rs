@@ -7,6 +7,7 @@ mod field_definition;
 mod field_rule_syntax_matrix;
 mod forbidden_fields;
 mod fragment_scoping;
+mod ignore_rule_scoping;
 mod no_duplicate_fields;
 mod no_unused_fragments;
 mod required_fields;

@@ -513,21 +513,39 @@ async fn test_pull_diagnostics_refresh_after_duplicate_file_deleted_and_closed()
     std::fs::remove_file(&query2_path).expect("delete duplicate query file");
     lsp_did_close(&mut service, query2_uri).await;
 
-    let refreshed_result: DocumentDiagnosticReportResult = lsp_request_typed(
-        &mut service,
-        "textDocument/diagnostic",
-        &DocumentDiagnosticParams {
-            text_document: TextDocumentIdentifier::new(query1_uri),
-            identifier: None,
-            previous_result_id: Some(previous_result_id.clone()),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        },
-    )
-    .await;
+    // Nothing in the protocol says when the server has observed the deletion, so
+    // the first request may still answer "unchanged". Ask until it comes back
+    // changed — the sibling test in duplicate_operations.rs polls the same
+    // scenario for the same reason. What is asserted below is unaffected; only
+    // the assumption that the very first answer is the settled one is dropped.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let refreshed_report = loop {
+        let refreshed_result: DocumentDiagnosticReportResult = lsp_request_typed(
+            &mut service,
+            "textDocument/diagnostic",
+            &DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier::new(query1_uri.clone()),
+                identifier: None,
+                previous_result_id: Some(previous_result_id.clone()),
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        )
+        .await;
 
-    match refreshed_result {
-        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) => {
+        if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) =
+            refreshed_result
+        {
+            break Some(report);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    };
+
+    match refreshed_report {
+        Some(report) => {
             let refreshed_result_id = report
                 .full_document_diagnostic_report
                 .result_id
@@ -541,7 +559,10 @@ async fn test_pull_diagnostics_refresh_after_duplicate_file_deleted_and_closed()
                 "Duplicate operation diagnostic should clear after the duplicate file is deleted: {diagnostics:#?}"
             );
         }
-        _ => panic!("Expected refreshed full diagnostic report after deletion"),
+        None => panic!(
+            "Expected a refreshed full diagnostic report within 2s of deleting \
+             the duplicate file; the server kept answering \"unchanged\""
+        ),
     }
 }
 
