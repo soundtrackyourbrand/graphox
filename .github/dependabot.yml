@@ -63,3 +63,10 @@ updates:
         update-types:
           - minor
           - patch
+    # @types/vscode is not a routine dependency: it declares the oldest VS Code
+    # API the extension is compiled against, and it has to stay in step with
+    # engines.vscode — vsce refuses to package when it outruns that floor.
+    # Raising it drops support for older editors, so the two move together as a
+    # deliberate choice rather than a weekly bump.
+    ignore:
+      - dependency-name: "@types/vscode"
