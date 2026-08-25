@@ -147,7 +147,7 @@
   "devDependencies": {
     "@vscode/vsce": "^3.9.2",
     "@types/minimatch": "^3.0.5",
-    "@types/node": "^16.11.7",
+    "@types/node": "^26.2.0",
     "@types/semver": "^7.8.0",
     "@types/vscode": "^1.75.0",
     "esbuild": "^0.28.2",
