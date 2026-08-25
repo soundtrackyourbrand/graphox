@@ -10,7 +10,12 @@ use tower_lsp_server::ls_types::*;
 
 /// Budget for one phase of a multi-step LSP test. A phase that outruns this is
 /// stuck, and failing here names the phase, which an outer timeout cannot.
-const PHASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+///
+/// Both tests using it wait through three phases in sequence under a 30s `ntest`
+/// backstop, so this has to stay under a third of that for the backstop to remain
+/// the outer bound. 8s keeps that headroom and still tolerates a loaded runner,
+/// which 5s did not.
+const PHASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ntest::timeout(10000)]
@@ -314,7 +319,11 @@ async fn test_lsp_diagnostics_on_schema_change() {
     {
         let last = latest_query_diagnostics()
             .expect("Should have received query diagnostics after fixing the query");
-        assert!(last["diagnostics"].as_array().unwrap().is_empty());
+        assert!(
+            last["diagnostics"].as_array().unwrap().is_empty(),
+            "Query diagnostics should be empty after fixing the query, got: {:#?}",
+            last["diagnostics"]
+        );
     }
 }
 
