@@ -2,15 +2,13 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
 
+use crate::support::cmd::{assert_command_succeeded, fresh_dir};
+
 #[test]
 #[ntest::timeout(2000)]
 fn test_cli_check_no_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_check_no_deprecations");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_check_no_deprecations");
 
     // Copy schema and file
     std::fs::copy(
@@ -37,7 +35,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "check", &temp_dir);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("No issues found."));
 
@@ -48,11 +46,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_check_with_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_check_with_deprecations");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_check_with_deprecations");
 
     // Copy schema and file
     std::fs::copy(
@@ -97,11 +91,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_check_cross_project_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_cross_project_frag");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_cross_project_frag");
 
     // Create schema
     std::fs::write(
@@ -160,11 +150,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_check_recursive_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_recursive_frag");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_recursive_frag");
 
     // Create schema
     std::fs::write(
@@ -223,11 +209,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_ignore_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_ignore_test");
 
     std::fs::copy(
         "tests/fixtures/simple_schema.graphql",
@@ -276,11 +258,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_codegen_error() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_error_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_codegen_error_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -326,11 +304,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_codegen_invalid_schema() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_invalid_schema_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_codegen_invalid_schema_test");
 
     // Create invalid schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -368,11 +342,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_codegen_clean() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_clean_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_codegen_clean_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -457,11 +427,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_check_verbose_ignored_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_check_verbose_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_check_verbose_test");
 
     // Create schema with deprecation
     let schema_file = temp_dir.join("schema.graphql");
@@ -537,11 +503,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_fragment_ast_generation() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_fragment_ast_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_fragment_ast_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -616,11 +578,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_graphql_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_entrypoint_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -751,11 +709,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_config_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_config_output_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_config_output_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -811,11 +765,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_cli_check_input_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_input_deprecations_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_input_deprecations_test");
 
     // Create schema with Deprecated Input and Deprecated Input Field
     let schema_file = temp_dir.join("schema.graphql");
@@ -883,11 +833,7 @@ projects:
 #[ntest::timeout(300)]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_schema_types_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_schema_types_test");
 
     let schema_fixture = "tests/fixtures/schema_types/schema.graphql";
     let baseline_file = "tests/baselines/schema_types/schema_types.expected.ts";
@@ -954,11 +900,7 @@ schema_types:
 #[ntest::timeout(250)]
 fn test_cli_custom_scalars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_scalars_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_scalars_test");
 
     // Create schema with custom scalar
     let schema_file = temp_dir.join("schema.graphql");
@@ -1053,11 +995,7 @@ scalars:
 #[ntest::timeout(3000)]
 fn test_cli_codegen_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_entrypoint");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_codegen_entrypoint");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -1143,11 +1081,7 @@ projects:
 #[ntest::timeout(500)]
 fn test_cli_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_disabled");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_codegen_disabled");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -1242,11 +1176,7 @@ projects:
 #[ntest::timeout(500)]
 fn test_cli_check_with_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_check_disabled");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_check_disabled");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -1306,11 +1236,7 @@ projects:
 fn test_multi_project_isolation() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let fixture_dir = Path::new("tests/fixtures/multi_project_isolation");
-    let temp_dir = std::env::temp_dir().join("graphox_multi_project_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_multi_project_test");
 
     fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dst)?;

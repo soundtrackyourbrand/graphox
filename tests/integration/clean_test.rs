@@ -1,13 +1,11 @@
 use std::process::Command;
 
+use crate::support::cmd::{assert_command_succeeded, fresh_dir};
+
 #[test]
 fn test_codegen_clean_with_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_clean_output_dir_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_clean_output_dir_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -42,7 +40,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen", &temp_dir);
 
     let gen_dir = temp_dir.join("generated");
     assert!(gen_dir.exists());
@@ -57,7 +55,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen --clean", &temp_dir);
     assert!(!gen_dir.exists(), "Output directory should be removed");
 
     // Cleanup
@@ -67,11 +65,7 @@ projects:
 #[test]
 fn test_codegen_clean_multiple_includes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_clean_multiple_includes_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_clean_multiple_includes_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -110,7 +104,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen", &temp_dir);
 
     let gen1 = temp_dir.join("q1.codegen.ts");
     let gen2 = temp_dir.join("q2.codegen.ts");
@@ -125,7 +119,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen --clean", &temp_dir);
     assert!(!gen1.exists(), "gen1 should be removed");
     assert!(!gen2.exists(), "gen2 should be removed");
 
@@ -136,11 +130,7 @@ projects:
 #[test]
 fn test_codegen_surgical_clean() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_surgical_clean_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_surgical_clean_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -177,7 +167,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen", &temp_dir);
 
     let gen_file = temp_dir.join("query.codegen.ts");
     assert!(gen_file.exists());
@@ -191,7 +181,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen --clean", &temp_dir);
     assert!(!gen_file.exists(), "query.codegen.ts should be removed");
     assert!(
         !temp_dir.join("graphql.ts").exists(),
@@ -206,11 +196,7 @@ projects:
 #[test]
 fn test_codegen_clean_default_generated_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_clean_default_gen_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_clean_default_gen_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -242,7 +228,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen", &temp_dir);
 
     assert!(temp_dir.join("query.codegen.ts").exists());
     let default_gen_dir = temp_dir.join("__generated__");
@@ -260,7 +246,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen --clean", &temp_dir);
     assert!(
         !temp_dir.join("query.codegen.ts").exists(),
         "query.codegen.ts should be removed"
@@ -274,11 +260,7 @@ projects:
 #[test]
 fn test_codegen_surgical_clean_recursive() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_surgical_clean_recursive_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_surgical_clean_recursive_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -360,11 +342,7 @@ projects:
 #[test]
 fn test_codegen_clean_disabled_project() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_clean_disabled_project_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_clean_disabled_project_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -396,7 +374,7 @@ projects:
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen", &temp_dir);
     assert!(temp_dir.join("generated/query.codegen.ts").exists());
 
     // 2. Update config to DISABLE codegen
@@ -420,7 +398,7 @@ projects:
         .output()
         .expect("Failed to execute process");
 
-    assert!(output.status.success());
+    assert_command_succeeded(&output, "codegen --clean", &temp_dir);
     // Currently this MIGHT fail because disabled projects are filtered out
     assert!(
         !temp_dir.join("generated").exists(),
@@ -434,11 +412,7 @@ projects:
 #[test]
 fn test_codegen_clean_with_missing_schema_still_removes_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_clean_missing_schema_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_clean_missing_schema_test");
 
     std::fs::write(temp_dir.join("query.graphql"), "query { me { id } }").unwrap();
     let generated_dir = temp_dir.join("generated");
@@ -480,11 +454,7 @@ projects:
 #[test]
 fn test_check_skips_output_dir_inside_include_root() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_skip_output_dir_scan_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-    std::fs::create_dir_all(&temp_dir).ok();
+    let temp_dir = fresh_dir("graphox_skip_output_dir_scan_test");
 
     std::fs::write(
         temp_dir.join("schema.graphql"),

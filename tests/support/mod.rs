@@ -12,6 +12,7 @@ use tempfile::TempDir;
 
 pub mod baseline;
 pub mod builders;
+pub mod cmd;
 pub mod fixtures;
 pub mod lsp;
 
