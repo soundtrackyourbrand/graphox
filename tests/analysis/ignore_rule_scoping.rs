@@ -296,3 +296,72 @@ fn an_explanation_mentioning_a_rule_later_is_quiet() {
     assert!(warnings(" # graphox-ignore: we cannot satisfy required_fields yet").is_empty());
     assert!(warnings(" # graphox-ignore deprecated: also required_fields, later").is_empty());
 }
+
+/// The marker is a directive only inside a comment. A string argument that
+/// happens to contain the text is data, and honouring it switches rules off on
+/// a selection whose author never asked for that.
+#[test]
+#[ntest::timeout(300)]
+fn the_marker_only_counts_inside_a_comment() {
+    let schema = fixtures::syntax_matrix_schema().clone().validate().unwrap();
+    let config = {
+        let mut forbidden = AHashMap::default();
+        forbidden.insert(
+            "secret".to_string(),
+            ForbiddenFieldRule::new_operations(vec!["subscription".to_string()]),
+        );
+        Config::default().with_rules(RulesConfig::default().with_forbidden_fields(forbidden))
+    };
+
+    // The reader scans the rest of the line after the offending selection, so
+    // each decoy has to sit on that same line to be a real trap. The decoy text
+    // does not start the string: tree-sitter-graphql fails to parse a string
+    // whose content begins with '#', which is a separate quirk and not what is
+    // under test here.
+    let cases: &[(&str, &str, bool)] = &[
+        (
+            "a real comment suppresses",
+            "subscription S {\n zoneUpdate {\n meta {\n secret # graphox-ignore\n }\n }\n}",
+            true,
+        ),
+        (
+            "the same text inside a string argument does not",
+            "subscription S {\n zoneUpdate {\n meta {\n secret schedule(named: \"x # graphox-ignore\") { id }\n }\n }\n}",
+            false,
+        ),
+        (
+            "a real comment after a decoy on the same line still does",
+            "subscription S {\n zoneUpdate {\n meta {\n secret schedule(named: \"x # graphox-ignore\") { id } # graphox-ignore\n }\n }\n}",
+            true,
+        ),
+        (
+            "a scoped comment after a decoy is read as scoped, not as bare",
+            "subscription S {\n zoneUpdate {\n meta {\n secret schedule(named: \"x # graphox-ignore\") { id } # graphox-ignore required_fields\n }\n }\n}",
+            false,
+        ),
+    ];
+
+    let mut wrong = Vec::new();
+    for (label, text, expect_suppressed) in cases {
+        let doc = create_doc("file:///comment.graphql", text);
+        let diagnostics =
+            doc.get_semantic_diagnostics(&schema, &[], None, Some(&config), false, true);
+        let forbidden = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("forbidden"))
+            .count();
+        let noise: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| !d.message.contains("forbidden"))
+            .map(|d| d.message.as_str())
+            .collect();
+        if !noise.is_empty() {
+            wrong.push(format!("  {label}: bad document: {noise:?}"));
+        } else if (forbidden == 0) != *expect_suppressed {
+            wrong.push(format!(
+                "  {label}: {forbidden} findings, expected suppressed={expect_suppressed}"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "marker placement:\n{}", wrong.join("\n"));
+}

@@ -172,6 +172,31 @@ impl IgnoreScope {
     }
 }
 
+/// The text that introduces an ignore directive.
+pub const IGNORE_MARKER: &str = "# graphox-ignore";
+
+/// Whether the byte at `block_byte` — an offset into the same tree `node`
+/// belongs to — sits inside a comment.
+///
+/// Comments are extras in the grammar, so they are in the tree but off the main
+/// path; looking the position up and walking back out to the root is the way to
+/// tell a comment from a string that reads like one.
+fn node_at_byte_is_comment(node: Node, block_byte: usize) -> bool {
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+
+    let mut current = root.descendant_for_byte_range(block_byte, block_byte + 1);
+    while let Some(found) = current {
+        if found.kind() == "comment" {
+            return true;
+        }
+        current = found.parent();
+    }
+    false
+}
+
 /// Characters that end the rule list and begin free text. A rule name can
 /// never start with one, so an explanation introduced this way is never
 /// mistaken for a rule and a bare word is never mistaken for prose.
@@ -180,7 +205,7 @@ const EXPLANATION_MARKERS: [char; 3] = [':', '-', '('];
 /// Split an ignore comment into the rule names it lists and the explanation
 /// that follows. None if the text carries no ignore comment at all.
 fn split_ignore_comment(after_selection: &str) -> Option<(&str, &str)> {
-    let (_, rest) = after_selection.split_once("# graphox-ignore")?;
+    let (_, rest) = after_selection.split_once(IGNORE_MARKER)?;
     let end = rest
         .find(|c| EXPLANATION_MARKERS.contains(&c))
         .unwrap_or(rest.len());
@@ -1085,9 +1110,27 @@ impl DocumentState {
             return IgnoreScope::NONE;
         }
 
-        line.get(relative_end_byte..)
-            .map(parse_ignore_scope)
-            .unwrap_or(IgnoreScope::NONE)
+        let Some(after) = line.get(relative_end_byte..) else {
+            return IgnoreScope::NONE;
+        };
+
+        // The marker only counts inside a comment. A string argument that
+        // happens to contain the text is not a directive, and treating it as
+        // one silently switches rules off — `name(eq: "# graphox-ignore")`
+        // would suppress the very selection it appears in. There can be more
+        // than one occurrence on a line, so take the first that is really a
+        // comment and parse from there.
+        let mut searched = 0;
+        while let Some(found) = after[searched..].find(IGNORE_MARKER) {
+            let in_after = searched + found;
+            let block_byte = line_start_byte + relative_end_byte + in_after - offset;
+            if node_at_byte_is_comment(node, block_byte) {
+                return parse_ignore_scope(&after[in_after..]);
+            }
+            searched = in_after + IGNORE_MARKER.len();
+        }
+
+        IgnoreScope::NONE
     }
 
     /// Whether the ignore comment on `node`'s line covers `rule`.

@@ -764,7 +764,9 @@ pub fn syntax_matrix_schema() -> &'static Schema {
                 type Meta {
                     id: ID!
                     secret: String
-                    schedule: Schedule
+                    # An argument taking a string, so a test can put text that
+                    # looks like a directive somewhere that is not a comment.
+                    schedule(named: String): Schedule
                 }
                 union PlayableSource = ScheduleSource | Manual
                 type ScheduleSource {
