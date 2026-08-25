@@ -172,6 +172,21 @@ impl IgnoreScope {
     }
 }
 
+/// Characters that end the rule list and begin free text. A rule name can
+/// never start with one, so an explanation introduced this way is never
+/// mistaken for a rule and a bare word is never mistaken for prose.
+const EXPLANATION_MARKERS: [char; 3] = [':', '-', '('];
+
+/// Split an ignore comment into the rule names it lists and the explanation
+/// that follows. None if the text carries no ignore comment at all.
+fn split_ignore_comment(after_selection: &str) -> Option<(&str, &str)> {
+    let (_, rest) = after_selection.split_once("# graphox-ignore")?;
+    let end = rest
+        .find(|c| EXPLANATION_MARKERS.contains(&c))
+        .unwrap_or(rest.len());
+    Some(rest.split_at(end))
+}
+
 /// Read the scope of an ignore comment out of the text following a selection.
 ///
 /// A bare `# graphox-ignore` covers every rule, which is what it has always
@@ -180,20 +195,20 @@ impl IgnoreScope {
 /// warning on a field while leaving the field rules in force on what that
 /// field selects.
 ///
-/// Text naming no rule at all is read as bare rather than as naming nothing.
-/// An explanatory `# graphox-ignore legacy zones` has always suppressed, and a
-/// parser that quietly stopped honouring it would turn prose into a silent
-/// change of behaviour. The cost is that a misspelled rule name also reads as
-/// bare, which over-suppresses rather than under-suppresses;
-/// `unrecognised_ignore_rule_names` exists so that can be reported instead of
-/// discovered.
+/// An explanation goes after `:`, `-` or `(`. Only that marker separates prose
+/// from a rule name, so a misspelling is not mistaken for prose and vice
+/// versa; `unrecognised_ignore_rule_names` reports what was not understood.
+/// A comment that names no rule graphox knows still covers everything, so the
+/// suppression an author already relies on never quietly stops working — the
+/// warning tells them to fix the comment rather than a rule firing again
+/// without explanation.
 pub fn parse_ignore_scope(after_selection: &str) -> IgnoreScope {
-    let Some((_, rest)) = after_selection.split_once("# graphox-ignore") else {
+    let Some((rules, _)) = split_ignore_comment(after_selection) else {
         return IgnoreScope::NONE;
     };
 
     let mut scope = IgnoreScope::NONE;
-    for token in rest.split([',', ' ', '\t']) {
+    for token in rules.split([',', ' ', '\t']) {
         if let Some(rule) = IgnoreRule::ALL
             .iter()
             .find(|r| r.comment_name() == token.trim())
@@ -209,68 +224,26 @@ pub fn parse_ignore_scope(after_selection: &str) -> IgnoreScope {
     }
 }
 
-/// Words in an ignore comment that look like a misspelled rule name.
+/// Words before the explanation marker that name no rule graphox knows.
 ///
-/// A name graphox does not recognise names no rule, so the comment reads as
-/// bare and suppresses everything — the author's narrowing silently did not
-/// happen. Reporting the word is the only way they find out.
-///
-/// Prose is not a typo, so a word only counts when it is close to a real rule
-/// name: within two edits of one, or a plausible truncation of one. That keeps
-/// `# graphox-ignore legacy zones` silent while catching `deprecatd` and
-/// `required`.
+/// Everything up to the marker is meant to be a rule list, so anything here is
+/// either a misspelling or an explanation missing its marker. Both are worth
+/// reporting: the comment still suppresses everything, so nothing about it
+/// looks wrong from the outside, and the narrowing its author wrote did not
+/// happen.
 pub fn unrecognised_ignore_rule_names(after_selection: &str) -> Vec<String> {
-    let Some((_, rest)) = after_selection.split_once("# graphox-ignore") else {
+    let Some((rules, _)) = split_ignore_comment(after_selection) else {
         return Vec::new();
     };
 
-    rest.split([',', ' ', '\t'])
+    rules
+        .split([',', ' ', '\t'])
         .map(str::trim)
         .filter(|token| {
-            !token.is_empty()
-                && token.chars().all(|c| c.is_ascii_lowercase() || c == '_')
-                && !IgnoreRule::ALL.iter().any(|r| r.comment_name() == *token)
-                && IgnoreRule::ALL
-                    .iter()
-                    .any(|r| looks_like(token, r.comment_name()))
+            !token.is_empty() && !IgnoreRule::ALL.iter().any(|r| r.comment_name() == *token)
         })
         .map(str::to_string)
         .collect()
-}
-
-/// Whether `token` is close enough to `name` to be a fumbled attempt at it.
-fn looks_like(token: &str, name: &str) -> bool {
-    // A truncation: `required` for `required_fields`. Short prefixes match too
-    // many ordinary words to be worth acting on.
-    if token.len() >= 4 && name.starts_with(token) {
-        return true;
-    }
-    edit_distance_within(token, name, 2)
-}
-
-/// Levenshtein distance, answering only whether it is at most `max`. Bailing
-/// out keeps a long prose word from being compared in full against every rule
-/// name.
-fn edit_distance_within(a: &str, b: &str, max: usize) -> bool {
-    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-    if a.len().abs_diff(b.len()) > max {
-        return false;
-    }
-
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut curr = vec![0usize; b.len() + 1];
-    for (i, ca) in a.iter().enumerate() {
-        curr[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let substitution = prev[j] + usize::from(ca != cb);
-            curr[j + 1] = substitution.min(prev[j + 1] + 1).min(curr[j] + 1);
-        }
-        if curr.iter().min().copied().unwrap_or(usize::MAX) > max {
-            return false;
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[b.len()] <= max
 }
 
 /// One step along a `NestedSelection::type_path`.

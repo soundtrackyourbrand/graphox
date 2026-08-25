@@ -56,7 +56,7 @@ fn counts(comment: &str) -> (usize, usize) {
     (
         diagnostics
             .iter()
-            .filter(|d| d.message.contains("deprecated"))
+            .filter(|d| d.message.contains("is deprecated"))
             .count(),
         diagnostics
             .iter()
@@ -105,30 +105,11 @@ fn several_rules_can_be_named() {
 #[test]
 #[ntest::timeout(300)]
 fn prose_after_the_marker_is_still_a_bare_comment() {
-    assert_eq!(counts(" # graphox-ignore legacy zones, see PLAT-1"), (0, 0));
-    assert_eq!(counts(" # graphox-ignore -- do not remove"), (0, 0));
-}
-
-/// A misspelled rule name names no rule, so it reads as bare. That
-/// over-suppresses rather than under-suppresses, which is the safer of the two
-/// failures, and the name is recoverable for reporting rather than lost.
-#[test]
-#[ntest::timeout(300)]
-fn a_misspelled_rule_name_reads_as_bare() {
-    assert_eq!(counts(" # graphox-ignore deprecatd"), (0, 0));
     assert_eq!(
-        graphox::document::unrecognised_ignore_rule_names(" # graphox-ignore deprecatd"),
-        vec!["deprecatd".to_string()],
+        counts(" # graphox-ignore: legacy zones, see PLAT-1"),
+        (0, 0)
     );
-    assert!(
-        graphox::document::unrecognised_ignore_rule_names(" # graphox-ignore legacy zones")
-            .is_empty(),
-        "prose is not a misspelled rule name"
-    );
-    assert!(
-        graphox::document::unrecognised_ignore_rule_names(" # graphox-ignore required_fields")
-            .is_empty(),
-    );
+    assert_eq!(counts(" # graphox-ignore -- do not remove"), (0, 0));
 }
 
 /// Scoping reaches the placements suppression already worked at, not just the
@@ -164,4 +145,93 @@ fragment M on Manual {
         1,
         "expected the forbidden finding to survive a required_fields-only ignore: {diagnostics:?}"
     );
+}
+
+/// Everything before the explanation marker is a rule list, so a word there
+/// that names no rule is either a misspelling or prose missing its marker.
+/// Both warn: the comment still covers every rule, so from the outside nothing
+/// looks wrong while the narrowing its author wrote never happened.
+fn warnings(comment: &str) -> Vec<String> {
+    let schema = fixtures::playable_source_schema()
+        .clone()
+        .validate()
+        .unwrap();
+    let text = document(comment);
+    let doc = create_doc("file:///scoping.graphql", &text);
+    doc.get_semantic_diagnostics(&schema, &[], None, None, false, true)
+        .iter()
+        .filter(|d| d.message.contains("graphox-ignore does not know"))
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn an_unknown_rule_name_warns() {
+    let w = warnings(" # graphox-ignore deprecatd");
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].contains("'deprecatd'"), "{w:?}");
+    assert!(
+        w[0].contains("deprecated"),
+        "the message should list the real names: {w:?}"
+    );
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn prose_without_a_marker_warns() {
+    let w = warnings(" # graphox-ignore legacy zones");
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].contains("'legacy'"), "{w:?}");
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn an_explanation_after_a_marker_is_quiet() {
+    for comment in [
+        " # graphox-ignore: legacy zones, see PLAT-1",
+        " # graphox-ignore - legacy zones",
+        " # graphox-ignore (marked as test in the public API)",
+        " # graphox-ignore -- do not remove",
+        " # graphox-ignore deprecated: broken upstream",
+        " # graphox-ignore deprecated, required_fields (both, for now)",
+    ] {
+        assert!(
+            warnings(comment).is_empty(),
+            "unexpected warning for {comment:?}"
+        );
+    }
+}
+
+#[test]
+#[ntest::timeout(300)]
+fn a_bare_comment_and_a_named_rule_are_quiet() {
+    assert!(warnings(" # graphox-ignore").is_empty());
+    assert!(warnings(" # graphox-ignore deprecated").is_empty());
+    assert!(warnings(" # graphox-ignore deprecated, required_fields").is_empty());
+}
+
+/// An explanation does not change what the comment covers.
+#[test]
+#[ntest::timeout(300)]
+fn an_explanation_does_not_change_the_scope() {
+    assert_eq!(counts(" # graphox-ignore: legacy zones"), (0, 0));
+    assert_eq!(counts(" # graphox-ignore (legacy zones)"), (0, 0));
+    assert_eq!(
+        counts(" # graphox-ignore deprecated: broken upstream"),
+        (0, 1)
+    );
+    assert_eq!(
+        counts(" # graphox-ignore deprecated - broken upstream"),
+        (0, 1)
+    );
+}
+
+/// A comment naming nothing graphox knows still covers everything, so adding
+/// the warning cannot make a rule start firing on its own.
+#[test]
+#[ntest::timeout(300)]
+fn an_unknown_name_still_suppresses_everything() {
+    assert_eq!(counts(" # graphox-ignore deprecatd"), (0, 0));
+    assert_eq!(counts(" # graphox-ignore legacy zones"), (0, 0));
 }

@@ -29,6 +29,53 @@ pub struct FragmentOrigin {
     pub ignored: graphox_core::document::IgnoreScope,
 }
 
+/// Report ignore comments whose rule list graphox does not understand.
+///
+/// The comment still suppresses everything, so nothing downstream looks wrong;
+/// without this, a misspelled rule name or an explanation written without its
+/// marker silently covers every rule instead of the one the author named.
+fn check_ignore_comment_rule_names(
+    doc: &DocumentState,
+    root: Node,
+    offset: usize,
+    ctx: &mut ValidationContext,
+) {
+    let mut cursor = root.walk();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "comment" {
+            let text = doc.get_node_text(node, offset);
+            let unknown = graphox_core::document::unrecognised_ignore_rule_names(&text);
+            if !unknown.is_empty() {
+                ctx.diagnostics.push(Diagnostic {
+                    range: doc.translate_to_file_range(node, offset),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!(
+                        "graphox-ignore does not know the rule {}. Name one of {}, or start an explanation with ':', '-' or '(' \u{2014} as written, the comment covers every rule.",
+                        unknown
+                            .iter()
+                            .map(|n| format!("'{}'", n))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        graphox_core::document::IgnoreRule::ALL
+                            .iter()
+                            .map(|r| r.comment_name())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    code: Some(NumberOrString::String("unknown_ignore_rule".to_string())),
+                    source: DIAGNOSTIC_SOURCE.map(String::from),
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 pub struct ValidationContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
@@ -144,6 +191,7 @@ impl DocumentDiagnostics for DocumentState {
             };
 
             self.validate_tree(block.tree.root_node(), offset, &mut ctx);
+            check_ignore_comment_rule_names(self, block.tree.root_node(), offset, &mut ctx);
 
             // 3. Validation diagnostics from apollo-compiler
             let block_text = self.get_node_text(block.tree.root_node(), offset);
