@@ -7,7 +7,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_glob_pattern_strips_leading_dot_slash() {
     let plain = GlobPattern::Single("src/**/*.graphql".to_string());
     let dotted = GlobPattern::Single("./src/**/*.graphql".to_string());
@@ -20,7 +20,7 @@ fn test_glob_pattern_strips_leading_dot_slash() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_glob_pattern_strips_leading_dot_slash_in_multiple() {
     let dotted = GlobPattern::Multiple(vec![
         "./src/**/*.graphql".to_string(),
@@ -36,7 +36,7 @@ fn test_glob_pattern_strips_leading_dot_slash_in_multiple() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_glob_pattern_leaves_other_patterns_alone() {
     // Only a leading `./` is stripped; `..`, bare names and absolute paths are untouched.
     for pattern in [

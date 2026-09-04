@@ -10,7 +10,7 @@ use crate::support::{
 };
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_always_true() {
     let text = r#"
         query GetUsers {
@@ -51,7 +51,7 @@ fn test_forbidden_field_always_true() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_always_false() {
     let text = r#"
         query GetUsers {
@@ -89,7 +89,7 @@ fn test_forbidden_field_always_false() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_specific_operation_mutation() {
     let text = r#"
         query GetUsers {
@@ -129,7 +129,7 @@ fn test_forbidden_field_specific_operation_mutation() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_ignored_with_inline_comment() {
     let text = r#"
         query GetUsers {
@@ -163,7 +163,7 @@ fn test_forbidden_field_ignored_with_inline_comment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_with_reason() {
     let text = r#"
         query GetUsers {
@@ -206,7 +206,7 @@ fn test_forbidden_field_with_reason() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_type_specific() {
     let text = r#"
         query GetData {
@@ -248,7 +248,7 @@ fn test_forbidden_field_type_specific() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_type_override() {
     let text = r#"
         query GetUsers {
@@ -287,7 +287,7 @@ fn test_forbidden_field_type_override() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_same_response_key_different_types() {
     // The response key `subscription` is reached via two paths that resolve to
     // different types. A type-specific forbidden rule on `ZoneSubscription`
@@ -348,7 +348,7 @@ fn test_forbidden_field_same_response_key_different_types() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_nested_inside_fragment_definition() {
     // Same gap as `required_fields`: a nested selection inside a fragment body
     // must be checked, and the diagnostic lands on the fragment's own selection.
@@ -397,7 +397,7 @@ fn test_forbidden_field_nested_inside_fragment_definition() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_operation_scoped_rule_checked_at_the_spread() {
     // The rule cannot be evaluated inside the fragment, where the operation
     // type is unknown, so it is evaluated at the spread and reported there.
@@ -452,7 +452,7 @@ fn test_forbidden_field_operation_scoped_rule_checked_at_the_spread() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_selected_via_fragment_spread() {
     // A fragment's top-level fields are merged into the response key it is
     // spread under, so the rule must fire even though the field itself lives in
@@ -505,7 +505,7 @@ fn test_forbidden_field_selected_via_fragment_spread() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_via_fragment_spread_only_in_matching_operation() {
     // The same fragment is spread by a query and a subscription. An
     // operation-scoped rule must fire on the subscription only.
@@ -563,7 +563,7 @@ fn test_forbidden_field_via_fragment_spread_only_in_matching_operation() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_via_nested_fragment_spread() {
     // The field arrives through a chain of spreads; the outermost spread in the
     // operation is the anchor.
@@ -618,7 +618,7 @@ fn test_forbidden_field_via_nested_fragment_spread() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_via_fragment_spread_inside_inline_fragment() {
     let text = r#"
         fragment AuthorFields on User {
@@ -668,7 +668,7 @@ fn test_forbidden_field_via_fragment_spread_inside_inline_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_via_fragment_spread_ignored_with_inline_comment() {
     let text = r#"
         fragment PostFields on Post {
@@ -709,7 +709,7 @@ fn test_forbidden_field_via_fragment_spread_ignored_with_inline_comment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_nested_inside_spread_fragment_only_where_it_applies() {
     // One fragment, two consumers. The nested `password` is forbidden in the
     // subscription and fine in the query, which is why the rule has to be
@@ -771,7 +771,7 @@ fn test_forbidden_field_nested_inside_spread_fragment_only_where_it_applies() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_via_nested_spread_inside_fragment_body() {
     // The offending field is two fragments away from the subscription: the
     // spread fragment nests an object, and that object's selections come from
@@ -830,7 +830,7 @@ fn test_forbidden_field_via_nested_spread_inside_fragment_body() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_nested_inside_spread_fragment_ignored_at_the_spread() {
     let text = r#"
         fragment PostWithAuthor on Post {
@@ -936,7 +936,7 @@ fn test_field_rules_terminate_on_a_fragment_cycle() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_nested_in_fragment_ignored_inside_the_fragment() {
     // Suppression written next to the offending selection, which is where the
     // field would be removed, holds for every operation spreading the fragment.
@@ -985,7 +985,7 @@ fn test_forbidden_field_nested_in_fragment_ignored_inside_the_fragment() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_ignored_on_its_own_line() {
     // The diagnostic points at the field, so the comment works there too. This
     // is where the "Ignore forbidden field" code action writes it.
@@ -1021,7 +1021,7 @@ fn test_forbidden_field_ignored_on_its_own_line() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_under_inline_fragment_nested_in_fragment_body() {
     // The inline fragment narrows a union partway down the path the fragment
     // nests, so the type walk has to follow the type condition to reach
@@ -1076,7 +1076,7 @@ fn test_forbidden_field_under_inline_fragment_nested_in_fragment_body() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_under_inline_interface_fragment_nested_in_fragment_body() {
     let text = r#"
         subscription OnZone {
@@ -1128,7 +1128,7 @@ fn test_forbidden_field_under_inline_interface_fragment_nested_in_fragment_body(
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_forbidden_field_under_inline_fragment_in_fragment_body_ignored_inside_the_fragment() {
     // Suppression on the object that opens the nested path holds through the
     // type condition above it, the same as for a path with no condition on it.

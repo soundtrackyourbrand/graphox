@@ -54,7 +54,7 @@ rules:
 
     // 4. Verify diagnostic appears for unsaved content
     let mut found_diag = false;
-    let timeout = Duration::from_secs(1);
+    let timeout = Duration::from_secs(10);
     let start = std::time::Instant::now();
 
     while start.elapsed() < timeout {

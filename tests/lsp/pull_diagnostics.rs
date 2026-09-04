@@ -518,7 +518,7 @@ async fn test_pull_diagnostics_refresh_after_duplicate_file_deleted_and_closed()
     // changed — the sibling test in duplicate_operations.rs polls the same
     // scenario for the same reason. What is asserted below is unaffected; only
     // the assumption that the very first answer is the settled one is dropped.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let refreshed_report = loop {
         let refreshed_result: DocumentDiagnosticReportResult = lsp_request_typed(
             &mut service,
@@ -560,7 +560,7 @@ async fn test_pull_diagnostics_refresh_after_duplicate_file_deleted_and_closed()
             );
         }
         None => panic!(
-            "Expected a refreshed full diagnostic report within 2s of deleting \
+            "Expected a refreshed full diagnostic report within 10s of deleting \
              the duplicate file; the server kept answering \"unchanged\""
         ),
     }

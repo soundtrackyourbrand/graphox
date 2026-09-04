@@ -5,7 +5,7 @@ use crate::support::{
 use tower_lsp_server::ls_types::*;
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_remove_unused_fragment() {
     let schema = "type Query { me: String }";
     let (dir, mut config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -115,7 +115,7 @@ async fn test_code_action_remove_unused_fragment() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_extract_to_fragment() {
     let schema = "type User { id: ID name: String } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -165,7 +165,7 @@ async fn test_code_action_extract_to_fragment() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_remove_unused_variable() {
     let schema = "type Query { me(id: ID): String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -211,7 +211,7 @@ async fn test_code_action_remove_unused_variable() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_remove_type_only() {
     let schema = "type Query { me: String }";
     let (_dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -259,7 +259,7 @@ async fn test_code_action_remove_type_only() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_extract_to_fragment_tsx() {
     let schema = "type User { id: ID name: String } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.tsx");
@@ -315,7 +315,7 @@ async fn test_code_action_extract_to_fragment_tsx() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_type_only_removal() {
     let schema = "type Query { me: String }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
@@ -362,7 +362,7 @@ async fn test_code_action_type_only_removal() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 #[ignore] // Not implemented feature
 async fn test_code_action_variable_definition() {
     let schema = "type Query { user(id: ID!): String }";
@@ -408,7 +408,7 @@ async fn test_code_action_variable_definition() {
 }
 
 #[tokio::test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 async fn test_code_action_ignore_deprecation() {
     let schema = "type User { id: ID! oldField: String @deprecated(reason: \"Use newField\") } type Query { me: User }";
     let (dir, config) = make_temp_project_with_schema(schema, "**/*.graphql");

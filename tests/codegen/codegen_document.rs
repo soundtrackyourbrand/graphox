@@ -1,12 +1,10 @@
 use std::process::Command;
 
+use crate::support::cmd::fresh_dir;
+
 fn generate_ast_codegen_output(test_dir_name: &str, schema: &str, source: &str) -> String {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join(test_dir_name);
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir(test_dir_name);
 
     std::fs::write(temp_dir.join("schema.graphql"), schema).unwrap();
     std::fs::write(temp_dir.join("query.ts"), source).unwrap();
@@ -73,11 +71,7 @@ fn assert_document_references(content: &str, document_name: &str, expected_refs:
 #[ntest::timeout(1000)]
 fn test_codegen_document_node() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_document_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_codegen_document_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -155,11 +149,7 @@ projects:
 #[ntest::timeout(1000)]
 fn test_codegen_aliases_and_enums() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_quirks_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_codegen_quirks_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -231,11 +221,7 @@ projects:
 #[ntest::timeout(1000)]
 fn test_codegen_document_node_no_vars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_document_no_vars_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_codegen_document_no_vars_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -288,11 +274,7 @@ projects:
 #[ntest::timeout(1000)]
 fn test_codegen_missing_parent_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_missing_parent_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_missing_parent_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -351,11 +333,7 @@ projects:
 #[ntest::timeout(1000)]
 fn test_entrypoint_documents_and_overloads_populated() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_entrypoint_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_entrypoint_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -439,11 +417,7 @@ projects:
 #[ntest::timeout(2000)]
 fn test_codegen_fragment_ordering() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_ordering_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_codegen_ordering_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -558,11 +532,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
     };
     use tower_lsp_server::ls_types::PositionEncodingKind;
 
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_cache_ordering_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_codegen_cache_ordering_test");
 
     std::fs::write(
         temp_dir.join("schema.graphql"),
@@ -703,11 +673,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
 #[ntest::timeout(2000)]
 fn test_codegen_recursive_fragment_ordering() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_codegen_recursive_test");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_codegen_recursive_test");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");
@@ -961,11 +927,7 @@ type User { id: ID! }
 #[test]
 fn test_codegen_directives_in_ast() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
-    let temp_dir = std::env::temp_dir().join("graphox_repro_directives");
-    if temp_dir.exists() {
-        std::fs::remove_dir_all(&temp_dir).expect("std::fs::remove_dir_all failed on &temp_dir");
-    }
-    std::fs::create_dir_all(&temp_dir).expect("std::fs::create_dir_all failed on &temp_dir");
+    let temp_dir = fresh_dir("graphox_repro_directives");
 
     // Create schema
     let schema_file = temp_dir.join("schema.graphql");

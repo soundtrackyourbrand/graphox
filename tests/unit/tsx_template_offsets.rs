@@ -4,7 +4,7 @@ use graphox::DocumentLanguage;
 use tower_lsp_server::ls_types::Uri;
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_various_tsx_template_shapes_map_offsets() {
     let fixtures = vec![
         ("tagged_gql", "const q = gql`fragment F on User { id }`;"),

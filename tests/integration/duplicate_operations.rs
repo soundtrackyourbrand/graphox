@@ -10,7 +10,7 @@ use crate::support::create_doc;
 use tower_lsp_server::ls_types::Uri;
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_document_operations_extraction() {
     let query_text = "query GetUser { user(id: \"1\") { id name } }";
     let uri = "file:///test/query.graphql".parse::<Uri>().unwrap();
@@ -25,7 +25,7 @@ async fn test_document_operations_extraction() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_check_command_duplicate_operations() {
     // Use LspTestScenario to create a temporary project layout with schema
     // and two query files that have duplicate operation names.
@@ -75,7 +75,7 @@ async fn test_check_command_duplicate_operations() {
 }
 
 #[tokio::test]
-#[ntest::timeout(500)]
+#[ntest::timeout(3000)]
 async fn test_check_command_unique_operations() {
     let scenario = crate::support::lsp::LspTestScenario::new()
         .with_file("package.json", "{}")

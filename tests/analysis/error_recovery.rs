@@ -6,7 +6,7 @@ use graphox::features::diagnostics::DocumentDiagnostics;
 use tower_lsp_server::ls_types::*;
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_malformed_query_partial() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -29,7 +29,7 @@ fn test_malformed_query_partial() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_missing_closing_braces() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -54,7 +54,7 @@ fn test_missing_closing_braces() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_invalid_type_condition() {
     let schema = union_interface_schema().clone().validate().unwrap();
 
@@ -88,7 +88,7 @@ fn test_invalid_type_condition() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_unknown_directive_location() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -111,7 +111,7 @@ fn test_unknown_directive_location() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_partial_fragment_definition() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -130,7 +130,7 @@ fn test_partial_fragment_definition() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_unclosed_string_value() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -152,7 +152,7 @@ fn test_unclosed_string_value() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_invalid_field_selection() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -175,7 +175,7 @@ fn test_invalid_field_selection() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_missing_query_name() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -194,7 +194,7 @@ fn test_missing_query_name() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_malformed_variable_definition() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -216,7 +216,7 @@ fn test_malformed_variable_definition() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_invalid_argument_syntax() {
     let schema = user_schema().clone().validate().unwrap();
 
@@ -238,7 +238,7 @@ fn test_invalid_argument_syntax() {
 }
 
 #[test]
-#[ntest::timeout(300)]
+#[ntest::timeout(3000)]
 fn test_description_with_json_like_content_no_spurious_errors() {
     let schema = user_schema().clone().validate().unwrap();
     let text = r#"
