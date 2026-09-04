@@ -21,6 +21,12 @@ updates:
         update-types:
           - minor
           - patch
+    # swc_core sets the wasm plugin ABI the compiled plugin carries, and a host
+    # only loads plugins built against an ABI its own @swc/core understands.
+    # Bumping it raises the minimum @swc/core our users must be on, so it moves
+    # when we choose to drop older hosts — not on a weekly schedule.
+    ignore:
+      - dependency-name: "swc_core"
 
   - package-ecosystem: github-actions
     directory: /
