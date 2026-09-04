@@ -152,6 +152,6 @@
     "@types/vscode": "^1.75.0",
     "esbuild": "^0.28.2",
     "vscode-languageclient": "^8.1.0",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
