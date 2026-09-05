@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: ^26.2.0
-        version: 26.3.0
+        specifier: ^26.4.1
+        version: 26.4.1
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
@@ -327,8 +327,8 @@ packages:
   '@textlint/types@15.8.0':
     resolution: {integrity: sha512-Anhc6y5736YIsvqae0U6k0YmB2M/QVHkEeOv2aydAn/WIkdI69dCOiDbe3/+RagS3qstFTSFWJzNRA2lUjv19w==}
 
-  '@types/node@26.3.0':
-    resolution: {integrity: sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw==}
+  '@types/node@26.4.1':
+    resolution: {integrity: sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==}
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
@@ -1600,7 +1600,7 @@ snapshots:
     dependencies:
       '@textlint/ast-node-types': 15.8.0
 
-  '@types/node@26.3.0':
+  '@types/node@26.4.1':
     dependencies:
       undici-types: 8.3.0
 
