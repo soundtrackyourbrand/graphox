@@ -1,0 +1,61 @@
+name: Bug report
+description: Something behaves differently than documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        The smallest schema, document, and `graphox.json` that shows the
+        problem. A link to a repository works too.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen
+      multiple: true
+      options:
+        - CLI
+        - Language server / editor
+        - Codegen output
+        - SWC plugin
+        - Babel plugin
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Graphox version
+      description: Output of `graphox --version`, or the version of the plugin package.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      placeholder: macOS 15 arm64, Ubuntu 24.04 x64, Windows 11 x64
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Any diagnostics or stack traces. For language server issues, the
+        Graphox output channel in your editor is the useful one.
+      render: text

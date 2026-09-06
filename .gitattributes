@@ -1,0 +1,10 @@
+# Normalise line endings so the Windows test runs see the same bytes as Linux
+# and macOS. Codegen baselines and GraphQL fixtures are compared literally.
+* text=auto eol=lf
+
+*.sh text eol=lf
+Makefile text eol=lf
+
+*.png binary
+*.vsix binary
+*.wasm binary
