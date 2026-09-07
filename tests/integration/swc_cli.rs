@@ -66,17 +66,29 @@ fn test_swc_cli_integration() {
     assert!(wasm_path.exists(), "WASM plugin missing at {:?}", wasm_path);
 
     // 3. Install SWC CLI
+    //
+    // Pinned to the oldest `@swc/core` the plugin supports, so this test is what
+    // holds that floor rather than only proving the newest host works. A plugin
+    // runs on a host newer than its own `swc_core` but never on an older one, so
+    // the floor is the case that breaks first when `swc_core` moves — see
+    // plugins/swc/rust/README.md. Raise it in step with that table.
+    const MIN_SWC_CORE: &str = "@swc/core@1.15.0";
+
     println!("Installing SWC CLI...");
     fs::write(temp_path.join("package.json"), r#"{ "name": "swc-test" }"#).unwrap();
 
     let npm_install = Command::new("npm")
         .arg("install")
-        .arg("@swc/core")
+        .arg(MIN_SWC_CORE)
         .arg("@swc/cli")
         .current_dir(temp_path)
         .output()
         .expect("Failed to run npm install");
-    assert!(npm_install.status.success());
+    assert!(
+        npm_install.status.success(),
+        "npm install failed: {}",
+        String::from_utf8_lossy(&npm_install.stderr)
+    );
 
     // 4. Create .swcrc
     let manifest_path = temp_path.join("gen/manifest.json");
