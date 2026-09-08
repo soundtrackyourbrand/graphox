@@ -524,6 +524,14 @@ projects:
     assert!(generated_dir.exists(), "codegen should have written output");
 
     // Hold every cache entry open across the clean.
+    //
+    // Plain `File::open` is deliberate. Windows grants FILE_SHARE_DELETE by
+    // default, which is what makes the delete *succeed* and leave the entry
+    // behind as delete-pending — the state that fails the parent's removal with
+    // "Access is denied", and the one the CI failure this fixes reported. Denying
+    // share-delete would block the delete itself with a sharing violation
+    // instead: also contention, but a shape graphox never produces, since
+    // nothing in it opens a cache file with a custom share mode.
     let cache_dir = cmd::cache_dir(&temp_dir);
     let held: Vec<std::fs::File> = std::fs::read_dir(&cache_dir)
         .expect("codegen should have written a schema cache")
@@ -548,7 +556,96 @@ projects:
         "generated directory should be removed even with the cache held open"
     );
 
+    // Success alone would also be what a clean that met no contention returns,
+    // so on Windows pin the contention itself: the open handles make the cache
+    // directory outlive a removal that was asked for and refused. Unix removes
+    // an open file without complaint, so there is nothing to survive.
+    #[cfg(windows)]
+    assert!(
+        cache_dir.exists(),
+        "held-open entries should have blocked the cache removal, so the clean \
+         was tolerating a failure rather than never meeting one"
+    );
+
     drop(held);
     std::fs::remove_dir_all(&cache_dir).ok();
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+/// A generated file that will not go has to reach the exit status. The project
+/// arms that use `output_dir` have always propagated that; the arm that removes
+/// files individually computed the same answer and dropped it, so the failure
+/// went to stderr and the command still exited 0.
+#[test]
+#[cfg(unix)]
+fn test_codegen_clean_reports_output_it_could_not_remove() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = fresh_dir("graphox_clean_unremovable_output_test");
+
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type User { id: ID! } type Query { me: User }",
+    )
+    .unwrap();
+    let app_dir = temp_dir.join("app");
+    std::fs::create_dir_all(&app_dir).unwrap();
+    std::fs::write(app_dir.join("query.graphql"), "query { me { id } }").unwrap();
+
+    // No output_dir, so the per-file removal path is the one that runs. The
+    // include root is stripped from the output path, which puts both the
+    // generated file and `__generated__` at the base directory.
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "app/**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let output = graphox(bin_path, &temp_dir)
+        .arg("codegen")
+        .output()
+        .expect("Failed to execute process");
+    assert_command_succeeded(&output, "codegen", &temp_dir);
+
+    let generated = temp_dir.join("query.codegen.ts");
+    let generated_dir = temp_dir.join("__generated__");
+    assert!(generated.exists(), "codegen should have written output");
+    assert!(
+        generated_dir.exists(),
+        "codegen should have written a __generated__ dir"
+    );
+
+    // A directory that cannot be written is a file that cannot be unlinked, so
+    // this blocks the per-file removal and the `__generated__` removal at once.
+    std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let output = graphox(bin_path, &temp_dir)
+        .arg("codegen")
+        .arg("--clean")
+        .output()
+        .expect("Failed to execute process");
+    std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(
+        generated.exists(),
+        "the fixture is wrong if the output was removable after all"
+    );
+    assert!(
+        !output.status.success(),
+        "a generated file that survived the clean must fail the command:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Failed to remove"),
+        "the failure should say which file it was: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::fs::remove_dir_all(cmd::cache_dir(&temp_dir)).ok();
     std::fs::remove_dir_all(temp_dir).ok();
 }

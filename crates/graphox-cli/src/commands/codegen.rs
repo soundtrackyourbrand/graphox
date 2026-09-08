@@ -1288,7 +1288,7 @@ fn clean_project_files_sync(
         }
         None => {
             // Clean individual files
-            params
+            let files_removed = params
                 .project_files
                 .par_iter()
                 .map(|path| {
@@ -1338,6 +1338,7 @@ fn clean_project_files_sync(
                 .reduce(|| true, |a, b| a && b);
 
             // Also clean up default __generated__ directory if it exists
+            let mut gen_dir_removed = true;
             let default_gen_dir = params.base_dir.join("__generated__");
             if default_gen_dir.exists() && default_gen_dir.is_dir() {
                 if let Err(e) = std::fs::remove_dir_all(&default_gen_dir) {
@@ -1347,6 +1348,7 @@ fn clean_project_files_sync(
                         default_gen_dir.display().to_string().red(),
                         e
                     );
+                    gen_dir_removed = false;
                 } else if verbose {
                     println!(
                         "{}: {}",
@@ -1354,6 +1356,14 @@ fn clean_project_files_sync(
                         default_gen_dir.display().to_string().bright_black()
                     );
                 }
+            }
+
+            // Both outcomes were being computed and dropped, so a file that
+            // would not go was reported on stderr and then exited 0 — the one
+            // thing `--clean` is answerable for, going unreported in the status.
+            // The `output_dir` arms above have always propagated theirs.
+            if !files_removed || !gen_dir_removed {
+                return Err(());
             }
         }
     }
