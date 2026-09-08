@@ -28,6 +28,13 @@ BASELINES_DIR = os.path.join(ROOT, "tests", "baselines")
 TOOLCHAIN_DIR = os.path.join(ROOT, "scripts", "baseline-verify")
 MANIFEST_FILES = ("package.json", "pnpm-lock.yaml")
 
+# pnpm needs the manifest beside the node_modules it installs, but a manifest
+# copied into the workspace only records intent: an install that fails after the
+# copy would leave the new pins looking satisfied by whatever node_modules
+# survived, and the next run would typecheck against the old compiler. This is
+# written last, so it is the only evidence that an install finished.
+STAMP_FILE = ".pinned-toolchain"
+
 # Installed under target/ so node_modules stays out of git and `cargo clean`
 # reclaims it.
 WORKSPACE_DIR = os.path.join(ROOT, "target", "baseline-verify")
@@ -60,38 +67,63 @@ def install_dependencies():
     baseline. Returns the path to the tsc binary."""
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
     bin_dir = os.path.join(WORKSPACE_DIR, "node_modules", ".bin")
+    stamp_path = os.path.join(WORKSPACE_DIR, STAMP_FILE)
 
-    def read(directory, name):
-        with open(os.path.join(directory, name), "rb") as f:
+    def read(path):
+        with open(path, "rb") as f:
             return f.read()
 
-    pinned = {name: read(TOOLCHAIN_DIR, name) for name in MANIFEST_FILES}
+    pinned = {name: read(os.path.join(TOOLCHAIN_DIR, name)) for name in MANIFEST_FILES}
+    stamp = b"\0".join(pinned[name] for name in MANIFEST_FILES)
 
     # Reinstall when the pins move, so a bump needs no manual clean.
     tsc_bin = shutil.which("tsc", path=bin_dir)
-    installed = all(
-        os.path.exists(os.path.join(WORKSPACE_DIR, name)) for name in MANIFEST_FILES
-    )
-    if tsc_bin and installed:
-        if all(read(WORKSPACE_DIR, name) == pinned[name] for name in MANIFEST_FILES):
-            return tsc_bin
+    if tsc_bin and os.path.exists(stamp_path) and read(stamp_path) == stamp:
+        return tsc_bin
 
     print("Installing the pinned TypeScript toolchain...")
+    # Dropped first, so that a failure below cannot leave a stamp behind
+    # vouching for the install that did not happen.
+    if os.path.exists(stamp_path):
+        os.remove(stamp_path)
+
+    # From scratch, because pnpm short-circuits on its own dependency-status
+    # check when node_modules looks current: it reports "Already up to date"
+    # without comparing the manifest to the lockfile, so a bumped pin would be
+    # recorded as installed while the old version stayed on disk. A clean tree
+    # also makes --frozen-lockfile do its job and reject a lockfile that no
+    # longer matches the manifest.
+    node_modules = os.path.join(WORKSPACE_DIR, "node_modules")
+    if os.path.exists(node_modules):
+        shutil.rmtree(node_modules)
+
     for name, contents in pinned.items():
         with open(os.path.join(WORKSPACE_DIR, name), "wb") as f:
             f.write(contents)
 
     # --shamefully-hoist because each baseline gets this node_modules
-    # wholesale, without a manifest of its own for pnpm to link against.
-    subprocess.run(
-        ["pnpm", "install", "--frozen-lockfile", "--shamefully-hoist", "--silent"],
-        cwd=WORKSPACE_DIR,
-        check=True,
-    )
+    # wholesale, without a manifest of its own for pnpm to link against. Not
+    # silenced: this runs only on a first run or a pin change, and pnpm is the
+    # only thing that can explain a refused lockfile.
+    try:
+        subprocess.run(
+            ["pnpm", "install", "--frozen-lockfile", "--shamefully-hoist"],
+            cwd=WORKSPACE_DIR,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        sys.exit(
+            f"Error: pnpm install failed ({e.returncode}). If the manifest in "
+            f"{os.path.relpath(TOOLCHAIN_DIR, ROOT)} was edited, refresh the "
+            "lockfile beside it with `pnpm install --lockfile-only`."
+        )
 
     tsc_bin = shutil.which("tsc", path=bin_dir)
     if not tsc_bin:
         sys.exit(f"Error: pnpm install did not produce a tsc binary in {bin_dir}")
+
+    with open(stamp_path, "wb") as f:
+        f.write(stamp)
     return tsc_bin
 
 
