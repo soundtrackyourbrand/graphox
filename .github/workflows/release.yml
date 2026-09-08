@@ -212,9 +212,9 @@ jobs:
 
       - name: Publish SWC Plugin
         working-directory: plugins/swc/node
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No token: npm trusted publishing authenticates this over OIDC,
+        # using the id-token permission granted above.
+        run: pnpm publish --no-git-checks --provenance
 
       - name: Upload WASM Artifact for Release
         uses: actions/upload-artifact@v7
@@ -265,9 +265,9 @@ jobs:
 
       - name: Publish Babel Plugin
         working-directory: plugins/babel
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No token: npm trusted publishing authenticates this over OIDC,
+        # using the id-token permission granted above.
+        run: pnpm publish --no-git-checks --provenance
 
   build-vscode-extension:
     name: Build VSCode Extension
@@ -385,9 +385,9 @@ jobs:
 
       - name: Publish
         working-directory: package
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No token: npm trusted publishing authenticates this over OIDC,
+        # using the id-token permission granted above.
+        run: pnpm publish --no-git-checks --provenance
 
   publish-cli-wrapper:
     name: Publish CLI Wrapper
@@ -429,9 +429,9 @@ jobs:
 
       - name: Publish CLI Wrapper
         working-directory: npm/graphox-cli
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No token: npm trusted publishing authenticates this over OIDC,
+        # using the id-token permission granted above.
+        run: pnpm publish --no-git-checks --provenance
 
   finalize-release:
     name: Finalize GitHub Release
