@@ -1,8 +1,7 @@
 use std::path::Path;
-use std::process::Command;
 use tempfile::tempdir;
 
-use crate::support::cmd::{assert_command_succeeded, fresh_dir};
+use crate::support::cmd::{assert_command_succeeded, fresh_dir, graphox};
 
 #[test]
 #[ntest::timeout(2000)]
@@ -29,8 +28,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -71,8 +69,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -128,8 +125,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -188,8 +184,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -236,8 +231,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -284,8 +278,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -322,8 +315,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -369,8 +361,7 @@ projects:
     .unwrap();
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -384,8 +375,7 @@ projects:
     assert!(gen_file.exists());
 
     // 2. Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .arg("--verbose")
@@ -462,8 +452,7 @@ projects:
     std::fs::write(&query_file, "query { oldField }").unwrap();
 
     // 1. Run check normally (should succeed with no output)
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -479,8 +468,7 @@ projects:
     assert!(stdout.contains("No issues found."));
 
     // 2. Run check --verbose (should succeed but show ignored deprecation)
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .arg("--verbose")
         .output()
@@ -540,8 +528,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -607,9 +594,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -686,9 +672,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -737,9 +722,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -812,8 +796,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -861,9 +844,8 @@ schema_types:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -946,9 +928,8 @@ scalars:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -1049,8 +1030,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -1127,8 +1107,7 @@ projects:
     .unwrap();
 
     // Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--verbose")
         .output()
@@ -1214,8 +1193,7 @@ projects:
     .unwrap();
 
     // Run check command - should still validate even with codegen disabled
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");
@@ -1254,9 +1232,8 @@ fn test_multi_project_isolation() {
 
     copy_dir_all(fixture_dir, &temp_dir).expect("Failed to copy fixture to temp");
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -1362,8 +1339,7 @@ fn empty_project_fixture(config: &str) -> tempfile::TempDir {
 }
 
 fn run_graphox(dir: &Path, args: &[&str]) -> (bool, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_graphox"))
-        .current_dir(dir)
+    let output = graphox(env!("CARGO_BIN_EXE_graphox"), dir)
         .args(args)
         .output()
         .expect("Failed to execute process");

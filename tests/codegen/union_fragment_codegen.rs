@@ -1,4 +1,4 @@
-use std::process::Command;
+use crate::support::cmd::graphox;
 
 fn run_codegen_fixture(test_name: &str, schema: &str, query: &str, config: &str) -> String {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
@@ -12,9 +12,8 @@ fn run_codegen_fixture(test_name: &str, schema: &str, query: &str, config: &str)
     std::fs::write(temp_dir.join("query.ts"), query).unwrap();
     std::fs::write(temp_dir.join("graphox.yaml"), config).unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 

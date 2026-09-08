@@ -1,7 +1,9 @@
 //! Helpers for tests that drive the `graphox` binary as a subprocess.
 
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 /// Assert that a `graphox` invocation succeeded, and report enough to diagnose it
 /// when it did not.
@@ -63,4 +65,89 @@ pub fn fresh_dir(name: &str) -> PathBuf {
         .unwrap_or_else(|e| panic!("could not create {}: {e}", dir.display()));
 
     dir
+}
+
+/// A `graphox` invocation rooted at `work_dir`, with a schema cache of its own.
+///
+/// The on-disk schema cache is resolved per process from `GRAPHOX_CACHE_DIR` (or
+/// the user cache dir), so left alone every test in the suite shares one
+/// directory. Tests run in parallel and several of them wipe that directory
+/// outright with `codegen --clean`, which on Windows fails with "Access is
+/// denied" the moment another test's process holds a handle inside it — a file
+/// deleted while still open stays behind as delete-pending, and the parent
+/// directory then refuses to go.
+///
+/// The cache path is derived from `work_dir`, so repeat invocations from one
+/// scratch directory still share a cache and the tests that assert cache reuse
+/// keep working. It lives under the system temp dir rather than inside
+/// `work_dir`, so cache files never turn up in a workspace scan.
+pub fn graphox(bin_path: &str, work_dir: impl AsRef<Path>) -> Command {
+    let work_dir = work_dir.as_ref();
+    let mut cmd = Command::new(bin_path);
+    cmd.current_dir(work_dir);
+    cmd.env("GRAPHOX_CACHE_DIR", cache_dir(work_dir));
+    cmd
+}
+
+/// The schema cache directory [`graphox`] gives a command run from `work_dir`.
+///
+/// Named after the scratch directory so a leftover is traceable to the test that
+/// made it, and hashed so that two tests cannot collide on the name alone.
+///
+/// Nothing deletes these when a test ends. Teardown at the end of a test body is
+/// the one place that does not run when the test fails, which is why scratch
+/// directories already outlive failures — and a cache is only useful for as long
+/// as the process it belongs to is alive, so the interesting case is exactly the
+/// one teardown misses. The first caller in each test process sweeps what
+/// earlier runs left instead. That bounds what accumulates however a run ends,
+/// and clears the entries belonging to tests that build their fixture at a fixed
+/// path, whose cache directory is otherwise the same one every run.
+pub fn cache_dir(work_dir: &Path) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+
+    static SWEPT: OnceLock<()> = OnceLock::new();
+    SWEPT.get_or_init(sweep_stale_cache_dirs);
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    work_dir.hash(&mut hasher);
+    let name = work_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("cache");
+
+    cache_root().join(format!("{name}-{:016x}", hasher.finish()))
+}
+
+/// The one directory every per-test cache lives under, so the suite leaves a
+/// single removable thing behind rather than scattering entries across the
+/// system temp dir.
+fn cache_root() -> PathBuf {
+    std::env::temp_dir().join("graphox-test-caches")
+}
+
+/// Remove the cache directories left behind by earlier runs.
+///
+/// The cutoff is what keeps this from taking a directory out from under a test
+/// that is still using it, including one in another test binary of the same run:
+/// an hour is far longer than the suite takes, and every live cache directory
+/// was written to within it.
+fn sweep_stale_cache_dirs() {
+    let Ok(entries) = std::fs::read_dir(cache_root()) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .is_ok_and(|modified| {
+                modified
+                    .elapsed()
+                    .is_ok_and(|age| age > Duration::from_secs(60 * 60))
+            });
+
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }

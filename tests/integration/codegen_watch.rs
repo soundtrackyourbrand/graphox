@@ -13,8 +13,10 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
+
+use crate::support::cmd::graphox;
 
 const SCHEMA: &str = "type Query { me: User }\ntype User { id: ID! username: String! }\n";
 const CONFIG: &str = "projects:\n  - schema: \"schema.graphql\"\n    include: \"**/*.graphql\"\n    output_dir: \"gen\"\n";
@@ -50,8 +52,7 @@ impl Drop for Watcher {
 
 impl Watcher {
     fn spawn(dir: &Path) -> Self {
-        let child = Command::new(env!("CARGO_BIN_EXE_graphox"))
-            .current_dir(dir)
+        let child = graphox(env!("CARGO_BIN_EXE_graphox"), dir)
             .args(["codegen", "--watch"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

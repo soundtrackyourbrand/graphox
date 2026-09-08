@@ -1,5 +1,6 @@
 use std::fs;
-use std::process::Command;
+
+use crate::support::cmd::graphox;
 
 #[test]
 fn test_jsdoc_generation_e2e() {
@@ -60,9 +61,8 @@ projects:
     fs::write(root.join("graphox.yaml"), config).unwrap();
 
     // 4. Run codegen
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, root)
         .arg("codegen")
-        .current_dir(root)
         .output()
         .expect("Failed to run codegen");
 
@@ -149,9 +149,8 @@ projects:
     fs::write(root.join("graphox.yaml"), config).unwrap();
 
     // 4. Run codegen
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, root)
         .arg("codegen")
-        .current_dir(root)
         .output()
         .expect("Failed to run codegen");
 

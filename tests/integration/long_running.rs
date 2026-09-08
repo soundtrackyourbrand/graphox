@@ -13,6 +13,8 @@ use std::os::windows::process::ExitStatusExt;
 use graphox_core::config;
 use graphox_core::schema_cache;
 
+use crate::support::cmd::graphox;
+
 #[tokio::test]
 #[ntest::timeout(600000)]
 #[ignore] // Slow test - runs full monorepo setup with pnpm install and multiple typechecks
@@ -111,9 +113,8 @@ async fn test_monorepo_typecheck_and_compare(fixture_dir_str: &str) {
 
     // Step 2: Run graphox codegen
     println!("[Graphox] Running codegen...");
-    let graphox_output = Command::new(graphox_bin_path)
+    let graphox_output = graphox(graphox_bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute graphox");
 
@@ -172,9 +173,8 @@ async fn test_monorepo_typecheck_and_compare(fixture_dir_str: &str) {
 
     // Re-run graphox to restore files for comparison
     println!("[Graphox] Re-running codegen for comparison...");
-    let graphox_output2 = Command::new(graphox_bin_path)
+    let graphox_output2 = graphox(graphox_bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute graphox");
 

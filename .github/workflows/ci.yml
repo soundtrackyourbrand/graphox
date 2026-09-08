@@ -175,6 +175,9 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
+      # Tests that spawn the binary give it a cache directory of their own, so
+      # this is only a backstop: it keeps anything that bypasses that helper out
+      # of the runner's real user cache directory.
       - name: Configure per-job Graphox cache directory
         run: |
           echo "GRAPHOX_CACHE_DIR=$RUNNER_TEMP/graphox-cache" >> $GITHUB_ENV

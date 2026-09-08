@@ -1,8 +1,10 @@
 use std::fs;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
+
+use crate::support::cmd::graphox;
 
 #[test]
 #[ntest::timeout(30000)]
@@ -30,11 +32,10 @@ fn test_codegen_watch_mode() {
     .unwrap();
 
     // 2. Spawn codegen in watch mode
-    let mut child = Command::new(bin_path)
+    let mut child = graphox(bin_path, base_dir)
         .arg("codegen")
         .arg("--watch")
         .arg("--verbose")
-        .current_dir(base_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -106,11 +107,10 @@ fn test_codegen_watch_schema_changes() {
     .unwrap();
 
     // 2. Spawn codegen in watch mode
-    let mut child = Command::new(bin_path)
+    let mut child = graphox(bin_path, base_dir)
         .arg("codegen")
         .arg("--watch")
         .arg("--verbose")
-        .current_dir(base_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -180,9 +180,8 @@ fn test_codegen_idempotent_writes() {
     .unwrap();
 
     // 2. Run codegen first time
-    let status = Command::new(bin_path)
+    let status = graphox(bin_path, &base_dir)
         .arg("codegen")
-        .current_dir(&base_dir)
         .status()
         .expect("Failed to run codegen");
     assert!(status.success());
@@ -194,9 +193,8 @@ fn test_codegen_idempotent_writes() {
     thread::sleep(Duration::from_millis(100));
 
     // 3. Run codegen second time without changes
-    let status = Command::new(bin_path)
+    let status = graphox(bin_path, &base_dir)
         .arg("codegen")
-        .current_dir(&base_dir)
         .status()
         .expect("Failed to run codegen second time");
     assert!(status.success());
@@ -216,9 +214,8 @@ fn test_codegen_idempotent_writes() {
     thread::sleep(Duration::from_millis(100));
 
     // 5. Run codegen third time - it SHOULD overwrite the formatted content because it differs
-    let status = Command::new(bin_path)
+    let status = graphox(bin_path, &base_dir)
         .arg("codegen")
-        .current_dir(&base_dir)
         .status()
         .expect("Failed to run codegen third time");
     assert!(status.success());
@@ -237,9 +234,8 @@ fn test_codegen_idempotent_writes() {
 
     // 6. Run codegen fourth time - it should NOT overwrite now that content is back to normal
     thread::sleep(Duration::from_millis(100));
-    let status = Command::new(bin_path)
+    let status = graphox(bin_path, &base_dir)
         .arg("codegen")
-        .current_dir(&base_dir)
         .status()
         .expect("Failed to run codegen fourth time");
     assert!(status.success());
@@ -271,11 +267,10 @@ fn test_codegen_watch_ignores_generated_files() {
     .unwrap();
 
     // 2. Spawn codegen in watch mode
-    let mut child = Command::new(bin_path)
+    let mut child = graphox(bin_path, &base_dir)
         .arg("codegen")
         .arg("--watch")
         .arg("--verbose")
-        .current_dir(&base_dir)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -372,11 +367,10 @@ fn test_codegen_watch_ignores_non_graphql_host_edits() {
     )
     .unwrap();
 
-    let mut child = Command::new(bin_path)
+    let mut child = graphox(bin_path, &base_dir)
         .arg("codegen")
         .arg("--watch")
         .arg("--verbose")
-        .current_dir(&base_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
