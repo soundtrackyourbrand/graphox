@@ -1,19 +1,45 @@
 #!/usr/bin/env python3
+"""Typecheck the generated TypeScript in tests/baselines with tsc.
+
+`run_baseline_test` only compares codegen output against the committed
+baselines, so it cannot tell a correct baseline from a baseline that faithfully
+records broken TypeScript. This script copies each baseline into a scratch
+workspace, renames `*.expected.ts` back to `*.ts`, and compiles it.
+
+Requires pnpm on PATH.
+"""
+
+import argparse
+import copy
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINES_DIR = os.path.join(ROOT, "tests", "baselines")
+
+# The manifest is committed and its versions are pinned, so a release of
+# TypeScript or graphql-js cannot turn a green baseline red without a commit
+# that says so. Bump it deliberately, and refresh the lockfile alongside it with
+# `pnpm install --lockfile-only`.
+TOOLCHAIN_DIR = os.path.join(ROOT, "scripts", "baseline-verify")
+MANIFEST_FILES = ("package.json", "pnpm-lock.yaml")
+
+# Installed under target/ so node_modules stays out of git and `cargo clean`
+# reclaims it.
+WORKSPACE_DIR = os.path.join(ROOT, "target", "baseline-verify")
 
 BASE_TSCONFIG = {
     "compilerOptions": {
         "target": "ESNext",
         "module": "ESNext",
-        "moduleResolution": "node",
+        # Generated imports are extensionless and resolved by a bundler in the
+        # projects that consume them. node10 resolution was removed in
+        # TypeScript 7 anyway.
+        "moduleResolution": "bundler",
         "strict": True,
         "skipLibCheck": True,
         "esModuleInterop": True,
@@ -21,128 +47,192 @@ BASE_TSCONFIG = {
         "allowImportingTsExtensions": True,
         "noEmit": True,
         "paths": {
-            "@workspace/types": ["./types.ts"]
-        }
+            # Fixtures that emit shared schema types import them under this
+            # name; it resolves to the types.ts generated alongside them.
+            "@workspace/types": ["./types.ts"],
+        },
     }
 }
 
-PACKAGE_JSON = {
-    "name": "graphox-baseline-verify",
-    "version": "1.0.0",
-    "dependencies": {
-        "@graphql-typed-document-node/core": "latest",
-        "graphql": "latest",
-        "typescript": "latest",
-        "@apollo/client": "latest"
-    }
-}
 
-def verify_baseline(name, path):
-    print(f"Verifying baseline: {name}")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Copy baseline files and rename .expected.* -> .*
-        for root, dirs, files in os.walk(path):
-            rel_dir = os.path.relpath(root, path)
-            target_dir = os.path.join(tmpdir, rel_dir)
-            os.makedirs(target_dir, exist_ok=True)
+def install_dependencies():
+    """Install the pinned toolchain once, into a workspace shared by every
+    baseline. Returns the path to the tsc binary."""
+    os.makedirs(WORKSPACE_DIR, exist_ok=True)
+    bin_dir = os.path.join(WORKSPACE_DIR, "node_modules", ".bin")
 
-            for f in files:
-                if f.endswith(".expected.ts"):
-                    new_name = f.replace(".expected.ts", ".ts")
-                elif f.endswith(".expected.json"):
-                    new_name = f.replace(".expected.json", ".json")
-                else:
-                    new_name = f
-                shutil.copy2(os.path.join(root, f), os.path.join(target_dir, new_name))
+    def read(directory, name):
+        with open(os.path.join(directory, name), "rb") as f:
+            return f.read()
 
-        # Scan for package.json files to build tsconfig paths
-        paths = BASE_TSCONFIG["compilerOptions"]["paths"].copy()
-        
-        for root, dirs, files in os.walk(tmpdir):
-            if "package.json" in files:
-                pkg_path = os.path.join(root, "package.json")
-                try:
-                    with open(pkg_path, "r") as f:
-                        pkg = json.load(f)
-                        pkg_name = pkg.get("name")
-                        pkg_main = pkg.get("main")
-                        
-                        if pkg_name:
-                            # Calculate relative path from tmpdir to the main file or the directory
-                            rel_to_root = os.path.relpath(root, tmpdir)
-                            if pkg_main:
-                                # If it has a main, map to it
-                                main_path = os.path.join(".", rel_to_root, pkg_main)
-                                paths[pkg_name] = [main_path]
-                            else:
-                                # Otherwise map to the directory (index.ts or package root)
-                                paths[pkg_name] = [os.path.join(".", rel_to_root)]
-                except Exception as e:
-                    print(f"  Warning: Failed to parse {pkg_path}: {e}")
+    pinned = {name: read(TOOLCHAIN_DIR, name) for name in MANIFEST_FILES}
 
-        # Update tsconfig with discovered paths
-        tsconfig = BASE_TSCONFIG.copy()
-        tsconfig["compilerOptions"]["paths"] = paths
+    # Reinstall when the pins move, so a bump needs no manual clean.
+    tsc_bin = shutil.which("tsc", path=bin_dir)
+    installed = all(
+        os.path.exists(os.path.join(WORKSPACE_DIR, name)) for name in MANIFEST_FILES
+    )
+    if tsc_bin and installed:
+        if all(read(WORKSPACE_DIR, name) == pinned[name] for name in MANIFEST_FILES):
+            return tsc_bin
 
-        # Write config files
-        with open(os.path.join(tmpdir, "tsconfig.json"), "w") as f:
-            json.dump(tsconfig, f, indent=2)
-            
-        # Ensure we have a top-level package.json for dependencies
-        if not os.path.exists(os.path.join(tmpdir, "package.json")):
-            with open(os.path.join(tmpdir, "package.json"), "w") as f:
-                json.dump(PACKAGE_JSON, f, indent=2)
+    print("Installing the pinned TypeScript toolchain...")
+    for name, contents in pinned.items():
+        with open(os.path.join(WORKSPACE_DIR, name), "wb") as f:
+            f.write(contents)
 
-        # Ensure a dummy types.ts exists if it's expected by paths
-        types_path = os.path.join(tmpdir, "types.ts")
-        if not os.path.exists(types_path):
-            with open(types_path, "w") as f:
-                f.write("export type Status = 'ACTIVE' | 'INACTIVE';\n")
-        
-        # Shared node_modules location
-        shared_node_modules = os.path.join(ROOT, "scripts", "baseline_verify_node_modules")
-        os.makedirs(shared_node_modules, exist_ok=True)
-        target_node_modules = os.path.join(tmpdir, "node_modules")
+    # --shamefully-hoist because each baseline gets this node_modules
+    # wholesale, without a manifest of its own for pnpm to link against.
+    subprocess.run(
+        ["pnpm", "install", "--frozen-lockfile", "--shamefully-hoist", "--silent"],
+        cwd=WORKSPACE_DIR,
+        check=True,
+    )
 
-        if not os.path.exists(os.path.join(shared_node_modules, "node_modules", "graphql")):
-            print("  Installing dependencies (first time)...")
-            with open(os.path.join(shared_node_modules, "package.json"), "w") as f:
-                json.dump(PACKAGE_JSON, f, indent=2)
-            subprocess.run(["pnpm", "install", "--shamefully-hoist", "--silent"], cwd=shared_node_modules, check=True)
+    tsc_bin = shutil.which("tsc", path=bin_dir)
+    if not tsc_bin:
+        sys.exit(f"Error: pnpm install did not produce a tsc binary in {bin_dir}")
+    return tsc_bin
 
-        # Symlink shared node_modules
-        if not os.path.exists(target_node_modules):
-            os.symlink(os.path.join(shared_node_modules, "node_modules"), target_node_modules)
 
-        # Run tsc
-        print("  Running tsc...")
-        result = subprocess.run(["pnpm", "exec", "tsc", "--noEmit"], cwd=tmpdir, capture_output=True, text=True)
+def stage_baseline(path, tmpdir):
+    """Copy a baseline into tmpdir, renaming .expected.* back to .*"""
+    for root, _dirs, files in os.walk(path):
+        target_dir = os.path.join(tmpdir, os.path.relpath(root, path))
+        os.makedirs(target_dir, exist_ok=True)
 
-        if result.returncode != 0:
-            print(f"  ❌ Validation FAILED for {name}")
-            print(result.stdout)
-            print(result.stderr)
-            return False
+        for f in files:
+            if f.endswith(".expected.ts"):
+                new_name = f[: -len(".expected.ts")] + ".ts"
+            elif f.endswith(".expected.json"):
+                new_name = f[: -len(".expected.json")] + ".json"
+            else:
+                new_name = f
+            shutil.copy2(os.path.join(root, f), os.path.join(target_dir, new_name))
 
-        print(f"  ✅ Validation PASSED for {name}")
+
+def discover_paths(tmpdir):
+    """Map every package name declared in the staged baseline to its sources, so
+    that cross-package imports resolve without an install step."""
+    paths = copy.deepcopy(BASE_TSCONFIG["compilerOptions"]["paths"])
+
+    for root, _dirs, files in os.walk(tmpdir):
+        if "package.json" not in files:
+            continue
+
+        pkg_path = os.path.join(root, "package.json")
+        try:
+            with open(pkg_path, "r") as f:
+                pkg = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  Warning: failed to parse {pkg_path}: {e}")
+            continue
+
+        name = pkg.get("name")
+        if not name:
+            continue
+
+        rel_to_root = os.path.relpath(root, tmpdir)
+        # "main" if the package declares an entry point, the package directory
+        # otherwise — tsc resolves index.ts inside it.
+        if pkg.get("main"):
+            target = os.path.join(rel_to_root, pkg["main"])
+        else:
+            target = rel_to_root
+        paths[name] = ["./" + target.replace(os.sep, "/")]
+
+    return paths
+
+
+def has_typescript(path):
+    return any(
+        f.endswith(".expected.ts")
+        for _root, _dirs, files in os.walk(path)
+        for f in files
+    )
+
+
+def verify_baseline(name, path, tsc_bin):
+    # Not every baseline is codegen output — the formatter's, for one, is
+    # GraphQL. tsc has nothing to say about those.
+    if not has_typescript(path):
+        print(f"Skipping baseline (no TypeScript): {name}")
         return True
 
-def main():
-    failed = []
-    baselines = [d for d in os.listdir(BASELINES_DIR) if os.path.isdir(os.path.join(BASELINES_DIR, d))]
+    print(f"Verifying baseline: {name}")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        stage_baseline(path, tmpdir)
 
-    for name in sorted(baselines):
-        path = os.path.join(BASELINES_DIR, name)
-        if not verify_baseline(name, path):
-            failed.append(name)
+        tsconfig = copy.deepcopy(BASE_TSCONFIG)
+        tsconfig["compilerOptions"]["paths"] = discover_paths(tmpdir)
+        with open(os.path.join(tmpdir, "tsconfig.json"), "w") as f:
+            json.dump(tsconfig, f, indent=2)
+
+        # A manifest of its own would make pnpm reinstall over the shared
+        # node_modules, so the baseline gets the dependencies by symlink and tsc
+        # is invoked directly rather than through `pnpm exec`.
+        os.symlink(
+            os.path.join(WORKSPACE_DIR, "node_modules"),
+            os.path.join(tmpdir, "node_modules"),
+        )
+
+        result = subprocess.run(
+            [tsc_bin, "--project", "tsconfig.json"],
+            cwd=tmpdir,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            print(f"  FAILED: {name}")
+            for line in (result.stdout + result.stderr).splitlines():
+                print(f"    {line}")
+            return False
+
+        print(f"  passed: {name}")
+        return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "baselines",
+        nargs="*",
+        help="names of baselines to verify (default: all of them)",
+    )
+    args = parser.parse_args()
+
+    available = sorted(
+        d for d in os.listdir(BASELINES_DIR)
+        if os.path.isdir(os.path.join(BASELINES_DIR, d))
+    )
+
+    selected = args.baselines or available
+    unknown = [name for name in selected if name not in available]
+    if unknown:
+        sys.exit(f"Error: no such baseline: {', '.join(unknown)}")
+
+    checked = [
+        name
+        for name in selected
+        if has_typescript(os.path.join(BASELINES_DIR, name))
+    ]
+
+    tsc_bin = install_dependencies()
+
+    failed = [
+        name for name in selected
+        if not verify_baseline(name, os.path.join(BASELINES_DIR, name), tsc_bin)
+    ]
 
     if failed:
-        print(f"\nSummary: {len(failed)} baselines failed validation:")
+        print(f"\n{len(failed)} of {len(checked)} baselines failed to typecheck:")
         for name in failed:
             print(f"  - {name}")
         sys.exit(1)
-    else:
-        print("\nSummary: All baselines passed TSC validation!")
+
+    print(f"\nAll {len(checked)} baselines typecheck.")
+
 
 if __name__ == "__main__":
     main()

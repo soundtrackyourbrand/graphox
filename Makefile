@@ -1,4 +1,4 @@
-.PHONY: build test benchmark update-baselines clean help release-patch release-minor release-major
+.PHONY: build test benchmark update-baselines verify-baselines clean help release-patch release-minor release-major
 .PHONY: cargo-build cargo-test swc-build swc-test babel-build babel-test check fmt clippy bench-compile
 
 # Default target
@@ -44,6 +44,10 @@ benchmark:
 update-baselines: cargo-build
 	./scripts/update_baselines.py
 
+## verify-baselines: Typecheck the generated TypeScript in the baselines
+verify-baselines:
+	./scripts/verify_baselines.py
+
 ## clean: Clean build artifacts
 clean:
 	cargo clean
@@ -61,8 +65,8 @@ release-minor:
 release-major:
 	@./scripts/release.sh major
 
-## check: Run all linting, formatting, tests, and bench compilation
-check: fmt clippy test bench-compile
+## check: Run all linting, formatting, tests, baseline typechecks and bench compilation
+check: fmt clippy test verify-baselines bench-compile
 
 ## fmt: Format code
 fmt:

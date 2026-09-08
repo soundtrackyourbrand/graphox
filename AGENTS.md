@@ -78,7 +78,9 @@ Every feature and bug fix needs tests.
 Codegen is baseline-tested: inputs in `tests/fixtures/`, expected output in
 `tests/baselines/`, compared by `run_baseline_test`. For a new pair, register it in
 `scripts/update_baselines.py`, run `make update-baselines`, then
-`python3 scripts/verify_baselines.py` to typecheck the generated TypeScript.
+`make verify-baselines` to typecheck the generated TypeScript. That comparison alone
+cannot tell correct output from output that merely matches, so CI compiles the
+baselines too.
 
 No `sleep` in LSP tests — synchronise on the state being waited for.
 

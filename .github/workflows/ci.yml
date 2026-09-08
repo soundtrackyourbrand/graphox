@@ -127,6 +127,34 @@ jobs:
       - name: Run cargo check
         run: cargo check --all-targets --all-features
 
+  baselines:
+    name: Baseline Typecheck
+    runs-on: ubicloud-standard-2-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      # The committed baselines are compared against codegen output by the test
+      # suite, which cannot tell correct TypeScript from TypeScript that merely
+      # matches. Compiling them is what catches that, and it needs no Rust
+      # build: the baselines are checked in.
+      - name: Typecheck generated baselines
+        run: python3 scripts/verify_baselines.py
+
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
