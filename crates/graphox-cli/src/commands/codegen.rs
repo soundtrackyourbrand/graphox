@@ -214,16 +214,18 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     let cfg = config;
 
     if clean {
+        // What `--clean` promises is that the generated output is gone. The
+        // schema cache is derived data that rebuilds itself on the next run, so
+        // a cache that would not go is worth saying out loud but must not decide
+        // the exit status — reporting failure for it told callers the outputs
+        // had survived when they had not.
         if let Err(e) = schema_cache::clear_cache() {
-            eprintln!("{}: {}", "Failed to clear schema cache".red(), e);
-            success = false;
+            eprintln!("{}: {}", "Could not clear the schema cache".yellow(), e);
         } else if verbose {
             println!("{}", "Cleared schema cache".bright_black());
         }
-    }
 
-    if clean {
-        return execute_clean_only(&cfg, verbose) && success;
+        return execute_clean_only(&cfg, verbose);
     }
 
     let shared_caches = codegen::SchemaAnalysisCaches::new();

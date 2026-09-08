@@ -1,3 +1,4 @@
+use crate::support::cmd;
 use crate::support::cmd::{assert_command_succeeded, fresh_dir, graphox};
 
 #[test]
@@ -480,5 +481,74 @@ projects:
         String::from_utf8_lossy(&output.stderr)
     );
 
+    std::fs::remove_dir_all(temp_dir).ok();
+}
+
+/// `--clean` promises the generated output is gone. The schema cache is derived
+/// data behind that promise, and it is shared with every other graphox process
+/// on the machine, so a clean that cannot empty it has still done its job.
+///
+/// Holding a cache file open is what provokes this on Windows: the file stays in
+/// the directory as delete-pending until the handle closes, and removing the
+/// parent then fails with "Access is denied". Unix removes an open file happily,
+/// so there the test only pins the exit status and the output removal.
+#[test]
+fn test_codegen_clean_succeeds_while_the_cache_is_held_open() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = fresh_dir("graphox_clean_cache_held_open_test");
+
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type User { id: ID! } type Query { me: User }",
+    )
+    .unwrap();
+    std::fs::write(temp_dir.join("query.graphql"), "query { me { id } }").unwrap();
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "query.graphql"
+    output_dir: "generated"
+"#,
+    )
+    .unwrap();
+
+    let output = graphox(bin_path, &temp_dir)
+        .arg("codegen")
+        .output()
+        .expect("Failed to execute process");
+    assert_command_succeeded(&output, "codegen", &temp_dir);
+
+    let generated_dir = temp_dir.join("generated");
+    assert!(generated_dir.exists(), "codegen should have written output");
+
+    // Hold every cache entry open across the clean.
+    let cache_dir = cmd::cache_dir(&temp_dir);
+    let held: Vec<std::fs::File> = std::fs::read_dir(&cache_dir)
+        .expect("codegen should have written a schema cache")
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| std::fs::File::open(e.path()).expect("could not hold a cache file open"))
+        .collect();
+    assert!(
+        !held.is_empty(),
+        "expected at least one cache entry to hold"
+    );
+
+    let output = graphox(bin_path, &temp_dir)
+        .arg("codegen")
+        .arg("--clean")
+        .output()
+        .expect("Failed to execute process");
+
+    assert_command_succeeded(&output, "codegen --clean", &temp_dir);
+    assert!(
+        !generated_dir.exists(),
+        "generated directory should be removed even with the cache held open"
+    );
+
+    drop(held);
+    std::fs::remove_dir_all(&cache_dir).ok();
     std::fs::remove_dir_all(temp_dir).ok();
 }
