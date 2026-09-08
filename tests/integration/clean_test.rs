@@ -484,6 +484,33 @@ projects:
     std::fs::remove_dir_all(temp_dir).ok();
 }
 
+/// Open `path` and keep other processes from deleting it.
+///
+/// On Windows that means denying FILE_SHARE_DELETE, which `File::open` grants:
+/// a delete every handle permits succeeds immediately, so a plain open handle
+/// blocks nothing. Unix has no equivalent — an open file is unlinked happily —
+/// so there the handle is only kept for symmetry.
+fn hold_without_share_delete(path: &std::path::Path) -> std::fs::File {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        // FILE_SHARE_READ | FILE_SHARE_WRITE, and pointedly not
+        // FILE_SHARE_DELETE.
+        const SHARE_READ_WRITE: u32 = 0x0000_0001 | 0x0000_0002;
+
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(SHARE_READ_WRITE)
+            .open(path)
+            .expect("could not hold a cache file open")
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::File::open(path).expect("could not hold a cache file open")
+    }
+}
+
 /// `--clean` promises the generated output is gone. The schema cache is derived
 /// data behind that promise, and it is shared with every other graphox process
 /// on the machine, so a clean that cannot empty it has still done its job.
@@ -525,19 +552,19 @@ projects:
 
     // Hold every cache entry open across the clean.
     //
-    // Plain `File::open` is deliberate. Windows grants FILE_SHARE_DELETE by
-    // default, which is what makes the delete *succeed* and leave the entry
-    // behind as delete-pending — the state that fails the parent's removal with
-    // "Access is denied", and the one the CI failure this fixes reported. Denying
-    // share-delete would block the delete itself with a sharing violation
-    // instead: also contention, but a shape graphox never produces, since
-    // nothing in it opens a cache file with a custom share mode.
+    // On Windows the share mode is the whole point. An open handle alone does not
+    // block anything: `File::open` grants FILE_SHARE_DELETE, and a delete that is
+    // permitted by every handle takes the name out of the directory immediately,
+    // so the removal simply succeeds. Denying share-delete is what makes it fail,
+    // with a sharing violation. That is not a contrived shape either — it is how
+    // the scanners and indexers that open a freshly written file on a Windows
+    // machine hold it.
     let cache_dir = cmd::cache_dir(&temp_dir);
     let held: Vec<std::fs::File> = std::fs::read_dir(&cache_dir)
         .expect("codegen should have written a schema cache")
         .flatten()
         .filter(|e| e.path().is_file())
-        .map(|e| std::fs::File::open(e.path()).expect("could not hold a cache file open"))
+        .map(|e| hold_without_share_delete(&e.path()))
         .collect();
     assert!(
         !held.is_empty(),
@@ -557,9 +584,10 @@ projects:
     );
 
     // Success alone would also be what a clean that met no contention returns,
-    // so on Windows pin the contention itself: the open handles make the cache
-    // directory outlive a removal that was asked for and refused. Unix removes
-    // an open file without complaint, so there is nothing to survive.
+    // so on Windows pin the contention itself: handles that deny share-delete
+    // make the cache directory outlive a removal that was asked for and refused.
+    // Unix removes an open file without complaint, so there is nothing to
+    // survive.
     #[cfg(windows)]
     assert!(
         cache_dir.exists(),
