@@ -1641,7 +1641,19 @@ impl Config {
     /// directories, and two projects can nest `output_dir` differently. Anything
     /// computing a path *between* two generated files has to work from these,
     /// not from where the sources happen to sit.
+    /// A relative `path` is taken as relative to `base_dir`, not to the process
+    /// working directory: everything else in a config is read that way, and the
+    /// two only coincide when the tool happens to run from the config's own
+    /// directory.
     pub fn output_path_for_source(&self, path: &Path, project: &ProjectConfig) -> PathBuf {
+        let owned_path;
+        let path = if path.is_absolute() {
+            path
+        } else {
+            owned_path = self.base_dir.join(path);
+            &owned_path
+        };
+
         // A pattern like `packages/*/src/**/*.ts` puts the generated tree under
         // `output_dir` starting at the glob root, so the prefix has to come off
         // before the remainder is appended. Only the pattern this file actually

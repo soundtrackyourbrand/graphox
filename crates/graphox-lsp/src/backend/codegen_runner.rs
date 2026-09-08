@@ -372,6 +372,7 @@ pub async fn run_codegen(
 
         let project_context = match graphox_core::engine::Engine::resolve_project_context(
             &config,
+            *project_idx,
             &valid_schema,
             global_metadata,
             project_files,

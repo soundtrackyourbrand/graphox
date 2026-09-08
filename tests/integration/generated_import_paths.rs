@@ -199,3 +199,81 @@ fn imports_resolve_for_transitive_private_fragment_fixture() {
 
     fs::remove_dir_all(dir).ok();
 }
+
+/// Two projects whose `include` patterns overlap on one source file. Each
+/// generates its own copy, so each must import the copy sitting beside it.
+///
+/// Resolution alone does not catch this: pointing at the other project's copy
+/// gives a path that exists, so the import type-checks while silently coupling
+/// the two generated trees. The specifier itself has to be asserted.
+#[test]
+#[ntest::timeout(30000)]
+fn overlapping_projects_each_import_their_own_generated_copy() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let dir = temp_dir_for("import_paths_overlapping_includes");
+
+    for sub in ["shared", "cons_a", "cons_b"] {
+        fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+
+    fs::write(
+        dir.join("schema.graphql"),
+        "type Query { user: User } type User { id: ID! name: String }",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("shared/frag.graphql"),
+        "fragment SharedF on User @public { name }",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("cons_a/qa.graphql"),
+        "query QA { user { ...SharedF } }",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("cons_b/qb.graphql"),
+        "query QB { user { ...SharedF } }",
+    )
+    .unwrap();
+
+    fs::write(
+        dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: ["shared/**/*.graphql", "cons_a/**/*.graphql"]
+    output_dir: "out_a"
+  - schema: "schema.graphql"
+    include: ["shared/**/*.graphql", "cons_b/**/*.graphql"]
+    output_dir: "out_b"
+"#,
+    )
+    .unwrap();
+
+    let output = graphox(bin_path, &dir).arg("codegen").output().unwrap();
+    assert!(
+        output.status.success(),
+        "codegen failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Both projects flatten the shared source next to their own query, so each
+    // correct specifier is the sibling `./frag.codegen`. Reaching across would
+    // read `../out_b/frag.codegen` or `../out_a/frag.codegen`.
+    for (out_dir, query) in [("out_a", "qa"), ("out_b", "qb")] {
+        let generated = dir.join(out_dir).join(format!("{}.codegen.ts", query));
+        let imports = relative_imports(&generated);
+        assert!(
+            imports.iter().any(|s| s == "./frag.codegen"),
+            "{} should import \"./frag.codegen\" from its own output tree, got {:?}",
+            generated.display(),
+            imports
+        );
+    }
+
+    let checked = assert_relative_imports_resolve(&dir);
+    assert!(checked > 0, "no relative imports were generated");
+
+    fs::remove_dir_all(dir).ok();
+}

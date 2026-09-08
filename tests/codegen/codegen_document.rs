@@ -559,6 +559,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
     let valid_schema = schema.validate().unwrap();
     let project_context = Engine::resolve_project_context(
         &config,
+        0,
         &valid_schema,
         &workspace.fragments,
         &project_meta.files,

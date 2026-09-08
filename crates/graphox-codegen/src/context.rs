@@ -48,8 +48,8 @@ impl FragmentMasking {
 pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub fragment_to_path: &'a HashMap<FragmentId, Arc<str>>,
-    /// Fragment source path -> absolute path of the generated file that holds it.
-    pub fragment_output_paths: &'a HashMap<Arc<str>, PathBuf>,
+    /// Fragment -> absolute path of the generated file that holds it.
+    pub fragment_output_paths: &'a HashMap<FragmentId, PathBuf>,
     pub fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
     pub fragment_to_type_only: &'a HashMap<FragmentId, bool>,
     pub all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
@@ -73,7 +73,7 @@ impl<'a> CodegenContext<'a> {
     pub fn new(
         schema: &'a apollo_compiler::validation::Valid<Schema>,
         fragment_to_path: &'a HashMap<FragmentId, Arc<str>>,
-        fragment_output_paths: &'a HashMap<Arc<str>, PathBuf>,
+        fragment_output_paths: &'a HashMap<FragmentId, PathBuf>,
         fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
         fragment_to_type_only: &'a HashMap<FragmentId, bool>,
         all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
@@ -217,8 +217,8 @@ impl<'a> CodegenContext<'a> {
         canonical
     }
 
-    /// Module specifier for importing the fragments defined in `fragment_path`
-    /// from the file currently being generated.
+    /// Module specifier for importing `fragment_id` from the file currently
+    /// being generated.
     ///
     /// Both sides are resolved to the files codegen actually writes: the
     /// fragment's generated file via `fragment_output_paths`, and this file via
@@ -226,14 +226,24 @@ impl<'a> CodegenContext<'a> {
     /// instead only agrees when both projects place their output at the same
     /// depth below their sources, and silently emits a path that resolves to
     /// nothing when they do not.
-    pub fn get_final_import_path(&self, fragment_path: &Arc<str>) -> String {
+    ///
+    /// Keyed on the whole `FragmentId`, project index included, because two
+    /// projects whose `include` patterns overlap both generate a file for the
+    /// shared source. Resolving by source path alone picks whichever project was
+    /// recorded first, so one of them ends up importing the other's copy — a
+    /// path that resolves, and therefore fails quietly.
+    pub fn get_final_import_path(
+        &self,
+        fragment_id: &FragmentId,
+        fragment_path: &Arc<str>,
+    ) -> String {
         let importing_dir = self
             .codegen_path
             .parent()
             .unwrap_or_else(|| Path::new(""))
             .to_path_buf();
 
-        let key = (fragment_path.clone(), importing_dir.clone());
+        let key = (fragment_id.clone(), importing_dir.clone());
         if let Some(cached) = self.type_cache.final_import_path_cache.get(&key) {
             return cached.clone();
         }
@@ -244,7 +254,7 @@ impl<'a> CodegenContext<'a> {
         // dropping it, and typechecking then names the missing module.
         let target = self
             .fragment_output_paths
-            .get(fragment_path)
+            .get(fragment_id)
             .cloned()
             .unwrap_or_else(|| PathBuf::from(fragment_path.as_ref()));
 
@@ -577,7 +587,7 @@ pub struct SchemaAnalysisCaches {
     pub abstract_members: AbstractMembersCache,
     pub canonical_path_cache: DashMap<PathBuf, PathBuf>,
     pub diff_path_cache: DashMap<(PathBuf, PathBuf), Option<PathBuf>>,
-    pub final_import_path_cache: DashMap<(Arc<str>, PathBuf), String>,
+    pub final_import_path_cache: DashMap<(FragmentId, PathBuf), String>,
     pub fragment_ast_cache: DashMap<(Arc<str>, u64), Arc<str>>,
 }
 

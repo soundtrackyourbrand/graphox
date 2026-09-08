@@ -387,6 +387,7 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
             let project_context = match Engine::resolve_project_context(
                 &cfg,
+                project_index,
                 valid_schema,
                 global_metadata,
                 &project_files,
