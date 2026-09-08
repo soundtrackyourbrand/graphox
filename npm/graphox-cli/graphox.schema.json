@@ -68,7 +68,9 @@
   "definitions": {
     "ProjectConfig": {
       "type": "object",
-      "required": ["schema", "include"],
+      "required": ["schema"],
+      "$comment": "include is the documented spelling, but the parser falls back to the legacy documents, so requiring include outright would reject configs that load fine.",
+      "anyOf": [{ "required": ["include"] }, { "required": ["documents"] }],
       "properties": {
         "schema": {
           "description": "Single schema file path or an array of paths for multi-file schemas.",
@@ -97,6 +99,20 @@
         "import": {
           "type": "string",
           "description": "The import path used by other projects to reference fragments from this project."
+        },
+        "imports": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Import paths of other projects whose fragments this project may use. A fragment is only accessible across projects when the defining project's import appears here."
+        },
+        "subgraphs": {
+          "type": "string",
+          "description": "Directory of subgraph schemas. Every .graphql file in it is loaded as a subgraph named after the file."
+        },
+        "subgraph_owners": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Owner of each subgraph, keyed by the subgraph's file name without its extension."
         },
         "codegen": {
           "description": "Codegen configuration for this project. Set to false to disable codegen.",
@@ -155,12 +171,22 @@
       "type": "object",
       "properties": {
         "required_fields": {
-          "description": "Enforce required fields in selections. Can be a boolean shorthand or a map of field names to rules.",
+          "description": "Fields that must be selected. Keyed by field name, or by type name for rules that apply only within that type.",
           "oneOf": [
             { "type": "boolean", "const": false, "description": "Disable all required field rules." },
             {
               "type": "object",
-              "additionalProperties": { "$ref": "#/definitions/RequiredFieldRule" }
+              "additionalProperties": { "$ref": "#/definitions/FieldRuleEntry" }
+            }
+          ]
+        },
+        "forbidden_fields": {
+          "description": "Fields that must not be selected. Keyed by field name, or by type name for rules that apply only within that type.",
+          "oneOf": [
+            { "type": "boolean", "const": false, "description": "Disable all forbidden field rules." },
+            {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/definitions/FieldRuleEntry" }
             }
           ]
         },
@@ -181,15 +207,57 @@
         }
       }
     },
-    "RequiredFieldRule": {
-      "oneOf": [
-        { "type": "boolean", "description": "Whether this field is always required." },
+    "FieldRuleEntry": {
+      "description": "A rule for the named field, or, when the name is a type, a map of that type's fields to their rules.",
+      "$comment": "anyOf rather than oneOf: { enabled: true } is both a valid rule and a valid one-entry type, so the forms genuinely overlap and oneOf would reject it for matching twice. The bare string form is absent on purpose — the parser only reads a value as a rule when it is a boolean, an array, or an object with enabled, so a string here is ignored. It does work one level down, inside a type.",
+      "anyOf": [
+        { "type": "boolean", "description": "Whether the rule applies to every operation type." },
         {
           "type": "array",
           "items": { "type": "string" },
-          "description": "List of operation types (query, mutation, subscription) where this field is required."
+          "description": "The operation types the rule applies to: query, mutation or subscription. Matched case-insensitively."
+        },
+        { "$ref": "#/definitions/FieldRuleObject" },
+        {
+          "type": "object",
+          "description": "Field rules scoped to this type.",
+          "additionalProperties": { "$ref": "#/definitions/FieldRule" }
         }
       ]
+    },
+    "FieldRule": {
+      "description": "A rule for a single field.",
+      "oneOf": [
+        { "type": "boolean", "description": "Whether the rule applies to every operation type." },
+        {
+          "type": "string",
+          "description": "A single operation type the rule applies to: query, mutation or subscription. Matched case-insensitively."
+        },
+        {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The operation types the rule applies to: query, mutation or subscription. Matched case-insensitively."
+        },
+        { "$ref": "#/definitions/FieldRuleObject" }
+      ]
+    },
+    "FieldRuleObject": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "description": "Whether the rule applies, or the operation types it applies to.",
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "Explanation reported alongside the diagnostic."
+        }
+      }
     },
     "CodegenConfig": {
       "type": "object",
