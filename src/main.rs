@@ -61,7 +61,13 @@ async fn main() {
 
     // Best-effort, throttled cleanup of the on-disk schema cache so it can't grow
     // without bound (runs on a background thread; no-op if pruned recently).
-    graphox_core::schema_cache::prune_cache_if_due();
+    //
+    // Not for `codegen --clean`, which removes the whole directory a moment
+    // later: the two would be deleting each other's entries, and on Windows the
+    // prune thread's half-deleted files are what makes the removal fail.
+    if !matches!(cli.command, Some(Commands::Codegen { clean: true, .. })) {
+        graphox_core::schema_cache::prune_cache_if_due();
+    }
 
     let config = Config::load();
 

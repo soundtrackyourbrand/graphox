@@ -599,6 +599,45 @@ fn write_cache_with_lock(data: &[u8], final_path: &Path, tmp_path: &Path) -> io:
     Ok(())
 }
 
+/// Whether a failure to remove the cache directory means someone else is using
+/// it right now, rather than that it cannot be removed at all.
+///
+/// The cache is shared by every graphox process on the machine — an editor's
+/// language server and a `codegen` run reach for the same directory — so a clear
+/// that collides with another process is expected, not exceptional.
+///
+/// Unix reports the collision as `ENOTEMPTY` (39), or `EEXIST` (66) on macOS for
+/// the same condition: a concurrent writer refilled the directory between the
+/// walk and the removal. Windows has three spellings. `ERROR_DIR_NOT_EMPTY`
+/// (145) is that same race. The other two come from Windows keeping a deleted
+/// file until the last handle to it closes: the entry stays in the directory as
+/// delete-pending, so removing the parent gives `ERROR_ACCESS_DENIED` (5), and
+/// reopening the entry to retry gives the same. A reader that opened without
+/// share-delete gives `ERROR_SHARING_VIOLATION` (32) instead.
+///
+/// `ERROR_ACCESS_DENIED` is also what a genuinely unwritable directory reports,
+/// and the two are not distinguishable here — delete-pending entries are still
+/// listed, so "did the directory empty out" does not separate them either.
+/// Tolerating both is safe because surviving entries cannot be served stale:
+/// [`try_load_from_cache`] revalidates every entry against its sources' mtimes
+/// and discards it on any mismatch. The cost of guessing wrong is a cache that
+/// stays warm when it was asked to go cold.
+fn is_contention(e: &io::Error) -> bool {
+    if e.kind() == io::ErrorKind::NotFound {
+        return true;
+    }
+
+    #[cfg(unix)]
+    const CONTENDED: &[i32] = &[39, 66];
+    #[cfg(windows)]
+    const CONTENDED: &[i32] = &[5, 32, 145];
+    #[cfg(not(any(unix, windows)))]
+    const CONTENDED: &[i32] = &[];
+
+    e.raw_os_error()
+        .is_some_and(|code| CONTENDED.contains(&code))
+}
+
 pub fn clear_cache() -> Result<(), String> {
     clear_memory_cache();
     let cache_dir = get_cache_dir();
@@ -628,23 +667,10 @@ pub fn clear_cache() -> Result<(), String> {
             }
         }
 
-        if let Some(e) = last_err {
-            // Ignore "Directory not empty" errors as they often indicate a race
-            // with another process that is already recreating the cache.
-            let mut is_not_empty = false;
-            let is_not_found = e.kind() == io::ErrorKind::NotFound;
-            #[cfg(unix)]
-            if e.raw_os_error() == Some(39) || e.raw_os_error() == Some(66) {
-                is_not_empty = true;
-            }
-            #[cfg(windows)]
-            if e.raw_os_error() == Some(145) {
-                is_not_empty = true;
-            }
-
-            if !is_not_empty && !is_not_found {
-                return Err(format!("Failed to clear cache directory: {}", e));
-            }
+        if let Some(e) = last_err
+            && !is_contention(&e)
+        {
+            return Err(format!("Failed to clear cache directory: {}", e));
         }
     }
 
