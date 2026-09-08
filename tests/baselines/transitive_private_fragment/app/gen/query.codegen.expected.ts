@@ -5,8 +5,8 @@
 type Identity<T> = T extends object ? {} & { [P in keyof T]: T[P] } : T;
 
 import type { TypedDocumentNode as DocumentNode } from "@graphql-typed-document-node/core";
-import type { PrivateFragment, PublicFragment } from "../shared/fragments.codegen";
-import { PrivateFragmentDocument, PublicFragmentDocument } from "../shared/fragments.codegen";
+import type { PrivateFragment, PublicFragment } from "../../shared/gen/fragments.codegen";
+import { PrivateFragmentDocument, PublicFragmentDocument } from "../../shared/gen/fragments.codegen";
 
 export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
 

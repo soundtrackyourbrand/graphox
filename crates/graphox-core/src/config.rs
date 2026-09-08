@@ -1634,6 +1634,55 @@ impl Config {
         self.project_cache.get(path).and_then(|v| *v.value())
     }
 
+    /// Absolute path of the file codegen writes for the source file `path`,
+    /// under `project`.
+    ///
+    /// Needed because a source file and its generated file sit in different
+    /// directories, and two projects can nest `output_dir` differently. Anything
+    /// computing a path *between* two generated files has to work from these,
+    /// not from where the sources happen to sit.
+    /// A relative `path` is taken as relative to `base_dir`, not to the process
+    /// working directory: everything else in a config is read that way, and the
+    /// two only coincide when the tool happens to run from the config's own
+    /// directory.
+    pub fn output_path_for_source(&self, path: &Path, project: &ProjectConfig) -> PathBuf {
+        let owned_path;
+        let path = if path.is_absolute() {
+            path
+        } else {
+            owned_path = self.base_dir.join(path);
+            &owned_path
+        };
+
+        // A pattern like `packages/*/src/**/*.ts` puts the generated tree under
+        // `output_dir` starting at the glob root, so the prefix has to come off
+        // before the remainder is appended. Only the pattern this file actually
+        // sits under applies.
+        let include_prefix = project
+            .include()
+            .patterns()
+            .iter()
+            .map(|pattern| crate::utils::get_glob_root(pattern))
+            .find(|root| {
+                let abs_root = self.base_dir.join(root);
+                let abs_root = crate::utils::canonicalize_cached(&abs_root);
+                crate::utils::path_starts_with(path, &abs_root)
+            });
+
+        let out_path = crate::utils::get_output_path(
+            path,
+            &self.base_dir,
+            project.output_dir().map(Path::new),
+            include_prefix.as_deref(),
+        );
+
+        if out_path.is_absolute() {
+            out_path
+        } else {
+            self.base_dir.join(out_path)
+        }
+    }
+
     pub fn get_project_for_path(&self, path: &Path) -> Option<&ProjectConfig> {
         if let Some(cached) = self.project_cache.get(path) {
             return cached.value().and_then(|idx| self.projects.get(idx));

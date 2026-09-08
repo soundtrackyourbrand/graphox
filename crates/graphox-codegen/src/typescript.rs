@@ -631,6 +631,11 @@ pub fn generate_typescript_with_profile(
         .unwrap_or_else(|| PathBuf::from(graphox_core::utils::uri_path_text(&doc.uri).as_ref()));
     let current_canonical = ctx.canonicalize_path(&current_path);
 
+    // Grouped by the specifier each fragment resolves to, not by its source
+    // path. Two projects with overlapping `include` patterns both generate a
+    // file for the shared source, so the same source path can resolve to two
+    // different generated files; grouping by source would merge them into one
+    // import and send one project at the other's copy.
     for frag_id in &used_frag_ids {
         if let Some(import_alias) = ctx.fragment_to_import.get(frag_id) {
             imports
@@ -642,21 +647,18 @@ pub fn generate_typescript_with_profile(
             let other_canonical = ctx.canonicalize_path(other_path_buf);
 
             if other_canonical != current_canonical {
+                let specifier = ctx.get_final_import_path(frag_id, other_path);
                 imports
-                    .entry(other_path.clone())
+                    .entry(Arc::from(specifier.as_str()))
                     .or_default()
                     .push(frag_id.clone());
             }
         }
     }
 
-    for (path, ids) in &imports {
-        let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
-            path.to_string()
-        } else {
-            ctx.get_final_import_path(path, ctx.current_file_path.parent().unwrap())
-        };
-
+    // Keys are now the specifier itself, whether that came from an `import:`
+    // alias or from a resolved relative path.
+    for (final_import_path, ids) in &imports {
         let mut type_imports = Vec::with_capacity(ids.len());
         let mut doc_imports = Vec::with_capacity(ids.len());
 
@@ -686,14 +688,14 @@ pub fn generate_typescript_with_profile(
         }
         import_section.push_str(&type_imports.join(", "));
         import_section.push_str(" } from \"");
-        import_section.push_str(&final_import_path);
+        import_section.push_str(final_import_path);
         import_section.push_str("\";\n");
 
         if !doc_imports.is_empty() {
             import_section.push_str("import { ");
             import_section.push_str(&doc_imports.join(", "));
             import_section.push_str(" } from \"");
-            import_section.push_str(&final_import_path);
+            import_section.push_str(final_import_path);
             import_section.push_str("\";\n");
         }
     }

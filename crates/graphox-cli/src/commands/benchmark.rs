@@ -87,7 +87,12 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
 
     let shared_caches = codegen::SchemaAnalysisCaches::new();
 
-    for (project, project_meta) in config.projects().iter().zip(&workspace_metadata.projects) {
+    for (project_idx, (project, project_meta)) in config
+        .projects()
+        .iter()
+        .zip(&workspace_metadata.projects)
+        .enumerate()
+    {
         let project_total_start = Instant::now();
         let sp_start = Instant::now();
 
@@ -102,8 +107,13 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
-        let result =
-            Engine::resolve_project_context(&valid_schema, global_metadata, &project_meta.files);
+        let result = Engine::resolve_project_context(
+            &config,
+            project_idx,
+            &valid_schema,
+            global_metadata,
+            &project_meta.files,
+        );
         let elapsed = fr_start.elapsed();
         fragment_resolve_time += elapsed;
 
@@ -174,12 +184,17 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
                 let d_time = dp_start.elapsed();
 
                 if let Some(doc) = doc_opt {
-                    let abs_out_path = path.to_path_buf();
+                    // The generated location, not the source: `codegen_path` is
+                    // what fragment import specifiers are computed against, so
+                    // passing the source path here would benchmark a resolution
+                    // that never happens in a real run.
+                    let abs_out_path = config.output_path_for_source(path, project);
                     let codegen_config = graphox_core::config::CodegenConfig::default();
 
                     let ctx = codegen::CodegenContext::new(
                         &valid_schema,
                         project_fragment_to_path,
+                        &project_context.fragment_output_paths,
                         project_fragment_to_import,
                         &project_context.fragment_to_type_only,
                         all_fragments,

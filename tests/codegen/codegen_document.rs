@@ -557,9 +557,14 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
     let project_meta = &workspace.projects[0];
     let schema = schema::load_schema(config.base_dir(), project.schema()).unwrap();
     let valid_schema = schema.validate().unwrap();
-    let project_context =
-        Engine::resolve_project_context(&valid_schema, &workspace.fragments, &project_meta.files)
-            .expect("Failed to resolve project context");
+    let project_context = Engine::resolve_project_context(
+        &config,
+        0,
+        &valid_schema,
+        &workspace.fragments,
+        &project_meta.files,
+    )
+    .expect("Failed to resolve project context");
 
     let query_path = project_meta
         .files
@@ -581,6 +586,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
     let ctx1 = CodegenContext::new(
         &valid_schema,
         &project_context.fragment_to_path,
+        &project_context.fragment_output_paths,
         &project_context.fragment_to_import,
         &project_context.fragment_to_type_only,
         &project_context.all_fragments,
@@ -620,6 +626,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
     let ctx2 = CodegenContext::new(
         &valid_schema,
         &project_context.fragment_to_path,
+        &project_context.fragment_output_paths,
         &project_context.fragment_to_import,
         &project_context.fragment_to_type_only,
         &project_context.all_fragments,

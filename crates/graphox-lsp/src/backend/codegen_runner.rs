@@ -371,6 +371,8 @@ pub async fn run_codegen(
         };
 
         let project_context = match graphox_core::engine::Engine::resolve_project_context(
+            &config,
+            *project_idx,
             &valid_schema,
             global_metadata,
             project_files,
@@ -457,6 +459,7 @@ pub async fn run_codegen(
                     let ctx = graphox_codegen::CodegenContext::new(
                         valid_schema.as_ref(),
                         &project_context.fragment_to_path,
+                        &project_context.fragment_output_paths,
                         &project_context.fragment_to_import,
                         &project_context.fragment_to_type_only,
                         &project_context.all_fragments,

@@ -235,11 +235,34 @@ projects:
 
     let content = fs::read_to_string(codegen_file).unwrap();
 
-    // It should import FragB from pkg_b
-    assert!(
-        content.contains("pkg_b/fragments.codegen"),
-        "Should import from pkg_b project, but got:\n{}",
+    // It should import FragB from pkg_b's generated file. The specifier is
+    // extracted and compared whole, then resolved against the filesystem.
+    // Neither check alone is enough: `contains` also accepts the broken
+    // `../pkg_b/fragments.codegen`, which points at `pkg_a/pkg_b/`; and
+    // resolving a hardcoded expectation says nothing about what was emitted.
+    let emitted: Vec<&str> = content
+        .lines()
+        .filter_map(|line| line.split_once(" from \""))
+        .filter_map(|(_, rest)| rest.split_once('"'))
+        .map(|(specifier, _)| specifier)
+        .filter(|specifier| specifier.contains("fragments.codegen"))
+        .collect();
+
+    assert_eq!(
+        emitted,
+        vec!["../../pkg_b/__generated__/fragments.codegen"],
+        "unexpected fragment import in:\n{}",
         content
+    );
+
+    let resolved = temp_dir
+        .join("pkg_a/__generated__")
+        .join(format!("{}.ts", emitted[0]));
+    assert!(
+        resolved.exists(),
+        "emitted specifier {} does not resolve to a generated file (looked for {})",
+        emitted[0],
+        resolved.display()
     );
 
     // Cleanup

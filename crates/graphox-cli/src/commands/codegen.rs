@@ -386,6 +386,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             };
 
             let project_context = match Engine::resolve_project_context(
+                &cfg,
+                project_index,
                 valid_schema,
                 global_metadata,
                 &project_files,
@@ -1097,6 +1099,7 @@ fn generate_project_files_sync(
             let ctx = codegen::CodegenContext::new(
                 &valid_schema,
                 &params.project_context.fragment_to_path,
+                &params.project_context.fragment_output_paths,
                 &params.project_context.fragment_to_import,
                 &params.project_context.fragment_to_type_only,
                 &params.project_context.all_fragments,

@@ -48,6 +48,8 @@ impl FragmentMasking {
 pub struct CodegenContext<'a> {
     pub schema: &'a apollo_compiler::validation::Valid<Schema>,
     pub fragment_to_path: &'a HashMap<FragmentId, Arc<str>>,
+    /// Fragment -> absolute path of the generated file that holds it.
+    pub fragment_output_paths: &'a HashMap<FragmentId, PathBuf>,
     pub fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
     pub fragment_to_type_only: &'a HashMap<FragmentId, bool>,
     pub all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
@@ -71,6 +73,7 @@ impl<'a> CodegenContext<'a> {
     pub fn new(
         schema: &'a apollo_compiler::validation::Valid<Schema>,
         fragment_to_path: &'a HashMap<FragmentId, Arc<str>>,
+        fragment_output_paths: &'a HashMap<FragmentId, PathBuf>,
         fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
         fragment_to_type_only: &'a HashMap<FragmentId, bool>,
         all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
@@ -101,6 +104,7 @@ impl<'a> CodegenContext<'a> {
         Self {
             schema,
             fragment_to_path,
+            fragment_output_paths,
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
@@ -213,27 +217,69 @@ impl<'a> CodegenContext<'a> {
         canonical
     }
 
-    /// Get final import path from cache or compute it
-    pub fn get_final_import_path(&self, fragment_path: &Arc<str>, parent_dir: &Path) -> String {
-        let key = (fragment_path.clone(), parent_dir.to_path_buf());
+    /// Module specifier for importing `fragment_id` from the file currently
+    /// being generated.
+    ///
+    /// Both sides are resolved to the files codegen actually writes: the
+    /// fragment's generated file via `fragment_output_paths`, and this file via
+    /// `codegen_path`. Deriving the specifier from the two *source* locations
+    /// instead only agrees when both projects place their output at the same
+    /// depth below their sources, and silently emits a path that resolves to
+    /// nothing when they do not.
+    ///
+    /// Keyed on the whole `FragmentId`, project index included, because two
+    /// projects whose `include` patterns overlap both generate a file for the
+    /// shared source. Resolving by source path alone picks whichever project was
+    /// recorded first, so one of them ends up importing the other's copy — a
+    /// path that resolves, and therefore fails quietly.
+    pub fn get_final_import_path(
+        &self,
+        fragment_id: &FragmentId,
+        fragment_path: &Arc<str>,
+    ) -> String {
+        let importing_dir = self
+            .codegen_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf();
+
+        let key = (fragment_id.clone(), importing_dir.clone());
         if let Some(cached) = self.type_cache.final_import_path_cache.get(&key) {
             return cached.clone();
         }
 
-        let abs_fragment_path = self.canonicalize_path(Path::new(fragment_path.as_ref()));
-        let abs_parent_dir = self.canonicalize_path(parent_dir);
-        let rel_path = self
-            .diff_paths(&abs_fragment_path, &abs_parent_dir)
-            .unwrap_or_else(|| abs_fragment_path.clone());
+        // A fragment with no recorded output path belongs to no project, so
+        // there is no generated file to point at. Falling back to its source
+        // path keeps the import readable in the emitted file rather than
+        // dropping it, and typechecking then names the missing module.
+        let target = self
+            .fragment_output_paths
+            .get(fragment_id)
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from(fragment_path.as_ref()));
 
-        let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-        if !path_str.starts_with('.') && !rel_path.is_absolute() {
-            path_str.insert_str(0, "./");
-        }
-        let p = Path::new(&path_str);
-        let stem = p.file_stem().unwrap().to_str().unwrap();
-        let parent = p.parent().unwrap();
-        let final_p = parent.join(stem);
+        let abs_target = self.canonicalize_path(&target);
+        let abs_importing_dir = self.canonicalize_path(&importing_dir);
+        let rel_path = self
+            .diff_paths(&abs_target, &abs_importing_dir)
+            .unwrap_or_else(|| abs_target.clone());
+
+        // `get_output_path` names generated files `<stem>.codegen.ts`, so the
+        // extension has to come off twice to recover the stem before the
+        // configured suffix and extension go back on.
+        let mut stem = Path::new(rel_path.file_stem().unwrap_or_default())
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        stem.push_str(".codegen");
+        stem.push_str(self.emit_extensions().as_str());
+
+        let final_p = match rel_path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.join(&stem),
+            _ => PathBuf::from(&stem),
+        };
+
         let mut final_path_str = graphox_core::utils::to_posix_path(&final_p);
         if !final_path_str.starts_with('.')
             && !final_path_str.starts_with('/')
@@ -241,8 +287,6 @@ impl<'a> CodegenContext<'a> {
         {
             final_path_str.insert_str(0, "./");
         }
-        final_path_str.push_str(".codegen");
-        final_path_str.push_str(self.emit_extensions().as_str());
 
         self.type_cache
             .final_import_path_cache
@@ -543,7 +587,7 @@ pub struct SchemaAnalysisCaches {
     pub abstract_members: AbstractMembersCache,
     pub canonical_path_cache: DashMap<PathBuf, PathBuf>,
     pub diff_path_cache: DashMap<(PathBuf, PathBuf), Option<PathBuf>>,
-    pub final_import_path_cache: DashMap<(Arc<str>, PathBuf), String>,
+    pub final_import_path_cache: DashMap<(FragmentId, PathBuf), String>,
     pub fragment_ast_cache: DashMap<(Arc<str>, u64), Arc<str>>,
 }
 
@@ -619,6 +663,7 @@ mod tests {
         let fragment_to_import = HashMap::new();
         let fragment_to_type_only = HashMap::new();
         let all_fragments = HashMap::new();
+        let fragment_output_paths = HashMap::default();
         let current_file_path = Path::new("/a/b/c.ts");
         let scalars = HashMap::new();
         let schema_import = None;
@@ -634,6 +679,7 @@ mod tests {
         let ctx = CodegenContext {
             schema: &valid_schema,
             fragment_to_path: &fragment_to_path,
+            fragment_output_paths: &fragment_output_paths,
             fragment_to_import: &fragment_to_import,
             fragment_to_type_only: &fragment_to_type_only,
             all_fragments: &all_fragments,

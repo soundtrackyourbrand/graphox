@@ -7,6 +7,7 @@ mod duplicate_fragments_codegen;
 mod duplicate_operations;
 mod emit_extensions_test;
 mod fixtures;
+mod generated_import_paths;
 mod github_reporter;
 mod interface_fragment_typename;
 mod jsdoc_generation;
