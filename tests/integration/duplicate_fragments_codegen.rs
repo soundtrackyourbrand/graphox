@@ -1,5 +1,6 @@
 use std::fs;
-use std::process::Command;
+
+use crate::support::cmd::graphox;
 
 #[test]
 fn test_duplicate_fragments_codegen_resolution() {
@@ -58,8 +59,7 @@ projects:
     .unwrap();
 
     // 5. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -143,8 +143,7 @@ projects:
     .unwrap();
 
     // 5. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -219,8 +218,7 @@ projects:
     .unwrap();
 
     // 5. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");

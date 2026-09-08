@@ -1,6 +1,4 @@
-use std::process::Command;
-
-use crate::support::cmd::{assert_command_succeeded, fresh_dir};
+use crate::support::cmd::{assert_command_succeeded, fresh_dir, graphox};
 
 #[test]
 fn test_codegen_clean_with_output_dir() {
@@ -34,8 +32,7 @@ projects:
     .unwrap();
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -48,8 +45,7 @@ projects:
     assert!(gen_dir.join("graphql.ts").exists());
 
     // 2. Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -98,8 +94,7 @@ projects:
     .unwrap();
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -112,8 +107,7 @@ projects:
     assert!(gen2.exists(), "gen2 should exist");
 
     // 2. Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -161,8 +155,7 @@ projects:
     .unwrap();
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -174,8 +167,7 @@ projects:
     assert!(temp_dir.join("graphql.ts").exists());
 
     // 2. Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -222,8 +214,7 @@ projects:
     .unwrap();
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -239,8 +230,7 @@ projects:
     assert!(default_gen_dir.join("graphql.ts").exists());
 
     // 2. Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -295,8 +285,7 @@ projects:
     .unwrap();
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -318,8 +307,7 @@ projects:
     assert!(gen_file2.exists());
 
     // 2. Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -369,8 +357,7 @@ projects:
     .unwrap();
 
     // Run codegen to create files
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process");
@@ -391,8 +378,7 @@ projects:
     .unwrap();
 
     // Run codegen --clean
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -430,8 +416,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
         .arg("--clean")
         .output()
@@ -483,8 +468,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .output()
         .expect("Failed to execute process");

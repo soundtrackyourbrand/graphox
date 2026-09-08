@@ -1,7 +1,7 @@
 //! Helpers for tests that drive the `graphox` binary as a subprocess.
 
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output};
 
 /// Assert that a `graphox` invocation succeeded, and report enough to diagnose it
 /// when it did not.
@@ -63,4 +63,43 @@ pub fn fresh_dir(name: &str) -> PathBuf {
         .unwrap_or_else(|e| panic!("could not create {}: {e}", dir.display()));
 
     dir
+}
+
+/// A `graphox` invocation rooted at `work_dir`, with a schema cache of its own.
+///
+/// The on-disk schema cache is resolved per process from `GRAPHOX_CACHE_DIR` (or
+/// the user cache dir), so left alone every test in the suite shares one
+/// directory. Tests run in parallel and several of them wipe that directory
+/// outright with `codegen --clean`, which on Windows fails with "Access is
+/// denied" the moment another test's process holds a handle inside it — a file
+/// deleted while still open stays behind as delete-pending, and the parent
+/// directory then refuses to go.
+///
+/// The cache path is derived from `work_dir`, so repeat invocations from one
+/// scratch directory still share a cache and the tests that assert cache reuse
+/// keep working. It lives under the system temp dir rather than inside
+/// `work_dir`, so cache files never turn up in a workspace scan.
+pub fn graphox(bin_path: &str, work_dir: impl AsRef<Path>) -> Command {
+    let work_dir = work_dir.as_ref();
+    let mut cmd = Command::new(bin_path);
+    cmd.current_dir(work_dir);
+    cmd.env("GRAPHOX_CACHE_DIR", cache_dir(work_dir));
+    cmd
+}
+
+/// The schema cache directory [`graphox`] gives a command run from `work_dir`.
+///
+/// Named after the scratch directory so a leftover is traceable to the test that
+/// made it, and hashed so that two tests cannot collide on the name alone.
+pub fn cache_dir(work_dir: &Path) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    work_dir.hash(&mut hasher);
+    let name = work_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("cache");
+
+    std::env::temp_dir().join(format!("graphox-cache-{name}-{:016x}", hasher.finish()))
 }

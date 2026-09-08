@@ -1,4 +1,4 @@
-use std::process::Command;
+use crate::support::cmd::graphox;
 
 #[test]
 #[ntest::timeout(3000)]
@@ -33,8 +33,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .arg("--reporter")
         .arg("github")
@@ -104,8 +103,7 @@ rules:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .arg("--reporter")
         .arg("github")
@@ -159,8 +157,7 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
-        .current_dir(&temp_dir)
+    let output = graphox(bin_path, &temp_dir)
         .arg("check")
         .arg("--reporter")
         .arg("tsc")

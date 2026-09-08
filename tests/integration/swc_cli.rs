@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use crate::support::cmd::graphox;
+
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
@@ -30,10 +32,9 @@ fn test_swc_cli_integration() {
     copy_dir_all(&fixture_dir, temp_path).expect("Failed to copy fixture files");
 
     // 1. Run codegen
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, temp_path)
         .arg("codegen")
         .arg(".")
-        .current_dir(temp_path)
         .output()
         .expect("Failed to execute codegen");
 

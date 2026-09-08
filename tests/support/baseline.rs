@@ -1,8 +1,9 @@
 use std::path::Path;
-use std::process::Command;
 
 use graphox_core::config;
 use graphox_core::schema_cache;
+
+use super::cmd::graphox;
 
 pub fn run_baseline_test(
     fixture_dir_str: &str,
@@ -48,9 +49,8 @@ pub fn run_baseline_test(
 
     let _output_dir = output_dir_param.unwrap_or("__generated__");
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 

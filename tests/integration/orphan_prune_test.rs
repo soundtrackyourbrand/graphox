@@ -3,7 +3,8 @@
 //! so renaming a fragment broke `tsc` in a file nobody had touched.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use crate::support::cmd::graphox;
 
 const SCHEMA: &str =
     "type SoundZone { id: ID! name: String } type Query { zone(id: ID!): SoundZone }";
@@ -27,8 +28,7 @@ fn write(path: &Path, contents: &str) {
 }
 
 fn run_codegen(dir: &Path) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_graphox"))
-        .current_dir(dir)
+    graphox(env!("CARGO_BIN_EXE_graphox"), dir)
         .arg("codegen")
         .output()
         .expect("Failed to execute process")

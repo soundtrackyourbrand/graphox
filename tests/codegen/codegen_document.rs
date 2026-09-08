@@ -1,6 +1,4 @@
-use std::process::Command;
-
-use crate::support::cmd::fresh_dir;
+use crate::support::cmd::{fresh_dir, graphox};
 
 fn generate_ast_codegen_output(test_dir_name: &str, schema: &str, source: &str) -> String {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
@@ -21,9 +19,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -101,9 +98,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -179,9 +175,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -251,9 +246,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -301,9 +295,8 @@ projects:
     )
     .unwrap();
 
-    let output = std::process::Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -363,9 +356,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -474,9 +466,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -731,9 +722,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 
@@ -966,9 +956,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute process");
 

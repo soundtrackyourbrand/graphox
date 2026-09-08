@@ -1,4 +1,4 @@
-use std::process::Command;
+use crate::support::cmd::graphox;
 
 /// A field selected both inline and by a spread fragment becomes an intersection
 /// of the two property types. For an object that is harmless, but a list becomes
@@ -26,9 +26,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("failed to run codegen");
     assert!(

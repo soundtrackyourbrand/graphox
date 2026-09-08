@@ -1,4 +1,4 @@
-use std::process::Command;
+use crate::support::cmd::graphox;
 
 /// Reproduces the bug where a fragment that is only used *transitively* (i.e., spread inside
 /// another fragment in a different file) does not get an `import` statement generated in the
@@ -151,9 +151,8 @@ projects:
     )
     .unwrap();
 
-    let output = Command::new(bin_path)
+    let output = graphox(bin_path, &temp_dir)
         .arg("codegen")
-        .current_dir(&temp_dir)
         .output()
         .expect("Failed to execute graphox");
 
