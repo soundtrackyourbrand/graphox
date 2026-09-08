@@ -18,6 +18,7 @@ pub fn generate_schema_types(
     let empty_fragments = HashMap::default();
     let empty_deps = HashMap::default();
     let empty_path_map = HashMap::default();
+    let empty_output_path_map = HashMap::default();
     let empty_import_map = HashMap::default();
     let empty_type_only_map = HashMap::default();
     let dummy_cache = SchemaAnalysisCaches::new();
@@ -27,6 +28,7 @@ pub fn generate_schema_types(
     let dummy_ctx = CodegenContext::new(
         schema,
         &empty_path_map,
+        &empty_output_path_map,
         &empty_import_map,
         &empty_type_only_map,
         &empty_fragments,

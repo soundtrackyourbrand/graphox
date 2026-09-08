@@ -654,7 +654,7 @@ pub fn generate_typescript_with_profile(
         let final_import_path = if ctx.fragment_to_import.values().any(|v| v == path) {
             path.to_string()
         } else {
-            ctx.get_final_import_path(path, ctx.current_file_path.parent().unwrap())
+            ctx.get_final_import_path(path)
         };
 
         let mut type_imports = Vec::with_capacity(ids.len());

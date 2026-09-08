@@ -102,8 +102,12 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
         schema_parse_time += sp_start.elapsed();
 
         let fr_start = Instant::now();
-        let result =
-            Engine::resolve_project_context(&valid_schema, global_metadata, &project_meta.files);
+        let result = Engine::resolve_project_context(
+            &config,
+            &valid_schema,
+            global_metadata,
+            &project_meta.files,
+        );
         let elapsed = fr_start.elapsed();
         fragment_resolve_time += elapsed;
 
@@ -180,6 +184,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
                     let ctx = codegen::CodegenContext::new(
                         &valid_schema,
                         project_fragment_to_path,
+                        &project_context.fragment_output_paths,
                         project_fragment_to_import,
                         &project_context.fragment_to_type_only,
                         all_fragments,

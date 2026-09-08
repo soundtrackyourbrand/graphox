@@ -235,11 +235,25 @@ projects:
 
     let content = fs::read_to_string(codegen_file).unwrap();
 
-    // It should import FragB from pkg_b
+    // It should import FragB from pkg_b's generated file. Asserted as the whole
+    // specifier, and then resolved against the filesystem: a substring match
+    // alone also accepts `../pkg_b/fragments.codegen`, which points at
+    // `pkg_a/pkg_b/` and resolves to nothing.
+    let expected_specifier = "../../pkg_b/__generated__/fragments.codegen";
     assert!(
-        content.contains("pkg_b/fragments.codegen"),
-        "Should import from pkg_b project, but got:\n{}",
+        content.contains(expected_specifier),
+        "Should import from pkg_b's generated file, but got:\n{}",
         content
+    );
+
+    let resolved = temp_dir
+        .join("pkg_a/__generated__")
+        .join(format!("{}.ts", expected_specifier));
+    assert!(
+        resolved.exists(),
+        "Import specifier {} does not resolve to a generated file (looked for {})",
+        expected_specifier,
+        resolved.display()
     );
 
     // Cleanup

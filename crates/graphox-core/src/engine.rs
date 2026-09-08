@@ -81,6 +81,13 @@ pub struct WorkspaceMetadata {
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
     pub fragment_to_path: HashMap<FragmentId, Arc<str>>,
+    /// Source path -> absolute path of the file codegen writes for it, for every
+    /// fragment reachable from this project.
+    ///
+    /// Keyed by source path rather than by `FragmentId` because a generated file
+    /// covers every fragment in its source file, and the importing side groups
+    /// its imports the same way.
+    pub fragment_output_paths: HashMap<Arc<str>, PathBuf>,
     pub fragment_to_import: HashMap<FragmentId, Arc<str>>,
     pub fragment_to_type_only: HashMap<FragmentId, bool>,
     pub all_fragments: HashMap<Arc<str>, Node<executable::Fragment>>,
@@ -93,7 +100,30 @@ pub struct ProjectContext {
 pub struct Engine;
 
 impl Engine {
+    /// Record where codegen writes the file holding `meta`'s fragment.
+    ///
+    /// Resolved through `meta.project_idx` rather than by matching the path
+    /// against the project list: the index is exact, and a path shared by two
+    /// projects would otherwise resolve to whichever matches first.
+    fn record_fragment_output_path(
+        config: &Config,
+        meta: &FragmentMetadata,
+        output_paths: &mut HashMap<Arc<str>, PathBuf>,
+    ) {
+        if output_paths.contains_key(&meta.path) {
+            return;
+        }
+        if let Some(project) = config.projects().get(meta.project_idx) {
+            let source = Path::new(meta.path.as_ref());
+            output_paths.insert(
+                meta.path.clone(),
+                config.output_path_for_source(source, project),
+            );
+        }
+    }
+
     pub fn resolve_project_context(
+        config: &Config,
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         global_metadata: &[FragmentMetadata],
         project_files: &[PathBuf],
@@ -104,6 +134,7 @@ impl Engine {
             .collect();
 
         let mut fragment_to_path: HashMap<FragmentId, Arc<str>> = HashMap::default();
+        let mut fragment_output_paths: HashMap<Arc<str>, PathBuf> = HashMap::default();
         let mut fragment_to_import: HashMap<FragmentId, Arc<str>> = HashMap::default();
         let mut fragment_to_type_only: HashMap<FragmentId, bool> = HashMap::default();
         let mut name_to_id: HashMap<Arc<str>, FragmentId> = HashMap::default();
@@ -116,6 +147,7 @@ impl Engine {
             if is_local {
                 let id = (meta.name.clone(), meta.path.clone(), meta.project_idx);
                 fragment_to_path.insert(id.clone(), meta.path.clone());
+                Self::record_fragment_output_path(config, meta, &mut fragment_output_paths);
                 fragment_to_type_only.insert(id.clone(), meta.is_type_only);
                 name_to_id.insert(meta.name.clone(), id);
                 project_fragments_metadata.push(meta.clone());
@@ -129,6 +161,7 @@ impl Engine {
             if !is_local && meta.is_public {
                 let id = (meta.name.clone(), meta.path.clone(), meta.project_idx);
                 fragment_to_path.insert(id.clone(), meta.path.clone());
+                Self::record_fragment_output_path(config, meta, &mut fragment_output_paths);
                 if let Some(a) = &meta.import_alias {
                     fragment_to_import.insert(id.clone(), a.clone());
                 }
@@ -161,6 +194,7 @@ impl Engine {
                     && let Some(dep_meta) = all_meta_by_name_path.get(&id)
                 {
                     fragment_to_path.insert(id.clone(), dep_meta.path.clone());
+                    Self::record_fragment_output_path(config, dep_meta, &mut fragment_output_paths);
                     if let Some(a) = &dep_meta.import_alias {
                         fragment_to_import.insert(id.clone(), a.clone());
                     }
@@ -186,6 +220,7 @@ impl Engine {
 
         Ok(ProjectContext {
             fragment_to_path,
+            fragment_output_paths,
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
