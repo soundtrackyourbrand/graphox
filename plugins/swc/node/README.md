@@ -26,6 +26,21 @@ pnpm add @graphox/swc-plugin
 - Node.js 18+
 - rsbuild, Turbopack, or native SWC
 
+### Host versions
+
+The plugin ships as a WASM module compiled against a specific `swc_core`, and an
+SWC host only runs it if its own `swc_core` is at least as new. Each host embeds
+`swc_core` on its own schedule, so the floors differ:
+
+| host | minimum |
+| --- | --- |
+| `@swc/core` | 1.15.0 |
+| `@rspack/core`, and `@rsbuild/core` through it | 2.2.0 |
+
+On an older host the build fails with `failed to invoke plugin`, usually with a
+hint naming the host's `swc_core` version. Upgrade the host — the plugin cannot
+work around it.
+
 ## Usage
 
 ### rsbuild Configuration

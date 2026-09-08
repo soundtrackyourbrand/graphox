@@ -39,8 +39,8 @@ allow = [
   "Unlicense",
   "Zlib",
   # Weak, file-level copyleft: obligations attach to modifications of the
-  # crate's own files, not to us linking it. Currently colored, option-ext
-  # and smartstring. Worth noticing if the count grows.
+  # crate's own files, not to us linking it. Currently colored and
+  # option-ext. Worth noticing if the count grows.
   "MPL-2.0",
 ]
 # One crate ships a LICENSE file without an SPDX field, so it warns rather than
