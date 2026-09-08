@@ -1,0 +1,12 @@
+{
+  "name": "graphox-baseline-verify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned toolchain for typechecking tests/baselines. See scripts/verify_baselines.py.",
+  "dependencies": {
+    "@apollo/client": "4.2.12",
+    "@graphql-typed-document-node/core": "3.2.0",
+    "graphql": "17.0.2",
+    "typescript": "7.0.2"
+  }
+}
