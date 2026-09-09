@@ -89,8 +89,13 @@ fn walk(
     }
 }
 
-/// Every field the schema declares on an object, interface or input type,
-/// so a field nothing selects can be reported rather than simply absent.
+/// Every field the schema declares that a *selection* can name, so a field
+/// nothing selects is reported rather than simply absent.
+///
+/// Input objects are left out on purpose. Their members appear only in argument
+/// values, which this walk does not read, so including them would report every
+/// input field in the schema as unused and inflate the unused count of every
+/// input type. Reporting those needs argument analysis, which this does not do.
 fn declared_fields(schema: &Valid<Schema>) -> BTreeMap<String, Vec<String>> {
     use apollo_compiler::schema::ExtendedType;
 
@@ -102,9 +107,6 @@ fn declared_fields(schema: &Valid<Schema>) -> BTreeMap<String, Vec<String>> {
         let fields: Vec<String> = match ty {
             ExtendedType::Object(obj) => obj.fields.keys().map(|f| f.to_string()).collect(),
             ExtendedType::Interface(iface) => iface.fields.keys().map(|f| f.to_string()).collect(),
-            ExtendedType::InputObject(input) => {
-                input.fields.keys().map(|f| f.to_string()).collect()
-            }
             _ => continue,
         };
         out.insert(name.to_string(), fields);

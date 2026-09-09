@@ -34,7 +34,8 @@ fn workspace() -> TempDir {
     dir
 }
 
-fn run(dir: &TempDir, args: &[&str]) -> String {
+/// Runs `analyze usage`, returning the merged output and the exit status.
+fn run(dir: &TempDir, args: &[&str]) -> (String, Option<i32>) {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let mut cmd = graphox(bin, dir.path());
     cmd.arg("analyze").arg("usage");
@@ -42,10 +43,13 @@ fn run(dir: &TempDir, args: &[&str]) -> String {
         cmd.arg(arg);
     }
     let output = cmd.output().unwrap();
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+    (
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+        output.status.code(),
     )
 }
 
@@ -53,7 +57,7 @@ fn run(dir: &TempDir, args: &[&str]) -> String {
 #[ntest::timeout(10000)]
 fn lists_types_ranked_by_consumers() {
     let dir = workspace();
-    let out = run(&dir, &["--limit", "0"]);
+    let (out, _) = run(&dir, &["--limit", "0"]);
 
     assert!(out.contains("Account"), "{out}");
     assert!(out.contains("SoundZone"), "{out}");
@@ -67,7 +71,7 @@ fn lists_types_ranked_by_consumers() {
 #[ntest::timeout(10000)]
 fn a_named_type_lists_its_fields_by_consumer_count() {
     let dir = workspace();
-    let out = run(&dir, &["--type", "Account", "--limit", "0"]);
+    let (out, _) = run(&dir, &["--type", "Account", "--limit", "0"]);
 
     assert!(out.contains("2 of 3 fields used"), "{out}");
     // `id` in both operations, `name` in one, `legacyFlag` in neither.
@@ -87,7 +91,7 @@ fn a_named_type_lists_its_fields_by_consumer_count() {
 #[ntest::timeout(10000)]
 fn scoping_to_an_app_narrows_the_counts() {
     let dir = workspace();
-    let out = run(&dir, &["--app", "apps/one", "--type", "Account"]);
+    let (out, _) = run(&dir, &["--app", "apps/one", "--type", "Account"]);
 
     // Only query A is in scope, so `id` drops from two consumers to one and
     // `name` is still selected.
@@ -103,14 +107,19 @@ fn scoping_to_an_app_narrows_the_counts() {
 #[ntest::timeout(10000)]
 fn a_named_field_lists_what_selects_it() {
     let dir = workspace();
-    let out = run(&dir, &["--type", "Account", "--field", "name"]);
+    let (out, _) = run(&dir, &["--type", "Account", "--field", "name"]);
 
     assert!(out.contains("Account.name"), "{out}");
     assert!(out.contains("1 consumer"), "{out}");
-    assert!(out.contains("A"), "{out}");
+    // The consumer line names the operation and its file together; asserting on
+    // the operation alone would match the "A" inside "Account.name".
+    let consumer = out
+        .lines()
+        .find(|line| line.trim_start().starts_with("A  "))
+        .unwrap_or_else(|| panic!("expected a consumer line for query A:\n{out}"));
     assert!(
-        out.contains("apps/one/a.graphql") || out.contains("apps\\one\\a.graphql"),
-        "the consumer's file is named:\n{out}"
+        consumer.contains("apps/one/a.graphql") || consumer.contains("apps\\one\\a.graphql"),
+        "the consumer's file is named beside it:\n{out}"
     );
 }
 
@@ -118,7 +127,7 @@ fn a_named_field_lists_what_selects_it() {
 #[ntest::timeout(10000)]
 fn unused_reports_declared_fields_nothing_selects() {
     let dir = workspace();
-    let out = run(&dir, &["--unused", "--limit", "0"]);
+    let (out, _) = run(&dir, &["--unused", "--limit", "0"]);
 
     assert!(out.contains("legacyFlag"), "{out}");
     // A field two operations select is not unused.
@@ -129,8 +138,9 @@ fn unused_reports_declared_fields_nothing_selects() {
 #[ntest::timeout(10000)]
 fn an_unknown_app_names_the_projects_that_exist() {
     let dir = workspace();
-    let out = run(&dir, &["--app", "nope"]);
+    let (out, status) = run(&dir, &["--app", "nope"]);
 
+    assert_eq!(status, Some(1), "an unmatched scope is an error:\n{out}");
     assert!(out.contains("no project matched"), "{out}");
     assert!(
         out.contains("apps/one"),
@@ -143,7 +153,7 @@ fn an_unknown_app_names_the_projects_that_exist() {
 fn json_carries_every_field_and_its_consumers() {
     let dir = workspace();
     // --limit is a display concern; JSON stays complete.
-    let out = run(&dir, &["--json", "--type", "Account", "--limit", "1"]);
+    let (out, _) = run(&dir, &["--json", "--type", "Account", "--limit", "1"]);
     let line = out
         .lines()
         .find(|l| l.starts_with('{'))

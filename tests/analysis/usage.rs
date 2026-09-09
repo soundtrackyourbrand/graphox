@@ -5,8 +5,13 @@ use graphox::features::analysis::usage::{self, Usage};
 use std::path::Path;
 
 const SCHEMA: &str = r#"
+input AccountFilter {
+  nameContains: String
+  activeOnly: Boolean
+}
 type Query {
   account(id: ID!): Account
+  accounts(filter: AccountFilter): [Account!]!
   zone(id: ID!): SoundZone
 }
 type Account {
@@ -189,4 +194,29 @@ fn fields_of_returns_one_row_per_declared_field() {
         .collect();
     names.sort_unstable();
     assert_eq!(names, vec!["id", "legacyFlag", "name", "owner"]);
+}
+
+#[test]
+fn input_object_members_are_not_reported_as_unused_fields() {
+    // An input member can only appear in an argument value, which this walk
+    // does not read, so declaring them would report every input field in the
+    // schema as unused and inflate the input type's unused count.
+    let usage = analyze(&[(
+        0,
+        "query A { accounts(filter: { activeOnly: true }) { id } }",
+    )]);
+
+    assert!(
+        usage.fields.iter().all(|f| f.type_name != "AccountFilter"),
+        "input object members should not appear as selectable fields: {:#?}",
+        usage
+            .fields
+            .iter()
+            .filter(|f| f.type_name == "AccountFilter")
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        usage.types.iter().all(|t| t.name != "AccountFilter"),
+        "an input object is not a type this reports usage for"
+    );
 }

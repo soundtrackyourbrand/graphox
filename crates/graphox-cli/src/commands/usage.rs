@@ -68,6 +68,11 @@ pub async fn run_usage(config: Config, params: UsageParams) {
     let mut analyses: Vec<(String, Usage)> = Vec::new();
     for (schema_key, files) in documents_by_schema(&config, &workspace) {
         let Some(Ok(schema)) = schemas.get(&schema_key) else {
+            eprintln!(
+                "{}: skipping schema {} — it did not load",
+                "Warning".yellow(),
+                schema_key
+            );
             continue;
         };
         let sources: Vec<DocumentSource<'_>> = files
@@ -146,6 +151,16 @@ fn print_human(config: &Config, analyses: &[(String, Usage)], params: &UsagePara
         }
 
         println!("\n{} {}", "Schema".bright_black(), schema_key.blue());
+        if !analysis.unparsed.is_empty() {
+            println!(
+                "{}",
+                format!(
+                    "{} did not parse against this schema, so these counts are low",
+                    plural(analysis.unparsed.len(), "file")
+                )
+                .yellow()
+            );
+        }
 
         // Naming a single field means asking who uses it, so list them.
         if params.field.is_some() {

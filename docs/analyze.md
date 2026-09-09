@@ -136,5 +136,11 @@ answers "can this be removed" only as far as this workspace goes: another client
 against the same schema is invisible here, so treat it as a shortlist rather
 than a verdict.
 
+Only fields a selection can name are reported. Input object members are left
+out: they appear in argument values, which this does not read, so reporting them
+would mark every input field in the schema unused. A file whose GraphQL did not
+parse is called out, since it contributes no consumers and would otherwise make
+a selected field look unused.
+
 `--limit` shapes the terminal view only. `--json` always emits every matching
 field, plus an `unparsed` array of files whose GraphQL did not parse.
