@@ -168,3 +168,51 @@ fn reporters_that_carry_one_location_name_the_others_in_the_message() {
 
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+#[ntest::timeout(10000)]
+fn related_paths_are_relative_to_the_same_root_as_the_primary() {
+    let bin = env!("CARGO_BIN_EXE_graphox");
+    let dir = std::env::temp_dir().join("graphox_repeated_selections_subdir");
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(dir.join("nested/deep")).unwrap();
+    std::fs::write(dir.join("schema.graphql"), SCHEMA).unwrap();
+    std::fs::write(
+        dir.join("nested/a.graphql"),
+        "query A { account(id: \"1\") { owner { name email avatar } } }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("nested/deep/b.graphql"),
+        "query B { account(id: \"2\") { admin { name email avatar } } }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("graphox.yaml"),
+        "projects:\n  - schema: schema.graphql\n    include: \"nested/**/*.graphql\"\nrules:\n  repeated_selections:\n    - kind: new_fragment\n      min_fields: 3\n      min_uses: 2\n      severity: warning\n",
+    )
+    .unwrap();
+
+    // Run from a subdirectory: graphox walks up to find the config, so the
+    // primary path is relative to the config's directory. A related path
+    // relativized against the working directory instead would read
+    // "b.graphql", which is not reachable from the primary path beside it.
+    let output = graphox(bin, dir.join("nested/deep"))
+        .arg("check")
+        .arg("--fail-on")
+        .arg("error")
+        .output()
+        .unwrap();
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        combined.contains("nested/deep/b.graphql") || combined.contains("nested\\deep\\b.graphql"),
+        "the related path should be relative to the config root:\n{combined}"
+    );
+
+    std::fs::remove_dir_all(dir).ok();
+}

@@ -1,26 +1,26 @@
 use colored::*;
+use graphox_core::Config;
 use graphox_core::config::Severity;
 use std::path::Path;
 use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity, Uri};
 
-/// The path a related location points at, relative to the working directory
-/// when that is shorter, matching how the primary path is already displayed.
-fn related_path(uri: &Uri) -> String {
+/// The path a related location points at, displayed the same way as the primary
+/// path of the diagnostic it belongs to.
+///
+/// Both go through `Config::relativize`, so both are relative to the same root.
+/// Relativizing this one against the working directory instead made the two
+/// disagree whenever `check` ran from a subdirectory, and the shorter of them
+/// was not a path anyone could follow from what was printed beside it.
+fn related_path(config: &Config, uri: &Uri) -> String {
     let Some(path) = graphox_core::utils::uri_to_path(uri) else {
         return uri.as_str().to_string();
     };
-    let relative = std::env::current_dir()
-        .ok()
-        .and_then(|cwd| pathdiff::diff_paths(&path, cwd));
-    match relative {
-        Some(rel) if !rel.starts_with("..") => rel.display().to_string(),
-        _ => path.display().to_string(),
-    }
+    config.relativize(&path).display().to_string()
 }
 
 /// Extra locations a finding covers, folded into the message for reporters
 /// whose format carries one location per diagnostic.
-fn related_summary(diagnostic: &Diagnostic) -> String {
+fn related_summary(config: &Config, diagnostic: &Diagnostic) -> String {
     let related = diagnostic
         .related_information
         .as_deref()
@@ -33,7 +33,7 @@ fn related_summary(diagnostic: &Diagnostic) -> String {
         .map(|r| {
             format!(
                 "{}:{}",
-                related_path(&r.location.uri),
+                related_path(config, &r.location.uri),
                 r.location.range.start.line + 1
             )
         })
@@ -58,7 +58,15 @@ pub trait Reporter: Send + Sync {
     fn report_failure(&self);
 }
 
-pub struct DefaultReporter;
+pub struct DefaultReporter {
+    config: Config,
+}
+
+impl DefaultReporter {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+}
 
 impl Reporter for DefaultReporter {
     fn report_project_start(&self, project_name: &str) {
@@ -112,7 +120,7 @@ impl Reporter for DefaultReporter {
             for related in diagnostic.related_information.iter().flatten() {
                 rendered.push_str(&format!(
                     "\n    {} [{}:{}] {}",
-                    related_path(&related.location.uri).bright_black(),
+                    related_path(&self.config, &related.location.uri).bright_black(),
                     (related.location.range.start.line + 1)
                         .to_string()
                         .bright_black(),
@@ -181,7 +189,15 @@ impl Reporter for DefaultReporter {
     }
 }
 
-pub struct GitHubReporter;
+pub struct GitHubReporter {
+    config: Config,
+}
+
+impl GitHubReporter {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+}
 
 impl Reporter for GitHubReporter {
     fn report_project_start(&self, _project_name: &str) {
@@ -201,8 +217,12 @@ impl Reporter for GitHubReporter {
         let col = diagnostic.range.start.character + 1;
         // An annotation points at one place, so any others are named in the
         // body rather than dropped.
-        let message =
-            format!("{}{}", diagnostic.message, related_summary(diagnostic)).replace('\n', "%0A");
+        let message = format!(
+            "{}{}",
+            diagnostic.message,
+            related_summary(&self.config, diagnostic)
+        )
+        .replace('\n', "%0A");
 
         println!(
             "::{} file={},line={},col={}::{}",
@@ -244,7 +264,15 @@ impl Reporter for GitHubReporter {
     }
 }
 
-pub struct TscReporter;
+pub struct TscReporter {
+    config: Config,
+}
+
+impl TscReporter {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+}
 
 impl Reporter for TscReporter {
     fn report_project_start(&self, _project_name: &str) {
@@ -262,7 +290,11 @@ impl Reporter for TscReporter {
         let file = path.to_string_lossy();
         let line = diagnostic.range.start.line + 1;
         let col = diagnostic.range.start.character + 1;
-        let message = format!("{}{}", diagnostic.message, related_summary(diagnostic));
+        let message = format!(
+            "{}{}",
+            diagnostic.message,
+            related_summary(&self.config, diagnostic)
+        );
 
         println!("{}({},{}): {}: {}", file, line, col, severity, message);
     }

@@ -108,10 +108,14 @@ async fn main() {
             reporter,
             fail_on,
         }) => {
+            // Reporters display paths, so they relativize against the same root
+            // the rest of the output does.
             let reporter: Box<dyn graphox_cli::reporters::Reporter> = match reporter.as_deref() {
-                Some("github") => Box::new(graphox_cli::reporters::GitHubReporter),
-                Some("tsc") => Box::new(graphox_cli::reporters::TscReporter),
-                _ => Box::new(graphox_cli::reporters::DefaultReporter),
+                Some("github") => {
+                    Box::new(graphox_cli::reporters::GitHubReporter::new(config.clone()))
+                }
+                Some("tsc") => Box::new(graphox_cli::reporters::TscReporter::new(config.clone())),
+                _ => Box::new(graphox_cli::reporters::DefaultReporter::new(config.clone())),
             };
             let Some(fail_on) = graphox_core::config::Severity::parse(&fail_on) else {
                 eprintln!(
