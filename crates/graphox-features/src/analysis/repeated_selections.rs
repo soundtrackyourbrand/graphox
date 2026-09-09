@@ -34,10 +34,15 @@ pub struct Options {
     /// Only applies to `groups`; a single site duplicating an existing fragment
     /// is already a finding.
     pub min_uses: usize,
-    /// Fields the configuration mandates everywhere. They still belong to a
-    /// group, but do not count toward `min_fields`: graphox put them there, so
-    /// a group of nothing but `id` and `permissions` says nothing about intent.
-    pub uncounted_fields: AHashSet<String>,
+    /// Fields the configuration mandates, per project index. They still belong
+    /// to a group, but do not count toward `min_fields`: graphox put them
+    /// there, so a group of nothing but `id` and `permissions` says nothing
+    /// about intent.
+    ///
+    /// Keyed by project because `required_fields` can be overridden per
+    /// project, and a project that turns it off has authors choosing those
+    /// fields deliberately. A project with no entry mandates nothing.
+    pub mandated_by_project: AHashMap<usize, AHashSet<String>>,
 }
 
 impl Default for Options {
@@ -45,7 +50,7 @@ impl Default for Options {
         Self {
             min_fields: 3,
             min_uses: 3,
-            uncounted_fields: AHashSet::default(),
+            mandated_by_project: AHashMap::default(),
         }
     }
 }
@@ -152,6 +157,26 @@ pub struct Analysis {
 /// `permissions(scope: X)` — counting members the collection pass had not.
 type UncountedSignatures = AHashSet<String>;
 
+/// Where a signature has been seen, so a field mandated in one project and
+/// chosen in another can be told apart.
+#[derive(Default)]
+struct Mandated {
+    /// Seen in a project that mandates it.
+    mandated: AHashSet<String>,
+    /// Seen in a project that does not, so somebody chose to select it.
+    chosen: AHashSet<String>,
+}
+
+impl Mandated {
+    /// A group spans projects, so a field only fails to describe it when every
+    /// project selecting it had the field imposed. One author choosing it
+    /// freely makes it intent again.
+    fn uncounted(self) -> UncountedSignatures {
+        let Mandated { mandated, chosen } = self;
+        mandated.difference(&chosen).cloned().collect()
+    }
+}
+
 /// One selection set encountered during the walk.
 struct Occurrence {
     type_name: String,
@@ -211,20 +236,19 @@ fn collect_selection_sets(
     definition: usize,
     is_root: bool,
     opts: &Options,
-    uncounted: &mut UncountedSignatures,
+    mandated_here: &AHashSet<String>,
+    mandated: &mut Mandated,
     out: &mut Vec<Occurrence>,
 ) {
     let mut members = BTreeMap::new();
-    let mut counted = 0usize;
 
     for selection in &set.selections {
         let signature = normalize(&selection.serialize().no_indent().to_string());
-        let is_uncounted =
-            member_field_name(selection).is_some_and(|name| opts.uncounted_fields.contains(name));
-        if is_uncounted {
-            uncounted.insert(signature.clone());
+        let imposed = member_field_name(selection).is_some_and(|name| mandated_here.contains(name));
+        if imposed {
+            mandated.mandated.insert(signature.clone());
         } else {
-            counted += 1;
+            mandated.chosen.insert(signature.clone());
         }
         members.insert(signature, selection_span(selection));
     }
@@ -233,7 +257,11 @@ fn collect_selection_sets(
     let only_a_spread = set.selections.len() == 1
         && matches!(set.selections.first(), Some(Selection::FragmentSpread(_)));
 
-    if counted >= opts.min_fields && !only_a_spread {
+    // A conservative bound, not the real threshold: whether a member counts
+    // depends on every project that selects it, which is not known until the
+    // walk finishes. Counted width can only be smaller than this, so nothing
+    // that could pass the real check is dropped here.
+    if members.len() >= opts.min_fields && !only_a_spread {
         out.push(Occurrence {
             type_name: set.ty.to_string(),
             members,
@@ -249,7 +277,8 @@ fn collect_selection_sets(
                 definition,
                 false,
                 opts,
-                uncounted,
+                mandated_here,
+                mandated,
                 out,
             ),
             Selection::InlineFragment(inline) => {
@@ -260,7 +289,8 @@ fn collect_selection_sets(
                     definition,
                     is_root,
                     opts,
-                    uncounted,
+                    mandated_here,
+                    mandated,
                     out,
                 )
             }
@@ -281,7 +311,8 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
     let mut analysis = Analysis::default();
     let mut occurrences: Vec<Occurrence> = Vec::new();
     let mut fragment_shapes: Vec<FragmentShape> = Vec::new();
-    let mut uncounted: UncountedSignatures = AHashSet::default();
+    let mut mandated = Mandated::default();
+    let no_fields = AHashSet::default();
 
     for doc in docs {
         let parsed = match ExecutableDocument::parse(schema, doc.source, doc.path) {
@@ -291,6 +322,11 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
             // that yields nothing at all is reported as unparsed.
             Err(with_errors) => with_errors.partial,
         };
+
+        let mandated_here = opts
+            .mandated_by_project
+            .get(&doc.project_idx)
+            .unwrap_or(&no_fields);
 
         if parsed.operations.is_empty() && parsed.fragments.is_empty() {
             if !doc.source.trim().is_empty() {
@@ -326,7 +362,8 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
                 idx,
                 true,
                 opts,
-                &mut uncounted,
+                mandated_here,
+                &mut mandated,
                 &mut occurrences,
             );
         }
@@ -338,7 +375,8 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
                 idx,
                 true,
                 opts,
-                &mut uncounted,
+                mandated_here,
+                &mut mandated,
                 &mut occurrences,
             );
 
@@ -356,6 +394,7 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
         }
     }
 
+    let uncounted = mandated.uncounted();
     analysis.overlaps = find_overlaps(
         &occurrences,
         &fragment_shapes,
@@ -631,7 +670,7 @@ pub struct RuleFinding {
 /// each entry filters the result down afterwards.
 pub fn options_for_rules(
     rules: &[RepeatedSelectionsRule],
-    uncounted_fields: AHashSet<String>,
+    mandated_by_project: AHashMap<usize, AHashSet<String>>,
 ) -> Options {
     Options {
         min_fields: rules.iter().map(|r| r.min_fields).min().unwrap_or(3),
@@ -641,7 +680,7 @@ pub fn options_for_rules(
             .map(|r| r.min_uses)
             .min()
             .unwrap_or(usize::MAX),
-        uncounted_fields,
+        mandated_by_project,
     }
 }
 

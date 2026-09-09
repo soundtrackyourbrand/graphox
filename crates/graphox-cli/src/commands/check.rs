@@ -15,7 +15,9 @@ use tower_lsp_server::ls_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, NumberOrString, Range,
 };
 
-use super::{ValidSchema, build_validated_schemas, documents_by_schema, mandated_fields};
+use super::{
+    ValidSchema, build_validated_schemas, documents_by_schema, mandated_fields_by_project,
+};
 
 pub async fn run_check(
     config: Config,
@@ -360,7 +362,7 @@ fn run_repeated_selections(
         return true;
     }
 
-    let options = repeated_selections::options_for_rules(rules, mandated_fields(config));
+    let options = repeated_selections::options_for_rules(rules, mandated_fields_by_project(config));
     let mut success = true;
 
     for (schema_key, files) in documents_by_schema(config, workspace) {

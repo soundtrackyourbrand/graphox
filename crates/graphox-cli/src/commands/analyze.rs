@@ -5,7 +5,7 @@ use graphox_features::analysis::repeated_selections::{
     self, Analysis, DefinitionKind, DocumentSource, OverlapKind, Scope,
 };
 
-use super::{build_validated_schemas, documents_by_schema, mandated_fields};
+use super::{build_validated_schemas, documents_by_schema, mandated_fields_by_project};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -53,7 +53,7 @@ pub async fn run_analyze(config: Config, params: AnalyzeParams) {
     let options = repeated_selections::Options {
         min_fields: params.min_fields,
         min_uses: params.min_uses,
-        uncounted_fields: mandated_fields(&config),
+        mandated_by_project: mandated_fields_by_project(&config),
     };
 
     let mut analyses = Vec::new();

@@ -66,6 +66,22 @@ fn analyze_with(opts: Options, sources: &[(usize, &str)]) -> Analysis {
     repeated_selections::analyze(&schema, &docs, &opts)
 }
 
+/// The mandated-field set a single project would contribute.
+fn mandated_for_project(
+    project: usize,
+    fields: &[&str],
+) -> ahash::AHashMap<usize, ahash::AHashSet<String>> {
+    let mut map = ahash::AHashMap::default();
+    map.insert(
+        project,
+        fields
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<ahash::AHashSet<_>>(),
+    );
+    map
+}
+
 fn analyze(sources: &[(usize, &str)]) -> Analysis {
     analyze_with(
         Options {
@@ -203,9 +219,7 @@ fn respects_min_uses() {
 
 #[test]
 fn mandated_fields_do_not_count_toward_min_fields() {
-    let mut uncounted = ahash::AHashSet::default();
-    uncounted.insert("id".to_string());
-    uncounted.insert("permissions".to_string());
+    let mandated = mandated_for_project(0, &["id", "permissions"]);
 
     let sources = [
         (
@@ -223,7 +237,7 @@ fn mandated_fields_do_not_count_toward_min_fields() {
         Options {
             min_fields: 2,
             min_uses: 2,
-            uncounted_fields: uncounted.clone(),
+            mandated_by_project: mandated.clone(),
         },
         &sources,
     );
@@ -507,8 +521,7 @@ fn a_mandated_field_does_not_count_even_when_aliased() {
     // serialized signature, so `userId: id` has to stay recognised as the
     // mandated `id` — matching signatures against configured field names would
     // silently start counting it.
-    let mut uncounted = ahash::AHashSet::default();
-    uncounted.insert("id".to_string());
+    let mandated = mandated_for_project(0, &["id"]);
 
     let schema = schema();
     let docs = [
@@ -532,7 +545,7 @@ fn a_mandated_field_does_not_count_even_when_aliased() {
         &Options {
             min_fields: 1,
             min_uses: 2,
-            uncounted_fields: uncounted,
+            mandated_by_project: mandated,
         },
     );
 
@@ -552,4 +565,66 @@ fn a_mandated_field_does_not_count_even_when_aliased() {
         repeated_selections::findings_for_rules(&analysis, &[rule]).is_empty(),
         "a fragment of one meaningful field should not clear a threshold of two"
     );
+}
+
+#[test]
+fn a_field_one_project_mandates_and_another_chooses_still_counts() {
+    // Four projects in a real workspace turn `required_fields` off. Where a
+    // project does not impose `id`, whoever wrote the selection chose it, so a
+    // group spanning both projects has to count it — otherwise the threshold is
+    // stricter there than the configuration asks for.
+    let mandated = mandated_for_project(0, &["id"]);
+
+    let sources = [
+        (0, "query A { account(id: 1) { id name } }"),
+        (1, "query B { account(id: 2) { id name } }"),
+    ];
+
+    let analysis = analyze_with(
+        Options {
+            min_fields: 2,
+            min_uses: 2,
+            mandated_by_project: mandated,
+        },
+        &sources,
+    );
+
+    let group = analysis
+        .groups
+        .iter()
+        .find(|g| g.type_name == "Account")
+        .expect("expected an Account group");
+    assert_eq!(group.members, vec!["id", "name"]);
+    assert_eq!(
+        group.counted, 2,
+        "project 1 does not mandate `id`, so it describes the selection there"
+    );
+}
+
+#[test]
+fn a_field_every_selecting_project_mandates_does_not_count() {
+    let mut mandated = mandated_for_project(0, &["id"]);
+    mandated.insert(1, ["id".to_string()].into_iter().collect());
+
+    let sources = [
+        (0, "query A { account(id: 1) { id name } }"),
+        (1, "query B { account(id: 2) { id name } }"),
+    ];
+
+    let analysis = analyze_with(
+        Options {
+            min_fields: 1,
+            min_uses: 2,
+            mandated_by_project: mandated,
+        },
+        &sources,
+    );
+
+    let group = analysis
+        .groups
+        .iter()
+        .find(|g| g.type_name == "Account")
+        .expect("expected an Account group");
+    assert_eq!(group.members, vec!["id", "name"]);
+    assert_eq!(group.counted, 1, "only `name` describes the selection");
 }

@@ -46,9 +46,6 @@ enum Commands {
     },
     /// Report selections that recur across operations and fragments
     Analyze {
-        /// Directory to scan
-        #[arg(default_value = ".")]
-        path: String,
         /// Members a selection must share before it is reported
         #[arg(long, default_value_t = 3)]
         min_fields: usize,
@@ -136,7 +133,6 @@ async fn main() {
             run_codegen(config, watch, verbose, clean).await;
         }
         Some(Commands::Analyze {
-            path: _,
             min_fields,
             min_uses,
             kind,

@@ -418,6 +418,11 @@ are still part of the reported selection, but a group of nothing but `id` and
 `permissions` describes what graphox inserted rather than how the query was
 written.
 
+That is read per project, since `required_fields` can be overridden there. A
+field one project mandates and another does not still counts: in the project
+that does not impose it, whoever wrote the selection chose it. A field is
+discounted only when every project selecting it has it imposed.
+
 `ignore_types` takes GraphQL type names the entry should not report on.
 `graphox-ignore` comments do not apply: like the other workspace-wide rules,
 this one compares across documents, so there is no single line that owns a

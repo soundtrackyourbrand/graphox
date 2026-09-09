@@ -8,7 +8,7 @@ pub use benchmark::run_benchmark;
 pub use check::run_check;
 pub use codegen::{CodegenParams, run_codegen};
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use graphox_core::Config;
 use graphox_core::config::SchemaSource;
 use graphox_core::engine::WorkspaceMetadata;
@@ -87,10 +87,27 @@ pub(crate) fn documents_by_schema(
     by_schema
 }
 
-/// Fields the configuration mandates. They are present because graphox put them
-/// there, so they say nothing about how a selection was written.
-pub(crate) fn mandated_fields(config: &Config) -> AHashSet<String> {
-    let mut fields: AHashSet<String> = config.rules().required_fields().keys().cloned().collect();
-    fields.insert("__typename".to_string());
-    fields
+/// Fields the configuration mandates, per project index.
+///
+/// `required_fields` can be overridden per project, and four projects turning
+/// it off is not unusual. A field a project does not mandate was chosen by
+/// whoever wrote the selection, so it has to be counted there even when another
+/// project has it imposed — which means this cannot be read from the global
+/// rules alone.
+pub(crate) fn mandated_fields_by_project(config: &Config) -> AHashMap<usize, AHashSet<String>> {
+    config
+        .projects()
+        .iter()
+        .enumerate()
+        .map(|(idx, project)| {
+            let rules = match project.rules() {
+                Some(project_rules) => config.rules().merge(project_rules),
+                None => config.rules().clone(),
+            };
+            let mut fields: AHashSet<String> = rules.required_fields().keys().cloned().collect();
+            // Never written by hand, so it never describes a selection.
+            fields.insert("__typename".to_string());
+            (idx, fields)
+        })
+        .collect()
 }

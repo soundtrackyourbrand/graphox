@@ -55,6 +55,11 @@ correct — but a group of nothing but `id` and `permissions` describes what
 graphox inserted, not how anyone wrote the query, and counting them makes every
 type in the schema look like a finding.
 
+This follows each project's own `required_fields`, which a project can override
+or switch off. A field is discounted only where every project selecting it has
+it imposed; where one project leaves it to the author, it describes the
+selection again.
+
 ## Reading the output
 
 Groups on one type overlap by nature: `{ id name }`, `{ id name kind }` and
