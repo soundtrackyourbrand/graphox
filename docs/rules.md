@@ -61,6 +61,9 @@ separate decision, made by `graphox check --fail-on <error|warning|info>`. It
 defaults to `warning`, so warnings and errors both fail a check; pass
 `--fail-on error` to make warnings advisory. Editors show every level.
 
+`check` prints every level a rule can be set to, including `info`, so a rule
+configured to advise is visible without `--verbose`.
+
 ---
 
 ## unique_operation_name
@@ -397,6 +400,13 @@ reported and ignored.
 
 A shape that an existing fragment already covers is never a `new_fragment`
 finding — those sites belong to `matches_fragment`.
+
+A recurring shape is one finding, not one per place it appears: extracting the
+fragment is a single decision, and reporting it per site turned a dozen shapes
+into hundreds of diagnostics saying the same thing. The finding is anchored at
+its first site in path order and carries the rest as related locations. The
+default reporter lists them; `--reporter github` and `--reporter tsc` carry one
+location per diagnostic, so they name the others in the message instead.
 
 Fields that `required_fields` mandates do not count toward `min_fields`. They
 are still part of the reported selection, but a group of nothing but `id` and

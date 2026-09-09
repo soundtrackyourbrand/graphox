@@ -11,7 +11,9 @@ use graphox_features::diagnostics::DocumentDiagnostics;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Range};
+use tower_lsp_server::ls_types::{
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, NumberOrString, Range,
+};
 
 use super::{ValidSchema, build_validated_schemas, documents_by_schema, mandated_fields};
 
@@ -297,12 +299,14 @@ async fn execute_project_check(
             let display_path = config.relativize(path);
 
             for d in diagnostics {
-                // Reporting and failing are separate questions: anything at
-                // warning or above is still shown, but only `--fail-on` decides
-                // what ends the run non-zero.
+                // Reporting and failing are separate questions: a rule reports
+                // at the severity it was configured with, and only `--fail-on`
+                // decides what ends the run non-zero.
                 let is_shown = matches!(
                     d.severity,
-                    Some(DiagnosticSeverity::ERROR) | Some(DiagnosticSeverity::WARNING)
+                    Some(DiagnosticSeverity::ERROR)
+                        | Some(DiagnosticSeverity::WARNING)
+                        | Some(DiagnosticSeverity::INFORMATION)
                 );
                 let fails = fail_on.is_met_by(d.severity);
 
@@ -366,22 +370,43 @@ fn run_repeated_selections(
         for finding in repeated_selections::findings_for_rules(&analysis, rules) {
             // The masked source keeps the real file's offsets, so a span from
             // the parse maps straight back onto the document.
-            let range = workspace
-                .documents
-                .get(&finding.path)
-                .zip(finding.span)
-                .map(|(doc, (start, end))| Range {
-                    start: doc.byte_to_position(start),
-                    end: doc.byte_to_position(end),
+            let range_of = |path: &Path, span: Option<(usize, usize)>| {
+                workspace
+                    .documents
+                    .get(path)
+                    .zip(span)
+                    .map(|(doc, (start, end))| Range {
+                        start: doc.byte_to_position(start),
+                        end: doc.byte_to_position(end),
+                    })
+                    .unwrap_or_default()
+            };
+
+            // A recurring shape is one finding covering many places. The extra
+            // places ride along as related information rather than as repeats
+            // of the same diagnostic.
+            let related_information: Vec<DiagnosticRelatedInformation> = finding
+                .related
+                .iter()
+                .filter_map(|site| {
+                    Some(DiagnosticRelatedInformation {
+                        location: Location {
+                            uri: graphox_core::utils::path_to_uri(&site.path)?,
+                            range: range_of(&site.path, site.span),
+                        },
+                        message: format!("also selected in {}", site.definition),
+                    })
                 })
-                .unwrap_or_default();
+                .collect();
 
             let diagnostic = Diagnostic {
-                range,
+                range: range_of(&finding.path, finding.span),
                 severity: Some(finding.severity.as_lsp()),
                 message: finding.message,
                 code: Some(NumberOrString::String(finding.code.to_string())),
                 source: graphox_core::utils::DIAGNOSTIC_SOURCE.map(String::from),
+                related_information: (!related_information.is_empty())
+                    .then_some(related_information),
                 ..Default::default()
             };
 

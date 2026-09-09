@@ -62,6 +62,9 @@ Groups on one type overlap by nature: `{ id name }`, `{ id name kind }` and
 with the widest-reaching shape per type and counts the rest as related shapes.
 Pass `--type` to see every shape on a type, or `--json` for all of them.
 
+A shape a fragment already covers is not reported: it is not a missing
+fragment, it is one being re-inlined, which `matches_fragment` describes.
+
 Only maximal groups are reported at all: a group is dropped when a larger group
 covers the same definitions, since the larger one says everything the smaller
 one did.

@@ -16,6 +16,7 @@ mod lsp_multi_schema;
 mod lsp_updates;
 mod multibyte;
 mod orphan_prune_test;
+mod repeated_selections_cli;
 mod suffix_consistency;
 mod swc_cli;
 mod template_tags;

@@ -369,7 +369,7 @@ fn new_fragment_skips_shapes_a_fragment_already_covers() {
 }
 
 #[test]
-fn new_fragment_reports_one_finding_per_site() {
+fn new_fragment_reports_one_finding_per_shape() {
     let analysis = analyze(&[
         (
             0,
@@ -379,6 +379,10 @@ fn new_fragment_reports_one_finding_per_site() {
             0,
             "query B { location(id: 1) { address { line1 city country } } }",
         ),
+        (
+            0,
+            "query C { account(id: 2) { address { line1 city country } } }",
+        ),
     ]);
 
     let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::NewFragment);
@@ -386,9 +390,48 @@ fn new_fragment_reports_one_finding_per_site() {
     rule.min_uses = 2;
 
     let findings = repeated_selections::findings_for_rules(&analysis, &[rule]);
-    assert_eq!(findings.len(), 2, "{:#?}", findings);
-    assert!(findings.iter().all(|f| f.code == "new_fragment"));
-    assert!(findings.iter().all(|f| f.span.is_some()));
+    assert_eq!(
+        findings.len(),
+        1,
+        "one shape is one finding: {:#?}",
+        findings
+    );
+    assert_eq!(findings[0].code, "new_fragment");
+    assert!(findings[0].span.is_some());
+    // The other places ride along rather than becoming their own findings.
+    assert_eq!(findings[0].related.len(), 2, "{:#?}", findings[0]);
+    assert!(findings[0].related.iter().all(|r| r.span.is_some()));
+}
+
+#[test]
+fn a_shape_anchors_at_its_first_site_in_path_order() {
+    let sources = [
+        (
+            0,
+            "query B { location(id: 1) { address { line1 city country } } }",
+        ),
+        (
+            0,
+            "query A { account(id: 1) { address { line1 city country } } }",
+        ),
+    ];
+    let analysis = analyze(&sources);
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::NewFragment);
+    rule.min_fields = 2;
+    rule.min_uses = 2;
+
+    let findings = repeated_selections::findings_for_rules(&analysis, &[rule]);
+    assert_eq!(findings.len(), 1);
+    // doc0.graphql sorts before doc1.graphql, so the anchor is stable and does
+    // not depend on which definition the walk reached first.
+    assert!(
+        findings[0].path.ends_with("doc0.graphql"),
+        "{:#?}",
+        findings[0]
+    );
+    assert_eq!(findings[0].related.len(), 1);
+    assert!(findings[0].related[0].path.ends_with("doc1.graphql"));
 }
 
 #[test]

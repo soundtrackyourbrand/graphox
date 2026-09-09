@@ -546,6 +546,15 @@ fn find_groups(
     kept
 }
 
+/// One more place a finding applies to, beyond the one it is anchored at.
+#[derive(Debug, Clone)]
+pub struct RelatedSite {
+    pub path: PathBuf,
+    pub span: Option<(usize, usize)>,
+    /// The operation or fragment the site sits in.
+    pub definition: String,
+}
+
 /// A rule violation, ready to be turned into a diagnostic by a caller that can
 /// map a byte offset in the file back to a position.
 #[derive(Debug, Clone)]
@@ -556,6 +565,9 @@ pub struct RuleFinding {
     pub severity: Severity,
     pub code: &'static str,
     pub message: String,
+    /// The other places the same finding covers. A recurring shape is one
+    /// finding with many sites, not many findings.
+    pub related: Vec<RelatedSite>,
 }
 
 /// The widest thresholds any entry asks for, so one walk can serve them all and
@@ -617,6 +629,7 @@ pub fn findings_for_rules(
                         severity: rule.severity,
                         code: rule.kind.as_str(),
                         message,
+                        related: Vec::new(),
                     });
                 }
             }
@@ -635,25 +648,51 @@ pub fn findings_for_rules(
                         Scope::InProject => "this project",
                         Scope::CrossProject => "several projects",
                     };
-                    // One diagnostic per site: each is a place someone would
-                    // edit, and a single report on the group would name a file
-                    // arbitrarily.
-                    for site in &group.sites {
-                        let definition = &analysis.definitions[site.definition];
-                        out.push(RuleFinding {
-                            path: definition.path.clone(),
-                            span: site.span,
-                            severity: rule.severity,
-                            code: rule.kind.as_str(),
-                            message: format!(
-                                "{} definitions across {} select {{ {} }} on {}. Consider a fragment.",
-                                group.definitions.len(),
-                                scope,
-                                group.members.join(" "),
-                                group.type_name
-                            ),
-                        });
-                    }
+
+                    // One finding per shape, carrying every site. A shape is
+                    // one decision — extract this fragment or do not — and
+                    // reporting it once per site turned a dozen of them into
+                    // hundreds of diagnostics saying the same thing.
+                    let mut sites: Vec<&Site> = group.sites.iter().collect();
+                    sites.sort_by(|a, b| {
+                        let (a_def, b_def) = (
+                            &analysis.definitions[a.definition],
+                            &analysis.definitions[b.definition],
+                        );
+                        a_def
+                            .path
+                            .cmp(&b_def.path)
+                            .then_with(|| a.span.cmp(&b.span))
+                    });
+                    let Some((anchor, rest)) = sites.split_first() else {
+                        continue;
+                    };
+                    let anchor_definition = &analysis.definitions[anchor.definition];
+
+                    out.push(RuleFinding {
+                        path: anchor_definition.path.clone(),
+                        span: anchor.span,
+                        severity: rule.severity,
+                        code: rule.kind.as_str(),
+                        message: format!(
+                            "{} definitions across {} select {{ {} }} on {}. Consider a fragment.",
+                            group.definitions.len(),
+                            scope,
+                            group.members.join(" "),
+                            group.type_name
+                        ),
+                        related: rest
+                            .iter()
+                            .map(|site| {
+                                let definition = &analysis.definitions[site.definition];
+                                RelatedSite {
+                                    path: definition.path.clone(),
+                                    span: site.span,
+                                    definition: definition.name.clone(),
+                                }
+                            })
+                            .collect(),
+                    });
                 }
             }
         }
