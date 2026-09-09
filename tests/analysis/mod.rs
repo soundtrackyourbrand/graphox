@@ -16,6 +16,7 @@ mod schema_extensions;
 mod schema_merge;
 mod scoping;
 mod type_only_fragments;
+mod usage;
 mod validation;
 mod validation_updates;
 mod variable_usage;

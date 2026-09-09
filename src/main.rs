@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use graphox_cli::{AnalyzeParams, run_analyze, run_benchmark, run_check, run_codegen};
+use graphox_cli::{
+    AnalyzeParams, UsageParams, run_analyze, run_benchmark, run_check, run_codegen, run_usage,
+};
 use graphox_core::Config;
 use graphox_lsp::run_lsp;
 
@@ -44,8 +46,29 @@ enum Commands {
         #[arg(long)]
         clean: bool,
     },
-    /// Report selections that recur across operations and fragments
+    /// Inspect how the workspace uses GraphQL
     Analyze {
+        #[command(subcommand)]
+        tool: AnalyzeTool,
+    },
+    /// Benchmark codegen performance
+    Benchmark {
+        /// Directory to scan
+        #[arg(default_value = ".")]
+        path: String,
+        /// Show detailed fragment discovery information
+        #[arg(short, long)]
+        verbose: bool,
+        /// Write a kill-safe scan trace while benchmarking
+        #[arg(long)]
+        instrument_scan: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum AnalyzeTool {
+    /// Report selections that recur across operations and fragments
+    Selections {
         /// Members a selection must share before it is reported
         #[arg(long, default_value_t = 3)]
         min_fields: usize,
@@ -65,17 +88,26 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Benchmark codegen performance
-    Benchmark {
-        /// Directory to scan
-        #[arg(default_value = ".")]
-        path: String,
-        /// Show detailed fragment discovery information
-        #[arg(short, long)]
-        verbose: bool,
-        /// Write a kill-safe scan trace while benchmarking
+    /// Report which types and fields the workspace actually selects
+    Usage {
+        /// Restrict to projects whose include path contains this
+        #[arg(long, visible_alias = "project")]
+        app: Option<String>,
+        /// Report only this GraphQL type, listing its fields by consumer count
+        #[arg(long = "type")]
+        type_name: Option<String>,
+        /// Report only this field, listing what selects it
         #[arg(long)]
-        instrument_scan: bool,
+        field: Option<String>,
+        /// Report only declared fields that nothing selects
+        #[arg(long)]
+        unused: bool,
+        /// Rows to print, or 0 for all. Does not apply to --json
+        #[arg(long, default_value_t = 30)]
+        limit: usize,
+        /// Emit results as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -132,40 +164,63 @@ async fn main() {
         }) => {
             run_codegen(config, watch, verbose, clean).await;
         }
-        Some(Commands::Analyze {
-            min_fields,
-            min_uses,
-            kind,
-            type_name,
-            limit,
-            json,
-        }) => {
-            let kind = match kind
-                .as_deref()
-                .map(graphox_cli::commands::analyze::Kind::parse)
-            {
-                Some(None) => {
-                    eprintln!(
-                        "Error: Unknown --kind value. Expected matches_fragment, extends_fragment or new_fragment."
-                    );
-                    graphox_core::utils::flush_stdio();
-                    std::process::exit(1);
-                }
-                parsed => parsed.flatten(),
-            };
-            run_analyze(
-                config,
-                AnalyzeParams {
-                    min_fields,
-                    min_uses,
-                    kind,
-                    type_name,
-                    limit,
-                    json,
-                },
-            )
-            .await;
-        }
+        Some(Commands::Analyze { tool }) => match tool {
+            AnalyzeTool::Selections {
+                min_fields,
+                min_uses,
+                kind,
+                type_name,
+                limit,
+                json,
+            } => {
+                let kind = match kind
+                    .as_deref()
+                    .map(graphox_cli::commands::analyze::Kind::parse)
+                {
+                    Some(None) => {
+                        eprintln!(
+                            "Error: Unknown --kind value. Expected matches_fragment, extends_fragment or new_fragment."
+                        );
+                        graphox_core::utils::flush_stdio();
+                        std::process::exit(1);
+                    }
+                    parsed => parsed.flatten(),
+                };
+                run_analyze(
+                    config,
+                    AnalyzeParams {
+                        min_fields,
+                        min_uses,
+                        kind,
+                        type_name,
+                        limit,
+                        json,
+                    },
+                )
+                .await;
+            }
+            AnalyzeTool::Usage {
+                app,
+                type_name,
+                field,
+                unused,
+                limit,
+                json,
+            } => {
+                run_usage(
+                    config,
+                    UsageParams {
+                        app,
+                        type_name,
+                        field,
+                        unused,
+                        limit,
+                        json,
+                    },
+                )
+                .await;
+            }
+        },
         Some(Commands::Benchmark {
             path: _,
             verbose,
