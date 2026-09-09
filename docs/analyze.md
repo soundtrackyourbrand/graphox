@@ -62,6 +62,11 @@ Groups on one type overlap by nature: `{ id name }`, `{ id name kind }` and
 with the widest-reaching shape per type and counts the rest as related shapes.
 Pass `--type` to see every shape on a type, or `--json` for all of them.
 
+`--limit` shapes that view only. `--json` always emits every finding, plus an
+`unparsed` array of files whose GraphQL did not parse against the schema — a
+consumer needs to know the analysis was incomplete, and truncating it to a
+display default would drop findings nobody asked to drop.
+
 A shape a fragment already covers is not reported: it is not a missing
 fragment, it is one being re-inlined, which `matches_fragment` describes.
 

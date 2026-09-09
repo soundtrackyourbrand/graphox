@@ -499,3 +499,57 @@ fn min_fields_on_an_overlap_measures_the_fragment() {
         1
     );
 }
+
+#[test]
+fn a_mandated_field_does_not_count_even_when_aliased() {
+    // Whether a member counts is decided during collection, from the Selection,
+    // where the field name is available. Everything afterwards sees only the
+    // serialized signature, so `userId: id` has to stay recognised as the
+    // mandated `id` — matching signatures against configured field names would
+    // silently start counting it.
+    let mut uncounted = ahash::AHashSet::default();
+    uncounted.insert("id".to_string());
+
+    let schema = schema();
+    let docs = [
+        DocumentSource {
+            path: Path::new("doc0.graphql"),
+            project_idx: 0,
+            source: "fragment UserCard on User { userId: id name }",
+        },
+        DocumentSource {
+            path: Path::new("doc1.graphql"),
+            project_idx: 0,
+            source: "query A { account(id: 1) { owner { userId: id name } } }",
+        },
+    ];
+
+    // Collected permissively, the way `check` does when entries disagree on
+    // min_fields, so the entry's own threshold is what decides.
+    let analysis = repeated_selections::analyze(
+        &schema,
+        &docs,
+        &Options {
+            min_fields: 1,
+            min_uses: 2,
+            uncounted_fields: uncounted,
+        },
+    );
+
+    let overlap = analysis
+        .overlaps
+        .iter()
+        .find(|o| o.kind == OverlapKind::Matches)
+        .expect("expected the duplicate to be found");
+    assert_eq!(
+        overlap.shared, 1,
+        "only `name` describes this fragment; `userId: id` is the mandated id"
+    );
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::MatchesFragment);
+    rule.min_fields = 2;
+    assert!(
+        repeated_selections::findings_for_rules(&analysis, &[rule]).is_empty(),
+        "a fragment of one meaningful field should not clear a threshold of two"
+    );
+}

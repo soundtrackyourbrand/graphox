@@ -187,12 +187,15 @@ pub async fn validate_uris(
                     workspace_loaded,
                 );
 
-                if config.rules().unique_operation_name()
+                // The effective config, not the global one: a project can
+                // override whether this rule applies and at what severity, and
+                // the workspace scan already reads it that way.
+                if effective_config.rules().unique_operation_name()
                     && let Some(path) = graphox_core::utils::uri_to_path(&uri)
                     && let Some(schema_key) = config.get_schema_for_path(&path)
                 {
                     add_duplicate_operation_diagnostics(
-                        &config,
+                        &effective_config,
                         &doc,
                         &uri,
                         &schema_key,

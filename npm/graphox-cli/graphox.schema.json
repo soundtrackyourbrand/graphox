@@ -193,17 +193,17 @@
         "unique_operation_name": {
           "description": "Enforce unique names for all operations across the project. Reported as an error unless a severity is given.",
           "default": false,
-          "$ref": "#/definitions/Rule"
+          "allOf": [{ "$ref": "#/definitions/Rule" }]
         },
         "no_duplicate_fields": {
           "description": "Prevent selecting the same field multiple times in a single selection set. Reported as an error unless a severity is given.",
           "default": false,
-          "$ref": "#/definitions/Rule"
+          "allOf": [{ "$ref": "#/definitions/Rule" }]
         },
         "no_unused_fragments": {
           "description": "Identify and report fragments that are defined but not used. Reported as a warning unless a severity is given.",
           "default": false,
-          "$ref": "#/definitions/Rule"
+          "allOf": [{ "$ref": "#/definitions/Rule" }]
         },
         "repeated_selections": {
           "type": "array",
@@ -233,8 +233,8 @@
           "description": "Distinct definitions that must share a group. Only applies to new_fragment: one selection re-inlining an existing fragment is already a finding."
         },
         "severity": {
-          "$ref": "#/definitions/Severity",
-          "description": "Defaults to error for matches_fragment, warning for extends_fragment and info for new_fragment."
+          "description": "Defaults to error for matches_fragment, warning for extends_fragment and info for new_fragment.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
         },
         "ignore_types": {
           "type": "array",
@@ -252,7 +252,10 @@
       "description": "A rule that is either on or off, optionally with a severity.",
       "oneOf": [
         { "type": "boolean", "description": "Whether the rule applies." },
-        { "$ref": "#/definitions/Severity", "description": "Enables the rule and sets its severity." },
+        {
+          "description": "Enables the rule and sets its severity.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
+        },
         { "$ref": "#/definitions/RuleObject" }
       ]
     },
@@ -265,8 +268,8 @@
           "default": true
         },
         "severity": {
-          "$ref": "#/definitions/Severity",
-          "description": "Overrides the rule's default severity."
+          "description": "Overrides the rule's default severity.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
         }
       }
     },
@@ -321,8 +324,8 @@
           "description": "Explanation reported alongside the diagnostic."
         },
         "severity": {
-          "$ref": "#/definitions/Severity",
-          "description": "Overrides this rule's default severity, which is error."
+          "description": "Overrides this rule's default severity, which is error.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
         }
       }
     },

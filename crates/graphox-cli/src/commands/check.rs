@@ -338,6 +338,24 @@ fn run_repeated_selections(
 ) -> bool {
     let config_rules = config.rules();
     let rules = config_rules.repeated_selections();
+
+    // This rule compares selections across every project sharing a schema, so
+    // one project's thresholds cannot govern a finding that spans several.
+    // `ProjectConfig.rules` accepts the key regardless, so say plainly that it
+    // does nothing rather than let it look configured.
+    for project in config.projects() {
+        if project
+            .rules()
+            .is_some_and(|r| !r.repeated_selections().is_empty())
+        {
+            eprintln!(
+                "{}: `repeated_selections` under project '{}' has no effect \u{2014} the rule                  compares selections across every project sharing a schema, so it is configured                  once at the top level.",
+                "Warning".yellow(),
+                project.include().as_key()
+            );
+        }
+    }
+
     if rules.is_empty() {
         return true;
     }

@@ -179,7 +179,7 @@ graphox benchmark
   - `--kind <matches_fragment|extends_fragment|new_fragment>` - Report one kind of finding
   - `--type <Type>` - Report only selections on this GraphQL type
   - `--min-fields <n>` / `--min-uses <n>` - Thresholds for what counts as a finding
-  - `--limit <n>` - Findings per section, `0` for all (default `20`)
+  - `--limit <n>` - Findings per section, `0` for all (default `20`). Human output only
   - `--json` - Emit findings as JSON
 - `lsp` - Starts the Language Server Protocol server
 

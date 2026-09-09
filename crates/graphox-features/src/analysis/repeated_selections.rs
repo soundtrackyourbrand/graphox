@@ -144,6 +144,14 @@ pub struct Analysis {
     pub unparsed: Vec<PathBuf>,
 }
 
+/// Signatures of members that do not count toward a threshold.
+///
+/// Whether a member counts is decided from its `Selection`, where the field
+/// name is available; the later passes only have the serialized signature, and
+/// matching that against configured field names would miss `alias: id` and
+/// `permissions(scope: X)` — counting members the collection pass had not.
+type UncountedSignatures = AHashSet<String>;
+
 /// One selection set encountered during the walk.
 struct Occurrence {
     type_name: String,
@@ -203,6 +211,7 @@ fn collect_selection_sets(
     definition: usize,
     is_root: bool,
     opts: &Options,
+    uncounted: &mut UncountedSignatures,
     out: &mut Vec<Occurrence>,
 ) {
     let mut members = BTreeMap::new();
@@ -212,7 +221,9 @@ fn collect_selection_sets(
         let signature = normalize(&selection.serialize().no_indent().to_string());
         let is_uncounted =
             member_field_name(selection).is_some_and(|name| opts.uncounted_fields.contains(name));
-        if !is_uncounted {
+        if is_uncounted {
+            uncounted.insert(signature.clone());
+        } else {
             counted += 1;
         }
         members.insert(signature, selection_span(selection));
@@ -233,13 +244,25 @@ fn collect_selection_sets(
 
     for selection in &set.selections {
         match selection {
-            Selection::Field(field) => {
-                collect_selection_sets(&field.selection_set, definition, false, opts, out)
-            }
+            Selection::Field(field) => collect_selection_sets(
+                &field.selection_set,
+                definition,
+                false,
+                opts,
+                uncounted,
+                out,
+            ),
             Selection::InlineFragment(inline) => {
                 // An inline fragment narrows the type but does not open a new
                 // definition, so its set is still the definition's own.
-                collect_selection_sets(&inline.selection_set, definition, is_root, opts, out)
+                collect_selection_sets(
+                    &inline.selection_set,
+                    definition,
+                    is_root,
+                    opts,
+                    uncounted,
+                    out,
+                )
             }
             Selection::FragmentSpread(_) => {}
         }
@@ -258,6 +281,7 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
     let mut analysis = Analysis::default();
     let mut occurrences: Vec<Occurrence> = Vec::new();
     let mut fragment_shapes: Vec<FragmentShape> = Vec::new();
+    let mut uncounted: UncountedSignatures = AHashSet::default();
 
     for doc in docs {
         let parsed = match ExecutableDocument::parse(schema, doc.source, doc.path) {
@@ -297,12 +321,26 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "(anonymous)".to_string());
             let idx = push_definition(label, DefinitionKind::Operation);
-            collect_selection_sets(&operation.selection_set, idx, true, opts, &mut occurrences);
+            collect_selection_sets(
+                &operation.selection_set,
+                idx,
+                true,
+                opts,
+                &mut uncounted,
+                &mut occurrences,
+            );
         }
 
         for (name, fragment) in parsed.fragments.iter() {
             let idx = push_definition(name.to_string(), DefinitionKind::Fragment);
-            collect_selection_sets(&fragment.selection_set, idx, true, opts, &mut occurrences);
+            collect_selection_sets(
+                &fragment.selection_set,
+                idx,
+                true,
+                opts,
+                &mut uncounted,
+                &mut occurrences,
+            );
 
             fragment_shapes.push(FragmentShape {
                 name: name.to_string(),
@@ -318,8 +356,19 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
         }
     }
 
-    analysis.overlaps = find_overlaps(&occurrences, &fragment_shapes, &analysis.definitions, opts);
-    analysis.groups = find_groups(&occurrences, &analysis.definitions, &fragment_shapes, opts);
+    analysis.overlaps = find_overlaps(
+        &occurrences,
+        &fragment_shapes,
+        &analysis.definitions,
+        &uncounted,
+    );
+    analysis.groups = find_groups(
+        &occurrences,
+        &analysis.definitions,
+        &fragment_shapes,
+        &uncounted,
+        opts,
+    );
     analysis
 }
 
@@ -328,7 +377,7 @@ fn find_overlaps(
     occurrences: &[Occurrence],
     fragments: &[FragmentShape],
     definitions: &[Definition],
-    opts: &Options,
+    uncounted: &UncountedSignatures,
 ) -> Vec<Overlap> {
     let mut by_type: AHashMap<&str, Vec<&FragmentShape>> = AHashMap::default();
     for shape in fragments {
@@ -380,7 +429,7 @@ fn find_overlaps(
                 fragment: shape.name.clone(),
                 type_name: occurrence.type_name.clone(),
                 kind,
-                shared: counted_members(shape.members.iter(), opts),
+                shared: counted_members(shape.members.iter(), uncounted),
                 site: Site {
                     definition: occurrence.definition,
                     exact: extra.is_empty(),
@@ -414,14 +463,15 @@ fn find_overlaps(
 /// another for a fragment, and whether a finding appeared would depend on the
 /// thresholds of the *other* entries, through the width at which selection sets
 /// are collected at all.
-fn counted_members<'a>(members: impl Iterator<Item = &'a String>, opts: &Options) -> usize {
-    members
-        .filter(|m| !opts.uncounted_fields.contains(m.as_str()))
-        .count()
+fn counted_members<'a>(
+    members: impl Iterator<Item = &'a String>,
+    uncounted: &UncountedSignatures,
+) -> usize {
+    members.filter(|m| !uncounted.contains(m.as_str())).count()
 }
 
-fn counted_width(members: &[String], opts: &Options) -> usize {
-    counted_members(members.iter(), opts)
+fn counted_width(members: &[String], uncounted: &UncountedSignatures) -> usize {
+    counted_members(members.iter(), uncounted)
 }
 
 /// Field groups shared by enough definitions to be worth extracting.
@@ -429,8 +479,15 @@ fn find_groups(
     occurrences: &[Occurrence],
     definitions: &[Definition],
     fragments: &[FragmentShape],
+    uncounted: &UncountedSignatures,
     opts: &Options,
 ) -> Vec<Group> {
+    // `options_for_rules` sets this when nothing asks for groups. Every
+    // candidate would be rejected after a workspace-wide scan, so stop first.
+    if opts.min_uses == usize::MAX {
+        return Vec::new();
+    }
+
     let mut by_type: AHashMap<&str, Vec<&Occurrence>> = AHashMap::default();
     for occurrence in occurrences {
         by_type
@@ -452,7 +509,7 @@ fn find_groups(
                     .filter(|k| b.members.contains_key(*k))
                     .cloned()
                     .collect();
-                if counted_width(&shared, opts) < opts.min_fields {
+                if counted_width(&shared, uncounted) < opts.min_fields {
                     continue;
                 }
                 candidates.insert(((*type_name).to_string(), shared), ());
@@ -509,7 +566,7 @@ fn find_groups(
 
         groups.push(Group {
             type_name,
-            counted: counted_width(&members, opts),
+            counted: counted_width(&members, uncounted),
             covered_by,
             members,
             sites,

@@ -219,8 +219,14 @@ impl RuleSetting {
         }
 
         if node.as_str().is_some() {
-            let severity = Severity::from_yaml(node, rule_name)?;
-            return Some(Self::new(true).with_severity(severity));
+            // Naming a severity is an opt-in whether or not the name parses.
+            // Propagating the parse failure would leave the rule off while the
+            // warning claimed its default was in use.
+            let mut setting = Self::new(true);
+            if let Some(severity) = Severity::from_yaml(node, rule_name) {
+                setting = setting.with_severity(severity);
+            }
+            return Some(setting);
         }
 
         if node.as_hash().is_some() {

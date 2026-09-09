@@ -61,7 +61,7 @@ enum Commands {
         /// Report only selections on this GraphQL type
         #[arg(long = "type")]
         type_name: Option<String>,
-        /// Findings to print per section, or 0 for all
+        /// Findings to print per section, or 0 for all. Does not apply to --json
         #[arg(long, default_value_t = 20)]
         limit: usize,
         /// Emit findings as JSON

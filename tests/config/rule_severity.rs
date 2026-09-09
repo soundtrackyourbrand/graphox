@@ -99,6 +99,18 @@ fn unknown_severity_falls_back_to_the_default() {
 
 #[test]
 #[ntest::timeout(3000)]
+fn an_unknown_bare_severity_still_enables_the_rule() {
+    // The short and long forms have to agree: naming a severity is an opt-in
+    // either way, and the warning says the rule's default is used.
+    let config = load_with_rules("rules:\n  no_duplicate_fields: nonsense\n");
+    let rules = config.rules();
+
+    assert!(rules.no_duplicate_fields());
+    assert_eq!(rules.no_duplicate_fields_severity(), Severity::Error);
+}
+
+#[test]
+#[ntest::timeout(3000)]
 fn field_rules_carry_a_severity() {
     let config = load_with_rules(
         "rules:\n  required_fields:\n    id: true\n    permissions:\n      enabled: [query]\n      severity: warning\n      reason: still rolling out\n",

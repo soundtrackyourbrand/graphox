@@ -3,6 +3,7 @@
 //! that covers several places.
 
 use crate::support::cmd::graphox;
+use tempfile::TempDir;
 
 const SCHEMA: &str = "\
 type Query { user(id: ID!): User, account(id: ID!): Account }
@@ -20,14 +21,14 @@ query B { account(id: \"2\") { admin { name email avatar } } }
 query C { user(id: \"3\") { name email avatar } }
 ";
 
-fn workspace(name: &str, rules: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(name);
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("schema.graphql"), SCHEMA).unwrap();
-    std::fs::write(dir.join("ops.graphql"), OPS).unwrap();
+/// A scratch workspace that removes itself when the returned handle drops, so
+/// concurrent runs cannot share one and a failing assertion cannot leak it.
+fn workspace(rules: &str) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("schema.graphql"), SCHEMA).unwrap();
+    std::fs::write(dir.path().join("ops.graphql"), OPS).unwrap();
     std::fs::write(
-        dir.join("graphox.yaml"),
+        dir.path().join("graphox.yaml"),
         format!(
             "projects:\n  - schema: \"schema.graphql\"\n    include: \"ops.graphql\"\nrules:\n  repeated_selections:\n{rules}"
         ),
@@ -40,12 +41,10 @@ fn workspace(name: &str, rules: &str) -> std::path::PathBuf {
 #[ntest::timeout(10000)]
 fn severity_decides_reporting_and_fail_on_decides_the_exit_code() {
     let bin = env!("CARGO_BIN_EXE_graphox");
-    let dir = workspace(
-        "graphox_repeated_selections_severity",
-        "    - kind: matches_fragment\n      min_fields: 2\n      severity: warning\n",
-    );
+    let dir =
+        workspace("    - kind: matches_fragment\n      min_fields: 2\n      severity: warning\n");
 
-    let output = graphox(bin, &dir).arg("check").output().unwrap();
+    let output = graphox(bin, dir.path()).arg("check").output().unwrap();
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -58,7 +57,7 @@ fn severity_decides_reporting_and_fail_on_decides_the_exit_code() {
     // Default --fail-on is warning, so a warning still ends the run non-zero.
     assert_eq!(output.status.code(), Some(1), "{combined}");
 
-    let output = graphox(bin, &dir)
+    let output = graphox(bin, dir.path())
         .arg("check")
         .arg("--fail-on")
         .arg("error")
@@ -74,8 +73,6 @@ fn severity_decides_reporting_and_fail_on_decides_the_exit_code() {
         "the finding is still reported:\n{combined}"
     );
     assert_eq!(output.status.code(), Some(0), "{combined}");
-
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
@@ -83,11 +80,10 @@ fn severity_decides_reporting_and_fail_on_decides_the_exit_code() {
 fn an_info_finding_is_reported_without_verbose() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = workspace(
-        "graphox_repeated_selections_info",
         "    - kind: new_fragment\n      min_fields: 2\n      min_uses: 2\n      severity: info\n",
     );
 
-    let output = graphox(bin, &dir).arg("check").output().unwrap();
+    let output = graphox(bin, dir.path()).arg("check").output().unwrap();
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -102,8 +98,6 @@ fn an_info_finding_is_reported_without_verbose() {
         Some(0),
         "info does not fail{combined}"
     );
-
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
@@ -111,11 +105,10 @@ fn an_info_finding_is_reported_without_verbose() {
 fn a_shape_is_one_finding_listing_every_place() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = workspace(
-        "graphox_repeated_selections_shape",
         "    - kind: new_fragment\n      min_fields: 3\n      min_uses: 2\n      severity: warning\n",
     );
 
-    let output = graphox(bin, &dir).arg("check").output().unwrap();
+    let output = graphox(bin, dir.path()).arg("check").output().unwrap();
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -129,8 +122,6 @@ fn a_shape_is_one_finding_listing_every_place() {
         combined.contains("also selected in"),
         "the other place is listed:\n{combined}"
     );
-
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
@@ -138,12 +129,11 @@ fn a_shape_is_one_finding_listing_every_place() {
 fn reporters_that_carry_one_location_name_the_others_in_the_message() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = workspace(
-        "graphox_repeated_selections_reporters",
         "    - kind: new_fragment\n      min_fields: 3\n      min_uses: 2\n      severity: warning\n",
     );
 
     for reporter in ["github", "tsc"] {
-        let output = graphox(bin, &dir)
+        let output = graphox(bin, dir.path())
             .arg("check")
             .arg("--reporter")
             .arg(reporter)
@@ -165,30 +155,27 @@ fn reporters_that_carry_one_location_name_the_others_in_the_message() {
             "{reporter} emitted it once:\n{stdout}"
         );
     }
-
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
 #[ntest::timeout(10000)]
 fn related_paths_are_relative_to_the_same_root_as_the_primary() {
     let bin = env!("CARGO_BIN_EXE_graphox");
-    let dir = std::env::temp_dir().join("graphox_repeated_selections_subdir");
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(dir.join("nested/deep")).unwrap();
-    std::fs::write(dir.join("schema.graphql"), SCHEMA).unwrap();
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("nested/deep")).unwrap();
+    std::fs::write(dir.path().join("schema.graphql"), SCHEMA).unwrap();
     std::fs::write(
-        dir.join("nested/a.graphql"),
+        dir.path().join("nested/a.graphql"),
         "query A { account(id: \"1\") { owner { name email avatar } } }\n",
     )
     .unwrap();
     std::fs::write(
-        dir.join("nested/deep/b.graphql"),
+        dir.path().join("nested/deep/b.graphql"),
         "query B { account(id: \"2\") { admin { name email avatar } } }\n",
     )
     .unwrap();
     std::fs::write(
-        dir.join("graphox.yaml"),
+        dir.path().join("graphox.yaml"),
         "projects:\n  - schema: schema.graphql\n    include: \"nested/**/*.graphql\"\nrules:\n  repeated_selections:\n    - kind: new_fragment\n      min_fields: 3\n      min_uses: 2\n      severity: warning\n",
     )
     .unwrap();
@@ -197,7 +184,7 @@ fn related_paths_are_relative_to_the_same_root_as_the_primary() {
     // primary path is relative to the config's directory. A related path
     // relativized against the working directory instead would read
     // "b.graphql", which is not reachable from the primary path beside it.
-    let output = graphox(bin, dir.join("nested/deep"))
+    let output = graphox(bin, dir.path().join("nested/deep"))
         .arg("check")
         .arg("--fail-on")
         .arg("error")
@@ -213,6 +200,4 @@ fn related_paths_are_relative_to_the_same_root_as_the_primary() {
         combined.contains("nested/deep/b.graphql") || combined.contains("nested\\deep\\b.graphql"),
         "the related path should be relative to the config root:\n{combined}"
     );
-
-    std::fs::remove_dir_all(dir).ok();
 }

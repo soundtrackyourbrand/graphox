@@ -32,7 +32,10 @@ pub struct AnalyzeParams {
     pub kind: Option<Kind>,
     /// Restrict output to one GraphQL type.
     pub type_name: Option<String>,
-    /// Findings to print per section. Zero means all of them.
+    /// Findings to print per section in the human view. Zero means all of
+    /// them. JSON ignores it: the default exists to keep a terminal readable,
+    /// and silently truncating machine output to it would lose findings a
+    /// consumer never asked to drop.
     pub limit: usize,
     pub json: bool,
 }
@@ -360,5 +363,17 @@ fn print_json(config: &Config, analyses: &[(String, Analysis)], params: &Analyze
         }
     }
 
-    println!("{{\"findings\":[{}]}}", findings.join(","));
+    // Files whose GraphQL did not parse are why a finding might be missing, so
+    // a consumer needs them as much as the findings themselves.
+    let unparsed: Vec<String> = analyses
+        .iter()
+        .flat_map(|(_, analysis)| &analysis.unparsed)
+        .map(|path| config.relativize(path).display().to_string())
+        .collect();
+
+    println!(
+        "{{\"findings\":[{}],\"unparsed\":{}}}",
+        findings.join(","),
+        json_strings(unparsed)
+    );
 }
