@@ -25,6 +25,9 @@ enum Commands {
         /// Output format (default, github, tsc)
         #[arg(short, long)]
         reporter: Option<String>,
+        /// Lowest severity that fails the run (error, warning, info)
+        #[arg(long, default_value = "warning")]
+        fail_on: String,
     },
     /// Generate TypeScript types for operations and fragments
     Codegen {
@@ -79,13 +82,22 @@ async fn main() {
             path: _,
             verbose,
             reporter,
+            fail_on,
         }) => {
             let reporter: Box<dyn graphox_cli::reporters::Reporter> = match reporter.as_deref() {
                 Some("github") => Box::new(graphox_cli::reporters::GitHubReporter),
                 Some("tsc") => Box::new(graphox_cli::reporters::TscReporter),
                 _ => Box::new(graphox_cli::reporters::DefaultReporter),
             };
-            run_check(config, verbose, reporter).await;
+            let Some(fail_on) = graphox_core::config::Severity::parse(&fail_on) else {
+                eprintln!(
+                    "Error: Unknown --fail-on value '{}'. Expected error, warning or info.",
+                    fail_on
+                );
+                graphox_core::utils::flush_stdio();
+                std::process::exit(1);
+            };
+            run_check(config, verbose, reporter, fail_on).await;
         }
         Some(Commands::Codegen {
             path: _,

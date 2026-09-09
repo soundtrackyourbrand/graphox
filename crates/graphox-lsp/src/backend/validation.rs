@@ -479,6 +479,7 @@ fn add_duplicate_operation_diagnostics(
                             range,
                             name,
                             Some(other_files),
+                            config.rules().unique_operation_name_severity(),
                         );
                     }
 

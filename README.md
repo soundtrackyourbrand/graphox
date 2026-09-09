@@ -154,6 +154,7 @@ graphox lsp
 
 # Validate GraphQL files
 graphox check
+graphox check --fail-on error  # Report warnings without failing the run
 
 # Generate TypeScript types
 graphox codegen
@@ -167,6 +168,7 @@ graphox benchmark
 ### Command Options
 
 - `check` - Validates all GraphQL files against the schema
+  - `--fail-on <error|warning|info>` - Lowest severity that ends the run non-zero (default `warning`)
 - `codegen` - Generates TypeScript types for operations
 - `lsp` - Starts the Language Server Protocol server
 

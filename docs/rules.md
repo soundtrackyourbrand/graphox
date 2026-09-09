@@ -1,16 +1,16 @@
 # Validation Rules
 
-graphox includes configurable validation rules that you can enable in `graphox.yaml`. All rules are errors that fail validation.
+graphox includes configurable validation rules that you can enable in `graphox.yaml`.
 
 ## Quick Reference
 
-| Rule | Type | Default | Description |
-|------|------|---------|-------------|
-| `unique_operation_name` | `boolean` | `false` | Ensures operation names are unique |
-| `no_duplicate_fields` | `boolean` | `false` | Detects duplicate fields in selection sets |
-| `no_unused_fragments` | `boolean` | `false` | Detects unused fragment definitions |
-| `required_fields` | `map` | `{}` | Ensures operations include required fields |
-| `forbidden_fields` | `map` | `{}` | Ensures operations exclude forbidden fields |
+| Rule | Type | Default | Severity | Description |
+|------|------|---------|----------|-------------|
+| `unique_operation_name` | `boolean` | `false` | `error` | Ensures operation names are unique |
+| `no_duplicate_fields` | `boolean` | `false` | `error` | Detects duplicate fields in selection sets |
+| `no_unused_fragments` | `boolean` | `false` | `warning` | Detects unused fragment definitions |
+| `required_fields` | `map` | `{}` | `error` | Ensures operations include required fields |
+| `forbidden_fields` | `map` | `{}` | `error` | Ensures operations exclude forbidden fields |
 
 ## Enabling Rules
 
@@ -24,6 +24,41 @@ rules:
     id: true
     permissions: ["mutation"]
 ```
+
+## Severity
+
+Every rule reports at the severity in the table above. Naming a severity
+overrides it, in either the short or the long form:
+
+```yaml
+rules:
+  # Short form: enables the rule and sets its severity.
+  no_duplicate_fields: warning
+
+  # Long form. `enabled` defaults to true, so an entry that names only a
+  # severity is still an opt-in.
+  no_unused_fragments:
+    enabled: true
+    severity: info
+```
+
+`required_fields` and `forbidden_fields` take a severity per entry, alongside
+`enabled` and `reason`:
+
+```yaml
+rules:
+  required_fields:
+    id: true
+    permissions:
+      enabled: ["query"]
+      severity: warning
+      reason: Still rolling out across the app
+```
+
+Severity decides how a violation is *reported*. What ends a run non-zero is a
+separate decision, made by `graphox check --fail-on <error|warning|info>`. It
+defaults to `warning`, so warnings and errors both fail a check; pass
+`--fail-on error` to make warnings advisory. Editors show every level.
 
 ---
 

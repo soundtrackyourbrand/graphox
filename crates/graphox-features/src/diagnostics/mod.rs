@@ -305,7 +305,13 @@ impl DocumentDiagnostics for DocumentState {
                 if cnt > 1
                     && let Some(range) = find_operation_range(self, &name)
                 {
-                    push_duplicate_operation_diagnostic(&mut diagnostics, range, &name, None);
+                    push_duplicate_operation_diagnostic(
+                        &mut diagnostics,
+                        range,
+                        &name,
+                        None,
+                        cfg.rules().unique_operation_name_severity(),
+                    );
                 }
             }
         }

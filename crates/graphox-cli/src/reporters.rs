@@ -1,13 +1,22 @@
 use colored::*;
+use graphox_core::config::Severity;
 use std::path::Path;
 use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity};
 
 pub trait Reporter: Send + Sync {
     fn report_project_start(&self, project_name: &str);
     fn report_diagnostic(&self, path: &Path, diagnostic: &Diagnostic, verbose: bool);
-    fn report_duplicate_operation(&self, op_name: &str, project_name: &str, paths: &[&Path]);
+    fn report_duplicate_operation(
+        &self,
+        op_name: &str,
+        project_name: &str,
+        paths: &[&Path],
+        severity: Severity,
+    );
     fn report_error(&self, message: &str);
-    fn report_success(&self, verbose: bool);
+    /// `below_threshold` counts diagnostics that were reported but sat under
+    /// `--fail-on`, so a clean exit does not have to claim a clean run.
+    fn report_success(&self, verbose: bool, below_threshold: usize);
     fn report_failure(&self);
 }
 
@@ -57,10 +66,21 @@ impl Reporter for DefaultReporter {
         }
     }
 
-    fn report_duplicate_operation(&self, op_name: &str, project_name: &str, paths: &[&Path]) {
+    fn report_duplicate_operation(
+        &self,
+        op_name: &str,
+        project_name: &str,
+        paths: &[&Path],
+        severity: Severity,
+    ) {
+        let label = match severity {
+            Severity::Error => "Error:".red(),
+            Severity::Warning => "Warning:".yellow(),
+            Severity::Info => "Info:".bright_black(),
+        };
         eprintln!(
             "\n{} Duplicate operation name '{}' in project {}:",
-            "Error:".red(),
+            label,
             op_name.yellow(),
             project_name.blue()
         );
@@ -73,9 +93,20 @@ impl Reporter for DefaultReporter {
         eprintln!("{}", message.red());
     }
 
-    fn report_success(&self, verbose: bool) {
+    fn report_success(&self, verbose: bool, below_threshold: usize) {
         if verbose {
             println!("\n{}", "Scan complete.".bright_black());
+        } else if below_threshold > 0 {
+            let noun = if below_threshold == 1 {
+                "issue"
+            } else {
+                "issues"
+            };
+            println!(
+                "{}",
+                format!("{below_threshold} {noun} reported, none above the failure threshold.")
+                    .yellow()
+            );
         } else {
             println!("{}", "No issues found.".green());
         }
@@ -112,12 +143,23 @@ impl Reporter for GitHubReporter {
         );
     }
 
-    fn report_duplicate_operation(&self, op_name: &str, project_name: &str, paths: &[&Path]) {
+    fn report_duplicate_operation(
+        &self,
+        op_name: &str,
+        project_name: &str,
+        paths: &[&Path],
+        severity: Severity,
+    ) {
+        let level = match severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Info => "notice",
+        };
         for path in paths {
             let file = path.to_string_lossy();
             println!(
-                "::error file={}::Duplicate operation name '{}' in project {}",
-                file, op_name, project_name
+                "::{} file={}::Duplicate operation name '{}' in project {}",
+                level, file, op_name, project_name
             );
         }
     }
@@ -126,7 +168,7 @@ impl Reporter for GitHubReporter {
         println!("::error::{}", message.replace('\n', "%0A"));
     }
 
-    fn report_success(&self, _verbose: bool) {
+    fn report_success(&self, _verbose: bool, _below_threshold: usize) {
         // No special output for success in GitHub reporter
     }
 
@@ -158,12 +200,23 @@ impl Reporter for TscReporter {
         println!("{}({},{}): {}: {}", file, line, col, severity, message);
     }
 
-    fn report_duplicate_operation(&self, op_name: &str, project_name: &str, paths: &[&Path]) {
+    fn report_duplicate_operation(
+        &self,
+        op_name: &str,
+        project_name: &str,
+        paths: &[&Path],
+        severity: Severity,
+    ) {
+        let level = match severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Info => "info",
+        };
         for path in paths {
             let file = path.to_string_lossy();
             println!(
-                "{}: error: Duplicate operation name '{}' in project {}",
-                file, op_name, project_name
+                "{}: {}: Duplicate operation name '{}' in project {}",
+                file, level, op_name, project_name
             );
         }
     }
@@ -172,7 +225,7 @@ impl Reporter for TscReporter {
         eprintln!("error: {}", message);
     }
 
-    fn report_success(&self, _verbose: bool) {
+    fn report_success(&self, _verbose: bool, _below_threshold: usize) {
         // No special output for success
     }
 

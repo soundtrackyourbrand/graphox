@@ -284,7 +284,7 @@ pub(super) fn validate_field(
                         };
                         ctx.diagnostics.push(Diagnostic {
                             range: this.translate_to_file_range(diagnostic_node, offset),
-                            severity: Some(DiagnosticSeverity::ERROR),
+                            severity: Some(cfg.rules().no_duplicate_fields_severity().as_lsp()),
                             message: format!("Duplicate field '{}' in selection set", response_key),
                             code: Some(ls_types::NumberOrString::String(
                                 "no_duplicate_fields".to_string(),

@@ -191,19 +191,46 @@
           ]
         },
         "unique_operation_name": {
-          "type": "boolean",
-          "description": "Enforce unique names for all operations across the project.",
-          "default": false
+          "description": "Enforce unique names for all operations across the project. Reported as an error unless a severity is given.",
+          "default": false,
+          "$ref": "#/definitions/Rule"
         },
         "no_duplicate_fields": {
-          "type": "boolean",
-          "description": "Prevent selecting the same field multiple times in a single selection set.",
-          "default": false
+          "description": "Prevent selecting the same field multiple times in a single selection set. Reported as an error unless a severity is given.",
+          "default": false,
+          "$ref": "#/definitions/Rule"
         },
         "no_unused_fragments": {
+          "description": "Identify and report fragments that are defined but not used. Reported as a warning unless a severity is given.",
+          "default": false,
+          "$ref": "#/definitions/Rule"
+        }
+      }
+    },
+    "Severity": {
+      "type": "string",
+      "enum": ["error", "warning", "info"],
+      "description": "How a rule reports its violations. Which levels end the run non-zero is decided separately, by `graphox check --fail-on`."
+    },
+    "Rule": {
+      "description": "A rule that is either on or off, optionally with a severity.",
+      "oneOf": [
+        { "type": "boolean", "description": "Whether the rule applies." },
+        { "$ref": "#/definitions/Severity", "description": "Enables the rule and sets its severity." },
+        { "$ref": "#/definitions/RuleObject" }
+      ]
+    },
+    "RuleObject": {
+      "type": "object",
+      "properties": {
+        "enabled": {
           "type": "boolean",
-          "description": "Identify and error on fragments that are defined but not used.",
-          "default": false
+          "description": "Whether the rule applies. Defaults to true, so an entry naming only a severity is an opt-in.",
+          "default": true
+        },
+        "severity": {
+          "$ref": "#/definitions/Severity",
+          "description": "Overrides the rule's default severity."
         }
       }
     },
@@ -256,6 +283,10 @@
         "reason": {
           "type": "string",
           "description": "Explanation reported alongside the diagnostic."
+        },
+        "severity": {
+          "$ref": "#/definitions/Severity",
+          "description": "Overrides this rule's default severity, which is error."
         }
       }
     },
