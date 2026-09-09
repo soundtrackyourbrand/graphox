@@ -191,19 +191,85 @@
           ]
         },
         "unique_operation_name": {
-          "type": "boolean",
-          "description": "Enforce unique names for all operations across the project.",
-          "default": false
+          "description": "Enforce unique names for all operations across the project. Reported as an error unless a severity is given.",
+          "default": false,
+          "allOf": [{ "$ref": "#/definitions/Rule" }]
         },
         "no_duplicate_fields": {
-          "type": "boolean",
-          "description": "Prevent selecting the same field multiple times in a single selection set.",
-          "default": false
+          "description": "Prevent selecting the same field multiple times in a single selection set. Reported as an error unless a severity is given.",
+          "default": false,
+          "allOf": [{ "$ref": "#/definitions/Rule" }]
         },
         "no_unused_fragments": {
+          "description": "Identify and report fragments that are defined but not used. Reported as a warning unless a severity is given.",
+          "default": false,
+          "allOf": [{ "$ref": "#/definitions/Rule" }]
+        },
+        "repeated_selections": {
+          "type": "array",
+          "description": "Report selections that recur across the workspace. Configured as a list so each kind of finding gets its own thresholds and severity.",
+          "items": { "$ref": "#/definitions/RepeatedSelectionsRule" }
+        }
+      }
+    },
+    "RepeatedSelectionsRule": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["matches_fragment", "extends_fragment", "new_fragment"],
+          "description": "matches_fragment: a selection that is exactly a fragment that already exists. extends_fragment: a selection containing a fragment's fields plus more. new_fragment: a group of fields that recurs with no fragment for it."
+        },
+        "min_fields": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Members a selection must share to be reported. Fields that required_fields mandates do not count. Defaults to 3 for matches_fragment, 4 for extends_fragment and 6 for new_fragment."
+        },
+        "min_uses": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Distinct definitions that must share a group. Only applies to new_fragment: one selection re-inlining an existing fragment is already a finding."
+        },
+        "severity": {
+          "description": "Defaults to error for matches_fragment, warning for extends_fragment and info for new_fragment.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
+        },
+        "ignore_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "GraphQL type names this entry does not report on."
+        }
+      }
+    },
+    "Severity": {
+      "type": "string",
+      "enum": ["error", "warning", "info"],
+      "description": "How a rule reports its violations. Which levels end the run non-zero is decided separately, by `graphox check --fail-on`."
+    },
+    "Rule": {
+      "description": "A rule that is either on or off, optionally with a severity.",
+      "oneOf": [
+        { "type": "boolean", "description": "Whether the rule applies." },
+        {
+          "description": "Enables the rule and sets its severity.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
+        },
+        { "$ref": "#/definitions/RuleObject" }
+      ]
+    },
+    "RuleObject": {
+      "type": "object",
+      "properties": {
+        "enabled": {
           "type": "boolean",
-          "description": "Identify and error on fragments that are defined but not used.",
-          "default": false
+          "description": "Whether the rule applies. Defaults to true, so an entry naming only a severity is an opt-in.",
+          "default": true
+        },
+        "severity": {
+          "description": "Overrides the rule's default severity.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
         }
       }
     },
@@ -256,6 +322,10 @@
         "reason": {
           "type": "string",
           "description": "Explanation reported alongside the diagnostic."
+        },
+        "severity": {
+          "description": "Overrides this rule's default severity, which is error.",
+          "allOf": [{ "$ref": "#/definitions/Severity" }]
         }
       }
     },

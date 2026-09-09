@@ -1612,6 +1612,7 @@ pub fn push_duplicate_operation_diagnostic(
     range: Range,
     name: &str,
     other_files: Option<Vec<String>>,
+    severity: crate::config::Severity,
 ) {
     let message = if let Some(files) = other_files {
         format!(
@@ -1625,7 +1626,7 @@ pub fn push_duplicate_operation_diagnostic(
 
     diagnostics.push(Diagnostic {
         range,
-        severity: Some(DiagnosticSeverity::ERROR),
+        severity: Some(severity.as_lsp()),
         message,
         code: Some(NumberOrString::String("duplicate_operation".to_string())),
         source: DIAGNOSTIC_SOURCE.map(String::from),

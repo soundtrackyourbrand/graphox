@@ -13,6 +13,7 @@ A high-performance GraphQL toolset for TypeScript monorepos, providing LSP, type
 - [Fragment Directives](#fragment-directives)
 - [Build Tool Plugins](./docs/plugins.md)
 - [Validation Rules](./docs/rules.md)
+- [Analyzing Selections](./docs/analyze.md)
 - [Architecture](./docs/architecture.md)
 - [Common Configurations](./docs/configurations.md)
 - [Comparison with GraphQL Code Generator](./docs/comparison-graphql-codegen.md)
@@ -154,11 +155,16 @@ graphox lsp
 
 # Validate GraphQL files
 graphox check
+graphox check --fail-on error  # Report warnings without failing the run
 
 # Generate TypeScript types
 graphox codegen
 graphox codegen --clean  # Remove generated files and caches
 graphox codegen --watch   # Watches and runs codegen of file changes
+
+# Report selections that recur across operations and fragments
+graphox analyze
+graphox analyze --type Account --limit 0  # Every shape on one type
 
 # Run performance benchmarks
 graphox benchmark
@@ -167,7 +173,14 @@ graphox benchmark
 ### Command Options
 
 - `check` - Validates all GraphQL files against the schema
+  - `--fail-on <error|warning|info>` - Lowest severity that ends the run non-zero (default `warning`)
 - `codegen` - Generates TypeScript types for operations
+- `analyze` - Reports selections that recur across the workspace. See [Analyzing selections](./docs/analyze.md)
+  - `--kind <matches_fragment|extends_fragment|new_fragment>` - Report one kind of finding
+  - `--type <Type>` - Report only selections on this GraphQL type
+  - `--min-fields <n>` / `--min-uses <n>` - Thresholds for what counts as a finding
+  - `--limit <n>` - Findings per section, `0` for all (default `20`). Human output only
+  - `--json` - Emit findings as JSON
 - `lsp` - Starts the Language Server Protocol server
 
 ---

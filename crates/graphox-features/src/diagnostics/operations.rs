@@ -269,7 +269,7 @@ pub(super) fn check_required_fields(
                                 range: anchor_node
                                     .map(|n| this.translate_to_file_range(n, offset))
                                     .unwrap_or(definition_range),
-                                severity: Some(DiagnosticSeverity::ERROR),
+                                severity: Some(rule.severity().as_lsp()),
                                 message: format!(
                                     "Required field '{}' must be selected in {} operations{}",
                                     field_name_str,
@@ -384,7 +384,7 @@ pub(super) fn check_required_fields(
                             ctx.diagnostics,
                             Diagnostic {
                                 range: anchor_range,
-                                severity: Some(DiagnosticSeverity::ERROR),
+                                severity: Some(rule.severity().as_lsp()),
                                 message: format!(
                                     "Required field '{}' must be selected in '{}'{}{}",
                                     field_name_str,
@@ -496,7 +496,7 @@ pub(super) fn check_required_fields(
                                     ctx.diagnostics,
                                     Diagnostic {
                                         range: anchor_range,
-                                        severity: Some(DiagnosticSeverity::ERROR),
+                                        severity: Some(rule.severity().as_lsp()),
                                         message: format!(
                                             "Required field '{}' must be selected in '... on {}'{}{}",
                                             field_name_str,
@@ -713,7 +713,7 @@ pub(super) fn check_forbidden_fields(
                                 ctx.diagnostics,
                                 Diagnostic {
                                     range: diagnostic_range,
-                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    severity: Some(rule.severity().as_lsp()),
                                     message: format!(
                                         "Field '{}' is forbidden on type '{}'{}{}{}",
                                         field_name_str,
@@ -865,7 +865,7 @@ pub(super) fn check_forbidden_fields(
                                 ctx.diagnostics,
                                 Diagnostic {
                                     range: diagnostic_range,
-                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    severity: Some(rule.severity().as_lsp()),
                                     message: format!(
                                         "Field '{}' is forbidden on '... on {}'{}{}{}",
                                         field_name_str,

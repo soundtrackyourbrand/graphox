@@ -105,15 +105,285 @@ pub fn clear_globset_cache() {
     GLOBSET_CACHE.clear();
 }
 
+/// How a rule reports its violations.
+///
+/// Every rule carries its own default, so enabling a rule without naming a
+/// severity reports exactly what it always did. Whether a level fails the
+/// build is a separate decision, made by `check --fail-on`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+    Info,
+}
+
+impl Severity {
+    pub fn as_lsp(self) -> ls_types::DiagnosticSeverity {
+        match self {
+            Severity::Error => ls_types::DiagnosticSeverity::ERROR,
+            Severity::Warning => ls_types::DiagnosticSeverity::WARNING,
+            Severity::Info => ls_types::DiagnosticSeverity::INFORMATION,
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "error" => Some(Severity::Error),
+            "warning" => Some(Severity::Warning),
+            "info" => Some(Severity::Info),
+            _ => None,
+        }
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            Severity::Error => 3,
+            Severity::Warning => 2,
+            Severity::Info => 1,
+        }
+    }
+
+    fn from_lsp(severity: ls_types::DiagnosticSeverity) -> Option<Self> {
+        if severity == ls_types::DiagnosticSeverity::ERROR {
+            Some(Severity::Error)
+        } else if severity == ls_types::DiagnosticSeverity::WARNING {
+            Some(Severity::Warning)
+        } else if severity == ls_types::DiagnosticSeverity::INFORMATION {
+            Some(Severity::Info)
+        } else {
+            // HINT, and anything a future LSP version adds below it.
+            None
+        }
+    }
+
+    /// Whether `diagnostic` is at least as severe as `self`, used to decide
+    /// what fails a run. A diagnostic with no severity, or one below the
+    /// levels a rule can be set to, never counts — matching how `check` has
+    /// always treated them.
+    pub fn is_met_by(self, diagnostic: Option<ls_types::DiagnosticSeverity>) -> bool {
+        diagnostic
+            .and_then(Severity::from_lsp)
+            .is_some_and(|d| d.rank() >= self.rank())
+    }
+
+    fn from_yaml(node: &Yaml, rule_name: &str) -> Option<Self> {
+        let raw = node.as_str()?;
+        let parsed = Self::parse(raw);
+        if parsed.is_none() {
+            eprintln!(
+                "{}: Unknown severity '{}' for rule '{}'. Expected error, warning or info. Using the rule's default.",
+                "Warning".yellow(),
+                raw.yellow(),
+                rule_name.yellow()
+            );
+        }
+        parsed
+    }
+}
+
+/// A rule that is either on or off, plus an optional severity override.
+#[derive(Debug, Clone, Copy)]
+pub struct RuleSetting {
+    enabled: bool,
+    severity: Option<Severity>,
+}
+
+impl RuleSetting {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            severity: None,
+        }
+    }
+
+    pub fn with_severity(mut self, severity: Severity) -> Self {
+        self.severity = Some(severity);
+        self
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// The configured severity, or `default` when the rule was enabled without
+    /// naming one.
+    pub fn severity(&self, default: Severity) -> Severity {
+        self.severity.unwrap_or(default)
+    }
+
+    /// Accepts `true`/`false`, a bare severity (`warning`, which also enables
+    /// the rule), or the long form `{ enabled: true, severity: warning }`.
+    fn from_yaml(node: &Yaml, rule_name: &str) -> Option<Self> {
+        if let Some(enabled) = node.as_bool() {
+            return Some(Self::new(enabled));
+        }
+
+        if node.as_str().is_some() {
+            // Naming a severity is an opt-in whether or not the name parses.
+            // Propagating the parse failure would leave the rule off while the
+            // warning claimed its default was in use.
+            let mut setting = Self::new(true);
+            if let Some(severity) = Severity::from_yaml(node, rule_name) {
+                setting = setting.with_severity(severity);
+            }
+            return Some(setting);
+        }
+
+        if node.as_hash().is_some() {
+            // An entry that names only a severity is still an opt-in.
+            let enabled = node["enabled"].as_bool().unwrap_or(true);
+            let mut setting = Self::new(enabled);
+            if let Some(severity) = Severity::from_yaml(&node["severity"], rule_name) {
+                setting = setting.with_severity(severity);
+            }
+            return Some(setting);
+        }
+
+        None
+    }
+}
+
+/// What a `repeated_selections` entry looks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatedSelectionKind {
+    /// A selection set that is exactly a fragment that already exists.
+    MatchesFragment,
+    /// A selection set that contains a fragment's fields, plus more.
+    ExtendsFragment,
+    /// A group of fields that recurs with no fragment for it.
+    NewFragment,
+}
+
+impl RepeatedSelectionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MatchesFragment => "matches_fragment",
+            Self::ExtendsFragment => "extends_fragment",
+            Self::NewFragment => "new_fragment",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "matches_fragment" => Some(Self::MatchesFragment),
+            "extends_fragment" => Some(Self::ExtendsFragment),
+            "new_fragment" => Some(Self::NewFragment),
+            _ => None,
+        }
+    }
+
+    /// Only `new_fragment` needs a recurrence threshold. A single hand-rolled
+    /// copy of a fragment that exists is already the finding.
+    fn counts_uses(self) -> bool {
+        self == Self::NewFragment
+    }
+
+    /// Chosen by sweeping thresholds over a large workspace that had never run
+    /// the rule. Wider is the better knob: raising `min_fields` by two cuts
+    /// findings several times over, while raising `min_uses` barely moves them,
+    /// because a wide selection that recurs is a missing fragment almost by
+    /// definition and a narrow one is usually just a common field.
+    fn default_min_fields(self) -> usize {
+        match self {
+            Self::MatchesFragment => 3,
+            Self::ExtendsFragment => 4,
+            Self::NewFragment => 6,
+        }
+    }
+
+    fn default_min_uses(self) -> usize {
+        if self.counts_uses() { 4 } else { 1 }
+    }
+
+    /// Only an exact copy of a fragment that exists is clear-cut enough to
+    /// block on. The other two are judgement calls, and a codebase meeting the
+    /// rule for the first time should not have to settle them to stay green.
+    fn default_severity(self) -> Severity {
+        match self {
+            Self::MatchesFragment => Severity::Error,
+            Self::ExtendsFragment => Severity::Warning,
+            Self::NewFragment => Severity::Info,
+        }
+    }
+}
+
+/// One `repeated_selections` entry. The rule is configured as a list so the
+/// same workspace can hold a strict entry for one kind and a lenient one for
+/// another.
+#[derive(Debug, Clone)]
+pub struct RepeatedSelectionsRule {
+    pub kind: RepeatedSelectionKind,
+    pub min_fields: usize,
+    pub min_uses: usize,
+    pub severity: Severity,
+    pub ignore_types: Vec<String>,
+}
+
+impl RepeatedSelectionsRule {
+    pub fn new(kind: RepeatedSelectionKind) -> Self {
+        Self {
+            kind,
+            min_fields: kind.default_min_fields(),
+            min_uses: kind.default_min_uses(),
+            severity: kind.default_severity(),
+            ignore_types: Vec::new(),
+        }
+    }
+
+    pub fn ignores(&self, type_name: &str) -> bool {
+        self.ignore_types.iter().any(|t| t == type_name)
+    }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        let raw_kind = node["kind"].as_str()?;
+        let Some(kind) = RepeatedSelectionKind::parse(raw_kind) else {
+            eprintln!(
+                "{}: Unknown repeated_selections kind '{}'. Expected matches_fragment, extends_fragment or new_fragment. Skipping this entry.",
+                "Warning".yellow(),
+                raw_kind.yellow()
+            );
+            return None;
+        };
+
+        let mut rule = Self::new(kind);
+        if let Some(min_fields) = node["min_fields"].as_i64() {
+            rule.min_fields = min_fields.max(1) as usize;
+        }
+        if let Some(min_uses) = node["min_uses"].as_i64() {
+            if kind.counts_uses() {
+                rule.min_uses = min_uses.max(1) as usize;
+            } else {
+                eprintln!(
+                    "{}: repeated_selections '{}' does not take min_uses \u{2014} one selection \
+                     that re-inlines an existing fragment is already a finding. Ignoring it.",
+                    "Warning".yellow(),
+                    kind.as_str().yellow()
+                );
+            }
+        }
+        if let Some(severity) = Severity::from_yaml(&node["severity"], kind.as_str()) {
+            rule.severity = severity;
+        }
+        if let Some(types) = node["ignore_types"].as_vec() {
+            rule.ignore_types = types
+                .iter()
+                .filter_map(|t| t.as_str().map(String::from))
+                .collect();
+        }
+        Some(rule)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
     required_fields: Option<AHashMap<String, FieldRule>>,
     forbidden_fields: Option<AHashMap<String, FieldRule>>,
     required_fields_by_type: Option<AHashMap<String, AHashMap<String, FieldRule>>>,
     forbidden_fields_by_type: Option<AHashMap<String, AHashMap<String, FieldRule>>>,
-    unique_operation_name: Option<bool>,
-    no_duplicate_fields: Option<bool>,
-    no_unused_fragments: Option<bool>,
+    unique_operation_name: Option<RuleSetting>,
+    no_duplicate_fields: Option<RuleSetting>,
+    no_unused_fragments: Option<RuleSetting>,
+    repeated_selections: Option<Vec<RepeatedSelectionsRule>>,
 }
 
 pub type RequiredFieldRule = FieldRule;
@@ -121,18 +391,42 @@ pub type ForbiddenFieldRule = FieldRule;
 
 impl RulesConfig {
     pub fn with_unique_operation_name(mut self, enabled: bool) -> Self {
-        self.unique_operation_name = Some(enabled);
+        self.unique_operation_name = Some(RuleSetting::new(enabled));
         self
     }
 
     pub fn with_no_duplicate_fields(mut self, enabled: bool) -> Self {
-        self.no_duplicate_fields = Some(enabled);
+        self.no_duplicate_fields = Some(RuleSetting::new(enabled));
         self
     }
 
     pub fn with_no_unused_fragments(mut self, enabled: bool) -> Self {
-        self.no_unused_fragments = Some(enabled);
+        self.no_unused_fragments = Some(RuleSetting::new(enabled));
         self
+    }
+
+    pub fn with_unique_operation_name_setting(mut self, setting: RuleSetting) -> Self {
+        self.unique_operation_name = Some(setting);
+        self
+    }
+
+    pub fn with_no_duplicate_fields_setting(mut self, setting: RuleSetting) -> Self {
+        self.no_duplicate_fields = Some(setting);
+        self
+    }
+
+    pub fn with_no_unused_fragments_setting(mut self, setting: RuleSetting) -> Self {
+        self.no_unused_fragments = Some(setting);
+        self
+    }
+
+    pub fn with_repeated_selections(mut self, rules: Vec<RepeatedSelectionsRule>) -> Self {
+        self.repeated_selections = Some(rules);
+        self
+    }
+
+    pub fn repeated_selections(&self) -> &[RepeatedSelectionsRule] {
+        self.repeated_selections.as_deref().unwrap_or(&[])
     }
 
     pub fn with_required_fields(mut self, fields: AHashMap<String, FieldRule>) -> Self {
@@ -192,15 +486,33 @@ impl RulesConfig {
     }
 
     pub fn unique_operation_name(&self) -> bool {
-        self.unique_operation_name.unwrap_or(false)
+        self.unique_operation_name.is_some_and(|r| r.enabled())
     }
 
     pub fn no_duplicate_fields(&self) -> bool {
-        self.no_duplicate_fields.unwrap_or(false)
+        self.no_duplicate_fields.is_some_and(|r| r.enabled())
     }
 
     pub fn no_unused_fragments(&self) -> bool {
-        self.no_unused_fragments.unwrap_or(false)
+        self.no_unused_fragments.is_some_and(|r| r.enabled())
+    }
+
+    pub fn unique_operation_name_severity(&self) -> Severity {
+        Self::severity_of(self.unique_operation_name, Severity::Error)
+    }
+
+    pub fn no_duplicate_fields_severity(&self) -> Severity {
+        Self::severity_of(self.no_duplicate_fields, Severity::Error)
+    }
+
+    /// Unlike the other rules this one has always reported as a warning, so
+    /// that stays its default.
+    pub fn no_unused_fragments_severity(&self) -> Severity {
+        Self::severity_of(self.no_unused_fragments, Severity::Warning)
+    }
+
+    fn severity_of(setting: Option<RuleSetting>, default: Severity) -> Severity {
+        setting.map_or(default, |r| r.severity(default))
     }
 
     pub fn merge(&self, other: &Self) -> Self {
@@ -231,6 +543,9 @@ impl RulesConfig {
         if other.no_unused_fragments.is_some() {
             merged.no_unused_fragments = other.no_unused_fragments;
         }
+        if other.repeated_selections.is_some() {
+            merged.repeated_selections = other.repeated_selections.clone();
+        }
 
         merged
     }
@@ -255,16 +570,17 @@ impl RulesConfig {
                         || v["enabled"].as_bool().is_some()
                         || v["enabled"].as_vec().is_some()
                     {
-                        if let Some(rule) = FieldRule::from_yaml(v) {
+                        if let Some(rule) = FieldRule::from_yaml(v, key) {
                             global_fields.insert(key.to_string(), rule);
                         }
                     } else if let Some(type_hash) = v.as_hash() {
                         // It's a type namespace
                         let mut field_rules = AHashMap::default();
                         for (fk, fv) in type_hash {
-                            if let (Some(field_key), Some(rule)) =
-                                (fk.as_str(), FieldRule::from_yaml(fv))
-                            {
+                            if let (Some(field_key), Some(rule)) = (
+                                fk.as_str(),
+                                FieldRule::from_yaml(fv, fk.as_str().unwrap_or_default()),
+                            ) {
                                 field_rules.insert(field_key.to_string(), rule);
                             }
                         }
@@ -295,16 +611,17 @@ impl RulesConfig {
                         || v["enabled"].as_bool().is_some()
                         || v["enabled"].as_vec().is_some()
                     {
-                        if let Some(rule) = FieldRule::from_yaml(v) {
+                        if let Some(rule) = FieldRule::from_yaml(v, key) {
                             global_fields.insert(key.to_string(), rule);
                         }
                     } else if let Some(type_hash) = v.as_hash() {
                         // It's a type namespace
                         let mut field_rules = AHashMap::default();
                         for (fk, fv) in type_hash {
-                            if let (Some(field_key), Some(rule)) =
-                                (fk.as_str(), FieldRule::from_yaml(fv))
-                            {
+                            if let (Some(field_key), Some(rule)) = (
+                                fk.as_str(),
+                                FieldRule::from_yaml(fv, fk.as_str().unwrap_or_default()),
+                            ) {
                                 field_rules.insert(field_key.to_string(), rule);
                             }
                         }
@@ -322,9 +639,21 @@ impl RulesConfig {
             rules.forbidden_fields_by_type = Some(AHashMap::default());
         }
 
-        rules.unique_operation_name = node["unique_operation_name"].as_bool();
-        rules.no_duplicate_fields = node["no_duplicate_fields"].as_bool();
-        rules.no_unused_fragments = node["no_unused_fragments"].as_bool();
+        rules.unique_operation_name =
+            RuleSetting::from_yaml(&node["unique_operation_name"], "unique_operation_name");
+        rules.no_duplicate_fields =
+            RuleSetting::from_yaml(&node["no_duplicate_fields"], "no_duplicate_fields");
+        rules.no_unused_fragments =
+            RuleSetting::from_yaml(&node["no_unused_fragments"], "no_unused_fragments");
+
+        if let Some(entries) = node["repeated_selections"].as_vec() {
+            rules.repeated_selections = Some(
+                entries
+                    .iter()
+                    .filter_map(RepeatedSelectionsRule::from_yaml)
+                    .collect(),
+            );
+        }
 
         Some(rules)
     }
@@ -375,6 +704,7 @@ impl FieldEnabled {
 pub struct FieldRule {
     enabled: FieldEnabled,
     reason: Option<String>,
+    severity: Option<Severity>,
 }
 
 impl FieldRule {
@@ -382,6 +712,7 @@ impl FieldRule {
         Self {
             enabled: FieldEnabled::Always(enabled),
             reason: None,
+            severity: None,
         }
     }
 
@@ -389,12 +720,24 @@ impl FieldRule {
         Self {
             enabled: FieldEnabled::Operations(ops),
             reason: None,
+            severity: None,
         }
     }
 
     pub fn with_reason(mut self, reason: String) -> Self {
         self.reason = Some(reason);
         self
+    }
+
+    pub fn with_severity(mut self, severity: Severity) -> Self {
+        self.severity = Some(severity);
+        self
+    }
+
+    /// Required and forbidden fields have always been errors, so that is the
+    /// default when an entry does not name a severity.
+    pub fn severity(&self) -> Severity {
+        self.severity.unwrap_or(Severity::Error)
     }
 
     pub fn applies_to_operation(&self, operation_type: &str) -> bool {
@@ -410,20 +753,26 @@ impl FieldRule {
         self.reason.as_deref()
     }
 
-    fn from_yaml(node: &Yaml) -> Option<Self> {
+    fn from_yaml(node: &Yaml, rule_name: &str) -> Option<Self> {
         if let Some(enabled) = FieldEnabled::from_yaml(node) {
             return Some(FieldRule {
                 enabled,
                 reason: None,
+                severity: None,
             });
         }
 
         if let Some(_map) = node.as_hash() {
             let enabled_node = &node["enabled"];
             let reason = node["reason"].as_str().map(String::from);
+            let severity = Severity::from_yaml(&node["severity"], rule_name);
 
             if let Some(enabled) = FieldEnabled::from_yaml(enabled_node) {
-                return Some(FieldRule { enabled, reason });
+                return Some(FieldRule {
+                    enabled,
+                    reason,
+                    severity,
+                });
             }
         }
 

@@ -70,11 +70,16 @@ pub(super) fn validate_fragment(
             .as_ref()
             .map(|c| c.rules().no_unused_fragments())
             .unwrap_or(false);
+        let no_unused_fragments_severity = ctx
+            .config
+            .as_ref()
+            .map(|c| c.rules().no_unused_fragments_severity())
+            .unwrap_or(graphox_core::config::Severity::Warning);
 
         if !is_used && ctx.workspace_loaded && !is_type_only && no_unused_fragments_enabled {
             ctx.diagnostics.push(Diagnostic {
                 range: this.translate_to_file_range(name_node, offset),
-                severity: Some(DiagnosticSeverity::WARNING),
+                severity: Some(no_unused_fragments_severity.as_lsp()),
                 message: format!("Unused fragment: {}", name),
                 code: Some(NumberOrString::String("unused_fragment".to_string())),
                 tags: Some(vec![DiagnosticTag::UNNECESSARY]),

@@ -1,16 +1,17 @@
 # Validation Rules
 
-graphox includes configurable validation rules that you can enable in `graphox.yaml`. All rules are errors that fail validation.
+graphox includes configurable validation rules that you can enable in `graphox.yaml`.
 
 ## Quick Reference
 
-| Rule | Type | Default | Description |
-|------|------|---------|-------------|
-| `unique_operation_name` | `boolean` | `false` | Ensures operation names are unique |
-| `no_duplicate_fields` | `boolean` | `false` | Detects duplicate fields in selection sets |
-| `no_unused_fragments` | `boolean` | `false` | Detects unused fragment definitions |
-| `required_fields` | `map` | `{}` | Ensures operations include required fields |
-| `forbidden_fields` | `map` | `{}` | Ensures operations exclude forbidden fields |
+| Rule | Type | Default | Severity | Description |
+|------|------|---------|----------|-------------|
+| `unique_operation_name` | `boolean` | `false` | `error` | Ensures operation names are unique |
+| `no_duplicate_fields` | `boolean` | `false` | `error` | Detects duplicate fields in selection sets |
+| `no_unused_fragments` | `boolean` | `false` | `warning` | Detects unused fragment definitions |
+| `required_fields` | `map` | `{}` | `error` | Ensures operations include required fields |
+| `forbidden_fields` | `map` | `{}` | `error` | Ensures operations exclude forbidden fields |
+| `repeated_selections` | `list` | `[]` | varies | Reports selections that recur across the workspace |
 
 ## Enabling Rules
 
@@ -24,6 +25,44 @@ rules:
     id: true
     permissions: ["mutation"]
 ```
+
+## Severity
+
+Every rule reports at the severity in the table above. Naming a severity
+overrides it, in either the short or the long form:
+
+```yaml
+rules:
+  # Short form: enables the rule and sets its severity.
+  no_duplicate_fields: warning
+
+  # Long form. `enabled` defaults to true, so an entry that names only a
+  # severity is still an opt-in.
+  no_unused_fragments:
+    enabled: true
+    severity: info
+```
+
+`required_fields` and `forbidden_fields` take a severity per entry, alongside
+`enabled` and `reason`:
+
+```yaml
+rules:
+  required_fields:
+    id: true
+    permissions:
+      enabled: ["query"]
+      severity: warning
+      reason: Still rolling out across the app
+```
+
+Severity decides how a violation is *reported*. What ends a run non-zero is a
+separate decision, made by `graphox check --fail-on <error|warning|info>`. It
+defaults to `warning`, so warnings and errors both fail a check; pass
+`--fail-on error` to make warnings advisory. Editors show every level.
+
+`check` prints every level a rule can be set to, including `info`, so a rule
+configured to advise is visible without `--verbose`.
 
 ---
 
@@ -317,6 +356,80 @@ A path a fragment nests and the same path selected inline are one selection set,
 Rules that hold for every operation type (`password: true`) are reported inside the fragment definition instead, where the selection is, rather than once per spread.
 
 **Provides code action:** "Remove forbidden field" to automatically delete the field.
+
+---
+
+## repeated_selections
+
+Reports selections that recur across the workspace, rather than within one
+document. Configured as a list, so each kind of finding gets its own thresholds
+and severity.
+
+```yaml
+rules:
+  repeated_selections:
+    # A selection that is exactly a fragment that already exists.
+    - kind: matches_fragment
+
+    # A selection containing a fragment's fields, plus more.
+    - kind: extends_fragment
+
+    # A group of fields that recurs with no fragment for it. Every key below is
+    # optional; these are the defaults.
+    - kind: new_fragment
+      min_fields: 6
+      min_uses: 4
+      severity: info
+      ignore_types: [PageInfo]
+```
+
+| Kind | Default `min_fields` | Default `min_uses` | Default severity |
+|------|----------------------|--------------------|------------------|
+| `matches_fragment` | 3 | — | `error` |
+| `extends_fragment` | 4 | — | `warning` |
+| `new_fragment` | 6 | 4 | `info` |
+
+The defaults come from sweeping thresholds over a large workspace that had never
+run the rule. `min_fields` is the knob that matters: raising it by two cuts
+findings several times over, while `min_uses` barely moves them, because a wide
+selection that recurs is a missing fragment almost by definition and a narrow one
+is usually just a common field. Only `matches_fragment` defaults to an error —
+an exact copy of a fragment that exists is clear-cut, while the other two are
+judgement calls a codebase should not have to settle to stay green.
+
+`min_uses` applies only to `new_fragment`. The other two
+kinds report a single occurrence: one hand-rolled copy of a fragment that exists
+is already the drift the rule is about, since a field added to the fragment
+reaches every spread and misses every copy. Setting `min_uses` on them is
+reported and ignored.
+
+A shape that an existing fragment already covers is never a `new_fragment`
+finding — those sites belong to `matches_fragment`.
+
+A recurring shape is one finding, not one per place it appears: extracting the
+fragment is a single decision, and reporting it per site turned a dozen shapes
+into hundreds of diagnostics saying the same thing. The finding is anchored at
+its first site in path order and carries the rest as related locations. The
+default reporter lists them; `--reporter github` and `--reporter tsc` carry one
+location per diagnostic, so they name the others in the message instead.
+
+Fields that `required_fields` mandates do not count toward `min_fields`. They
+are still part of the reported selection, but a group of nothing but `id` and
+`permissions` describes what graphox inserted rather than how the query was
+written.
+
+That is read per project, since `required_fields` can be overridden there. A
+field one project mandates and another does not still counts: in the project
+that does not impose it, whoever wrote the selection chose it. A field is
+discounted only when every project selecting it has it imposed.
+
+`ignore_types` takes GraphQL type names the entry should not report on.
+`graphox-ignore` comments do not apply: like the other workspace-wide rules,
+this one compares across documents, so there is no single line that owns a
+finding.
+
+Use [`graphox analyze`](./analyze.md) to explore findings before choosing
+thresholds — it runs the same analysis without failing anything.
 
 ---
 
