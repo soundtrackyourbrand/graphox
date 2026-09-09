@@ -8,10 +8,13 @@ pub use benchmark::run_benchmark;
 pub use check::run_check;
 pub use codegen::{CodegenParams, run_codegen};
 
+use ahash::AHashSet;
 use graphox_core::Config;
 use graphox_core::config::SchemaSource;
+use graphox_core::engine::WorkspaceMetadata;
 use graphox_core::schema;
 use rayon::prelude::*;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub(crate) type ValidSchema = Arc<apollo_compiler::validation::Valid<apollo_compiler::Schema>>;
@@ -51,4 +54,43 @@ pub(crate) fn build_validated_schemas(
         })
         .collect();
     pairs.into_iter().collect()
+}
+
+/// Group every scanned file by the schema its project uses.
+///
+/// Cross-document analysis is only meaningful within one schema — two projects
+/// on different schemas could never share a fragment — and several projects
+/// usually share one, so this is the unit such an analysis runs over.
+pub(crate) fn documents_by_schema(
+    config: &Config,
+    workspace: &WorkspaceMetadata,
+) -> Vec<(String, Vec<(usize, PathBuf)>)> {
+    let mut by_schema: Vec<(String, Vec<(usize, PathBuf)>)> = Vec::new();
+    for (idx, (project, meta)) in config
+        .projects()
+        .iter()
+        .zip(&workspace.projects)
+        .enumerate()
+    {
+        let key = project.schema().as_key();
+        let entry = match by_schema.iter_mut().find(|(k, _)| *k == key) {
+            Some(entry) => entry,
+            None => {
+                by_schema.push((key, Vec::new()));
+                by_schema.last_mut().expect("just pushed")
+            }
+        };
+        for file in &meta.files {
+            entry.1.push((idx, file.clone()));
+        }
+    }
+    by_schema
+}
+
+/// Fields the configuration mandates. They are present because graphox put them
+/// there, so they say nothing about how a selection was written.
+pub(crate) fn mandated_fields(config: &Config) -> AHashSet<String> {
+    let mut fields: AHashSet<String> = config.rules().required_fields().keys().cloned().collect();
+    fields.insert("__typename".to_string());
+    fields
 }

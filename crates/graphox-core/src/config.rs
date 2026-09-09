@@ -237,6 +237,124 @@ impl RuleSetting {
     }
 }
 
+/// What a `repeated_selections` entry looks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatedSelectionKind {
+    /// A selection set that is exactly a fragment that already exists.
+    MatchesFragment,
+    /// A selection set that contains a fragment's fields, plus more.
+    ExtendsFragment,
+    /// A group of fields that recurs with no fragment for it.
+    NewFragment,
+}
+
+impl RepeatedSelectionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MatchesFragment => "matches_fragment",
+            Self::ExtendsFragment => "extends_fragment",
+            Self::NewFragment => "new_fragment",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "matches_fragment" => Some(Self::MatchesFragment),
+            "extends_fragment" => Some(Self::ExtendsFragment),
+            "new_fragment" => Some(Self::NewFragment),
+            _ => None,
+        }
+    }
+
+    /// Only `new_fragment` needs a recurrence threshold. A single hand-rolled
+    /// copy of a fragment that exists is already the finding.
+    fn counts_uses(self) -> bool {
+        self == Self::NewFragment
+    }
+
+    fn default_min_fields(self) -> usize {
+        match self {
+            Self::MatchesFragment => 2,
+            Self::ExtendsFragment => 3,
+            Self::NewFragment => 4,
+        }
+    }
+
+    fn default_severity(self) -> Severity {
+        match self {
+            Self::MatchesFragment => Severity::Error,
+            Self::ExtendsFragment | Self::NewFragment => Severity::Warning,
+        }
+    }
+}
+
+/// One `repeated_selections` entry. The rule is configured as a list so the
+/// same workspace can hold a strict entry for one kind and a lenient one for
+/// another.
+#[derive(Debug, Clone)]
+pub struct RepeatedSelectionsRule {
+    pub kind: RepeatedSelectionKind,
+    pub min_fields: usize,
+    pub min_uses: usize,
+    pub severity: Severity,
+    pub ignore_types: Vec<String>,
+}
+
+impl RepeatedSelectionsRule {
+    pub fn new(kind: RepeatedSelectionKind) -> Self {
+        Self {
+            kind,
+            min_fields: kind.default_min_fields(),
+            min_uses: if kind.counts_uses() { 3 } else { 1 },
+            severity: kind.default_severity(),
+            ignore_types: Vec::new(),
+        }
+    }
+
+    pub fn ignores(&self, type_name: &str) -> bool {
+        self.ignore_types.iter().any(|t| t == type_name)
+    }
+
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        let raw_kind = node["kind"].as_str()?;
+        let Some(kind) = RepeatedSelectionKind::parse(raw_kind) else {
+            eprintln!(
+                "{}: Unknown repeated_selections kind '{}'. Expected matches_fragment, extends_fragment or new_fragment. Skipping this entry.",
+                "Warning".yellow(),
+                raw_kind.yellow()
+            );
+            return None;
+        };
+
+        let mut rule = Self::new(kind);
+        if let Some(min_fields) = node["min_fields"].as_i64() {
+            rule.min_fields = min_fields.max(1) as usize;
+        }
+        if let Some(min_uses) = node["min_uses"].as_i64() {
+            if kind.counts_uses() {
+                rule.min_uses = min_uses.max(1) as usize;
+            } else {
+                eprintln!(
+                    "{}: repeated_selections '{}' does not take min_uses \u{2014} one selection \
+                     that re-inlines an existing fragment is already a finding. Ignoring it.",
+                    "Warning".yellow(),
+                    kind.as_str().yellow()
+                );
+            }
+        }
+        if let Some(severity) = Severity::from_yaml(&node["severity"], kind.as_str()) {
+            rule.severity = severity;
+        }
+        if let Some(types) = node["ignore_types"].as_vec() {
+            rule.ignore_types = types
+                .iter()
+                .filter_map(|t| t.as_str().map(String::from))
+                .collect();
+        }
+        Some(rule)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
     required_fields: Option<AHashMap<String, FieldRule>>,
@@ -246,6 +364,7 @@ pub struct RulesConfig {
     unique_operation_name: Option<RuleSetting>,
     no_duplicate_fields: Option<RuleSetting>,
     no_unused_fragments: Option<RuleSetting>,
+    repeated_selections: Option<Vec<RepeatedSelectionsRule>>,
 }
 
 pub type RequiredFieldRule = FieldRule;
@@ -280,6 +399,15 @@ impl RulesConfig {
     pub fn with_no_unused_fragments_setting(mut self, setting: RuleSetting) -> Self {
         self.no_unused_fragments = Some(setting);
         self
+    }
+
+    pub fn with_repeated_selections(mut self, rules: Vec<RepeatedSelectionsRule>) -> Self {
+        self.repeated_selections = Some(rules);
+        self
+    }
+
+    pub fn repeated_selections(&self) -> &[RepeatedSelectionsRule] {
+        self.repeated_selections.as_deref().unwrap_or(&[])
     }
 
     pub fn with_required_fields(mut self, fields: AHashMap<String, FieldRule>) -> Self {
@@ -396,6 +524,9 @@ impl RulesConfig {
         if other.no_unused_fragments.is_some() {
             merged.no_unused_fragments = other.no_unused_fragments;
         }
+        if other.repeated_selections.is_some() {
+            merged.repeated_selections = other.repeated_selections.clone();
+        }
 
         merged
     }
@@ -495,6 +626,15 @@ impl RulesConfig {
             RuleSetting::from_yaml(&node["no_duplicate_fields"], "no_duplicate_fields");
         rules.no_unused_fragments =
             RuleSetting::from_yaml(&node["no_unused_fragments"], "no_unused_fragments");
+
+        if let Some(entries) = node["repeated_selections"].as_vec() {
+            rules.repeated_selections = Some(
+                entries
+                    .iter()
+                    .filter_map(RepeatedSelectionsRule::from_yaml)
+                    .collect(),
+            );
+        }
 
         Some(rules)
     }

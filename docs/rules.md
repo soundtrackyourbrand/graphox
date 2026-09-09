@@ -11,6 +11,7 @@ graphox includes configurable validation rules that you can enable in `graphox.y
 | `no_unused_fragments` | `boolean` | `false` | `warning` | Detects unused fragment definitions |
 | `required_fields` | `map` | `{}` | `error` | Ensures operations include required fields |
 | `forbidden_fields` | `map` | `{}` | `error` | Ensures operations exclude forbidden fields |
+| `repeated_selections` | `list` | `[]` | varies | Reports selections that recur across the workspace |
 
 ## Enabling Rules
 
@@ -352,6 +353,63 @@ A path a fragment nests and the same path selected inline are one selection set,
 Rules that hold for every operation type (`password: true`) are reported inside the fragment definition instead, where the selection is, rather than once per spread.
 
 **Provides code action:** "Remove forbidden field" to automatically delete the field.
+
+---
+
+## repeated_selections
+
+Reports selections that recur across the workspace, rather than within one
+document. Configured as a list, so each kind of finding gets its own thresholds
+and severity.
+
+```yaml
+rules:
+  repeated_selections:
+    # A selection that is exactly a fragment that already exists.
+    - kind: matches_fragment
+      min_fields: 2
+      severity: error
+
+    # A selection containing a fragment's fields, plus more.
+    - kind: extends_fragment
+      min_fields: 3
+      severity: warning
+
+    # A group of fields that recurs with no fragment for it.
+    - kind: new_fragment
+      min_fields: 4
+      min_uses: 3
+      severity: warning
+      ignore_types: [PageInfo]
+```
+
+| Kind | Default `min_fields` | Default severity |
+|------|----------------------|------------------|
+| `matches_fragment` | 2 | `error` |
+| `extends_fragment` | 3 | `warning` |
+| `new_fragment` | 4 | `warning` |
+
+`min_uses` applies only to `new_fragment`, and defaults to 3. The other two
+kinds report a single occurrence: one hand-rolled copy of a fragment that exists
+is already the drift the rule is about, since a field added to the fragment
+reaches every spread and misses every copy. Setting `min_uses` on them is
+reported and ignored.
+
+A shape that an existing fragment already covers is never a `new_fragment`
+finding — those sites belong to `matches_fragment`.
+
+Fields that `required_fields` mandates do not count toward `min_fields`. They
+are still part of the reported selection, but a group of nothing but `id` and
+`permissions` describes what graphox inserted rather than how the query was
+written.
+
+`ignore_types` takes GraphQL type names the entry should not report on.
+`graphox-ignore` comments do not apply: like the other workspace-wide rules,
+this one compares across documents, so there is no single line that owns a
+finding.
+
+Use [`graphox analyze`](./analyze.md) to explore findings before choosing
+thresholds — it runs the same analysis without failing anything.
 
 ---
 

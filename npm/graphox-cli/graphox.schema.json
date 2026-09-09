@@ -204,6 +204,42 @@
           "description": "Identify and report fragments that are defined but not used. Reported as a warning unless a severity is given.",
           "default": false,
           "$ref": "#/definitions/Rule"
+        },
+        "repeated_selections": {
+          "type": "array",
+          "description": "Report selections that recur across the workspace. Configured as a list so each kind of finding gets its own thresholds and severity.",
+          "items": { "$ref": "#/definitions/RepeatedSelectionsRule" }
+        }
+      }
+    },
+    "RepeatedSelectionsRule": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["matches_fragment", "extends_fragment", "new_fragment"],
+          "description": "matches_fragment: a selection that is exactly a fragment that already exists. extends_fragment: a selection containing a fragment's fields plus more. new_fragment: a group of fields that recurs with no fragment for it."
+        },
+        "min_fields": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Members a selection must share to be reported. Fields that required_fields mandates do not count. Defaults to 2 for matches_fragment, 3 for extends_fragment and 4 for new_fragment."
+        },
+        "min_uses": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Distinct definitions that must share a group. Only applies to new_fragment: one selection re-inlining an existing fragment is already a finding."
+        },
+        "severity": {
+          "$ref": "#/definitions/Severity",
+          "description": "Defaults to error for matches_fragment and warning for the other two."
+        },
+        "ignore_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "GraphQL type names this entry does not report on."
         }
       }
     },

@@ -1,13 +1,11 @@
-use ahash::AHashSet;
 use colored::*;
 use graphox_core::Config;
 use graphox_core::engine::Engine;
 use graphox_features::analysis::repeated_selections::{
     self, Analysis, DefinitionKind, DocumentSource, OverlapKind, Scope,
 };
-use std::path::PathBuf;
 
-use super::build_validated_schemas;
+use super::{build_validated_schemas, documents_by_schema, mandated_fields};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -47,39 +45,12 @@ pub async fn run_analyze(config: Config, params: AnalyzeParams) {
     );
     let schemas = build_validated_schemas(&config);
 
-    // Analyse each schema once, across every project that uses it. Two projects
-    // on different schemas can never share a fragment, so grouping this way is
-    // what makes a cross-project finding mean something.
-    let mut by_schema: Vec<(String, Vec<(usize, PathBuf)>)> = Vec::new();
-    for (idx, (project, meta)) in config
-        .projects()
-        .iter()
-        .zip(&workspace.projects)
-        .enumerate()
-    {
-        let key = project.schema().as_key();
-        let entry = match by_schema.iter_mut().find(|(k, _)| *k == key) {
-            Some(entry) => entry,
-            None => {
-                by_schema.push((key, Vec::new()));
-                by_schema.last_mut().expect("just pushed")
-            }
-        };
-        for file in &meta.files {
-            entry.1.push((idx, file.clone()));
-        }
-    }
-
-    // Fields the configuration mandates are present because graphox put them
-    // there, so they say nothing about how a selection was written.
-    let mut uncounted: AHashSet<String> =
-        config.rules().required_fields().keys().cloned().collect();
-    uncounted.insert("__typename".to_string());
+    let by_schema = documents_by_schema(&config, &workspace);
 
     let options = repeated_selections::Options {
         min_fields: params.min_fields,
         min_uses: params.min_uses,
-        uncounted_fields: uncounted,
+        uncounted_fields: mandated_fields(&config),
     };
 
     let mut analyses = Vec::new();
@@ -229,7 +200,7 @@ fn print_human(config: &Config, analyses: &[(String, Analysis)], params: &Analyz
         let groups: Vec<_> = analysis
             .groups
             .iter()
-            .filter(|g| wanted(params, Kind::New, &g.type_name))
+            .filter(|g| g.covered_by.is_none() && wanted(params, Kind::New, &g.type_name))
             .collect();
         if !groups.is_empty() {
             // Overlapping shapes on one type (`{id name}`, `{id name kind}`)
@@ -361,7 +332,7 @@ fn print_json(config: &Config, analyses: &[(String, Analysis)], params: &Analyze
         }
 
         for group in &analysis.groups {
-            if !wanted(params, Kind::New, &group.type_name) {
+            if group.covered_by.is_some() || !wanted(params, Kind::New, &group.type_name) {
                 continue;
             }
             let names = group

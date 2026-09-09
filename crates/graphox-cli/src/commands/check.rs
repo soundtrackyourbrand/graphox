@@ -5,14 +5,15 @@ use graphox_core::config::{SchemaSource, Severity};
 use graphox_core::engine::Engine;
 use graphox_core::schema;
 use graphox_core::{Config, DocumentState};
+use graphox_features::analysis::repeated_selections;
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tower_lsp_server::ls_types::DiagnosticSeverity;
+use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Range};
 
-use super::{ValidSchema, build_validated_schemas};
+use super::{ValidSchema, build_validated_schemas, documents_by_schema, mandated_fields};
 
 pub async fn run_check(
     config: Config,
@@ -149,6 +150,17 @@ pub async fn run_check(
                 }
             }
         }
+    }
+
+    if !run_repeated_selections(
+        &config,
+        &workspace_metadata,
+        &validated_schemas,
+        fail_on,
+        &below_threshold,
+        reporter.as_ref(),
+    ) {
+        success = false;
     }
 
     if !success {
@@ -307,4 +319,81 @@ async fn execute_project_check(
     });
 
     !found_any.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The `repeated_selections` rule, which compares selections across the whole
+/// workspace rather than within one document. Runs once per schema, over every
+/// project that uses it.
+fn run_repeated_selections(
+    config: &Config,
+    workspace: &graphox_core::engine::WorkspaceMetadata,
+    validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
+    fail_on: Severity,
+    below_threshold: &std::sync::atomic::AtomicUsize,
+    reporter: &dyn Reporter,
+) -> bool {
+    let config_rules = config.rules();
+    let rules = config_rules.repeated_selections();
+    if rules.is_empty() {
+        return true;
+    }
+
+    let options = repeated_selections::options_for_rules(rules, mandated_fields(config));
+    let mut success = true;
+
+    for (schema_key, files) in documents_by_schema(config, workspace) {
+        let Some(Ok(schema)) = validated_schemas.get(&schema_key) else {
+            // The owning project already reported why its schema did not load.
+            continue;
+        };
+
+        let sources: Vec<repeated_selections::DocumentSource<'_>> = files
+            .iter()
+            .filter_map(|(project_idx, path)| {
+                workspace
+                    .documents
+                    .get(path)
+                    .map(|doc| repeated_selections::DocumentSource {
+                        path: path.as_path(),
+                        project_idx: *project_idx,
+                        source: doc.masked_source.as_ref(),
+                    })
+            })
+            .collect();
+
+        let analysis = repeated_selections::analyze(schema, &sources, &options);
+
+        for finding in repeated_selections::findings_for_rules(&analysis, rules) {
+            // The masked source keeps the real file's offsets, so a span from
+            // the parse maps straight back onto the document.
+            let range = workspace
+                .documents
+                .get(&finding.path)
+                .zip(finding.span)
+                .map(|(doc, (start, end))| Range {
+                    start: doc.byte_to_position(start),
+                    end: doc.byte_to_position(end),
+                })
+                .unwrap_or_default();
+
+            let diagnostic = Diagnostic {
+                range,
+                severity: Some(finding.severity.as_lsp()),
+                message: finding.message,
+                code: Some(NumberOrString::String(finding.code.to_string())),
+                source: graphox_core::utils::DIAGNOSTIC_SOURCE.map(String::from),
+                ..Default::default()
+            };
+
+            let fails = fail_on.is_met_by(diagnostic.severity);
+            if fails {
+                success = false;
+            } else {
+                below_threshold.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            reporter.report_diagnostic(&config.relativize(&finding.path), &diagnostic, false);
+        }
+    }
+
+    success
 }

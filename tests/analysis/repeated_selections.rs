@@ -1,5 +1,6 @@
 use apollo_compiler::Schema;
 use apollo_compiler::validation::Valid;
+use graphox::config::{RepeatedSelectionKind, RepeatedSelectionsRule, Severity};
 use graphox::features::analysis::repeated_selections::{
     self, Analysis, DocumentSource, Options, OverlapKind, Scope,
 };
@@ -330,5 +331,128 @@ fn a_lone_spread_is_not_a_selection_worth_reporting() {
         analysis.groups.iter().all(|g| g.type_name != "User"),
         "{:#?}",
         analysis.groups
+    );
+}
+
+#[test]
+fn a_group_an_existing_fragment_covers_is_marked() {
+    let analysis = analyze(&[
+        (0, "fragment UserCard on User { name email }"),
+        (0, "query A { account(id: 1) { owner { name email } } }"),
+        (0, "query B { account(id: 2) { owner { name email } } }"),
+    ]);
+
+    let group = analysis
+        .groups
+        .iter()
+        .find(|g| g.type_name == "User")
+        .expect("expected a User group");
+    assert_eq!(group.covered_by.as_deref(), Some("UserCard"));
+}
+
+#[test]
+fn new_fragment_skips_shapes_a_fragment_already_covers() {
+    // The shape recurs, but `UserCard` is that shape, so the finding belongs to
+    // matches_fragment rather than to "consider a fragment".
+    let analysis = analyze(&[
+        (0, "fragment UserCard on User { name email }"),
+        (0, "query A { account(id: 1) { owner { name email } } }"),
+        (0, "query B { account(id: 2) { owner { name email } } }"),
+    ]);
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::NewFragment);
+    rule.min_fields = 2;
+    rule.min_uses = 2;
+
+    let findings = repeated_selections::findings_for_rules(&analysis, &[rule]);
+    assert!(findings.is_empty(), "{:#?}", findings);
+}
+
+#[test]
+fn new_fragment_reports_one_finding_per_site() {
+    let analysis = analyze(&[
+        (
+            0,
+            "query A { account(id: 1) { address { line1 city country } } }",
+        ),
+        (
+            0,
+            "query B { location(id: 1) { address { line1 city country } } }",
+        ),
+    ]);
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::NewFragment);
+    rule.min_fields = 2;
+    rule.min_uses = 2;
+
+    let findings = repeated_selections::findings_for_rules(&analysis, &[rule]);
+    assert_eq!(findings.len(), 2, "{:#?}", findings);
+    assert!(findings.iter().all(|f| f.code == "new_fragment"));
+    assert!(findings.iter().all(|f| f.span.is_some()));
+}
+
+#[test]
+fn ignore_types_suppresses_a_type() {
+    let analysis = analyze(&[
+        (
+            0,
+            "query A { account(id: 1) { address { line1 city country } } }",
+        ),
+        (
+            0,
+            "query B { location(id: 1) { address { line1 city country } } }",
+        ),
+    ]);
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::NewFragment);
+    rule.min_fields = 2;
+    rule.min_uses = 2;
+    rule.ignore_types = vec!["Address".to_string()];
+
+    let findings = repeated_selections::findings_for_rules(&analysis, &[rule]);
+    assert!(findings.is_empty(), "{:#?}", findings);
+}
+
+#[test]
+fn each_entry_reports_at_its_own_severity() {
+    let analysis = analyze(&[
+        (0, "fragment UserCard on User { name email }"),
+        (0, "query A { account(id: 1) { owner { name email } } }"),
+        (0, "query B { account(id: 2) { owner { name email id } } }"),
+    ]);
+
+    let mut matches = RepeatedSelectionsRule::new(RepeatedSelectionKind::MatchesFragment);
+    matches.min_fields = 2;
+    matches.severity = Severity::Error;
+    let mut extends = RepeatedSelectionsRule::new(RepeatedSelectionKind::ExtendsFragment);
+    extends.min_fields = 2;
+    extends.severity = Severity::Info;
+
+    let findings = repeated_selections::findings_for_rules(&analysis, &[matches, extends]);
+    let errors = findings.iter().filter(|f| f.severity == Severity::Error);
+    let infos = findings.iter().filter(|f| f.severity == Severity::Info);
+    assert_eq!(errors.count(), 1, "{:#?}", findings);
+    assert_eq!(infos.count(), 1, "{:#?}", findings);
+}
+
+#[test]
+fn min_fields_on_an_overlap_measures_the_fragment() {
+    let analysis = analyze(&[
+        (0, "fragment UserCard on User { name email }"),
+        (0, "query A { account(id: 1) { owner { name email } } }"),
+    ]);
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::MatchesFragment);
+    rule.min_fields = 3;
+    assert!(
+        repeated_selections::findings_for_rules(&analysis, &[rule]).is_empty(),
+        "a two-field fragment should not clear a three-field threshold"
+    );
+
+    let mut rule = RepeatedSelectionsRule::new(RepeatedSelectionKind::MatchesFragment);
+    rule.min_fields = 2;
+    assert_eq!(
+        repeated_selections::findings_for_rules(&analysis, &[rule]).len(),
+        1
     );
 }

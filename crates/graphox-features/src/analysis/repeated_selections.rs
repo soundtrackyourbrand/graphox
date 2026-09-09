@@ -15,6 +15,7 @@ use ahash::{AHashMap, AHashSet};
 use apollo_compiler::executable::{Selection, SelectionSet};
 use apollo_compiler::validation::Valid;
 use apollo_compiler::{ExecutableDocument, Schema};
+use graphox_core::config::{RepeatedSelectionKind, RepeatedSelectionsRule, Severity};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -79,8 +80,9 @@ pub struct Site {
     pub definition: usize,
     /// The group covers the whole selection set, rather than part of it.
     pub exact: bool,
-    /// Byte offset of the first member, for anchoring a diagnostic.
-    pub offset: Option<usize>,
+    /// Byte range covering the members, for anchoring a diagnostic. Offsets are
+    /// into the file's masked source, which preserves the real file's offsets.
+    pub span: Option<(usize, usize)>,
 }
 
 /// A set of members repeatedly selected together on one type.
@@ -95,6 +97,10 @@ pub struct Group {
     /// Distinct definitions the sites belong to, sorted.
     pub definitions: Vec<usize>,
     pub scope: Scope,
+    /// A fragment whose body is exactly this group. The shape is not a missing
+    /// fragment then, it is one that exists and is being re-inlined, which the
+    /// overlap findings already describe.
+    pub covered_by: Option<String>,
 }
 
 impl Group {
@@ -123,6 +129,9 @@ pub struct Overlap {
     pub site: Site,
     /// What the site selects beyond the fragment, for `Extends`.
     pub extra: Vec<String>,
+    /// Members the site shares with the fragment, which is the fragment's own
+    /// width. What a threshold on this finding is about.
+    pub shared: usize,
 }
 
 #[derive(Debug, Default)]
@@ -137,8 +146,8 @@ pub struct Analysis {
 /// One selection set encountered during the walk.
 struct Occurrence {
     type_name: String,
-    /// Serialized member -> byte offset of that member.
-    members: BTreeMap<String, Option<usize>>,
+    /// Serialized member -> byte range of that member.
+    members: BTreeMap<String, Option<(usize, usize)>>,
     definition: usize,
     /// This is the definition's own outermost selection set, so for a fragment
     /// it is that fragment's whole body.
@@ -164,13 +173,19 @@ fn normalize(serialized: &str) -> String {
     out
 }
 
-fn selection_offset(selection: &Selection) -> Option<usize> {
+fn selection_span(selection: &Selection) -> Option<(usize, usize)> {
     let location = match selection {
         Selection::Field(node) => node.location(),
         Selection::FragmentSpread(node) => node.location(),
         Selection::InlineFragment(node) => node.location(),
     };
-    location.map(|span| span.offset())
+    location.map(|span| (span.offset(), span.end_offset()))
+}
+
+/// The range covering every span in `spans`, so a diagnostic can point at the
+/// whole group rather than at whichever member happened to come first.
+fn covering_span(spans: impl Iterator<Item = (usize, usize)>) -> Option<(usize, usize)> {
+    spans.reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
 }
 
 /// The field name a member selects, when it is a plain field. Used to decide
@@ -199,7 +214,7 @@ fn collect_selection_sets(
         if !is_uncounted {
             counted += 1;
         }
-        members.insert(signature, selection_offset(selection));
+        members.insert(signature, selection_span(selection));
     }
 
     // A set that is nothing but a single spread is already extracted.
@@ -303,7 +318,7 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
     }
 
     analysis.overlaps = find_overlaps(&occurrences, &fragment_shapes, &analysis.definitions);
-    analysis.groups = find_groups(&occurrences, &analysis.definitions, opts);
+    analysis.groups = find_groups(&occurrences, &analysis.definitions, &fragment_shapes, opts);
     analysis
 }
 
@@ -363,10 +378,15 @@ fn find_overlaps(
                 fragment: shape.name.clone(),
                 type_name: occurrence.type_name.clone(),
                 kind,
+                shared: shape.members.len(),
                 site: Site {
                     definition: occurrence.definition,
                     exact: extra.is_empty(),
-                    offset: occurrence.members.values().flatten().min().copied(),
+                    span: covering_span(
+                        shape_members
+                            .iter()
+                            .filter_map(|m| occurrence.members.get(*m).copied().flatten()),
+                    ),
                 },
                 extra,
             });
@@ -384,10 +404,20 @@ fn find_overlaps(
     out
 }
 
+/// How many of `members` count toward a threshold. A mandated field is present
+/// because graphox put it there, so it does not describe the selection.
+fn counted_width(members: &[String], opts: &Options) -> usize {
+    members
+        .iter()
+        .filter(|m| !opts.uncounted_fields.contains(m.as_str()))
+        .count()
+}
+
 /// Field groups shared by enough definitions to be worth extracting.
 fn find_groups(
     occurrences: &[Occurrence],
     definitions: &[Definition],
+    fragments: &[FragmentShape],
     opts: &Options,
 ) -> Vec<Group> {
     let mut by_type: AHashMap<&str, Vec<&Occurrence>> = AHashMap::default();
@@ -411,7 +441,7 @@ fn find_groups(
                     .filter(|k| b.members.contains_key(*k))
                     .cloned()
                     .collect();
-                if shared.len() < opts.min_fields {
+                if counted_width(&shared, opts) < opts.min_fields {
                     continue;
                 }
                 candidates.insert(((*type_name).to_string(), shared), ());
@@ -440,10 +470,11 @@ fn find_groups(
             sites.push(Site {
                 definition: occurrence.definition,
                 exact: occurrence.members.len() == members.len(),
-                offset: members
-                    .iter()
-                    .filter_map(|m| occurrence.members.get(m).copied().flatten())
-                    .min(),
+                span: covering_span(
+                    members
+                        .iter()
+                        .filter_map(|m| occurrence.members.get(m).copied().flatten()),
+                ),
             });
         }
 
@@ -456,9 +487,19 @@ fn find_groups(
             .map(|id| definitions[*id].project_idx)
             .collect();
 
+        let covered_by = fragments
+            .iter()
+            .find(|shape| {
+                shape.type_name == type_name
+                    && shape.members.len() == members.len()
+                    && members.iter().all(|m| shape.members.contains(m))
+            })
+            .map(|shape| shape.name.clone());
+
         groups.push(Group {
             type_name,
-            counted: members.len(),
+            counted: counted_width(&members, opts),
+            covered_by,
             members,
             sites,
             definitions: definition_ids.into_iter().collect(),
@@ -492,4 +533,126 @@ fn find_groups(
             .then_with(|| a.members.cmp(&b.members))
     });
     kept
+}
+
+/// A rule violation, ready to be turned into a diagnostic by a caller that can
+/// map a byte offset in the file back to a position.
+#[derive(Debug, Clone)]
+pub struct RuleFinding {
+    pub path: PathBuf,
+    /// Byte range into the file's masked source, when the parser recorded one.
+    pub span: Option<(usize, usize)>,
+    pub severity: Severity,
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// The widest thresholds any entry asks for, so one walk can serve them all and
+/// each entry filters the result down afterwards.
+pub fn options_for_rules(
+    rules: &[RepeatedSelectionsRule],
+    uncounted_fields: AHashSet<String>,
+) -> Options {
+    Options {
+        min_fields: rules.iter().map(|r| r.min_fields).min().unwrap_or(3),
+        min_uses: rules
+            .iter()
+            .filter(|r| r.kind == RepeatedSelectionKind::NewFragment)
+            .map(|r| r.min_uses)
+            .min()
+            .unwrap_or(usize::MAX),
+        uncounted_fields,
+    }
+}
+
+pub fn findings_for_rules(
+    analysis: &Analysis,
+    rules: &[RepeatedSelectionsRule],
+) -> Vec<RuleFinding> {
+    let mut out = Vec::new();
+
+    for rule in rules {
+        match rule.kind {
+            RepeatedSelectionKind::MatchesFragment | RepeatedSelectionKind::ExtendsFragment => {
+                let wanted = if rule.kind == RepeatedSelectionKind::MatchesFragment {
+                    OverlapKind::Matches
+                } else {
+                    OverlapKind::Extends
+                };
+                for overlap in &analysis.overlaps {
+                    if overlap.kind != wanted
+                        || overlap.shared < rule.min_fields
+                        || rule.ignores(&overlap.type_name)
+                    {
+                        continue;
+                    }
+                    let definition = &analysis.definitions[overlap.site.definition];
+                    let message = if wanted == OverlapKind::Matches {
+                        format!(
+                            "This selection on {} is exactly fragment '{}'. Spread it instead.",
+                            overlap.type_name, overlap.fragment
+                        )
+                    } else {
+                        format!(
+                            "This selection on {} contains everything fragment '{}' selects, plus {}. Spread it and keep the rest alongside.",
+                            overlap.type_name,
+                            overlap.fragment,
+                            overlap.extra.join(" ")
+                        )
+                    };
+                    out.push(RuleFinding {
+                        path: definition.path.clone(),
+                        span: overlap.site.span,
+                        severity: rule.severity,
+                        code: rule.kind.as_str(),
+                        message,
+                    });
+                }
+            }
+            RepeatedSelectionKind::NewFragment => {
+                for group in &analysis.groups {
+                    if group.counted < rule.min_fields
+                        || group.definitions.len() < rule.min_uses
+                        || rule.ignores(&group.type_name)
+                        // A shape a fragment already covers is not a missing
+                        // fragment; matches_fragment reports those sites.
+                        || group.covered_by.is_some()
+                    {
+                        continue;
+                    }
+                    let scope = match group.scope {
+                        Scope::InProject => "this project",
+                        Scope::CrossProject => "several projects",
+                    };
+                    // One diagnostic per site: each is a place someone would
+                    // edit, and a single report on the group would name a file
+                    // arbitrarily.
+                    for site in &group.sites {
+                        let definition = &analysis.definitions[site.definition];
+                        out.push(RuleFinding {
+                            path: definition.path.clone(),
+                            span: site.span,
+                            severity: rule.severity,
+                            code: rule.kind.as_str(),
+                            message: format!(
+                                "{} definitions across {} select {{ {} }} on {}. Consider a fragment.",
+                                group.definitions.len(),
+                                scope,
+                                group.members.join(" "),
+                                group.type_name
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    out.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| a.span.cmp(&b.span))
+            .then_with(|| a.code.cmp(b.code))
+    });
+    out
 }
