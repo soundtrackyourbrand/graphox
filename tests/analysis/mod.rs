@@ -10,6 +10,7 @@ mod fragment_scoping;
 mod ignore_rule_scoping;
 mod no_duplicate_fields;
 mod no_unused_fragments;
+mod repeated_selections;
 mod required_fields;
 mod schema_extensions;
 mod schema_merge;

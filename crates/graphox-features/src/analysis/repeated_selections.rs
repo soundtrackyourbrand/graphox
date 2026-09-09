@@ -1,0 +1,495 @@
+//! Finds selections that recur across a workspace's operations and fragments.
+//!
+//! Two questions, answered from the same walk:
+//!
+//! - Does a selection duplicate a fragment that already exists? Those are drift:
+//!   a field added to the fragment silently misses the hand-rolled copies.
+//! - Does a group of fields recur often enough to deserve a fragment of its own?
+//!
+//! The unit of comparison is a *selection set*, keyed by the type it sits on,
+//! and the unit of identity within one is a member's serialized form — so
+//! `image { placeholder }` and `image { sizes { thumbnail } }` never merge, and
+//! neither do two selections of the same field with different arguments.
+
+use ahash::{AHashMap, AHashSet};
+use apollo_compiler::executable::{Selection, SelectionSet};
+use apollo_compiler::validation::Valid;
+use apollo_compiler::{ExecutableDocument, Schema};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+/// A file to analyse, as its GraphQL source with host-language code masked out.
+pub struct DocumentSource<'a> {
+    pub path: &'a Path,
+    pub project_idx: usize,
+    pub source: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// How many members a group needs before it is worth reporting.
+    pub min_fields: usize,
+    /// How many distinct definitions must share a group before it is reported.
+    /// Only applies to `groups`; a single site duplicating an existing fragment
+    /// is already a finding.
+    pub min_uses: usize,
+    /// Fields the configuration mandates everywhere. They still belong to a
+    /// group, but do not count toward `min_fields`: graphox put them there, so
+    /// a group of nothing but `id` and `permissions` says nothing about intent.
+    pub uncounted_fields: AHashSet<String>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            min_fields: 3,
+            min_uses: 3,
+            uncounted_fields: AHashSet::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefinitionKind {
+    Operation,
+    Fragment,
+}
+
+#[derive(Debug, Clone)]
+pub struct Definition {
+    pub name: String,
+    pub kind: DefinitionKind,
+    pub path: PathBuf,
+    pub project_idx: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Every site sits in one project, so a fragment can be extracted without
+    /// crossing a package boundary.
+    InProject,
+    /// Sites span projects; extracting means moving the fragment somewhere both
+    /// can import from.
+    CrossProject,
+}
+
+#[derive(Debug, Clone)]
+pub struct Site {
+    /// Index into [`Analysis::definitions`].
+    pub definition: usize,
+    /// The group covers the whole selection set, rather than part of it.
+    pub exact: bool,
+    /// Byte offset of the first member, for anchoring a diagnostic.
+    pub offset: Option<usize>,
+}
+
+/// A set of members repeatedly selected together on one type.
+#[derive(Debug, Clone)]
+pub struct Group {
+    pub type_name: String,
+    /// Serialized members, sorted, so the group has one canonical form.
+    pub members: Vec<String>,
+    /// Members that counted toward `min_fields`.
+    pub counted: usize,
+    pub sites: Vec<Site>,
+    /// Distinct definitions the sites belong to, sorted.
+    pub definitions: Vec<usize>,
+    pub scope: Scope,
+}
+
+impl Group {
+    /// Serialized bytes saved if every site but one spread a fragment instead.
+    /// A rough ordering key, not a bundle-size claim.
+    pub fn redundant_bytes(&self) -> usize {
+        let width: usize = self.members.iter().map(|m| m.len() + 1).sum();
+        width.saturating_mul(self.definitions.len().saturating_sub(1))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlapKind {
+    /// The selection set is exactly the fragment's own selection set.
+    Matches,
+    /// The selection set contains everything the fragment selects, plus more.
+    Extends,
+}
+
+/// A selection set that re-inlines a fragment that already exists.
+#[derive(Debug, Clone)]
+pub struct Overlap {
+    pub fragment: String,
+    pub type_name: String,
+    pub kind: OverlapKind,
+    pub site: Site,
+    /// What the site selects beyond the fragment, for `Extends`.
+    pub extra: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct Analysis {
+    pub definitions: Vec<Definition>,
+    pub groups: Vec<Group>,
+    pub overlaps: Vec<Overlap>,
+    /// Files whose GraphQL could not be parsed against the schema at all.
+    pub unparsed: Vec<PathBuf>,
+}
+
+/// One selection set encountered during the walk.
+struct Occurrence {
+    type_name: String,
+    /// Serialized member -> byte offset of that member.
+    members: BTreeMap<String, Option<usize>>,
+    definition: usize,
+    /// This is the definition's own outermost selection set, so for a fragment
+    /// it is that fragment's whole body.
+    is_definition_root: bool,
+}
+
+/// Collapse a serialized selection onto one line so that formatting differences
+/// between two files cannot make identical selections look distinct.
+fn normalize(serialized: &str) -> String {
+    let mut out = String::with_capacity(serialized.len());
+    let mut pending_space = false;
+    for ch in serialized.chars() {
+        if ch.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn selection_offset(selection: &Selection) -> Option<usize> {
+    let location = match selection {
+        Selection::Field(node) => node.location(),
+        Selection::FragmentSpread(node) => node.location(),
+        Selection::InlineFragment(node) => node.location(),
+    };
+    location.map(|span| span.offset())
+}
+
+/// The field name a member selects, when it is a plain field. Used to decide
+/// whether a member counts toward `min_fields`.
+fn member_field_name(selection: &Selection) -> Option<&str> {
+    match selection {
+        Selection::Field(field) => Some(field.name.as_str()),
+        _ => None,
+    }
+}
+
+fn collect_selection_sets(
+    set: &SelectionSet,
+    definition: usize,
+    is_root: bool,
+    opts: &Options,
+    out: &mut Vec<Occurrence>,
+) {
+    let mut members = BTreeMap::new();
+    let mut counted = 0usize;
+
+    for selection in &set.selections {
+        let signature = normalize(&selection.serialize().no_indent().to_string());
+        let is_uncounted =
+            member_field_name(selection).is_some_and(|name| opts.uncounted_fields.contains(name));
+        if !is_uncounted {
+            counted += 1;
+        }
+        members.insert(signature, selection_offset(selection));
+    }
+
+    // A set that is nothing but a single spread is already extracted.
+    let only_a_spread = set.selections.len() == 1
+        && matches!(set.selections.first(), Some(Selection::FragmentSpread(_)));
+
+    if counted >= opts.min_fields && !only_a_spread {
+        out.push(Occurrence {
+            type_name: set.ty.to_string(),
+            members,
+            definition,
+            is_definition_root: is_root,
+        });
+    }
+
+    for selection in &set.selections {
+        match selection {
+            Selection::Field(field) => {
+                collect_selection_sets(&field.selection_set, definition, false, opts, out)
+            }
+            Selection::InlineFragment(inline) => {
+                // An inline fragment narrows the type but does not open a new
+                // definition, so its set is still the definition's own.
+                collect_selection_sets(&inline.selection_set, definition, is_root, opts, out)
+            }
+            Selection::FragmentSpread(_) => {}
+        }
+    }
+}
+
+/// A fragment's own selection set, as the member signatures it is made of.
+struct FragmentShape {
+    name: String,
+    type_name: String,
+    members: BTreeSet<String>,
+    definition: usize,
+}
+
+pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Options) -> Analysis {
+    let mut analysis = Analysis::default();
+    let mut occurrences: Vec<Occurrence> = Vec::new();
+    let mut fragment_shapes: Vec<FragmentShape> = Vec::new();
+
+    for doc in docs {
+        let parsed = match ExecutableDocument::parse(schema, doc.source, doc.path) {
+            Ok(parsed) => parsed,
+            // A document that fails to resolve every spread still carries fully
+            // typed selection sets, which is all this walk reads. Only a source
+            // that yields nothing at all is reported as unparsed.
+            Err(with_errors) => with_errors.partial,
+        };
+
+        if parsed.operations.is_empty() && parsed.fragments.is_empty() {
+            if !doc.source.trim().is_empty() {
+                analysis.unparsed.push(doc.path.to_path_buf());
+            }
+            continue;
+        }
+
+        let mut push_definition = |name: String, kind: DefinitionKind| {
+            analysis.definitions.push(Definition {
+                name,
+                kind,
+                path: doc.path.to_path_buf(),
+                project_idx: doc.project_idx,
+            });
+            analysis.definitions.len() - 1
+        };
+
+        let operations = parsed
+            .operations
+            .anonymous
+            .iter()
+            .map(|op| (None, op))
+            .chain(parsed.operations.named.iter().map(|(n, op)| (Some(n), op)));
+
+        for (name, operation) in operations {
+            let label = name
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "(anonymous)".to_string());
+            let idx = push_definition(label, DefinitionKind::Operation);
+            collect_selection_sets(&operation.selection_set, idx, true, opts, &mut occurrences);
+        }
+
+        for (name, fragment) in parsed.fragments.iter() {
+            let idx = push_definition(name.to_string(), DefinitionKind::Fragment);
+            collect_selection_sets(&fragment.selection_set, idx, true, opts, &mut occurrences);
+
+            fragment_shapes.push(FragmentShape {
+                name: name.to_string(),
+                type_name: fragment.selection_set.ty.to_string(),
+                members: fragment
+                    .selection_set
+                    .selections
+                    .iter()
+                    .map(|s| normalize(&s.serialize().no_indent().to_string()))
+                    .collect(),
+                definition: idx,
+            });
+        }
+    }
+
+    analysis.overlaps = find_overlaps(&occurrences, &fragment_shapes, &analysis.definitions);
+    analysis.groups = find_groups(&occurrences, &analysis.definitions, opts);
+    analysis
+}
+
+/// Selection sets that re-inline a fragment defined elsewhere.
+fn find_overlaps(
+    occurrences: &[Occurrence],
+    fragments: &[FragmentShape],
+    definitions: &[Definition],
+) -> Vec<Overlap> {
+    let mut by_type: AHashMap<&str, Vec<&FragmentShape>> = AHashMap::default();
+    for shape in fragments {
+        if shape.members.is_empty() {
+            continue;
+        }
+        by_type.entry(&shape.type_name).or_default().push(shape);
+    }
+
+    let mut out = Vec::new();
+    for occurrence in occurrences {
+        let Some(candidates) = by_type.get(occurrence.type_name.as_str()) else {
+            continue;
+        };
+        let members: BTreeSet<&String> = occurrence.members.keys().collect();
+
+        for shape in candidates {
+            // A fragment's own body is not a copy of itself.
+            if shape.definition == occurrence.definition {
+                continue;
+            }
+            let shape_members: BTreeSet<&String> = shape.members.iter().collect();
+            if !shape_members.is_subset(&members) {
+                continue;
+            }
+            let extra: Vec<String> = members
+                .difference(&shape_members)
+                .map(|m| (*m).clone())
+                .collect();
+            let kind = if extra.is_empty() {
+                OverlapKind::Matches
+            } else {
+                OverlapKind::Extends
+            };
+
+            // Two fragments with identical bodies each duplicate the other, and
+            // that is one finding, not two. Keep the half of the pair that
+            // sorts first so the choice is stable.
+            let site_definition = &definitions[occurrence.definition];
+            if kind == OverlapKind::Matches
+                && occurrence.is_definition_root
+                && site_definition.kind == DefinitionKind::Fragment
+                && (shape.name.as_str(), shape.definition)
+                    < (site_definition.name.as_str(), occurrence.definition)
+            {
+                continue;
+            }
+            out.push(Overlap {
+                fragment: shape.name.clone(),
+                type_name: occurrence.type_name.clone(),
+                kind,
+                site: Site {
+                    definition: occurrence.definition,
+                    exact: extra.is_empty(),
+                    offset: occurrence.members.values().flatten().min().copied(),
+                },
+                extra,
+            });
+        }
+    }
+
+    // Largest overlap first, then stably by fragment name.
+    out.sort_by(|a, b| {
+        b.extra
+            .len()
+            .cmp(&a.extra.len())
+            .reverse()
+            .then_with(|| a.fragment.cmp(&b.fragment))
+    });
+    out
+}
+
+/// Field groups shared by enough definitions to be worth extracting.
+fn find_groups(
+    occurrences: &[Occurrence],
+    definitions: &[Definition],
+    opts: &Options,
+) -> Vec<Group> {
+    let mut by_type: AHashMap<&str, Vec<&Occurrence>> = AHashMap::default();
+    for occurrence in occurrences {
+        by_type
+            .entry(occurrence.type_name.as_str())
+            .or_default()
+            .push(occurrence);
+    }
+
+    let mut candidates: AHashMap<(String, Vec<String>), ()> = AHashMap::default();
+    for (type_name, sets) in &by_type {
+        // Candidate shapes are the pairwise intersections: any group shared by
+        // three sets is also shared by two of them, so this reaches every group
+        // worth considering without enumerating the powerset.
+        for (i, a) in sets.iter().enumerate() {
+            for b in sets.iter().skip(i + 1) {
+                let shared: Vec<String> = a
+                    .members
+                    .keys()
+                    .filter(|k| b.members.contains_key(*k))
+                    .cloned()
+                    .collect();
+                if shared.len() < opts.min_fields {
+                    continue;
+                }
+                candidates.insert(((*type_name).to_string(), shared), ());
+            }
+        }
+    }
+
+    let mut groups: Vec<Group> = Vec::new();
+    for (type_name, members) in candidates.into_keys() {
+        let member_set: BTreeSet<&String> = members.iter().collect();
+        let sets = match by_type.get(type_name.as_str()) {
+            Some(sets) => sets,
+            None => continue,
+        };
+
+        let mut sites = Vec::new();
+        let mut definition_ids = BTreeSet::new();
+        for occurrence in sets {
+            if !member_set
+                .iter()
+                .all(|m| occurrence.members.contains_key(*m))
+            {
+                continue;
+            }
+            definition_ids.insert(occurrence.definition);
+            sites.push(Site {
+                definition: occurrence.definition,
+                exact: occurrence.members.len() == members.len(),
+                offset: members
+                    .iter()
+                    .filter_map(|m| occurrence.members.get(m).copied().flatten())
+                    .min(),
+            });
+        }
+
+        if definition_ids.len() < opts.min_uses {
+            continue;
+        }
+
+        let projects: BTreeSet<usize> = definition_ids
+            .iter()
+            .map(|id| definitions[*id].project_idx)
+            .collect();
+
+        groups.push(Group {
+            type_name,
+            counted: members.len(),
+            members,
+            sites,
+            definitions: definition_ids.into_iter().collect(),
+            scope: if projects.len() > 1 {
+                Scope::CrossProject
+            } else {
+                Scope::InProject
+            },
+        });
+    }
+
+    // Report only maximal groups: `{id name}` and `{id name composerType}`
+    // describe one duplication, and listing both buries the finding.
+    groups.sort_by_key(|g| std::cmp::Reverse(g.members.len()));
+    let mut kept: Vec<Group> = Vec::new();
+    for group in groups {
+        let subsumed = kept.iter().any(|k| {
+            k.type_name == group.type_name
+                && k.definitions.len() == group.definitions.len()
+                && group.members.iter().all(|m| k.members.contains(m))
+        });
+        if !subsumed {
+            kept.push(group);
+        }
+    }
+
+    kept.sort_by(|a, b| {
+        b.redundant_bytes()
+            .cmp(&a.redundant_bytes())
+            .then_with(|| a.type_name.cmp(&b.type_name))
+            .then_with(|| a.members.cmp(&b.members))
+    });
+    kept
+}

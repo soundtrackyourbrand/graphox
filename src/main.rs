@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use graphox_cli::{run_benchmark, run_check, run_codegen};
+use graphox_cli::{AnalyzeParams, run_analyze, run_benchmark, run_check, run_codegen};
 use graphox_core::Config;
 use graphox_lsp::run_lsp;
 
@@ -43,6 +43,30 @@ enum Commands {
         /// Remove all created codegen files
         #[arg(long)]
         clean: bool,
+    },
+    /// Report selections that recur across operations and fragments
+    Analyze {
+        /// Directory to scan
+        #[arg(default_value = ".")]
+        path: String,
+        /// Members a selection must share before it is reported
+        #[arg(long, default_value_t = 3)]
+        min_fields: usize,
+        /// Definitions that must share a selection before it is reported
+        #[arg(long, default_value_t = 3)]
+        min_uses: usize,
+        /// Report only one kind: matches_fragment, extends_fragment, new_fragment
+        #[arg(long)]
+        kind: Option<String>,
+        /// Report only selections on this GraphQL type
+        #[arg(long = "type")]
+        type_name: Option<String>,
+        /// Findings to print per section, or 0 for all
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Emit findings as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Benchmark codegen performance
     Benchmark {
@@ -106,6 +130,41 @@ async fn main() {
             clean,
         }) => {
             run_codegen(config, watch, verbose, clean).await;
+        }
+        Some(Commands::Analyze {
+            path: _,
+            min_fields,
+            min_uses,
+            kind,
+            type_name,
+            limit,
+            json,
+        }) => {
+            let kind = match kind
+                .as_deref()
+                .map(graphox_cli::commands::analyze::Kind::parse)
+            {
+                Some(None) => {
+                    eprintln!(
+                        "Error: Unknown --kind value. Expected matches_fragment, extends_fragment or new_fragment."
+                    );
+                    graphox_core::utils::flush_stdio();
+                    std::process::exit(1);
+                }
+                parsed => parsed.flatten(),
+            };
+            run_analyze(
+                config,
+                AnalyzeParams {
+                    min_fields,
+                    min_uses,
+                    kind,
+                    type_name,
+                    limit,
+                    json,
+                },
+            )
+            .await;
         }
         Some(Commands::Benchmark {
             path: _,

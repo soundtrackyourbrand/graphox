@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod call_hierarchy;
 pub mod code_actions;
 pub mod completion;
